@@ -5,6 +5,9 @@ This is a **gateway-only** observability UI for AbstractFramework:
 - render by replaying/streaming the **ledger**
 - act by submitting **durable commands**
 
+## Docs
+- Architecture: `docs/architecture.md`
+
 ## Installation
 
 ### Global CLI (recommended)
@@ -31,4 +34,4 @@ npm run dev
 - In the UI:
   - click **Connect** to discover workflows/runs/tools/providers,
   - select a workflow (discovered) to load its entrypoint pin schema,
-  - click **New Run** and provide inputs in the modal, then **Start**.
+  - click **Start Workflow** and provide inputs in the modal, then **Start**.

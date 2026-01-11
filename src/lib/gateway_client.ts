@@ -46,6 +46,49 @@ export class GatewayClient {
     return run_id;
   }
 
+  async schedule_run(args: {
+    bundle_id: string;
+    flow_id: string;
+    input_data: Record<string, any>;
+    start_at?: string | null;
+    interval?: string | null;
+    repeat_count?: number | null;
+    share_context?: boolean | null;
+    session_id?: string | null;
+  }): Promise<string> {
+    const bundle_id = String(args?.bundle_id || "").trim();
+    const flow_id = String(args?.flow_id || "").trim();
+    if (!bundle_id) throw new Error("schedule_run: bundle_id is required");
+    if (!flow_id) throw new Error("schedule_run: flow_id is required");
+    const req_body: any = {
+      bundle_id,
+      flow_id,
+      input_data: args?.input_data || {},
+    };
+    const start_at = args?.start_at === null || args?.start_at === undefined ? "" : String(args.start_at || "").trim();
+    if (start_at) req_body.start_at = start_at;
+    const interval = args?.interval === null || args?.interval === undefined ? "" : String(args.interval || "").trim();
+    if (interval) req_body.interval = interval;
+    if (typeof args?.repeat_count === "number" && Number.isFinite(args.repeat_count)) req_body.repeat_count = Number(args.repeat_count);
+    if (typeof args?.share_context === "boolean") req_body.share_context = Boolean(args.share_context);
+    const session_id = args?.session_id === null || args?.session_id === undefined ? "" : String(args.session_id || "").trim();
+    if (session_id) req_body.session_id = session_id;
+
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/runs/schedule"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify(req_body),
+    });
+    if (!r.ok) throw new Error(`schedule_run failed: ${r.status}`);
+    const body = await r.json();
+    const run_id = body?.run_id;
+    if (typeof run_id !== "string" || !run_id) throw new Error("schedule_run: missing run_id");
+    return run_id;
+  }
+
   async get_run(run_id: string): Promise<any> {
     const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(run_id)}`), {
       headers: {
@@ -107,6 +150,29 @@ export class GatewayClient {
     const items = Array.isArray(body?.items) ? body.items : [];
     const next_after = typeof body?.next_after === "number" ? body.next_after : after;
     return { items, next_after };
+  }
+
+  async generate_run_summary(
+    run_id: string,
+    opts?: { provider?: string; model?: string; include_subruns?: boolean }
+  ): Promise<{ ok: boolean; run_id: string; provider: string; model: string; generated_at: string; summary: string }> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("generate_run_summary: run_id is required");
+    const body: any = {
+      provider: String(opts?.provider || "lmstudio"),
+      model: String(opts?.model || "qwen/qwen3-next-80b"),
+      include_subruns: opts?.include_subruns !== false,
+    };
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/summary`), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`generate_run_summary failed: ${r.status}`);
+    return await r.json();
   }
 
   async list_bundles(): Promise<any> {

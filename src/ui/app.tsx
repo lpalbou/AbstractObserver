@@ -9,6 +9,7 @@ import { FlowGraph } from "./flow_graph";
 import { JsonViewer } from "./json_viewer";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
+import { RunPicker, type RunSummary } from "./run_picker";
 
 type Settings = {
   gateway_url: string;
@@ -65,17 +66,6 @@ type WorkflowOption = {
   flow_id: string;
   label: string;
   description?: string;
-};
-
-type RunSummary = {
-  run_id: string;
-  workflow_id?: string | null;
-  status?: string;
-  created_at?: string | null;
-  updated_at?: string | null;
-  ledger_len?: number | null;
-  parent_run_id?: string | null;
-  session_id?: string | null;
 };
 
 function now_iso(): string {
@@ -241,28 +231,6 @@ function parse_iso_ms(ts: any): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function fixed_col(text: string, width: number): string {
-  const raw = String(text || "");
-  if (raw.length === width) return raw;
-  if (raw.length > width) {
-    if (width <= 1) return "…";
-    return `${raw.slice(0, Math.max(0, width - 1))}…`;
-  }
-  return raw + "\u00A0".repeat(width - raw.length);
-}
-
-function format_local_ts(ts: any): string {
-  const ms = parse_iso_ms(ts);
-  if (ms === null) return "—";
-  const d = new Date(ms);
-  const yyyy = String(d.getFullYear()).padStart(4, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
-}
-
 export function App(): React.ReactElement {
   const [is_narrow, set_is_narrow] = useState<boolean>(() => {
     try {
@@ -307,6 +275,15 @@ export function App(): React.ReactElement {
 
   const [new_run_open, set_new_run_open] = useState(false);
   const [new_run_error, set_new_run_error] = useState<string>("");
+  const [schedule_open, set_schedule_open] = useState(false);
+  const [schedule_error, set_schedule_error] = useState<string>("");
+  const [schedule_submitting, set_schedule_submitting] = useState(false);
+  const [schedule_start_mode, set_schedule_start_mode] = useState<"now" | "at">("now");
+  const [schedule_start_at_local, set_schedule_start_at_local] = useState<string>("");
+  const [schedule_repeat_mode, set_schedule_repeat_mode] = useState<"once" | "forever" | "count">("once");
+  const [schedule_cadence, set_schedule_cadence] = useState<"hourly" | "daily" | "weekly" | "monthly">("daily");
+  const [schedule_repeat_count, set_schedule_repeat_count] = useState<number>(2);
+  const [schedule_share_context, set_schedule_share_context] = useState<boolean>(true);
   const [run_control_open, set_run_control_open] = useState(false);
   const [run_control_type, set_run_control_type] = useState<"pause" | "cancel">("pause");
   const [run_control_reason, set_run_control_reason] = useState<string>("");
@@ -340,16 +317,23 @@ export function App(): React.ReactElement {
   const active_node_ref = useRef<string>("");
   const run_prefix_ref = useRef<Record<string, string>>({});
   const subrun_parent_ref = useRef<Record<string, string>>({});
+  const subrun_spawn_ref = useRef<Record<string, { parent_run_id: string; parent_node_id: string }>>({});
+  const subrun_ids_ref = useRef<Set<string>>(new Set());
+  const [subrun_ids, set_subrun_ids] = useState<string[]>([]);
   const root_subrun_ref = useRef<string>("");
   const models_fetch_inflight_ref = useRef<Record<string, boolean>>({});
 
   const abort_ref = useRef<AbortController | null>(null);
   const child_abort_ref = useRef<AbortController | null>(null);
   const child_cursor_ref = useRef<number>(0);
+  const subrun_cursor_ref = useRef<Record<string, number>>({});
+  const subrun_poll_inflight_ref = useRef<boolean>(false);
   const digest_seen_ref = useRef<Set<string>>(new Set());
   const [following_child_run_id, set_following_child_run_id] = useState<string>("");
   const [follow_run_id, set_follow_run_id] = useState<string>("");
   const follow_run_ref = useRef<string>("");
+  const [summary_generating, set_summary_generating] = useState(false);
+  const [summary_error, set_summary_error] = useState<string>("");
 
   const gateway = useMemo(() => new GatewayClient({ base_url: settings.gateway_url, auth_token: settings.auth_token }), [settings]);
   const worker = useMemo(
@@ -605,7 +589,9 @@ export function App(): React.ReactElement {
           parent_run_id: typeof r?.parent_run_id === "string" ? String(r.parent_run_id) : r?.parent_run_id ?? null,
           session_id: typeof r?.session_id === "string" ? String(r.session_id) : r?.session_id ?? null,
         }))
-        .filter((r) => Boolean(r.run_id));
+        .filter((r) => Boolean(r.run_id))
+        // Observability UX: show only parent/root runs (subruns are observable via the parent’s ledger).
+        .filter((r) => !String(r.parent_run_id || "").trim());
       set_run_options(next);
     } catch (e: any) {
       push_log({ ts: now_iso(), kind: "error", title: "Refresh runs failed", preview: clamp_preview(String(e?.message || e || "")) });
@@ -675,48 +661,6 @@ export function App(): React.ReactElement {
     set_discovery_error("");
     set_gateway_connected(false);
     push_log({ ts: now_iso(), kind: "info", title: "Gateway disconnected" });
-  }
-
-  function disconnect_run_feed(): void {
-    if (abort_ref.current) abort_ref.current.abort();
-    abort_ref.current = null;
-    if (child_abort_ref.current) child_abort_ref.current.abort();
-    child_abort_ref.current = null;
-    child_cursor_ref.current = 0;
-    set_following_child_run_id("");
-    set_connected(false);
-    set_connecting(false);
-    set_resuming(false);
-  }
-
-  function apply_entrypoint_defaults(): void {
-    const pins = adaptive_pins;
-    if (!pins.length) return;
-
-    let obj: Record<string, any> = {};
-    try {
-      const parsed = JSON.parse(input_data_text || "{}");
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) obj = parsed;
-    } catch {
-      obj = {};
-    }
-
-    let changed = false;
-    for (const p of pins) {
-      if (!p || typeof p !== "object") continue;
-      const k = String(p.id || "").trim();
-      if (!k) continue;
-      if (obj[k] !== undefined) continue;
-      if (p.default === undefined) continue;
-      obj[k] = p.default;
-      changed = true;
-    }
-
-    if (changed) {
-      set_input_data_text(JSON.stringify(obj, null, 2));
-      set_input_field_drafts({});
-      set_input_field_errors({});
-    }
   }
 
   async function copy_to_clipboard(text: string): Promise<void> {
@@ -815,6 +759,11 @@ export function App(): React.ReactElement {
     if (!prefix) return;
     run_prefix_ref.current[sub_run_id] = prefix;
     subrun_parent_ref.current[sub_run_id] = parent_run_id;
+    subrun_spawn_ref.current[sub_run_id] = { parent_run_id, parent_node_id };
+    if (!subrun_ids_ref.current.has(sub_run_id)) {
+      subrun_ids_ref.current.add(sub_run_id);
+      set_subrun_ids((prev) => (prev.includes(sub_run_id) ? prev : [...prev, sub_run_id]));
+    }
   }
 
   function mark_node_activity(node_id_for_graph: string): void {
@@ -945,7 +894,7 @@ export function App(): React.ReactElement {
     const dig_key = `${child_run_id}:${ev.cursor}`;
     if (!digest_seen_ref.current.has(dig_key)) {
       digest_seen_ref.current.add(dig_key);
-      set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }].slice(-5000));
+      set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }]);
     }
     const emit = extract_emit_event(ev.record);
     const emit_name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
@@ -1009,6 +958,61 @@ export function App(): React.ReactElement {
     });
   }
 
+  function handle_subrun_digest_step(sub_run_id_value: string, ev: LedgerStreamEvent): void {
+    const child_run_id = String(sub_run_id_value || "").trim();
+    if (!child_run_id) return;
+    const dig_key = `${child_run_id}:${ev.cursor}`;
+    if (!digest_seen_ref.current.has(dig_key)) {
+      digest_seen_ref.current.add(dig_key);
+      set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }]);
+    }
+
+    const emit = extract_emit_event(ev.record);
+    const emit_name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
+    const rec = ev.record;
+    const node_id = typeof rec?.node_id === "string" ? rec.node_id : "";
+    const status = typeof rec?.status === "string" ? rec.status : "";
+    const effect_type = typeof rec?.effect?.type === "string" ? rec.effect.type : "";
+
+    if (status === "waiting") {
+      const w = extract_wait_from_record(rec);
+      const reason = String(w?.reason || "").trim();
+      if (reason === "subworkflow") {
+        const sub = typeof (w as any)?.details?.sub_run_id === "string" ? String((w as any).details.sub_run_id) : "";
+        if (sub && node_id) register_subworkflow_child_run(child_run_id, node_id, sub);
+      }
+    }
+    if (node_id) mark_node_activity(graph_node_id_for(child_run_id, node_id));
+
+    if (!emit || !emit.name) return;
+
+    if (emit_name === "abstract.status") {
+      const { text, duration } = extract_textish(emit?.payload);
+      set_status(text, duration);
+      return;
+    }
+    if (!is_ui_event_name(emit.name)) return;
+
+    const kind: UiLogItem["kind"] = emit_name === "abstract.message" ? "message" : "event";
+    const title = `subrun • ${emit_name || emit.name}`;
+    const preview = clamp_preview(extract_textish(emit?.payload).text);
+
+    push_log({
+      id: `subrun:${child_run_id}:${ev.cursor}`,
+      ts: String(rec?.ended_at || rec?.started_at || now_iso()),
+      kind,
+      title,
+      preview,
+      data: rec,
+      cursor: ev.cursor,
+      run_id: child_run_id,
+      node_id,
+      status,
+      effect_type,
+      emit_name: emit_name || emit.name,
+    });
+  }
+
   async function replay_ledger(run_id_value: string, opts: { after: number }): Promise<number> {
     let after = opts.after;
     while (true) {
@@ -1053,9 +1057,13 @@ export function App(): React.ReactElement {
     set_graph_now_ms(Date.now());
     run_prefix_ref.current = rid ? { [rid]: "" } : {};
     subrun_parent_ref.current = {};
+    subrun_spawn_ref.current = {};
+    subrun_ids_ref.current = new Set();
+    set_subrun_ids([]);
     root_subrun_ref.current = "";
     follow_run_ref.current = "";
     set_follow_run_id("");
+    subrun_cursor_ref.current = {};
     if (recent_prune_timer_ref.current) window.clearTimeout(recent_prune_timer_ref.current);
     recent_prune_timer_ref.current = null;
     if (dismiss_timer_ref.current) window.clearTimeout(dismiss_timer_ref.current);
@@ -1194,6 +1202,99 @@ export function App(): React.ReactElement {
     }
   }
 
+  async function start_scheduled_run(args: {
+    start_mode: "now" | "at";
+    start_at_local: string;
+    repeat_mode: "once" | "forever" | "count";
+    cadence: "hourly" | "daily" | "weekly" | "monthly";
+    repeat_count: number;
+    share_context: boolean;
+  }): Promise<string | null> {
+    const fid = flow_id.trim();
+    const bid = bundle_id.trim();
+    if (!fid || !bid) {
+      const msg = "Select a workflow first (Connect → pick a workflow).";
+      set_error_text(msg);
+      return msg;
+    }
+
+    if (schedule_submitting) return "Schedule already in progress";
+
+    set_schedule_error("");
+    set_error_text("");
+    set_schedule_submitting(true);
+    set_connecting(true);
+    try {
+      let input_data: Record<string, any> = {};
+      const raw = input_data_text.trim();
+      if (raw) {
+        try {
+          input_data = JSON.parse(raw);
+          if (typeof input_data !== "object" || input_data === null || Array.isArray(input_data)) {
+            throw new Error("input_data must be a JSON object");
+          }
+        } catch (e: any) {
+          const msg = `Invalid input_data JSON: ${String(e?.message || e)}`;
+          set_schedule_error(msg);
+          return msg;
+        }
+      }
+
+      let start_at: string | null = null;
+      if (args.start_mode === "now") {
+        start_at = "now";
+      } else {
+        const local = String(args.start_at_local || "").trim();
+        if (!local) {
+          const msg = "Pick a start date/time (or use Start now).";
+          set_schedule_error(msg);
+          return msg;
+        }
+        const dt = new Date(local);
+        if (!Number.isFinite(dt.getTime())) {
+          const msg = "Invalid start date/time";
+          set_schedule_error(msg);
+          return msg;
+        }
+        start_at = dt.toISOString();
+      }
+
+      const cadence = args.cadence;
+      const interval =
+        cadence === "hourly" ? "1h" : cadence === "daily" ? "1d" : cadence === "weekly" ? "7d" : cadence === "monthly" ? "30d" : "1d";
+
+      const repeat_mode = args.repeat_mode;
+      const interval_to_send = repeat_mode === "once" ? null : interval;
+      const repeat_count =
+        repeat_mode === "count" ? Math.max(1, Math.floor(Number.isFinite(args.repeat_count) ? args.repeat_count : 1)) : null;
+
+      const rid = await gateway.schedule_run({
+        bundle_id: bid,
+        flow_id: fid,
+        input_data,
+        start_at,
+        interval: interval_to_send,
+        repeat_count,
+        share_context: Boolean(args.share_context),
+      });
+      set_root_run_id(rid);
+      set_run_id(rid);
+      set_schedule_open(false);
+      set_schedule_error("");
+      await connect_to_run(rid);
+      void refresh_runs();
+      return null;
+    } catch (e: any) {
+      const msg = String(e?.message || e || "schedule failed");
+      set_schedule_error(msg);
+      set_error_text(msg);
+      return msg;
+    } finally {
+      set_connecting(false);
+      set_schedule_submitting(false);
+    }
+  }
+
   async function attach_to_run(rid: string): Promise<void> {
     const run = String(rid || "").trim();
     if (!run) return;
@@ -1215,9 +1316,13 @@ export function App(): React.ReactElement {
     set_root_run_id("");
     run_prefix_ref.current = {};
     subrun_parent_ref.current = {};
+    subrun_spawn_ref.current = {};
+    subrun_ids_ref.current = new Set();
+    set_subrun_ids([]);
     root_subrun_ref.current = "";
     follow_run_ref.current = "";
     set_follow_run_id("");
+    subrun_cursor_ref.current = {};
     set_dismissed_wait_key("");
     if (recent_prune_timer_ref.current) window.clearTimeout(recent_prune_timer_ref.current);
     recent_prune_timer_ref.current = null;
@@ -1244,6 +1349,8 @@ export function App(): React.ReactElement {
     set_graph_now_ms(Date.now());
     set_status("", -1);
     set_error_text("");
+    set_summary_generating(false);
+    set_summary_error("");
   }
 
   async function submit_run_control(type: "pause" | "resume" | "cancel", opts?: { reason?: string }): Promise<string | null> {
@@ -1277,6 +1384,25 @@ export function App(): React.ReactElement {
       const msg = String(e?.message || e || `${type} failed`);
       set_error_text(msg);
       return msg;
+    }
+  }
+
+  async function generate_summary(): Promise<void> {
+    const rid = run_id.trim();
+    if (!rid) {
+      set_summary_error("Missing run_id");
+      return;
+    }
+    if (summary_generating) return;
+    set_summary_error("");
+    set_summary_generating(true);
+    try {
+      await gateway.generate_run_summary(rid, { provider: "lmstudio", model: "qwen/qwen3-next-80b", include_subruns: true });
+      push_log({ ts: now_iso(), kind: "info", title: "Summary generation requested", preview: clamp_preview(`run ${rid}`) });
+    } catch (e: any) {
+      set_summary_error(String(e?.message || e || "Failed to generate summary"));
+    } finally {
+      set_summary_generating(false);
     }
   }
 
@@ -1358,97 +1484,356 @@ export function App(): React.ReactElement {
     !run_id.trim() || connecting || resuming || run_terminal || (pause_resume_label === "Resume" && !run_paused);
 
   const digest = useMemo(() => {
-    const all: StepRecord[] = [];
-    for (const x of records) {
-      if (x && x.record) all.push(x.record);
-    }
-    for (const x of child_records_for_digest) {
-      if (x && x.record) all.push(x.record);
-    }
-
-    const stats = {
-      steps: all.length,
-      tool_calls_effects: 0,
-      tool_calls: 0,
-      unique_tools: 0,
-      llm_calls: 0,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      total_tokens: 0,
-      started_at: "",
-      ended_at: "",
-      duration_s: 0,
+    type DigestStats = {
+      steps: number;
+      tool_calls_effects: number;
+      tool_calls: number;
+      unique_tools: number;
+      llm_calls: number;
+      llm_missing_responses: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      started_at: string;
+      ended_at: string;
+      duration_s: number;
+      errors: number;
     };
 
-    const files: Array<{ tool: string; file_path: string; run_id: string; ts: string }> = [];
-    const commands: Array<{ command: string; run_id: string; ts: string }> = [];
-    const web: Array<{ tool: string; value: string; run_id: string; ts: string }> = [];
-    const tools_used = new Set<string>();
+    type DigestToolCall = {
+      ts: string;
+      run_id: string;
+      node_id: string;
+      name: string;
+      signature: string;
+      success: boolean | null;
+      output_preview: string;
+      error: string;
+    };
 
-    let min_ms: number | null = null;
-    let max_ms: number | null = null;
+	    type DigestLlmCall = {
+	      ts: string;
+	      run_id: string;
+	      node_id: string;
+	      provider: string;
+	      model: string;
+	      prompt_preview: string;
+	      response_preview: string;
+	      missing_response: boolean;
+	      tokens: { prompt: number; completion: number; total: number };
+	    };
 
-    for (const rec of all) {
-      const rid = typeof rec?.run_id === "string" ? String(rec.run_id) : "";
-      const ts_s = String(rec?.ended_at || rec?.started_at || "").trim();
-      const ms = parse_iso_ms(ts_s);
-      if (ms !== null) {
-        if (min_ms === null || ms < min_ms) min_ms = ms;
-        if (max_ms === null || ms > max_ms) max_ms = ms;
-      }
+	    const tool_specs_by_name: Record<string, any> = {};
+	    for (const s of discovered_tool_specs || []) {
+	      if (!s || typeof s !== "object") continue;
+	      const name = String((s as any).name || "").trim();
+	      if (!name) continue;
+	      tool_specs_by_name[name] = s;
+	    }
 
-      const eff_type = typeof rec?.effect?.type === "string" ? String(rec.effect.type) : "";
-      if (eff_type === "llm_call") {
-        stats.llm_calls += 1;
-        const usage = rec?.result && typeof rec.result === "object" ? (rec.result as any).usage || (rec.result as any).token_usage : null;
-        if (usage && typeof usage === "object") {
-          const pt = Number((usage as any).prompt_tokens ?? (usage as any).input_tokens ?? 0);
-          const ct = Number((usage as any).completion_tokens ?? (usage as any).output_tokens ?? 0);
-          const tt = Number((usage as any).total_tokens ?? pt + ct);
-          if (Number.isFinite(pt)) stats.prompt_tokens += pt;
-          if (Number.isFinite(ct)) stats.completion_tokens += ct;
-          if (Number.isFinite(tt)) stats.total_tokens += tt;
+	    const tool_toolset = (tool_name: string): string => {
+	      const spec = tool_specs_by_name[String(tool_name || "").trim()];
+	      const v = spec && typeof spec === "object" ? (spec as any).toolset : "";
+	      return typeof v === "string" ? v.trim() : "";
+	    };
+
+	    const format_arg_value = (value: any): string => {
+	      if (value === null || value === undefined) return "";
+	      if (typeof value === "boolean") return value ? "true" : "false";
+	      if (typeof value === "number") return String(value);
+	      if (typeof value === "string") return clamp_preview(value, { max_chars: 160, max_lines: 2 });
+	      return clamp_preview(safe_json_inline(value, 160), { max_chars: 160, max_lines: 2 });
+	    };
+
+	    const ordered_tool_args = (tool_name: string, args: any): Array<[string, any]> => {
+	      const n = String(tool_name || "").trim();
+	      const a = args && typeof args === "object" ? (args as any) : {};
+	      const spec = tool_specs_by_name[n];
+	      const params = spec && typeof spec === "object" ? (spec as any).parameters : null;
+	      const order = params && typeof params === "object" ? Object.keys(params) : Object.keys(a);
+
+	      const out: Array<[string, any]> = [];
+	      const seen = new Set<string>();
+	      for (const k of order) {
+	        if (typeof k !== "string" || !k.trim() || seen.has(k)) continue;
+	        seen.add(k);
+	        if (Object.prototype.hasOwnProperty.call(a, k)) out.push([k, a[k]]);
+	      }
+	      for (const k of Object.keys(a)) {
+	        if (seen.has(k)) continue;
+	        out.push([k, a[k]]);
+	      }
+	      return out;
+	    };
+
+	    const tool_primary_arg_value = (tool_name: string, args: any): string => {
+	      const pairs = ordered_tool_args(tool_name, args);
+	      if (!pairs.length) return "";
+	      return format_arg_value(pairs[0][1]);
+	    };
+
+	    const tool_signature = (tool_name: string, args: any): string => {
+	      const n = String(tool_name || "").trim() || "tool";
+	      const pairs = ordered_tool_args(n, args);
+	      const shown = pairs.slice(0, 2);
+	      if (!shown.length) return `${n}()`;
+	      if (shown.length === 1) return `${n}(${format_arg_value(shown[0][1])})`;
+	      const inner = shown.map(([k, v]) => `${k}=${format_arg_value(v)}`).join(", ");
+	      return `${n}(${inner})`;
+	    };
+
+	    type DigestForRun = {
+	      stats: DigestStats;
+	      files: Array<{ tool: string; file_path: string; run_id: string; ts: string }>;
+	      commands: Array<{ command: string; run_id: string; ts: string }>;
+      web: Array<{ tool: string; value: string; run_id: string; ts: string }>;
+      tools_used: string[];
+      tool_calls_detail: DigestToolCall[];
+      llm_calls_detail: DigestLlmCall[];
+    };
+
+    const compute = (all: StepRecord[]): DigestForRun => {
+      const stats: DigestStats = {
+        steps: all.length,
+        tool_calls_effects: 0,
+        tool_calls: 0,
+        unique_tools: 0,
+        llm_calls: 0,
+        llm_missing_responses: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        started_at: "",
+        ended_at: "",
+        duration_s: 0,
+        errors: 0,
+      };
+
+      const files: Array<{ tool: string; file_path: string; run_id: string; ts: string }> = [];
+      const commands: Array<{ command: string; run_id: string; ts: string }> = [];
+      const web: Array<{ tool: string; value: string; run_id: string; ts: string }> = [];
+      const tools_used = new Set<string>();
+      const tool_calls_detail: DigestToolCall[] = [];
+      const llm_calls_detail: DigestLlmCall[] = [];
+
+      let min_ms: number | null = null;
+      let max_ms: number | null = null;
+
+      const llm_prompt_from_payload = (payload: any): string => {
+        if (!payload || typeof payload !== "object") return "";
+        const p = (payload as any).prompt;
+        if (typeof p === "string" && p.trim()) return p.trim();
+        const msgs = (payload as any).messages;
+        if (Array.isArray(msgs)) {
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i];
+            if (!m || typeof m !== "object") continue;
+            if (String((m as any).role || "") !== "user") continue;
+            const c = (m as any).content;
+            if (typeof c === "string" && c.trim()) return c.trim();
+          }
+        }
+        return "";
+      };
+
+      const output_preview = (value: any): string => {
+        if (value === null || value === undefined) return "";
+        if (typeof value === "string") return clamp_preview(value, { max_chars: 1200, max_lines: 16 });
+        return clamp_preview(safe_json(value), { max_chars: 1200, max_lines: 16 });
+      };
+
+      for (const rec of all) {
+        const rid = typeof rec?.run_id === "string" ? String(rec.run_id) : "";
+        const node_id = typeof rec?.node_id === "string" ? String(rec.node_id) : "";
+        const ts_s = String(rec?.ended_at || rec?.started_at || "").trim();
+        const ms = parse_iso_ms(ts_s);
+        if (ms !== null) {
+          if (min_ms === null || ms < min_ms) min_ms = ms;
+          if (max_ms === null || ms > max_ms) max_ms = ms;
+        }
+
+        if (rec?.error) stats.errors += 1;
+
+        const eff_type = typeof rec?.effect?.type === "string" ? String(rec.effect.type) : "";
+        if (eff_type === "llm_call") {
+          stats.llm_calls += 1;
+          const payload = rec?.effect?.payload;
+          const usage = rec?.result && typeof rec.result === "object" ? (rec.result as any).usage || (rec.result as any).token_usage : null;
+          let pt = 0;
+          let ct = 0;
+          let tt = 0;
+          if (usage && typeof usage === "object") {
+            pt = Number((usage as any).prompt_tokens ?? (usage as any).input_tokens ?? 0);
+            ct = Number((usage as any).completion_tokens ?? (usage as any).output_tokens ?? 0);
+            tt = Number((usage as any).total_tokens ?? pt + ct);
+            if (Number.isFinite(pt)) stats.prompt_tokens += pt;
+            if (Number.isFinite(ct)) stats.completion_tokens += ct;
+            if (Number.isFinite(tt)) stats.total_tokens += tt;
+          }
+
+          const provider = payload && typeof payload === "object" && typeof (payload as any).provider === "string" ? String((payload as any).provider) : "";
+          const model = payload && typeof payload === "object" && typeof (payload as any).model === "string" ? String((payload as any).model) : "";
+          const prompt = llm_prompt_from_payload(payload);
+          const content =
+            rec?.result && typeof rec.result === "object" && typeof (rec.result as any).content === "string"
+              ? String((rec.result as any).content)
+              : rec?.result && typeof rec.result === "object" && typeof (rec.result as any).response === "string"
+                ? String((rec.result as any).response)
+                : typeof rec?.result === "string"
+                  ? String(rec.result)
+                  : "";
+          const missing_response = !String(content || "").trim();
+          if (missing_response) stats.llm_missing_responses += 1;
+          if (llm_calls_detail.length < 80) {
+            llm_calls_detail.push({
+              ts: ts_s,
+              run_id: rid,
+              node_id,
+              provider,
+              model,
+              prompt_preview: clamp_preview(prompt, { max_chars: 900, max_lines: 10 }),
+              response_preview: clamp_preview(String(content || ""), { max_chars: 900, max_lines: 10 }),
+              missing_response,
+              tokens: { prompt: Number.isFinite(pt) ? pt : 0, completion: Number.isFinite(ct) ? ct : 0, total: Number.isFinite(tt) ? tt : 0 },
+            });
+          }
+        }
+
+        if (eff_type !== "tool_calls") continue;
+        stats.tool_calls_effects += 1;
+        const payload = rec?.effect?.payload;
+        const tool_calls = payload && typeof payload === "object" ? (payload as any).tool_calls : null;
+        const calls = Array.isArray(tool_calls) ? (tool_calls as any[]) : [];
+        if (!calls.length) continue;
+        stats.tool_calls += calls.length;
+
+        const results = rec?.result && typeof rec.result === "object" ? (rec.result as any).results : null;
+        const results_list = Array.isArray(results) ? (results as any[]) : [];
+        const results_by_id = new Map<string, any>();
+        for (const r of results_list) {
+          if (!r || typeof r !== "object") continue;
+          const cid = String((r as any).call_id || (r as any).id || "").trim();
+          if (cid && !results_by_id.has(cid)) results_by_id.set(cid, r);
+        }
+
+        for (let i = 0; i < calls.length; i++) {
+          const c = calls[i];
+          if (!c || typeof c !== "object") continue;
+          const name = String((c as any).name || "").trim();
+          if (!name) continue;
+          tools_used.add(name);
+          const args = (c as any).arguments;
+          const call_id = String((c as any).call_id || (c as any).id || "").trim();
+          const result = call_id && results_by_id.has(call_id) ? results_by_id.get(call_id) : i < results_list.length ? results_list[i] : null;
+          const ok = result && typeof result === "object" && typeof (result as any).success === "boolean" ? Boolean((result as any).success) : null;
+          const out = result && typeof result === "object" ? (result as any).output : null;
+          const err = result && typeof result === "object" ? (result as any).error : null;
+
+          if (tool_calls_detail.length < 240) {
+            tool_calls_detail.push({
+              ts: ts_s,
+              run_id: rid,
+              node_id,
+              name,
+              signature: tool_signature(name, args),
+              success: ok,
+              output_preview: output_preview(out),
+              error: typeof err === "string" ? String(err) : err ? String(err) : "",
+            });
+          }
+
+          const toolset = tool_toolset(name);
+          const primary = tool_primary_arg_value(name, args);
+          if (toolset === "files" && primary) files.push({ tool: name, file_path: primary, run_id: rid, ts: ts_s });
+          else if (toolset === "system" && primary) commands.push({ command: primary, run_id: rid, ts: ts_s });
+          else if (toolset === "web" && primary) web.push({ tool: name, value: primary, run_id: rid, ts: ts_s });
         }
       }
 
-      if (eff_type !== "tool_calls") continue;
-      stats.tool_calls_effects += 1;
-      const payload = rec?.effect?.payload;
-      const tool_calls = payload && typeof payload === "object" ? (payload as any).tool_calls : null;
-      const calls = Array.isArray(tool_calls) ? (tool_calls as any[]) : [];
-      if (!calls.length) continue;
-      stats.tool_calls += calls.length;
+      stats.unique_tools = tools_used.size;
+      if (min_ms !== null) stats.started_at = new Date(min_ms).toISOString();
+      if (max_ms !== null) stats.ended_at = new Date(max_ms).toISOString();
+      if (min_ms !== null && max_ms !== null) stats.duration_s = Math.max(0, Math.round((max_ms - min_ms) / 1000));
 
-      for (const c of calls) {
-        if (!c || typeof c !== "object") continue;
-        const name = String((c as any).name || "").trim();
-        if (!name) continue;
-        tools_used.add(name);
-        const args = (c as any).arguments;
+      return { stats, files, commands, web, tools_used: Array.from(tools_used).sort(), tool_calls_detail, llm_calls_detail };
+    };
 
-        if (name === "write_file" || name === "edit_file" || name === "delete_file") {
-          const fp = args && typeof args === "object" ? String((args as any).file_path || (args as any).path || "").trim() : "";
-          if (fp) files.push({ tool: name, file_path: fp, run_id: rid, ts: ts_s });
-        } else if (name === "execute_command") {
-          const cmd = args && typeof args === "object" ? String((args as any).command || "").trim() : "";
-          if (cmd) commands.push({ command: cmd, run_id: rid, ts: ts_s });
-        } else if (name === "web_search") {
-          const q = args && typeof args === "object" ? String((args as any).query || "").trim() : "";
-          if (q) web.push({ tool: name, value: q, run_id: rid, ts: ts_s });
-        } else if (name === "fetch_url") {
-          const u = args && typeof args === "object" ? String((args as any).url || "").trim() : "";
-          if (u) web.push({ tool: name, value: u, run_id: rid, ts: ts_s });
-        }
-      }
+    const all_records: StepRecord[] = [];
+    const by_run: Record<string, StepRecord[]> = {};
+    const root_id = run_id.trim();
+
+    const add = (r: StepRecord) => {
+      if (!r) return;
+      all_records.push(r);
+      const rid = typeof (r as any)?.run_id === "string" ? String((r as any).run_id || "").trim() : "";
+      const key = rid || root_id || "unknown";
+      if (!by_run[key]) by_run[key] = [];
+      by_run[key].push(r);
+    };
+
+    for (const x of records) {
+      if (x && x.record) add(x.record);
+    }
+    for (const x of child_records_for_digest) {
+      if (x && x.record) add(x.record);
     }
 
-    stats.unique_tools = tools_used.size;
-    if (min_ms !== null) stats.started_at = new Date(min_ms).toISOString();
-    if (max_ms !== null) stats.ended_at = new Date(max_ms).toISOString();
-    if (min_ms !== null && max_ms !== null) stats.duration_s = Math.max(0, Math.round((max_ms - min_ms) / 1000));
+    const overall = compute(all_records);
+    const per_run: Record<string, DigestForRun> = {};
+    for (const [rid, items] of Object.entries(by_run)) {
+      per_run[rid] = compute(items);
+    }
 
-    return { stats, files, commands, web, tools_used: Array.from(tools_used).sort() };
-  }, [records, child_records_for_digest]);
+    const subruns = subrun_ids
+      .map((rid) => {
+        const r = String(rid || "").trim();
+        if (!r) return null;
+        const parent_run_id = String(subrun_parent_ref.current[r] || "").trim();
+        const spawn = subrun_spawn_ref.current[r];
+        const parent_node_id = spawn ? String(spawn.parent_node_id || "").trim() : "";
+        return { run_id: r, parent_run_id, parent_node_id, digest: per_run[r] || null };
+      })
+      .filter(Boolean) as Array<{ run_id: string; parent_run_id: string; parent_node_id: string; digest: DigestForRun | null }>;
+
+    subruns.sort((a, b) => (a.run_id < b.run_id ? -1 : a.run_id > b.run_id ? 1 : 0));
+
+    // Latest persisted run summary (abstract.summary) in the parent/root ledger.
+    let latest_summary:
+      | { cursor: number; ts: string; text: string; provider?: string; model?: string; generated_at?: string; source?: any }
+      | null = null;
+    for (const item of records) {
+      const rec = item.record;
+      const emit = extract_emit_event(rec);
+      const name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
+      if (name !== "abstract.summary") continue;
+      const payload = emit?.payload && typeof emit.payload === "object" ? (emit.payload as any) : {};
+      const text = typeof payload?.text === "string" ? String(payload.text) : "";
+      if (!text.trim()) continue;
+      latest_summary = {
+        cursor: item.cursor,
+        ts: String(rec?.ended_at || rec?.started_at || ""),
+        text,
+        provider: typeof payload?.provider === "string" ? String(payload.provider) : undefined,
+        model: typeof payload?.model === "string" ? String(payload.model) : undefined,
+        generated_at: typeof payload?.generated_at === "string" ? String(payload.generated_at) : undefined,
+        source: payload?.source,
+      };
+    }
+
+    const summary_ms = latest_summary ? parse_iso_ms(latest_summary.generated_at || latest_summary.ts) : null;
+    let last_meaningful_ms: number | null = null;
+    for (const rec of all_records) {
+      const eff_type = typeof rec?.effect?.type === "string" ? String(rec.effect.type) : "";
+      if (eff_type === "emit_event") continue;
+      const ts_s = String(rec?.ended_at || rec?.started_at || "").trim();
+      const ms = parse_iso_ms(ts_s);
+      if (ms === null) continue;
+      if (last_meaningful_ms === null || ms > last_meaningful_ms) last_meaningful_ms = ms;
+    }
+    const summary_outdated = summary_ms !== null && last_meaningful_ms !== null ? last_meaningful_ms > summary_ms : false;
+
+    return { overall, per_run, subruns, latest_summary, summary_outdated };
+  }, [records, child_records_for_digest, run_id, subrun_ids, discovered_tool_specs]);
 
   // Follow the deepest active subworkflow run for status/event UX (not just the immediate child).
   useEffect(() => {
@@ -1649,6 +2034,54 @@ export function App(): React.ReactElement {
     };
   }, [connected, follow_run_id, run_id, gateway, following_child_run_id]);
 
+  // Poll all discovered subruns for digest completeness (avoid multiple SSE connections).
+  useEffect(() => {
+    if (!connected || !run_id.trim()) return;
+
+    let stopped = false;
+
+    const poll_once = async () => {
+      if (stopped) return;
+      if (subrun_poll_inflight_ref.current) return;
+      if (!subrun_ids.length) return;
+      subrun_poll_inflight_ref.current = true;
+      try {
+        for (const child_id_raw of subrun_ids) {
+          if (stopped) return;
+          const child_id = String(child_id_raw || "").trim();
+          if (!child_id) continue;
+
+          let after = Number(subrun_cursor_ref.current[child_id] || 0);
+          while (!stopped) {
+            const page = await gateway.get_ledger(child_id, { after, limit: 200 });
+            const items = Array.isArray(page.items) ? page.items : [];
+            if (!items.length) break;
+            const base = after;
+            for (let i = 0; i < items.length; i++) {
+              const record = items[i] as StepRecord;
+              handle_subrun_digest_step(child_id, { cursor: base + i + 1, record });
+            }
+            after = typeof page.next_after === "number" ? page.next_after : after;
+          }
+          subrun_cursor_ref.current[child_id] = after;
+        }
+      } catch (e: any) {
+        if (stopped) return;
+        push_log({ ts: now_iso(), kind: "error", title: "Subrun digest poll failed", preview: clamp_preview(String(e?.message || e || "")) });
+      } finally {
+        subrun_poll_inflight_ref.current = false;
+      }
+    };
+
+    void poll_once();
+    const timer = window.setInterval(() => void poll_once(), 2000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      subrun_poll_inflight_ref.current = false;
+    };
+  }, [connected, run_id, subrun_ids, gateway]);
+
   return (
     <div className="app-shell">
       <div className="container">
@@ -1745,119 +2178,34 @@ export function App(): React.ReactElement {
               {bundle_error ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{bundle_error}</div> : null}
             </div>
 
-            {bundle_info && String(bundle_info.bundle_id || "").trim() === bundle_id.trim() ? (
-              <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
-                <div className="meta">
-                  <span className="mono">bundle</span>
-                  <span className="mono">
-                    {String(bundle_info.bundle_id || "")}
-                    {bundle_info.bundle_version ? ` • v${String(bundle_info.bundle_version)}` : ""}
-                  </span>
-                </div>
-                <div className="body">
-                  <div className="mono" style={{ fontSize: "12px", color: "var(--muted)" }}>
-                    {Array.isArray(bundle_info.entrypoints) ? `${bundle_info.entrypoints.length} entrypoint(s)` : "entrypoints: (unknown)"}
-                    {bundle_info.default_entrypoint ? ` • default: ${String(bundle_info.default_entrypoint)}` : ""}
-                    {selected_entrypoint?.flow_id ? ` • selected: ${String(selected_entrypoint.flow_id)}` : ""}
-                  </div>
-                  <div className="log_actions">
-                    {(Array.isArray(bundle_info.entrypoints) ? bundle_info.entrypoints : []).map((ep) => {
-                      const fid = String(ep?.flow_id || "").trim();
-                      if (!fid) return null;
-                      const name = String(ep?.name || "").trim();
-                      const label = name ? `${name} (${fid})` : fid;
-                      return (
-                        <button
-                          key={fid}
-                          className="btn"
-                          onClick={() => {
-                            set_flow_id(fid);
-                            set_graph_flow_id(fid);
-                          }}
-                          disabled={connecting || resuming}
-                        >
-                          Use {label}
-                        </button>
-                      );
-                    })}
-                    {adaptive_pins.some((p) => p && typeof p === "object" && p.default !== undefined) ? (
-                      <button className="btn" onClick={apply_entrypoint_defaults} disabled={connecting || resuming}>
-                        Apply defaults
-                      </button>
-                    ) : null}
-                  </div>
-
-                  {adaptive_pins.length ? (
-                    <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                      {adaptive_pins.map((p) => {
-                        const pid = String(p.id || "").trim();
-                        if (!pid) return null;
-                        const ptype = String(p.type || "").trim() || "unknown";
-                        const def = p.default;
-                        return (
-                          <div key={pid} style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-                            <span className="chip mono">{pid}</span>
-                            <span className="chip mono muted">{ptype}</span>
-                            {def !== undefined ? <span className="chip mono muted">default {safe_json_inline(def, 80)}</span> : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="mono" style={{ marginTop: "8px", fontSize: "12px", color: "var(--muted)" }}>
-                      (no input pin definitions discovered)
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : null}
+            <div className="actions">
+              <button
+                className="btn success big"
+                onClick={() => {
+                  set_new_run_error("");
+                  set_new_run_open(true);
+                }}
+                disabled={!gateway_connected || !bundle_id.trim() || !flow_id.trim() || discovery_loading || bundle_loading || connecting || resuming}
+              >
+                Start Workflow
+              </button>
+            </div>
 
             <div className="section_divider" />
-            <div className="section_title mono">Run</div>
+            <div className="section_title mono">Existing Runs</div>
             <div className="field">
-              <label>Runs (recent — select to attach)</label>
+              <label>Runs (parent — select to observe)</label>
               <div className="field_inline">
-                <select
-                  className="mono"
-                  value={run_id.trim() || ""}
-                  onChange={async (e) => {
-                    const rid = String(e.target.value || "").trim();
-                    if (!rid) return;
-                    await attach_to_run(rid);
-                  }}
+                <RunPicker
+                  runs={run_options}
+                  selected_run_id={run_id}
+                  workflow_label_by_id={workflow_label_by_id}
                   disabled={!gateway_connected || runs_loading || discovery_loading || connecting || resuming}
-                >
-                  <option value="">
-                    {runs_loading ? "(loading…)" : run_options.length ? "(select recent run)" : "(empty — click Connect)"}
-                  </option>
-                  {/* Keep the currently-selected run visible even if it isn't in the current list. */}
-                  {run_id.trim() && !run_options.some((r) => r.run_id === run_id.trim()) ? (
-                    <option value={run_id.trim()}>{`(selected) ${run_id.trim()}`}</option>
-                  ) : null}
-                  {run_options.map((r) => {
-                    const rid = String(r.run_id || "").trim();
-                    if (!rid) return null;
-                    const wid = typeof r.workflow_id === "string" ? String(r.workflow_id) : "";
-                    const wf_label = wid ? workflow_label_by_id[wid] || wid : "";
-                    const wf_display = wf_label ? wf_label.replace(/\s+/g, " ").trim() : "(unknown workflow)";
-                    const st = typeof r.status === "string" ? String(r.status) : "";
-                    const start_ts = format_local_ts(r.created_at || r.updated_at);
-                    const cnt = typeof r.ledger_len === "number" ? `#${r.ledger_len}` : "";
-                    const sid = String(r.session_id || "").trim();
-                    const sid_label = sid ? `sid:${short_id(sid, 10)}` : "";
-                    const label = `${fixed_col(start_ts, 16)} | ${fixed_col(wf_display, 34)} | ${fixed_col(
-                      st || "unknown",
-                      10
-                    )} | ${fixed_col(cnt, 6)} | ${fixed_col(sid_label, 14)} | ${fixed_col(short_id(rid, 14), 14)}`;
-                    return (
-                      <option key={rid} value={rid}>
-                        {label}
-                      </option>
-                    );
-                  })}
-                </select>
-                <button className="btn" onClick={disconnect_run_feed} disabled={!connected}>
-                  Disconnect
+                  loading={runs_loading}
+                  onSelect={(rid) => void attach_to_run(rid)}
+                />
+                <button className="btn" onClick={refresh_runs} disabled={!gateway_connected || runs_loading || discovery_loading}>
+                  {runs_loading ? "Refreshing…" : "Refresh"}
                 </button>
               </div>
               {!run_options.length ? (
@@ -1867,10 +2215,41 @@ export function App(): React.ReactElement {
               ) : null}
             </div>
 
+            <div className="actions">
+              <button
+                className="btn"
+                onClick={() => {
+                  if (pause_resume_action === "pause") {
+                    set_run_control_type("pause");
+                    set_run_control_reason("");
+                    set_run_control_error("");
+                    set_run_control_open(true);
+                    return;
+                  }
+                  void submit_run_control("resume");
+                }}
+                disabled={pause_resume_disabled}
+              >
+                {pause_resume_label}
+              </button>
+              <button
+                className="btn danger"
+                onClick={() => {
+                  set_run_control_type("cancel");
+                  set_run_control_reason("");
+                  set_run_control_error("");
+                  set_run_control_open(true);
+                }}
+                disabled={!run_id.trim() || connecting || resuming || run_terminal}
+              >
+                Cancel
+              </button>
+            </div>
+
             {new_run_open ? (
               <Modal
                 open={new_run_open}
-                title={bundle_id.trim() && flow_id.trim() ? `New run • ${bundle_id.trim()}:${flow_id.trim()}` : "New run"}
+                title={bundle_id.trim() && flow_id.trim() ? `Start workflow • ${bundle_id.trim()}:${flow_id.trim()}` : "Start workflow"}
                 onClose={() => {
                   set_new_run_open(false);
                   set_new_run_error("");
@@ -1897,6 +2276,18 @@ export function App(): React.ReactElement {
                       disabled={connecting || resuming}
                     >
                       Start
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        set_new_run_open(false);
+                        set_new_run_error("");
+                        set_schedule_error("");
+                        set_schedule_open(true);
+                      }}
+                      disabled={connecting || resuming}
+                    >
+                      Schedule
                     </button>
                   </>
                 }
@@ -1993,7 +2384,7 @@ export function App(): React.ReactElement {
                               else set_input_data_value(pid, arr);
                             }}
                             rows={4}
-                            placeholder={"list_files\nsearch_files\nread_file\n..."}
+                            placeholder={"tool_name\nanother_tool\n..."}
                           />
                         )}
                         {err ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{err}</div> : null}
@@ -2299,50 +2690,176 @@ export function App(): React.ReactElement {
                 </div>
                   </>
                 )}
+
+                <details style={{ marginTop: "10px" }}>
+                  <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
+                    Advanced: remote tool worker (MCP)
+                  </summary>
+                  <div className="field" style={{ marginTop: "10px" }}>
+                    <label>Tool worker endpoint (MCP HTTP)</label>
+                    <input
+                      className="mono"
+                      value={settings.worker_url}
+                      onChange={(e) => set_settings((s) => ({ ...s, worker_url: e.target.value }))}
+                      placeholder="https://your-mcp-worker-endpoint"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Tool worker token (Authorization: Bearer …)</label>
+                    <input
+                      className="mono"
+                      type="password"
+                      value={settings.worker_token}
+                      onChange={(e) => set_settings((s) => ({ ...s, worker_token: e.target.value }))}
+                      placeholder="(optional)"
+                    />
+                  </div>
+                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                    Used to execute tool waits from the UI (advanced / potentially dangerous).
+                  </div>
+                </details>
               </Modal>
             ) : null}
 
-            <div className="actions">
-              <button
-                className="btn"
-                onClick={() => {
-                  clear_run_view();
-                  set_new_run_error("");
-                  set_new_run_open(true);
+            {schedule_open ? (
+              <Modal
+                open={schedule_open}
+                title={bundle_id.trim() && flow_id.trim() ? `Schedule workflow • ${bundle_id.trim()}:${flow_id.trim()}` : "Schedule workflow"}
+                onClose={() => {
+                  set_schedule_open(false);
+                  set_schedule_error("");
                 }}
-                disabled={connecting || resuming}
+                actions={
+                  <>
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        set_schedule_open(false);
+                        set_schedule_error("");
+                        set_new_run_open(true);
+                      }}
+                      disabled={schedule_submitting}
+                    >
+                      Back
+                    </button>
+                    <button
+                      className="btn primary"
+                      onClick={async () => {
+                        set_schedule_error("");
+                        const err = await start_scheduled_run({
+                          start_mode: schedule_start_mode,
+                          start_at_local: schedule_start_at_local,
+                          repeat_mode: schedule_repeat_mode,
+                          cadence: schedule_cadence,
+                          repeat_count: schedule_repeat_count,
+                          share_context: schedule_share_context,
+                        });
+                        if (err) set_schedule_error(err);
+                      }}
+                      disabled={schedule_submitting}
+                    >
+                      {schedule_submitting ? "Scheduling…" : "Schedule"}
+                    </button>
+                  </>
+                }
               >
-                New Run
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  if (pause_resume_action === "pause") {
-                    set_run_control_type("pause");
-                    set_run_control_reason("");
-                    set_run_control_error("");
-                    set_run_control_open(true);
-                    return;
-                  }
-                  void submit_run_control("resume");
-                }}
-                disabled={pause_resume_disabled}
-              >
-                {pause_resume_label}
-              </button>
-              <button
-                className="btn danger"
-                onClick={() => {
-                  set_run_control_type("cancel");
-                  set_run_control_reason("");
-                  set_run_control_error("");
-                  set_run_control_open(true);
-                }}
-                disabled={!run_id.trim() || connecting || resuming || run_terminal}
-              >
-                Cancel
-              </button>
-            </div>
+                {schedule_error ? (
+                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
+                    <div className="meta">
+                      <span className="mono">error</span>
+                      <span className="mono">{now_iso()}</span>
+                    </div>
+                    <div className="body mono">{schedule_error}</div>
+                  </div>
+                ) : null}
+
+                <div className="field">
+                  <label>Start</label>
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                    <label className="mono" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <input
+                        type="radio"
+                        name="schedule_start"
+                        checked={schedule_start_mode === "now"}
+                        onChange={() => set_schedule_start_mode("now")}
+                      />
+                      now
+                    </label>
+                    <label className="mono" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                      <input
+                        type="radio"
+                        name="schedule_start"
+                        checked={schedule_start_mode === "at"}
+                        onChange={() => set_schedule_start_mode("at")}
+                      />
+                      at
+                    </label>
+                    {schedule_start_mode === "at" ? (
+                      <input
+                        className="mono"
+                        type="datetime-local"
+                        value={schedule_start_at_local}
+                        onChange={(e) => set_schedule_start_at_local(e.target.value)}
+                      />
+                    ) : null}
+                  </div>
+                  {schedule_start_mode === "at" ? (
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      Uses your device time; the gateway stores UTC.
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="field">
+                  <label>Repeat</label>
+                  <select className="mono" value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
+                    <option value="once">once</option>
+                    <option value="forever">forever</option>
+                    <option value="count">N times</option>
+                  </select>
+                </div>
+
+                {schedule_repeat_mode !== "once" ? (
+                  <div className="field">
+                    <label>Cadence</label>
+                    <select className="mono" value={schedule_cadence} onChange={(e) => set_schedule_cadence(e.target.value as any)}>
+                      <option value="hourly">hourly</option>
+                      <option value="daily">daily</option>
+                      <option value="weekly">weekly</option>
+                      <option value="monthly">monthly (≈30d)</option>
+                    </select>
+                  </div>
+                ) : null}
+
+                {schedule_repeat_mode === "count" ? (
+                  <div className="field">
+                    <label>Runs</label>
+                    <input
+                      className="mono"
+                      type="number"
+                      min={1}
+                      value={String(schedule_repeat_count)}
+                      onChange={(e) => set_schedule_repeat_count(Math.max(1, parseInt(e.target.value || "1", 10) || 1))}
+                    />
+                  </div>
+                ) : null}
+
+                <div className="field">
+                  <label>Context</label>
+                  <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={schedule_share_context}
+                      onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))}
+                    />
+                    Share context over time/calls
+                  </label>
+                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                    When disabled, each execution runs in its own session (isolated memory).
+                  </div>
+                </div>
+              </Modal>
+            ) : null}
 
             {run_control_open ? (
               <Modal
@@ -2475,27 +2992,6 @@ export function App(): React.ReactElement {
                 </div>
               </details>
             ) : null}
-
-            <div className="section_divider" />
-            <div className="section_title mono">Remote Worker</div>
-            <div className="field">
-              <label>Tool worker (advanced / potentially dangerous) — MCP HTTP endpoint</label>
-              <input
-                className="mono"
-                value={settings.worker_url}
-                onChange={(e) => set_settings((s) => ({ ...s, worker_url: e.target.value }))}
-                placeholder="https://your-mcp-worker-endpoint"
-              />
-            </div>
-            <div className="field">
-              <label>Tool worker token (Authorization: Bearer …)</label>
-              <input
-                className="mono"
-                value={settings.worker_token}
-                onChange={(e) => set_settings((s) => ({ ...s, worker_token: e.target.value }))}
-                placeholder="(optional)"
-              />
-            </div>
 
             {error_text ? (
               <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
@@ -2670,41 +3166,308 @@ export function App(): React.ReactElement {
                       onClick={() => {
                         copy_to_clipboard(JSON.stringify(digest, null, 2));
                       }}
-                      disabled={!digest.stats.steps}
+                      disabled={!digest.overall.stats.steps}
                     >
                       Copy digest (JSON)
                     </button>
                   </div>
 
                   <div className="log log_scroll">
-                    <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
+                    <div
+                      className="log_item"
+                      style={{
+                        borderColor: digest.latest_summary
+                          ? digest.summary_outdated
+                            ? "rgba(239, 68, 68, 0.45)"
+                            : "rgba(34, 197, 94, 0.35)"
+                          : "rgba(96, 165, 250, 0.25)",
+                      }}
+                    >
                       <div className="meta">
-                        <span className="mono">stats</span>
-                        <span className="mono">{digest.stats.duration_s ? `${digest.stats.duration_s}s` : ""}</span>
+                        <span className="mono">summary</span>
+                        <span className="mono">
+                          {digest.latest_summary ? (digest.summary_outdated ? "outdated" : "current") : "(none)"}
+                        </span>
                       </div>
-                      <div className="body mono">
-                        {safe_json({
-                          steps: digest.stats.steps,
-                          llm_calls: digest.stats.llm_calls,
-                          tool_calls: digest.stats.tool_calls,
-                          unique_tools: digest.stats.unique_tools,
-                          tokens: digest.stats.total_tokens
-                            ? { prompt: digest.stats.prompt_tokens, completion: digest.stats.completion_tokens, total: digest.stats.total_tokens }
-                            : null,
-                          started_at: digest.stats.started_at || null,
-                          ended_at: digest.stats.ended_at || null,
-                        })}
+                      <div className="body" style={{ whiteSpace: "pre-wrap" }}>
+                        {digest.latest_summary ? (
+                          <>
+                            <div className="mono muted" style={{ fontSize: "12px", marginBottom: "8px" }}>
+                              {digest.latest_summary.generated_at || digest.latest_summary.ts || ""} •{" "}
+                              {digest.latest_summary.provider || "provider?"} • {digest.latest_summary.model || "model?"}
+                            </div>
+                            {digest.latest_summary.text}
+                          </>
+                        ) : (
+                          <div className="mono muted">No summary yet.</div>
+                        )}
                       </div>
+                      <div className="actions">
+                        <button className="btn primary" onClick={() => void generate_summary()} disabled={!run_id.trim() || summary_generating}>
+                          {summary_generating ? "Generating…" : digest.latest_summary ? "Regenerate" : "Generate"}
+                        </button>
+                      </div>
+                      {summary_error ? (
+                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                          {summary_error}
+                        </div>
+                      ) : null}
                     </div>
 
-                    {digest.files.length ? (
+	                    <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
+	                      <div className="meta">
+	                        <span className="mono">stats</span>
+	                        <span className="mono">{digest.overall.stats.duration_s ? `${digest.overall.stats.duration_s}s` : ""}</span>
+	                      </div>
+	                      <div className="body">
+	                        <div className="digest_stats_grid">
+	                          <div className="digest_stat">
+	                            <div className="label">Steps</div>
+	                            <div className="value mono">{digest.overall.stats.steps}</div>
+	                          </div>
+	                          <div className="digest_stat">
+	                            <div className="label">LLM Calls</div>
+	                            <div className="value mono">{digest.overall.stats.llm_calls}</div>
+	                            {digest.overall.stats.llm_missing_responses ? (
+	                              <div className="mono" style={{ marginTop: "6px" }}>
+	                                <span className="chip warn mono">missing response {digest.overall.stats.llm_missing_responses}</span>
+	                              </div>
+	                            ) : null}
+	                          </div>
+	                          <div className="digest_stat">
+	                            <div className="label">Tool Calls</div>
+	                            <div className="value mono">{digest.overall.stats.tool_calls}</div>
+	                            <div className="mono muted" style={{ marginTop: "6px", fontSize: "12px" }}>
+	                              unique {digest.overall.stats.unique_tools}
+	                            </div>
+	                          </div>
+	                          <div className="digest_stat">
+	                            <div className="label">Errors</div>
+	                            <div className="value mono">{digest.overall.stats.errors}</div>
+	                          </div>
+	                          <div className="digest_stat">
+	                            <div className="label">Tokens In</div>
+	                            <div className="value mono">{digest.overall.stats.prompt_tokens || 0}</div>
+	                          </div>
+	                          <div className="digest_stat">
+	                            <div className="label">Tokens Out</div>
+	                            <div className="value mono">{digest.overall.stats.completion_tokens || 0}</div>
+	                            <div className="mono muted" style={{ marginTop: "6px", fontSize: "12px" }}>
+	                              total {digest.overall.stats.total_tokens || 0}
+	                            </div>
+	                          </div>
+	                        </div>
+	                        <div className="meta2" style={{ marginTop: "10px", justifyContent: "flex-start", flexWrap: "wrap" }}>
+	                          {digest.overall.stats.started_at ? (
+	                            <span className="chip mono muted">started {short_id(digest.overall.stats.started_at, 20)}</span>
+	                          ) : null}
+	                          {digest.overall.stats.ended_at ? (
+	                            <span className="chip mono muted">ended {short_id(digest.overall.stats.ended_at, 20)}</span>
+	                          ) : null}
+	                          {digest.subruns.length ? <span className="chip mono muted">subflows {digest.subruns.length}</span> : null}
+	                        </div>
+	                      </div>
+	                    </div>
+
+	                    {digest.overall.tool_calls_detail.length ? (
+	                      <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+	                        <div className="meta">
+	                          <span className="mono">tool calls</span>
+	                          <span className="mono">{digest.overall.tool_calls_detail.length}</span>
+	                        </div>
+	                        <div className="body mono">
+	                          <details>
+	                            <summary style={{ cursor: "pointer" }}>Show tool calls</summary>
+	                            <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+	                              {digest.overall.tool_calls_detail.slice(0, 120).map((t, idx) => (
+	                                <details key={`${t.run_id}:${t.ts}:${t.signature}:${idx}`} className="digest_detail">
+	                                  <summary style={{ cursor: "pointer" }}>
+	                                    <span className={`chip mono ${t.success === true ? "ok" : t.success === false ? "danger" : "muted"}`}>
+	                                      {t.success === true ? "ok" : t.success === false ? "fail" : "?"}
+	                                    </span>{" "}
+	                                    {t.signature}
+	                                  </summary>
+	                                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+	                                    {t.ts} • {t.node_id ? `node ${t.node_id}` : "node ?"} • {short_id(t.run_id, 10)}
+	                                  </div>
+	                                  {t.error ? (
+	                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(239, 68, 68, 0.9)" }}>
+	                                      {t.error}
+	                                    </div>
+	                                  ) : null}
+	                                  {t.output_preview ? (
+	                                    <pre className="mono" style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}>
+	                                      {t.output_preview}
+	                                    </pre>
+	                                  ) : null}
+	                                </details>
+	                              ))}
+	                            </div>
+	                          </details>
+	                        </div>
+	                      </div>
+	                    ) : null}
+
+	                    {digest.overall.llm_calls_detail.length ? (
+	                      <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+	                        <div className="meta">
+	                          <span className="mono">llm calls</span>
+	                          <span className="mono">{digest.overall.llm_calls_detail.length}</span>
+	                        </div>
+	                        <div className="body mono">
+	                          <details>
+	                            <summary style={{ cursor: "pointer" }}>Show LLM calls</summary>
+	                            <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+	                              {digest.overall.llm_calls_detail.slice(0, 60).map((c, idx) => (
+	                                <details key={`${c.run_id}:${c.ts}:${idx}`} className="digest_detail">
+	                                  <summary style={{ cursor: "pointer" }}>
+	                                    {c.missing_response ? <span className="chip warn mono">missing response</span> : <span className="chip ok mono">ok</span>}{" "}
+	                                    {c.provider || "provider?"} • {c.model || "model?"} • in {c.tokens.prompt} / out {c.tokens.completion}
+	                                  </summary>
+	                                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+	                                    {c.ts} • {c.node_id ? `node ${c.node_id}` : "node ?"} • {short_id(c.run_id, 10)}
+	                                  </div>
+	                                  {c.prompt_preview ? (
+	                                    <div className="mono" style={{ marginTop: "8px" }}>
+	                                      <span className="mono muted">prompt:</span> {c.prompt_preview}
+	                                    </div>
+	                                  ) : null}
+	                                  {c.response_preview ? (
+	                                    <div className="mono" style={{ marginTop: "8px" }}>
+	                                      <span className="mono muted">response:</span> {c.response_preview}
+	                                    </div>
+	                                  ) : (
+	                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(245, 158, 11, 0.95)" }}>
+	                                      (no response captured)
+	                                    </div>
+	                                  )}
+	                                </details>
+	                              ))}
+	                            </div>
+	                          </details>
+	                        </div>
+	                      </div>
+	                    ) : null}
+
+	                    {digest.subruns.length ? (
+	                      <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+	                        <div className="meta">
+	                          <span className="mono">subflows</span>
+	                          <span className="mono">{digest.subruns.length}</span>
+	                        </div>
+	                        <div className="body mono">
+	                          <details>
+	                            <summary style={{ cursor: "pointer" }}>Show subflows</summary>
+	                            <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+	                              {digest.subruns.map((s) => {
+	                                const st = s.digest?.stats;
+	                                const tools = s.digest?.tool_calls_detail || [];
+	                                const llm = s.digest?.llm_calls_detail || [];
+	                                const tool_preview = tools.slice(0, 4).map((t) => t.signature).join(" • ");
+	                                return (
+	                                  <details
+	                                    key={s.run_id}
+	                                    className="digest_detail"
+	                                    style={{
+	                                      padding: "10px 12px",
+	                                      borderRadius: "12px",
+	                                      border: "1px solid rgba(148, 163, 184, 0.14)",
+	                                      background: "rgba(0,0,0,0.10)",
+	                                    }}
+	                                  >
+	                                    <summary style={{ cursor: "pointer" }}>
+	                                      <span className="mono">
+	                                        {s.parent_node_id ? `${s.parent_node_id} → ` : ""}
+	                                        {s.run_id.slice(0, 8)}…
+	                                      </span>
+	                                      <span className="chip mono muted" style={{ marginLeft: "10px" }}>
+	                                        steps {st?.steps ?? 0}
+	                                      </span>
+	                                      <span className="chip mono muted" style={{ marginLeft: "6px" }}>
+	                                        llm {st?.llm_calls ?? 0}
+	                                      </span>
+	                                      <span className="chip mono muted" style={{ marginLeft: "6px" }}>
+	                                        tools {st?.tool_calls ?? 0}
+	                                      </span>
+	                                      <span className={`chip mono ${st?.errors ? "danger" : "ok"}`} style={{ marginLeft: "6px" }}>
+	                                        err {st?.errors ?? 0}
+	                                      </span>
+	                                    </summary>
+	                                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+	                                      {st?.duration_s ? `${st.duration_s}s` : ""} {st?.started_at ? `• ${st.started_at}` : ""} •{" "}
+	                                      {short_id(s.run_id, 10)}
+	                                    </div>
+	                                    {tool_preview ? <div className="mono" style={{ marginTop: "8px" }}>{tool_preview}</div> : null}
+	                                    {(tools.length || llm.length) && (
+	                                      <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
+	                                        {tools.length ? (
+	                                          <div>
+	                                            <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
+	                                              tool calls
+	                                            </div>
+	                                            <div style={{ display: "grid", gap: "6px" }}>
+	                                              {tools.slice(0, 40).map((t, idx2) => (
+	                                                <div key={`${t.run_id}:${t.ts}:${idx2}`} className="mono">
+	                                                  <span className={`chip mono ${t.success === true ? "ok" : t.success === false ? "danger" : "muted"}`}>
+	                                                    {t.success === true ? "ok" : t.success === false ? "fail" : "?"}
+	                                                  </span>{" "}
+	                                                  {t.signature}
+	                                                </div>
+	                                              ))}
+	                                            </div>
+	                                          </div>
+	                                        ) : null}
+	                                        {llm.length ? (
+	                                          <div>
+	                                            <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
+	                                              llm calls
+	                                            </div>
+	                                            <div style={{ display: "grid", gap: "8px" }}>
+	                                              {llm.slice(0, 20).map((c, idx2) => (
+	                                                <details key={`${c.run_id}:${c.ts}:${idx2}`} className="digest_detail">
+	                                                  <summary style={{ cursor: "pointer" }}>
+	                                                    {c.missing_response ? <span className="chip warn mono">missing</span> : <span className="chip ok mono">ok</span>}{" "}
+	                                                    {c.provider || "provider?"} • {c.model || "model?"} • in {c.tokens.prompt} / out{" "}
+	                                                    {c.tokens.completion}
+	                                                  </summary>
+	                                                  {c.prompt_preview ? (
+	                                                    <div className="mono" style={{ marginTop: "8px" }}>
+	                                                      <span className="mono muted">prompt:</span> {c.prompt_preview}
+	                                                    </div>
+	                                                  ) : null}
+	                                                  {c.response_preview ? (
+	                                                    <div className="mono" style={{ marginTop: "8px" }}>
+	                                                      <span className="mono muted">response:</span> {c.response_preview}
+	                                                    </div>
+	                                                  ) : (
+	                                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(245, 158, 11, 0.95)" }}>
+	                                                      (no response captured)
+	                                                    </div>
+	                                                  )}
+	                                                </details>
+	                                              ))}
+	                                            </div>
+	                                          </div>
+	                                        ) : null}
+	                                      </div>
+	                                    )}
+	                                  </details>
+	                                );
+	                              })}
+	                            </div>
+	                          </details>
+	                        </div>
+	                      </div>
+                    ) : null}
+
+                    {digest.overall.files.length ? (
                       <div className="log_item">
                         <div className="meta">
                           <span className="mono">files</span>
-                          <span className="mono">{digest.files.length}</span>
+                          <span className="mono">{digest.overall.files.length}</span>
                         </div>
                         <div className="body mono">
-                          {digest.files.slice(0, 120).map((f, idx) => (
+                          {digest.overall.files.slice(0, 120).map((f, idx) => (
                             <div key={`${f.run_id}:${f.ts}:${f.file_path}:${idx}`}>
                               {f.tool} • {f.file_path}
                             </div>
@@ -2713,28 +3476,28 @@ export function App(): React.ReactElement {
                       </div>
                     ) : null}
 
-                    {digest.commands.length ? (
+                    {digest.overall.commands.length ? (
                       <div className="log_item">
                         <div className="meta">
                           <span className="mono">commands</span>
-                          <span className="mono">{digest.commands.length}</span>
+                          <span className="mono">{digest.overall.commands.length}</span>
                         </div>
                         <div className="body mono">
-                          {digest.commands.slice(0, 80).map((c, idx) => (
+                          {digest.overall.commands.slice(0, 80).map((c, idx) => (
                             <div key={`${c.run_id}:${c.ts}:${idx}`}>{c.command}</div>
                           ))}
                         </div>
                       </div>
                     ) : null}
 
-                    {digest.web.length ? (
+                    {digest.overall.web.length ? (
                       <div className="log_item">
                         <div className="meta">
                           <span className="mono">web</span>
-                          <span className="mono">{digest.web.length}</span>
+                          <span className="mono">{digest.overall.web.length}</span>
                         </div>
                         <div className="body mono">
-                          {digest.web.slice(0, 80).map((w, idx) => (
+                          {digest.overall.web.slice(0, 80).map((w, idx) => (
                             <div key={`${w.run_id}:${w.ts}:${idx}`}>
                               {w.tool} • {w.value}
                             </div>
@@ -2743,13 +3506,13 @@ export function App(): React.ReactElement {
                       </div>
                     ) : null}
 
-                    {digest.tools_used.length ? (
+                    {digest.overall.tools_used.length ? (
                       <div className="log_item">
                         <div className="meta">
                           <span className="mono">tools used</span>
-                          <span className="mono">{digest.tools_used.length}</span>
+                          <span className="mono">{digest.overall.tools_used.length}</span>
                         </div>
-                        <div className="body mono">{digest.tools_used.join(", ")}</div>
+                        <div className="body mono">{digest.overall.tools_used.join(", ")}</div>
                       </div>
                     ) : null}
                   </div>
