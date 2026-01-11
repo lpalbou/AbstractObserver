@@ -1,0 +1,36 @@
+# Source files (only publish built dist/)
+src/
+public/
+index.html
+vite.config.ts
+tsconfig.json
+tsconfig.node.json
+
+# Development files
+.vite/
+.env
+.env.*
+*.log
+
+# Tests
+*.test.ts
+*.test.js
+coverage/
+
+# IDE
+.vscode/
+.cursor/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Docs (keep README.md)
+docs/
+
+# Dependencies
+node_modules/

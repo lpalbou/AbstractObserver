@@ -1,13 +1,38 @@
 {
   "name": "abstractobserver",
   "version": "0.1.0",
-  "private": true,
+  "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
+  "author": "Laurent-Philippe Albou",
+  "license": "MIT",
+  "keywords": [
+    "abstractframework",
+    "observability",
+    "workflow",
+    "gateway",
+    "ui",
+    "pwa",
+    "monitoring"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lpalbou/abstractobserver.git"
+  },
+  "homepage": "https://github.com/lpalbou/abstractobserver#readme",
+  "bin": {
+    "abstractobserver": "./bin/cli.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
   "scripts": {
     "dev": "vite --host --port 3001",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -20,6 +45,9 @@
     "typescript": "^5.3.3",
     "vite": "^5.0.12",
     "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
 

@@ -5,12 +5,19 @@ This is a **gateway-only** observability UI for AbstractFramework:
 - render by replaying/streaming the **ledger**
 - act by submitting **durable commands**
 
-See:
-- Backlog: `docs/backlog/completed/317-abstractcode-react-thin-client-web-pwa-ios-dev-deploy.md`
-- iPhone guide: `docs/guide/deployment-iphone.md`
+## Installation
 
-## Local dev
+### Global CLI (recommended)
 ```bash
+npm install -g abstractobserver
+abstractobserver
+```
+
+This will start the UI server on `http://localhost:3001` (configurable via `PORT` env var).
+
+### From source
+```bash
+git clone https://github.com/lpalbou/abstractobserver.git
 cd abstractobserver
 npm install
 npm run dev
