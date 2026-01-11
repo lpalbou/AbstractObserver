@@ -108,9 +108,8 @@ export function RunPicker({
   const [panel_pos, set_panel_pos] = useState<{
     left: number;
     width: number;
-    maxHeight: number;
-    top?: number;
-    bottom?: number;
+    height: number;
+    top: number;
   } | null>(null);
   const root_ref = useRef<HTMLDivElement | null>(null);
   const btn_ref = useRef<HTMLButtonElement | null>(null);
@@ -141,29 +140,18 @@ export function RunPicker({
       if (left < pad) left = pad;
 
       const minHeight = 240;
-      const top_down = rect.bottom + 8;
-      const max_down = window.innerHeight - top_down - pad;
-      const bottom_up = window.innerHeight - rect.top + 8;
-      const max_up = rect.top - pad - 8;
+      const below = window.innerHeight - rect.bottom - pad;
+      const above = rect.top - pad;
+      const open_up = below < minHeight && above > below;
 
-      const open_up = max_down < minHeight && max_up > max_down;
+      let height = Math.max(minHeight, open_up ? above : below);
+      height = Math.min(height, window.innerHeight - pad * 2);
 
-      if (open_up) {
-        let maxHeight = Math.max(minHeight, max_up);
-        maxHeight = Math.min(maxHeight, window.innerHeight - pad * 2);
-        let bottom = bottom_up;
-        bottom = Math.min(bottom, window.innerHeight - pad - maxHeight);
-        bottom = Math.max(pad, bottom);
-        set_panel_pos({ left, width, maxHeight, bottom });
-        return;
-      }
-
-      let maxHeight = Math.max(minHeight, max_down);
-      maxHeight = Math.min(maxHeight, window.innerHeight - pad * 2);
-      let top = top_down;
-      top = Math.min(top, window.innerHeight - pad - maxHeight);
+      let top = open_up ? rect.top - 8 - height : rect.bottom + 8;
+      top = Math.min(top, window.innerHeight - pad - height);
       top = Math.max(pad, top);
-      set_panel_pos({ left, width, maxHeight, top });
+
+      set_panel_pos({ left, width, height, top });
     };
     update();
     window.addEventListener("resize", update);
@@ -209,7 +197,7 @@ export function RunPicker({
         ) : selected ? (
           <RunBadges run={selected} workflow_label_by_id={workflow_label_by_id} compact={true} />
         ) : (
-          <span className="mono muted">(select recent run)</span>
+          <span className="mono">(select)</span>
         )}
       </button>
 
@@ -221,9 +209,8 @@ export function RunPicker({
               ? {
                   left: `${panel_pos.left}px`,
                   width: `${panel_pos.width}px`,
-                  maxHeight: `${panel_pos.maxHeight}px`,
-                  top: panel_pos.top !== undefined ? `${panel_pos.top}px` : undefined,
-                  bottom: panel_pos.bottom !== undefined ? `${panel_pos.bottom}px` : undefined,
+                  height: `${panel_pos.height}px`,
+                  top: `${panel_pos.top}px`,
                 }
               : undefined
           }

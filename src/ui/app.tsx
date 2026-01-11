@@ -9,6 +9,7 @@ import { FlowGraph } from "./flow_graph";
 import { JsonViewer } from "./json_viewer";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
+import { Markdown } from "./markdown";
 import { RunPicker, type RunSummary } from "./run_picker";
 
 type Settings = {
@@ -281,7 +282,8 @@ export function App(): React.ReactElement {
   const [schedule_start_mode, set_schedule_start_mode] = useState<"now" | "at">("now");
   const [schedule_start_at_local, set_schedule_start_at_local] = useState<string>("");
   const [schedule_repeat_mode, set_schedule_repeat_mode] = useState<"once" | "forever" | "count">("once");
-  const [schedule_cadence, set_schedule_cadence] = useState<"hourly" | "daily" | "weekly" | "monthly">("daily");
+  const [schedule_every_n, set_schedule_every_n] = useState<number>(1);
+  const [schedule_every_unit, set_schedule_every_unit] = useState<"minutes" | "hours" | "days" | "weeks" | "months">("days");
   const [schedule_repeat_count, set_schedule_repeat_count] = useState<number>(2);
   const [schedule_share_context, set_schedule_share_context] = useState<boolean>(true);
   const [run_control_open, set_run_control_open] = useState(false);
@@ -296,11 +298,23 @@ export function App(): React.ReactElement {
   const dismiss_timer_ref = useRef<number | null>(null);
   const [dismissed_wait_key, set_dismissed_wait_key] = useState<string>("");
 
+  const [chat_provider, set_chat_provider] = useState<string>("lmstudio");
+  const [chat_model, set_chat_model] = useState<string>("qwen/qwen3-next-80b");
+  const [chat_persist, set_chat_persist] = useState<boolean>(false);
+  const [chat_input, set_chat_input] = useState<string>("");
+  const [chat_error, set_chat_error] = useState<string>("");
+  const [chat_sending, set_chat_sending] = useState<boolean>(false);
+  const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string; persisted?: boolean }>>(
+    []
+  );
+  const chat_seen_persist_ids_ref = useRef<Set<string>>(new Set());
+  const chat_bottom_ref = useRef<HTMLDivElement | null>(null);
+
   const [log, set_log] = useState<UiLogItem[]>([]);
   const [log_open, set_log_open] = useState<Record<string, boolean>>({});
   const [error_text, set_error_text] = useState<string>("");
 
-  const [right_tab, set_right_tab] = useState<"ledger" | "graph" | "digest">("ledger");
+  const [right_tab, set_right_tab] = useState<"ledger" | "graph" | "digest" | "chat">("ledger");
   const [graph_flow_id, set_graph_flow_id] = useState<string>("");
   const [graph_flow, set_graph_flow] = useState<any | null>(null);
   const [graph_flow_cache, set_graph_flow_cache] = useState<Record<string, any>>({});
@@ -462,6 +476,57 @@ export function App(): React.ReactElement {
     return { models: models.map((x) => String(x || "").trim()).filter(Boolean), error: String((found as any).error || "") };
   }, [discovered_models_by_provider, provider_value]);
 
+  const chat_models_for_provider = useMemo(() => {
+    const prov = chat_provider.trim();
+    if (!prov) return { models: [] as string[], error: "" };
+    const found = discovered_models_by_provider[prov];
+    if (!found) return { models: [] as string[], error: "" };
+    const models = Array.isArray(found.models) ? found.models : [];
+    return { models: models.map((x) => String(x || "").trim()).filter(Boolean), error: String((found as any).error || "") };
+  }, [discovered_models_by_provider, chat_provider]);
+
+  useEffect(() => {
+    const prov = chat_provider.trim();
+    if (!prov) return;
+    if (discovered_models_by_provider[prov]) return;
+    if (models_fetch_inflight_ref.current[prov]) return;
+    models_fetch_inflight_ref.current[prov] = true;
+    let stopped = false;
+    const run = async () => {
+      try {
+        const res = await gateway.discovery_provider_models(prov);
+        if (stopped) return;
+        const models = Array.isArray(res?.models) ? res.models : [];
+        const err = typeof res?.error === "string" ? String(res.error) : "";
+        set_discovered_models_by_provider((prev) => ({ ...prev, [prov]: { models, error: err || undefined } }));
+      } catch (e: any) {
+        if (stopped) return;
+        set_discovered_models_by_provider((prev) => ({ ...prev, [prov]: { models: [], error: String(e?.message || e || "Failed to load models") } }));
+      } finally {
+        delete models_fetch_inflight_ref.current[prov];
+      }
+    };
+    run();
+    return () => {
+      stopped = true;
+    };
+  }, [chat_provider, discovered_models_by_provider, gateway]);
+
+  useEffect(() => {
+    if (!available_providers.length) return;
+    const cur = chat_provider.trim();
+    if (cur && available_providers.includes(cur)) return;
+    set_chat_provider(available_providers[0]);
+  }, [available_providers, chat_provider]);
+
+  useEffect(() => {
+    const models = chat_models_for_provider.models;
+    if (!models.length) return;
+    const cur = chat_model.trim();
+    if (cur && models.includes(cur)) return;
+    set_chat_model(models[0]);
+  }, [chat_models_for_provider, chat_model]);
+
   useEffect(() => {
     const prov = provider_value.trim();
     if (!prov) return;
@@ -576,7 +641,7 @@ export function App(): React.ReactElement {
     if (runs_loading) return;
     set_runs_loading(true);
     try {
-      const runs = await gateway.list_runs({ limit: 80 });
+      const runs = await gateway.list_runs({ limit: 200, root_only: true });
       const items = Array.isArray((runs as any)?.items) ? ((runs as any).items as any[]) : [];
       const next: RunSummary[] = items
         .map((r) => ({
@@ -1206,7 +1271,8 @@ export function App(): React.ReactElement {
     start_mode: "now" | "at";
     start_at_local: string;
     repeat_mode: "once" | "forever" | "count";
-    cadence: "hourly" | "daily" | "weekly" | "monthly";
+    every_n: number;
+    every_unit: "minutes" | "hours" | "days" | "weeks" | "months";
     repeat_count: number;
     share_context: boolean;
   }): Promise<string | null> {
@@ -1259,9 +1325,16 @@ export function App(): React.ReactElement {
         start_at = dt.toISOString();
       }
 
-      const cadence = args.cadence;
-      const interval =
-        cadence === "hourly" ? "1h" : cadence === "daily" ? "1d" : cadence === "weekly" ? "7d" : cadence === "monthly" ? "30d" : "1d";
+      const every_raw = Number.isFinite(args.every_n) ? args.every_n : 1;
+      const every_n = Math.max(1, Math.min(10_000, Math.floor(every_raw)));
+      const every_unit = String(args.every_unit || "").trim() as any;
+
+      let interval: string = "1d";
+      if (every_unit === "minutes") interval = `${every_n}m`;
+      else if (every_unit === "hours") interval = `${every_n}h`;
+      else if (every_unit === "days") interval = `${every_n}d`;
+      else if (every_unit === "weeks") interval = `${every_n * 7}d`;
+      else if (every_unit === "months") interval = `${every_n * 30}d`;
 
       const repeat_mode = args.repeat_mode;
       const interval_to_send = repeat_mode === "once" ? null : interval;
@@ -1351,7 +1424,63 @@ export function App(): React.ReactElement {
     set_error_text("");
     set_summary_generating(false);
     set_summary_error("");
+
+    chat_seen_persist_ids_ref.current = new Set();
+    set_chat_messages([]);
+    set_chat_input("");
+    set_chat_error("");
+    set_chat_sending(false);
   }
+
+  useEffect(() => {
+    chat_seen_persist_ids_ref.current = new Set();
+    set_chat_messages([]);
+    set_chat_input("");
+    set_chat_error("");
+    set_chat_sending(false);
+  }, [run_id]);
+
+  useEffect(() => {
+    if (!run_id.trim()) return;
+    const seen = chat_seen_persist_ids_ref.current;
+    const additions: Array<{ id: string; role: "user" | "assistant"; content: string; ts: string; persisted?: boolean }> = [];
+
+    for (const item of records) {
+      const rec = item?.record as any;
+      const eff = rec?.effect;
+      if (!eff || typeof eff !== "object") continue;
+      if (String(eff.type || "") !== "emit_event") continue;
+      const p = eff.payload;
+      if (!p || typeof p !== "object") continue;
+      if (String(p.name || "") !== "abstract.chat") continue;
+      const pay = p.payload;
+      if (!pay || typeof pay !== "object") continue;
+      const generated_at = typeof pay.generated_at === "string" ? String(pay.generated_at) : "";
+      const key = generated_at ? `observer:chat:${generated_at}` : String(rec.idempotency_key || rec.step_id || "");
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+
+      const question = typeof pay.question === "string" ? String(pay.question) : "";
+      const answer = typeof pay.answer === "string" ? String(pay.answer) : "";
+      const ts = generated_at || String(rec.ended_at || rec.started_at || now_iso());
+      if (question.trim()) {
+        additions.push({ id: `${key}:q`, role: "user", content: question.trim(), ts, persisted: true });
+      }
+      if (answer.trim()) {
+        additions.push({ id: `${key}:a`, role: "assistant", content: answer.trim(), ts, persisted: true });
+      }
+    }
+
+    if (!additions.length) return;
+    additions.sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")));
+    set_chat_messages((prev) => [...prev, ...additions]);
+  }, [records, run_id]);
+
+  useEffect(() => {
+    if (right_tab !== "chat") return;
+    if (!chat_bottom_ref.current) return;
+    chat_bottom_ref.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chat_messages, right_tab]);
 
   async function submit_run_control(type: "pause" | "resume" | "cancel", opts?: { reason?: string }): Promise<string | null> {
     const rid = run_id.trim();
@@ -1403,6 +1532,54 @@ export function App(): React.ReactElement {
       set_summary_error(String(e?.message || e || "Failed to generate summary"));
     } finally {
       set_summary_generating(false);
+    }
+  }
+
+  async function send_chat_message(): Promise<void> {
+    const rid = run_id.trim();
+    if (!rid) {
+      set_chat_error("Select a run first.");
+      return;
+    }
+    if (!gateway_connected) {
+      set_chat_error("Connect to the gateway first.");
+      return;
+    }
+    const q = chat_input.trim();
+    if (!q) return;
+    if (chat_sending) return;
+
+    set_chat_error("");
+    set_chat_sending(true);
+    const user_msg = { id: `local:${random_id()}`, role: "user" as const, content: q, ts: now_iso(), persisted: chat_persist };
+    set_chat_messages((prev) => [...prev, user_msg]);
+    set_chat_input("");
+
+    try {
+      const history = [...chat_messages, user_msg].slice(-20).map((m) => ({ role: m.role, content: m.content }));
+      const provider = chat_provider.trim() || "lmstudio";
+      const model = chat_model.trim() || "qwen/qwen3-next-80b";
+      const res = await gateway.run_chat(rid, { provider, model, include_subruns: true, messages: history, persist: chat_persist });
+      const answer = String(res?.answer || "").trim() || "(empty response)";
+      const ts = String(res?.generated_at || "").trim() || now_iso();
+
+      if (chat_persist) {
+        const key = ts ? `observer:chat:${ts}` : "";
+        if (key) chat_seen_persist_ids_ref.current.add(key);
+      }
+
+      set_chat_messages((prev) => [
+        ...prev,
+        { id: `local:${random_id()}`, role: "assistant" as const, content: answer, ts, persisted: chat_persist },
+      ]);
+    } catch (e: any) {
+      set_chat_error(String(e?.message || e || "Chat failed"));
+      set_chat_messages((prev) => [
+        ...prev,
+        { id: `local:${random_id()}`, role: "assistant" as const, content: "(error: failed to generate answer)", ts: now_iso() },
+      ]);
+    } finally {
+      set_chat_sending(false);
     }
   }
 
@@ -1467,7 +1644,9 @@ export function App(): React.ReactElement {
   const tool_calls_for_wait = useMemo(() => extract_tool_calls_from_wait(wait_state), [wait_state]);
   const wait_key = String(wait_state?.wait_key || "").trim();
   const wait_reason = String(wait_state?.reason || "").trim();
-  const is_waiting = is_waiting_status(last_record) && Boolean(wait_key);
+  const wait_until = typeof (wait_state as any)?.until === "string" ? String((wait_state as any).until) : "";
+  const is_until_wait = wait_reason === "until" && Boolean(wait_until);
+  const is_waiting = is_waiting_status(last_record) && (Boolean(wait_key) || is_until_wait);
   const is_user_wait = wait_reason === "user";
   const wait_event_name = wait_reason === "event" ? normalize_ui_event_name(event_name_from_wait_key(wait_key)) : "";
   const is_ask_event_wait = wait_reason === "event" && wait_event_name === "abstract.ask";
@@ -1638,8 +1817,8 @@ export function App(): React.ReactElement {
 
       const output_preview = (value: any): string => {
         if (value === null || value === undefined) return "";
-        if (typeof value === "string") return clamp_preview(value, { max_chars: 1200, max_lines: 16 });
-        return clamp_preview(safe_json(value), { max_chars: 1200, max_lines: 16 });
+        if (typeof value === "string") return clamp_preview(value, { max_chars: 2400, max_lines: 32 });
+        return clamp_preview(safe_json(value), { max_chars: 2400, max_lines: 32 });
       };
 
       for (const rec of all) {
@@ -1691,8 +1870,8 @@ export function App(): React.ReactElement {
               node_id,
               provider,
               model,
-              prompt_preview: clamp_preview(prompt, { max_chars: 900, max_lines: 10 }),
-              response_preview: clamp_preview(String(content || ""), { max_chars: 900, max_lines: 10 }),
+              prompt_preview: clamp_preview(prompt, { max_chars: 1800, max_lines: 24 }),
+              response_preview: clamp_preview(String(content || ""), { max_chars: 1800, max_lines: 24 }),
               missing_response,
               tokens: { prompt: Number.isFinite(pt) ? pt : 0, completion: Number.isFinite(ct) ? ct : 0, total: Number.isFinite(tt) ? tt : 0 },
             });
@@ -2750,7 +2929,8 @@ export function App(): React.ReactElement {
                           start_mode: schedule_start_mode,
                           start_at_local: schedule_start_at_local,
                           repeat_mode: schedule_repeat_mode,
-                          cadence: schedule_cadence,
+                          every_n: schedule_every_n,
+                          every_unit: schedule_every_unit,
                           repeat_count: schedule_repeat_count,
                           share_context: schedule_share_context,
                         });
@@ -2820,15 +3000,39 @@ export function App(): React.ReactElement {
                 </div>
 
                 {schedule_repeat_mode !== "once" ? (
-                  <div className="field">
-                    <label>Cadence</label>
-                    <select className="mono" value={schedule_cadence} onChange={(e) => set_schedule_cadence(e.target.value as any)}>
-                      <option value="hourly">hourly</option>
-                      <option value="daily">daily</option>
-                      <option value="weekly">weekly</option>
-                      <option value="monthly">monthly (≈30d)</option>
-                    </select>
-                  </div>
+                  <>
+                    <div className="row">
+                      <div className="col">
+                        <div className="field">
+                          <label>Every</label>
+                          <input
+                            className="mono"
+                            type="number"
+                            min={1}
+                            value={String(schedule_every_n)}
+                            onChange={(e) => set_schedule_every_n(Math.max(1, parseInt(e.target.value || "1", 10) || 1))}
+                          />
+                        </div>
+                      </div>
+                      <div className="col">
+                        <div className="field">
+                          <label>Unit</label>
+                          <select className="mono" value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
+                            <option value="minutes">minutes</option>
+                            <option value="hours">hours</option>
+                            <option value="days">days</option>
+                            <option value="weeks">weeks (≈7d)</option>
+                            <option value="months">months (≈30d)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                    {schedule_every_unit === "months" || schedule_every_unit === "weeks" ? (
+                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                        Note: weeks/months are implemented as fixed day intervals (calendar-aware scheduling is planned).
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
 
                 {schedule_repeat_mode === "count" ? (
@@ -2935,8 +3139,17 @@ export function App(): React.ReactElement {
                     wait_key: wait_key,
                     reason: wait_reason,
                     sub_run_id: sub_run_id || undefined,
+                    until: wait_until || undefined,
                   })}
                 </div>
+                {wait_reason === "until" && wait_until ? (
+                  <div className="mono muted" style={{ marginTop: "10px", fontSize: "12px" }}>
+                    Next execution at {(() => {
+                      const dt = new Date(wait_until);
+                      return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : wait_until;
+                    })()}
+                  </div>
+                ) : null}
                 {wait_reason === "subworkflow" && sub_run_id ? (
                   <div className="actions">
                     <button
@@ -3016,6 +3229,9 @@ export function App(): React.ReactElement {
                 </button>
                 <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
                   Digest
+                </button>
+                <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
+                  Chat
                 </button>
               </div>
 
@@ -3154,7 +3370,7 @@ export function App(): React.ReactElement {
                     />
                   </div>
                 </>
-              ) : (
+              ) : right_tab === "digest" ? (
                 <>
                   <div className="meta" style={{ marginTop: "10px" }}>
                     <span className="mono">digest</span>
@@ -3196,7 +3412,7 @@ export function App(): React.ReactElement {
                               {digest.latest_summary.generated_at || digest.latest_summary.ts || ""} •{" "}
                               {digest.latest_summary.provider || "provider?"} • {digest.latest_summary.model || "model?"}
                             </div>
-                            {digest.latest_summary.text}
+                            <Markdown text={digest.latest_summary.text} />
                           </>
                         ) : (
                           <div className="mono muted">No summary yet.</div>
@@ -3328,13 +3544,23 @@ export function App(): React.ReactElement {
 	                                    {c.ts} • {c.node_id ? `node ${c.node_id}` : "node ?"} • {short_id(c.run_id, 10)}
 	                                  </div>
 	                                  {c.prompt_preview ? (
-	                                    <div className="mono" style={{ marginTop: "8px" }}>
-	                                      <span className="mono muted">prompt:</span> {c.prompt_preview}
+	                                    <div style={{ marginTop: "8px" }}>
+	                                      <div className="mono muted" style={{ fontSize: "12px" }}>
+	                                        prompt:
+	                                      </div>
+	                                      <pre className="mono" style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>
+	                                        {c.prompt_preview}
+	                                      </pre>
 	                                    </div>
 	                                  ) : null}
 	                                  {c.response_preview ? (
-	                                    <div className="mono" style={{ marginTop: "8px" }}>
-	                                      <span className="mono muted">response:</span> {c.response_preview}
+	                                    <div style={{ marginTop: "8px" }}>
+	                                      <div className="mono muted" style={{ fontSize: "12px" }}>
+	                                        response:
+	                                      </div>
+	                                      <div style={{ marginTop: "6px" }}>
+	                                        <Markdown text={c.response_preview} />
+	                                      </div>
 	                                    </div>
 	                                  ) : (
 	                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(245, 158, 11, 0.95)" }}>
@@ -3431,13 +3657,23 @@ export function App(): React.ReactElement {
 	                                                    {c.tokens.completion}
 	                                                  </summary>
 	                                                  {c.prompt_preview ? (
-	                                                    <div className="mono" style={{ marginTop: "8px" }}>
-	                                                      <span className="mono muted">prompt:</span> {c.prompt_preview}
+	                                                    <div style={{ marginTop: "8px" }}>
+	                                                      <div className="mono muted" style={{ fontSize: "12px" }}>
+	                                                        prompt:
+	                                                      </div>
+	                                                      <pre className="mono" style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>
+	                                                        {c.prompt_preview}
+	                                                      </pre>
 	                                                    </div>
 	                                                  ) : null}
 	                                                  {c.response_preview ? (
-	                                                    <div className="mono" style={{ marginTop: "8px" }}>
-	                                                      <span className="mono muted">response:</span> {c.response_preview}
+	                                                    <div style={{ marginTop: "8px" }}>
+	                                                      <div className="mono muted" style={{ fontSize: "12px" }}>
+	                                                        response:
+	                                                      </div>
+	                                                      <div style={{ marginTop: "6px" }}>
+	                                                        <Markdown text={c.response_preview} />
+	                                                      </div>
 	                                                    </div>
 	                                                  ) : (
 	                                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(245, 158, 11, 0.95)" }}>
@@ -3515,6 +3751,147 @@ export function App(): React.ReactElement {
                         <div className="body mono">{digest.overall.tools_used.join(", ")}</div>
                       </div>
                     ) : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="meta" style={{ marginTop: "10px" }}>
+                    <span className="mono">chat (read-only)</span>
+                    <span className="mono">{run_id.trim() ? `run ${run_id.trim()}` : ""}</span>
+                  </div>
+
+                  <div className="row" style={{ marginTop: "10px" }}>
+                    <div className="col">
+                      <div className="field" style={{ margin: 0 }}>
+                        <label>Provider</label>
+                        {available_providers.length ? (
+                          <select
+                            className="mono"
+                            value={chat_provider}
+                            onChange={(e) => {
+                              const next = String(e.target.value || "").trim();
+                              set_chat_provider(next);
+                              if (chat_model.trim()) set_chat_model("");
+                            }}
+                            disabled={!gateway_connected}
+                          >
+                            <option value="">(select)</option>
+                            {available_providers.map((p) => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            className="mono"
+                            value={chat_provider}
+                            onChange={(e) => set_chat_provider(e.target.value)}
+                            placeholder="lmstudio / ollama / openai / ..."
+                            disabled={!gateway_connected}
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div className="col">
+                      <div className="field" style={{ margin: 0 }}>
+                        <label>Model</label>
+                        {chat_provider.trim() && chat_models_for_provider.models.length ? (
+                          <select
+                            className="mono"
+                            value={chat_model}
+                            onChange={(e) => set_chat_model(String(e.target.value || "").trim())}
+                            disabled={!gateway_connected || !chat_provider.trim()}
+                          >
+                            <option value="">(select)</option>
+                            {chat_models_for_provider.models.map((m) => (
+                              <option key={m} value={m}>
+                                {m}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            className="mono"
+                            value={chat_model}
+                            onChange={(e) => set_chat_model(e.target.value)}
+                            placeholder={chat_provider.trim() ? "(loading models…)" : "select provider first"}
+                            disabled={!gateway_connected || !chat_provider.trim()}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="field" style={{ marginTop: "10px" }}>
+                    <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                      <input type="checkbox" checked={chat_persist} onChange={(e) => set_chat_persist(Boolean(e.target.checked))} />
+                      Save this chat to the run ledger
+                    </label>
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      Read-only: no tools. Answers are grounded in the parent run + subflows ledger.
+                    </div>
+                  </div>
+
+                  {chat_error ? (
+                    <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                      <div className="meta">
+                        <span className="mono">error</span>
+                        <span className="mono">{now_iso()}</span>
+                      </div>
+                      <div className="body mono">{chat_error}</div>
+                    </div>
+                  ) : null}
+
+                  <div className="chat_messages log_scroll" style={{ marginTop: "10px" }}>
+                    {!chat_messages.length ? (
+                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                        Ask a question about this run (e.g. “Why did it fail?”, “Which tools were used?”, “What happened in subflows?”).
+                      </div>
+                    ) : null}
+                    {chat_messages.map((m) => (
+                      <div key={m.id} className={`chat_row ${m.role === "user" ? "right" : "left"}`}>
+                        <div className={`chat_bubble ${m.role}`}>
+                          <div className="chat_meta mono">
+                            <span className="mono muted">{m.ts}</span>
+                            {m.persisted ? <span className="chip muted mono">saved</span> : null}
+                          </div>
+                          <div className="chat_text">
+                            <Markdown text={m.content} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={chat_bottom_ref} />
+                  </div>
+
+                  <div className="chat_composer" style={{ marginTop: "10px" }}>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Your question</label>
+                      <textarea
+                        className="mono"
+                        value={chat_input}
+                        onChange={(e) => set_chat_input(e.target.value)}
+                        rows={3}
+                        placeholder="Ask about the run…"
+                        disabled={!run_id.trim() || chat_sending || !gateway_connected}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            void send_chat_message();
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="actions" style={{ justifyContent: "flex-end" }}>
+                      <button
+                        className="btn primary"
+                        onClick={() => void send_chat_message()}
+                        disabled={!run_id.trim() || !chat_input.trim() || chat_sending || !gateway_connected}
+                      >
+                        {chat_sending ? "Thinking…" : "Send"}
+                      </button>
+                    </div>
                   </div>
                 </>
               )}

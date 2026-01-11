@@ -99,16 +99,18 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async list_runs(opts?: { limit?: number; status?: string; workflow_id?: string; session_id?: string }): Promise<any> {
+  async list_runs(opts?: { limit?: number; status?: string; workflow_id?: string; session_id?: string; root_only?: boolean }): Promise<any> {
     const limit = typeof opts?.limit === "number" ? opts.limit : 50;
     const status = String(opts?.status || "").trim();
     const workflow_id = String(opts?.workflow_id || "").trim();
     const session_id = String(opts?.session_id || "").trim();
+    const root_only = opts?.root_only === true;
     const qs = new URLSearchParams();
     qs.set("limit", String(limit));
     if (status) qs.set("status", status);
     if (workflow_id) qs.set("workflow_id", workflow_id);
     if (session_id) qs.set("session_id", session_id);
+    if (root_only) qs.set("root_only", "true");
     const url = _join(this._cfg.base_url, `/api/gateway/runs?${qs.toString()}`);
     const r = await fetch(url, {
       headers: {
@@ -172,6 +174,31 @@ export class GatewayClient {
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(`generate_run_summary failed: ${r.status}`);
+    return await r.json();
+  }
+
+  async run_chat(
+    run_id: string,
+    opts: { provider?: string; model?: string; include_subruns?: boolean; messages: Array<{ role: string; content: string }>; persist?: boolean }
+  ): Promise<{ ok: boolean; run_id: string; provider: string; model: string; generated_at: string; answer: string }> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("run_chat: run_id is required");
+    const body: any = {
+      provider: String(opts?.provider || "lmstudio"),
+      model: String(opts?.model || "qwen/qwen3-next-80b"),
+      include_subruns: opts?.include_subruns !== false,
+      messages: Array.isArray(opts?.messages) ? opts.messages : [],
+      persist: Boolean(opts?.persist),
+    };
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/chat`), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`run_chat failed: ${r.status}`);
     return await r.json();
   }
 
