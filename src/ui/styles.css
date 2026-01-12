@@ -339,9 +339,9 @@ button.primary:hover:not(:disabled) {
 .section_title {
   margin-top: 2px;
   margin-bottom: 2px;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--muted);
 }
@@ -1609,11 +1609,14 @@ button.primary:hover:not(:disabled) {
     grid-template-columns: 1fr;
   }
 
-  /* Prevent iOS Safari auto-zoom on focus (needs >= 16px). */
-  .field input,
-  .field textarea,
-  .field select {
-    font-size: 16px;
+  /* Prevent iOS Safari auto-zoom on focus (needs >= 16px).
+     Scope to touch devices so desktop narrow windows keep normal sizing. */
+  @media (pointer: coarse) {
+    .field input,
+    .field textarea,
+    .field select {
+      font-size: 16px;
+    }
   }
 
   .graph_svg {

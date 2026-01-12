@@ -2620,12 +2620,11 @@ export function App(): React.ReactElement {
         <div className="app-main">
           <div className="panel" style={is_narrow && mobile_tab !== "controls" ? { display: "none" } : undefined}>
             <div className="card panel_card scroll_y">
-            <div className="section_title mono">Connect</div>
+            <div className="section_title">Connect</div>
             <div className="field">
               <label>Gateway URL (blank = same origin / dev proxy)</label>
               <div className="field_inline">
                 <input
-                  className="mono"
                   value={settings.gateway_url}
                   onChange={(e) => set_settings((s) => ({ ...s, gateway_url: e.target.value }))}
                   placeholder="https://your-gateway-host"
@@ -2647,7 +2646,6 @@ export function App(): React.ReactElement {
             <div className="field">
               <label>Gateway token (Authorization: Bearer …)</label>
               <input
-                className="mono"
                 type="password"
                 value={settings.auth_token}
                 onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value }))}
@@ -2655,11 +2653,10 @@ export function App(): React.ReactElement {
               />
             </div>
             <div className="section_divider" />
-            <div className="section_title mono">Workflow</div>
+            <div className="section_title">Workflow</div>
             <div className="field">
               <label>Workflows (discovered)</label>
               <select
-                className="mono"
                 value={selected_workflow_value}
                 onChange={async (e) => {
                   const wid = String(e.target.value || "").trim();
@@ -2705,7 +2702,7 @@ export function App(): React.ReactElement {
             </div>
 
             <div className="section_divider" />
-            <div className="section_title mono">Existing Runs</div>
+            <div className="section_title">Existing Runs</div>
             <div className="field">
               <label>Runs (parent — select to observe)</label>
               <div className="field_inline">
