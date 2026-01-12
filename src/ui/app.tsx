@@ -194,6 +194,100 @@ function extract_textish(payload: any): { text: string; duration: number } {
   return { text: safe_json_inline(payload, 320), duration: -1 };
 }
 
+function extract_response_text_from_record(rec: any): string {
+  if (!rec || typeof rec !== "object") return "";
+  const eff_type = String(rec?.effect?.type || "").trim();
+  const result = rec?.result;
+
+  const pick_text = (v: any): string => {
+    if (typeof v === "string") return v.trim();
+    if (v == null) return "";
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    return "";
+  };
+
+  const pick_from_obj = (obj: any): string => {
+    if (!obj || typeof obj !== "object") return "";
+    const o: any = obj;
+    const candidates = [o.response, o.answer, o.message, o.text, o.content];
+    for (const c of candidates) {
+      const t = pick_text(c);
+      if (t) return t;
+    }
+    return "";
+  };
+
+  if (eff_type === "answer_user") {
+    const t =
+      pick_text(result?.message) ||
+      pick_text(result?.output?.message) ||
+      pick_text(result?.output?.response) ||
+      pick_text(rec?.effect?.payload?.message) ||
+      pick_text(rec?.effect?.payload?.text) ||
+      pick_text(rec?.effect?.payload?.content);
+    if (t) return t;
+  }
+
+  if (eff_type === "llm_call") {
+    const t =
+      pick_from_obj(result) ||
+      pick_text(result?.output) ||
+      pick_from_obj(result?.output) ||
+      pick_from_obj(result?.output?.result) ||
+      pick_from_obj(result?.result) ||
+      pick_text(result?.response);
+    if (t) return t;
+  }
+
+  const t =
+    pick_text(result?.output) ||
+    pick_from_obj(result?.output) ||
+    pick_from_obj(result?.output?.result) ||
+    pick_from_obj(result) ||
+    pick_text(result?.response);
+  return t;
+}
+
+const CONDENSED_HIDE_EMIT_NAMES = new Set(["abstract.status", "abstract.summary", "abstract.chat"]);
+
+function is_condensed_ledger_item(item: UiLogItem): boolean {
+  if (!item) return false;
+  if (item.kind === "error") return true;
+  if (item.kind === "info") return false;
+
+  const emit_name = String(item.emit_name || "").trim();
+  if ((item.kind === "event" || item.kind === "message") && emit_name) {
+    if (CONDENSED_HIDE_EMIT_NAMES.has(emit_name)) return false;
+    return true;
+  }
+
+  const effect_type = String(item.effect_type || "").trim();
+  if (effect_type) {
+    if (effect_type === "tool_calls") return true;
+    if (effect_type === "llm_call") return true;
+    if (effect_type === "ask_user") return true;
+    if (effect_type === "answer_user") return true;
+    if (effect_type === "start_subworkflow") return true;
+    if (effect_type === "emit_event") {
+      if (emit_name && CONDENSED_HIDE_EMIT_NAMES.has(emit_name)) return false;
+      return true;
+    }
+  }
+
+  const status = String(item.status || "").trim();
+  if (status === "waiting") {
+    const w = extract_wait_from_record(item.data);
+    const reason = String(w?.reason || "").trim();
+    if (reason === "user" || reason === "event") return true;
+    const tool_calls = extract_tool_calls_from_wait(w);
+    if (tool_calls.length) return true;
+    return false;
+  }
+
+  const resp = extract_response_text_from_record(item.data);
+  return Boolean(resp);
+}
+
 function load_settings(): Settings {
   try {
     const raw = localStorage.getItem("abstractobserver_settings");
@@ -232,6 +326,29 @@ function parse_iso_ms(ts: any): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function is_uuid(s: string): boolean {
+  const v = String(s || "").trim();
+  if (!v) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+function parse_run_id_from_url(): string {
+  try {
+    const hash = String(window.location.hash || "").replace(/^#/, "");
+    const hash_parts = hash.split("/").filter(Boolean);
+    const hash_last = hash_parts.length ? String(hash_parts[hash_parts.length - 1] || "").trim() : "";
+    if (is_uuid(hash_last)) return hash_last;
+
+    const path = String(window.location.pathname || "");
+    const parts = path.split("/").filter(Boolean);
+    const last = parts.length ? String(parts[parts.length - 1] || "").trim() : "";
+    if (is_uuid(last)) return last;
+  } catch {
+    // ignore
+  }
+  return "";
+}
+
 export function App(): React.ReactElement {
   const [is_narrow, set_is_narrow] = useState<boolean>(() => {
     try {
@@ -245,6 +362,7 @@ export function App(): React.ReactElement {
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const [run_id, set_run_id] = useState<string>("");
   const [root_run_id, set_root_run_id] = useState<string>("");
+  const [pending_url_run_id, set_pending_url_run_id] = useState<string>(() => parse_run_id_from_url());
   const [flow_id, set_flow_id] = useState<string>("");
   const [bundle_id, set_bundle_id] = useState<string>("");
   const [input_data_text, set_input_data_text] = useState<string>("{}");
@@ -312,9 +430,11 @@ export function App(): React.ReactElement {
 
   const [log, set_log] = useState<UiLogItem[]>([]);
   const [log_open, set_log_open] = useState<Record<string, boolean>>({});
+  const [log_response_open, set_log_response_open] = useState<Record<string, boolean>>({});
   const [error_text, set_error_text] = useState<string>("");
 
   const [right_tab, set_right_tab] = useState<"ledger" | "graph" | "digest" | "chat">("ledger");
+  const [ledger_condensed, set_ledger_condensed] = useState(true);
   const [graph_flow_id, set_graph_flow_id] = useState<string>("");
   const [graph_flow, set_graph_flow] = useState<any | null>(null);
   const [graph_flow_cache, set_graph_flow_cache] = useState<Record<string, any>>({});
@@ -781,7 +901,7 @@ export function App(): React.ReactElement {
 
   function push_log(item: Omit<UiLogItem, "id"> & { id?: string }): void {
     const id = String(item.id || "").trim() || random_id();
-    set_log((prev) => [{ ...(item as any), id } as UiLogItem, ...prev].slice(0, 200));
+    set_log((prev) => [{ ...(item as any), id } as UiLogItem, ...prev].slice(0, 800));
   }
 
   function set_status(text: string, duration_s: number): void {
@@ -903,6 +1023,7 @@ export function App(): React.ReactElement {
     const rec_run_id = typeof rec?.run_id === "string" ? rec.run_id : "";
 
     const effective_run_id = rec_run_id || run_id.trim();
+    const node_id_for_log = node_id ? graph_node_id_for(effective_run_id, node_id) : "";
     if (status === "waiting") {
       const w = extract_wait_from_record(rec);
       const reason = String(w?.reason || "").trim();
@@ -915,7 +1036,7 @@ export function App(): React.ReactElement {
     if (node_id) mark_node_activity(graph_node_id_for(effective_run_id, node_id));
 
     let kind: UiLogItem["kind"] = "step";
-    let title = node_id || "(node?)";
+    let title = node_id_for_log || node_id || "(node?)";
     let preview = "";
 
     if (emit && emit.name && is_ui_event_name(emit.name)) {
@@ -947,7 +1068,7 @@ export function App(): React.ReactElement {
       data: rec,
       cursor: ev.cursor,
       run_id: rec_run_id || run_id.trim() || undefined,
-      node_id,
+      node_id: node_id_for_log || node_id,
       status,
       effect_type,
       emit_name: emit_name || emit?.name || undefined,
@@ -957,15 +1078,17 @@ export function App(): React.ReactElement {
   function handle_child_step(child_run_id: string, ev: LedgerStreamEvent): void {
     child_cursor_ref.current = Math.max(child_cursor_ref.current, ev.cursor);
     const dig_key = `${child_run_id}:${ev.cursor}`;
-    if (!digest_seen_ref.current.has(dig_key)) {
-      digest_seen_ref.current.add(dig_key);
-      set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }]);
-    }
+    const is_new = !digest_seen_ref.current.has(dig_key);
+    if (!is_new) return;
+    digest_seen_ref.current.add(dig_key);
+    set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }]);
     const emit = extract_emit_event(ev.record);
     const emit_name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
     const rec = ev.record;
     const node_id = typeof rec?.node_id === "string" ? rec.node_id : "";
+    const node_id_for_log = node_id ? graph_node_id_for(child_run_id, node_id) : "";
     const status = typeof rec?.status === "string" ? rec.status : "";
+    const effect_type = typeof rec?.effect?.type === "string" ? rec.effect.type : "";
     if (status === "waiting") {
       const w = extract_wait_from_record(rec);
       const reason = String(w?.reason || "").trim();
@@ -993,22 +1116,36 @@ export function App(): React.ReactElement {
       }
     }
 
-    if (!emit || !emit.name) return;
-
     if (emit_name === "abstract.status") {
       const { text, duration } = extract_textish(emit?.payload);
       set_status(text, duration);
-      return;
     }
-    if (!is_ui_event_name(emit.name)) return;
-    const effect_type = typeof rec?.effect?.type === "string" ? rec.effect.type : "";
+    let kind: UiLogItem["kind"] = "step";
+    let title = node_id_for_log || node_id || "(node?)";
+    let preview = "";
 
-    const kind: UiLogItem["kind"] = emit_name === "abstract.message" ? "message" : "event";
-    const title = `child • ${emit_name || emit.name}`;
-    const preview = clamp_preview(extract_textish(emit?.payload).text);
+    if (emit && emit.name && is_ui_event_name(emit.name)) {
+      kind = emit_name === "abstract.message" ? "message" : "event";
+      title = `subrun • ${emit_name || emit.name}`;
+      preview = clamp_preview(extract_textish(emit?.payload).text);
+    } else if (rec?.error) {
+      kind = "error";
+      title = "error";
+      preview = clamp_preview(safe_json_inline(rec.error, 360));
+    } else if (status === "waiting") {
+      const w = extract_wait_from_record(rec);
+      const reason = String(w?.reason || "").trim();
+      preview = clamp_preview(reason ? `waiting • ${reason}` : "waiting");
+    } else if (rec?.result) {
+      preview = clamp_preview(safe_json_inline(rec.result, 360));
+    } else if (effect_type) {
+      preview = clamp_preview(effect_type);
+    } else {
+      preview = clamp_preview(format_step_summary(rec));
+    }
 
     push_log({
-      id: `child:${child_run_id}:${ev.cursor}`,
+      id: `step:${child_run_id}:${ev.cursor}`,
       ts: String(rec?.ended_at || rec?.started_at || now_iso()),
       kind,
       title,
@@ -1016,10 +1153,10 @@ export function App(): React.ReactElement {
       data: rec,
       cursor: ev.cursor,
       run_id: child_run_id,
-      node_id,
+      node_id: node_id_for_log || node_id,
       status,
       effect_type,
-      emit_name: emit_name || emit.name,
+      emit_name: emit_name || emit?.name || "",
     });
   }
 
@@ -1027,15 +1164,16 @@ export function App(): React.ReactElement {
     const child_run_id = String(sub_run_id_value || "").trim();
     if (!child_run_id) return;
     const dig_key = `${child_run_id}:${ev.cursor}`;
-    if (!digest_seen_ref.current.has(dig_key)) {
-      digest_seen_ref.current.add(dig_key);
-      set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }]);
-    }
+    const is_new = !digest_seen_ref.current.has(dig_key);
+    if (!is_new) return;
+    digest_seen_ref.current.add(dig_key);
+    set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }]);
 
     const emit = extract_emit_event(ev.record);
     const emit_name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
     const rec = ev.record;
     const node_id = typeof rec?.node_id === "string" ? rec.node_id : "";
+    const node_id_for_log = node_id ? graph_node_id_for(child_run_id, node_id) : "";
     const status = typeof rec?.status === "string" ? rec.status : "";
     const effect_type = typeof rec?.effect?.type === "string" ? rec.effect.type : "";
 
@@ -1049,21 +1187,36 @@ export function App(): React.ReactElement {
     }
     if (node_id) mark_node_activity(graph_node_id_for(child_run_id, node_id));
 
-    if (!emit || !emit.name) return;
-
     if (emit_name === "abstract.status") {
       const { text, duration } = extract_textish(emit?.payload);
       set_status(text, duration);
-      return;
     }
-    if (!is_ui_event_name(emit.name)) return;
+    let kind: UiLogItem["kind"] = "step";
+    let title = node_id_for_log || node_id || "(node?)";
+    let preview = "";
 
-    const kind: UiLogItem["kind"] = emit_name === "abstract.message" ? "message" : "event";
-    const title = `subrun • ${emit_name || emit.name}`;
-    const preview = clamp_preview(extract_textish(emit?.payload).text);
+    if (emit && emit.name && is_ui_event_name(emit.name)) {
+      kind = emit_name === "abstract.message" ? "message" : "event";
+      title = `subrun • ${emit_name || emit.name}`;
+      preview = clamp_preview(extract_textish(emit?.payload).text);
+    } else if (rec?.error) {
+      kind = "error";
+      title = "error";
+      preview = clamp_preview(safe_json_inline(rec.error, 360));
+    } else if (status === "waiting") {
+      const w = extract_wait_from_record(rec);
+      const reason = String(w?.reason || "").trim();
+      preview = clamp_preview(reason ? `waiting • ${reason}` : "waiting");
+    } else if (rec?.result) {
+      preview = clamp_preview(safe_json_inline(rec.result, 360));
+    } else if (effect_type) {
+      preview = clamp_preview(effect_type);
+    } else {
+      preview = clamp_preview(format_step_summary(rec));
+    }
 
     push_log({
-      id: `subrun:${child_run_id}:${ev.cursor}`,
+      id: `step:${child_run_id}:${ev.cursor}`,
       ts: String(rec?.ended_at || rec?.started_at || now_iso()),
       kind,
       title,
@@ -1071,10 +1224,10 @@ export function App(): React.ReactElement {
       data: rec,
       cursor: ev.cursor,
       run_id: child_run_id,
-      node_id,
+      node_id: node_id_for_log || node_id,
       status,
       effect_type,
-      emit_name: emit_name || emit.name,
+      emit_name: emit_name || emit?.name || "",
     });
   }
 
@@ -1109,6 +1262,7 @@ export function App(): React.ReactElement {
     digest_seen_ref.current = new Set();
     set_log([]);
     set_log_open({});
+    set_log_response_open({});
     set_status_text("");
     set_run_state(null);
     set_input_field_drafts({});
@@ -1376,6 +1530,27 @@ export function App(): React.ReactElement {
     set_run_id(run);
     await connect_to_run(run);
   }
+
+  useEffect(() => {
+    const rid = String(pending_url_run_id || "").trim();
+    if (!rid) return;
+    let stopped = false;
+    void (async () => {
+      try {
+        if (!gateway_connected) await on_discover_gateway();
+        if (stopped) return;
+        await attach_to_run(rid);
+      } catch (e: any) {
+        if (!stopped) set_error_text(String(e?.message || e || "Failed to attach run from URL"));
+      } finally {
+        if (!stopped) set_pending_url_run_id("");
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending_url_run_id]);
 
   function clear_run_view(): void {
     if (abort_ref.current) abort_ref.current.abort();
@@ -2048,6 +2223,21 @@ export function App(): React.ReactElement {
       .filter(Boolean);
   }, [bundle_info]);
 
+  const scheduled_workflow_id = useMemo(() => {
+    const wid = String(run_state?.workflow_id || "").trim();
+    return connected && wid.startsWith("scheduled:") ? wid : "";
+  }, [connected, run_state?.workflow_id]);
+
+  useEffect(() => {
+    if (!connected || !run_id.trim()) return;
+    if (!scheduled_workflow_id.trim()) return;
+    const node_id = String(run_state?.current_node || "").trim();
+    if (!node_id) return;
+    const reason = String(run_state?.waiting?.reason || "").trim();
+    if (reason === "subworkflow") return;
+    mark_node_activity(graph_node_id_for(run_id.trim(), node_id));
+  }, [connected, run_id, scheduled_workflow_id, run_state?.current_node, run_state?.waiting?.reason]);
+
   useEffect(() => {
     const root = String(selected_entrypoint?.flow_id || "").trim();
     if (!root) return;
@@ -2055,8 +2245,36 @@ export function App(): React.ReactElement {
   }, [selected_entrypoint, graph_flow_id]);
 
   useEffect(() => {
+    const wid = scheduled_workflow_id.trim();
     const bid = bundle_id.trim();
     const fid = graph_flow_id.trim();
+
+    if (wid) {
+      let stopped = false;
+      set_graph_loading(true);
+      set_graph_error("");
+      gateway
+        .get_workflow_flow(wid)
+        .then((res) => {
+          if (stopped) return;
+          const flow = (res as any)?.flow;
+          const vf = flow && typeof flow === "object" ? flow : null;
+          set_graph_flow(vf);
+        })
+        .catch((e: any) => {
+          if (stopped) return;
+          set_graph_flow(null);
+          set_graph_error(String(e?.message || e || "Failed to load workflow flow"));
+        })
+        .finally(() => {
+          if (stopped) return;
+          set_graph_loading(false);
+        });
+      return () => {
+        stopped = true;
+      };
+    }
+
     if (!bid || !fid) {
       set_graph_flow(null);
       set_graph_error("");
@@ -2087,7 +2305,7 @@ export function App(): React.ReactElement {
     return () => {
       stopped = true;
     };
-  }, [bundle_id, graph_flow_id, gateway]);
+  }, [scheduled_workflow_id, bundle_id, graph_flow_id, gateway]);
 
   useEffect(() => {
     const bid = bundle_id.trim();
@@ -2225,24 +2443,22 @@ export function App(): React.ReactElement {
       if (!subrun_ids.length) return;
       subrun_poll_inflight_ref.current = true;
       try {
-        for (const child_id_raw of subrun_ids) {
+        const ids = subrun_ids.map((x) => String(x || "").trim()).filter(Boolean);
+        if (!ids.length) return;
+        const req_runs = ids.map((rid) => ({ run_id: rid, after: Number(subrun_cursor_ref.current[rid] || 0) }));
+        const batch = await gateway.get_ledger_batch({ runs: req_runs, limit: 200 });
+        const map = batch && typeof batch === "object" ? (batch as any).runs : {};
+        for (const child_id of ids) {
           if (stopped) return;
-          const child_id = String(child_id_raw || "").trim();
-          if (!child_id) continue;
-
-          let after = Number(subrun_cursor_ref.current[child_id] || 0);
-          while (!stopped) {
-            const page = await gateway.get_ledger(child_id, { after, limit: 200 });
-            const items = Array.isArray(page.items) ? page.items : [];
-            if (!items.length) break;
-            const base = after;
-            for (let i = 0; i < items.length; i++) {
-              const record = items[i] as StepRecord;
-              handle_subrun_digest_step(child_id, { cursor: base + i + 1, record });
-            }
-            after = typeof page.next_after === "number" ? page.next_after : after;
+          const entry = map && typeof map === "object" ? (map as any)[child_id] : null;
+          const items = Array.isArray(entry?.items) ? entry.items : [];
+          const next_after = typeof entry?.next_after === "number" ? entry.next_after : Number(subrun_cursor_ref.current[child_id] || 0);
+          const base = Number(subrun_cursor_ref.current[child_id] || 0);
+          for (let i = 0; i < items.length; i++) {
+            const record = items[i] as StepRecord;
+            handle_subrun_digest_step(child_id, { cursor: base + i + 1, record });
           }
-          subrun_cursor_ref.current[child_id] = after;
+          subrun_cursor_ref.current[child_id] = next_after;
         }
       } catch (e: any) {
         if (stopped) return;
@@ -2260,6 +2476,11 @@ export function App(): React.ReactElement {
       subrun_poll_inflight_ref.current = false;
     };
   }, [connected, run_id, subrun_ids, gateway]);
+
+  const visible_log = useMemo(() => {
+    if (!ledger_condensed) return log;
+    return log.filter(is_condensed_ledger_item);
+  }, [ledger_condensed, log]);
 
   return (
     <div className="app-shell">
@@ -2385,6 +2606,9 @@ export function App(): React.ReactElement {
                 />
                 <button className="btn" onClick={refresh_runs} disabled={!gateway_connected || runs_loading || discovery_loading}>
                   {runs_loading ? "Refreshing…" : "Refresh"}
+                </button>
+                <button className="btn" onClick={clear_run_view} disabled={!run_id.trim() && !connected}>
+                  Disconnect
                 </button>
               </div>
               {!run_options.length ? (
@@ -3242,13 +3466,26 @@ export function App(): React.ReactElement {
                     <span className="mono">{run_id.trim() ? `run ${run_id.trim()}` : ""}</span>
                   </div>
                   <div className="log_actions" style={{ marginTop: "10px" }}>
+                    <button className={`btn ${ledger_condensed ? "primary" : ""}`} onClick={() => set_ledger_condensed((v) => !v)}>
+                      {ledger_condensed ? "Condensed" : "All"}
+                    </button>
                     <button
                       className="btn"
-                      disabled={!records.length}
+                      disabled={!records.length && !child_records_for_digest.length}
                       onClick={() => {
                         const max = 5000;
-                        const items = records.length > max ? records.slice(records.length - max) : records;
-                        const text = items.map((x) => JSON.stringify({ cursor: x.cursor, record: x.record })).join("\n");
+                        const merged = [
+                          ...records.map((x) => ({ run_id: run_id.trim() || x.record.run_id || "", cursor: x.cursor, record: x.record })),
+                          ...child_records_for_digest.map((x) => ({ run_id: x.run_id, cursor: x.cursor, record: x.record })),
+                        ];
+                        const with_ms = merged.map((x) => {
+                          const ts = String((x.record as any)?.ended_at || (x.record as any)?.started_at || "").trim();
+                          const ms = parse_iso_ms(ts);
+                          return { ...x, _ms: ms ?? 0 };
+                        });
+                        with_ms.sort((a, b) => (a._ms || 0) - (b._ms || 0));
+                        const items = with_ms.length > max ? with_ms.slice(with_ms.length - max) : with_ms;
+                        const text = items.map(({ _ms, ...x }) => JSON.stringify(x)).join("\n");
                         copy_to_clipboard(text);
                       }}
                     >
@@ -3256,12 +3493,14 @@ export function App(): React.ReactElement {
                     </button>
                   </div>
                   <div className="log log_scroll">
-                    {log.map((item) => (
+                    {visible_log.map((item) => (
                       <LedgerCard
                         key={item.id}
                         item={item}
                         open={log_open[item.id] === true}
                         on_toggle={() => set_log_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                        response_open={log_response_open[item.id] === true}
+                        on_toggle_response={() => set_log_response_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
                         node_index={node_index_for_run}
                         on_copy={copy_to_clipboard}
                       />
@@ -3272,7 +3511,13 @@ export function App(): React.ReactElement {
                 <>
                   <div className="meta" style={{ marginTop: "10px" }}>
                     <span className="mono">workflow graph</span>
-                    <span className="mono">{bundle_id.trim() && graph_flow_id.trim() ? `${bundle_id.trim()}:${graph_flow_id.trim()}` : ""}</span>
+                    <span className="mono">
+                      {scheduled_workflow_id.trim()
+                        ? scheduled_workflow_id.trim()
+                        : bundle_id.trim() && graph_flow_id.trim()
+                          ? `${bundle_id.trim()}:${graph_flow_id.trim()}`
+                          : ""}
+                    </span>
                   </div>
 
                   <div className="graph_toolbar">
@@ -3282,7 +3527,7 @@ export function App(): React.ReactElement {
                         className="mono"
                         value={graph_flow_id}
                         onChange={(e) => set_graph_flow_id(String(e.target.value || ""))}
-                        disabled={!bundle_id.trim() || graph_loading}
+                        disabled={Boolean(scheduled_workflow_id.trim()) || !bundle_id.trim() || graph_loading}
                       >
                         <option value="">(select)</option>
                         {graph_flow_options.map((fid) => (
@@ -3320,7 +3565,7 @@ export function App(): React.ReactElement {
                             const root = String(selected_entrypoint?.flow_id || "").trim();
                             if (root) set_graph_flow_id(root);
                           }}
-                          disabled={!selected_entrypoint?.flow_id}
+                          disabled={Boolean(scheduled_workflow_id.trim()) || !selected_entrypoint?.flow_id}
                         >
                           Go to root
                         </button>
@@ -3350,7 +3595,7 @@ export function App(): React.ReactElement {
                     <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
                       <div className="meta">
                         <span className="mono">loading</span>
-                        <span className="mono">{graph_flow_id}</span>
+                        <span className="mono">{scheduled_workflow_id.trim() ? scheduled_workflow_id.trim() : graph_flow_id}</span>
                       </div>
                       <div className="body mono">Loading graph…</div>
                     </div>
@@ -3984,6 +4229,8 @@ function LedgerCard(props: {
   item: UiLogItem;
   open: boolean;
   on_toggle: () => void;
+  response_open: boolean;
+  on_toggle_response: () => void;
   node_index: Record<string, any>;
   on_copy: (text: string) => void;
 }): React.ReactElement {
@@ -4021,6 +4268,9 @@ function LedgerCard(props: {
             ? "chip muted"
             : "chip muted";
 
+  const response_text = extract_response_text_from_record(item.data);
+  const has_response = Boolean(response_text && response_text.trim());
+
   return (
     <div className="log_item card" style={{ ["--card-accent" as any]: accent }}>
       <div className="meta">
@@ -4040,6 +4290,16 @@ function LedgerCard(props: {
       {item.preview ? <div className="log_preview mono">{item.preview}</div> : null}
       {item.data ? (
         <div className="log_actions">
+          {has_response ? (
+            <>
+              <button className="btn" onClick={props.on_toggle_response}>
+                {props.response_open ? "Fold Response" : "Unfold Response"}
+              </button>
+              <button className="btn" onClick={() => props.on_copy(String(response_text || ""))}>
+                Copy Response
+              </button>
+            </>
+          ) : null}
           <button className="btn" onClick={props.on_toggle}>
             {props.open ? "Fold JSON" : "Unfold JSON"}
           </button>
@@ -4055,6 +4315,11 @@ function LedgerCard(props: {
           >
             Copy JSON
           </button>
+        </div>
+      ) : null}
+      {props.response_open && has_response ? (
+        <div className="body">
+          <Markdown text={String(response_text || "")} />
         </div>
       ) : null}
       {props.open && item.data ? (

@@ -393,6 +393,36 @@ export function FlowGraph(props: {
   const node_by_id: Record<string, GraphNode> = {};
   for (const n of nodes) node_by_id[n.id] = n;
 
+  const to_visible_id = (id: string): string => {
+    let cur = safe_str(id).trim();
+    if (!cur) return "";
+    if (node_by_id[cur]) return cur;
+    while (cur.includes("::")) {
+      cur = cur.slice(0, Math.max(0, cur.lastIndexOf("::")));
+      if (node_by_id[cur]) return cur;
+    }
+    return "";
+  };
+
+  const active_visible = to_visible_id(active);
+  const recent_visible: Record<string, number> = {};
+  for (const [k, until] of Object.entries(recent)) {
+    if (typeof until !== "number") continue;
+    const vid = to_visible_id(k);
+    if (!vid) continue;
+    recent_visible[vid] = Math.max(recent_visible[vid] || 0, until);
+  }
+
+  const visited_visible: Record<string, number> = {};
+  if (highlight_path) {
+    for (const [k, t] of Object.entries(visited)) {
+      if (typeof t !== "number") continue;
+      const vid = to_visible_id(k);
+      if (!vid) continue;
+      visited_visible[vid] = typeof visited_visible[vid] === "number" ? Math.min(visited_visible[vid], t) : t;
+    }
+  }
+
   const client_to_svg = (client_x: number, client_y: number, use_view?: ViewBox): { x: number; y: number } => {
     const vb = use_view || view_ref.current;
     const svg = svg_ref.current;
@@ -554,15 +584,15 @@ export function FlowGraph(props: {
           const y1 = s.y + bounds.node_h / 2;
           const x2 = t.x + bounds.node_w / 2;
           const y2 = t.y + bounds.node_h / 2;
-          const is_visited_edge = highlight_path && visited && visited[e.source] !== undefined && visited[e.target] !== undefined;
+          const is_visited_edge = highlight_path && visited_visible && visited_visible[e.source] !== undefined && visited_visible[e.target] !== undefined;
           return <line key={e.id} x1={x1} y1={y1} x2={x2} y2={y2} className={`graph_edge ${is_visited_edge ? "visited" : ""}`} markerEnd="url(#arrow)" />;
         })}
 
         {nodes.map((n) => {
-          const until = typeof recent[n.id] === "number" ? recent[n.id] : 0;
+          const until = typeof recent_visible[n.id] === "number" ? recent_visible[n.id] : 0;
           const is_recent = until > now_ms;
-          const is_active = active && n.id === active;
-          const is_visited = highlight_path && visited && visited[n.id] !== undefined;
+          const is_active = active_visible && n.id === active_visible;
+          const is_visited = highlight_path && visited_visible && visited_visible[n.id] !== undefined;
           const cls = `graph_node ${is_active ? "active" : is_recent ? "recent" : ""} ${is_visited ? "visited" : ""}`;
           const bar_color = n.color || "rgba(255,255,255,0.16)";
           const label = clamp_text(n.label || n.id, 22);

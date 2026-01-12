@@ -154,6 +154,27 @@ export class GatewayClient {
     return { items, next_after };
   }
 
+  async get_ledger_batch(opts: {
+    runs: Array<{ run_id: string; after: number }>;
+    limit: number;
+  }): Promise<{ runs: Record<string, { items: any[]; next_after: number }> }> {
+    const runs = Array.isArray(opts?.runs) ? opts.runs : [];
+    const limit = Number(opts?.limit || 0);
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/runs/ledger/batch"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify({ runs, limit }),
+    });
+    if (!r.ok) throw new Error(`get_ledger_batch failed: ${r.status}`);
+    const body = await r.json();
+    const out = body && typeof body === "object" ? body : {};
+    const m = (out as any).runs;
+    return { runs: m && typeof m === "object" ? (m as any) : {} };
+  }
+
   async generate_run_summary(
     run_id: string,
     opts?: { provider?: string; model?: string; include_subruns?: boolean }
@@ -269,6 +290,18 @@ export class GatewayClient {
       },
     });
     if (!r.ok) throw new Error(`get_bundle_flow failed: ${r.status}`);
+    return await r.json();
+  }
+
+  async get_workflow_flow(workflow_id: string): Promise<any> {
+    const wid = String(workflow_id || "").trim();
+    if (!wid) throw new Error("get_workflow_flow: workflow_id is required");
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/workflows/${encodeURIComponent(wid)}/flow`), {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`get_workflow_flow failed: ${r.status}`);
     return await r.json();
   }
 

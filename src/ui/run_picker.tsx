@@ -22,12 +22,12 @@ function format_local_ts(ts: any): string {
   const ms = parse_iso_ms(ts);
   if (ms === null) return "—";
   const d = new Date(ms);
-  const yyyy = String(d.getFullYear()).padStart(4, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const mon = months[d.getMonth()] || "—";
   const dd = String(d.getDate()).padStart(2, "0");
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+  return `${mon} ${dd} ${hh}:${mi}`;
 }
 
 function short_id(id: string, keep: number): string {
