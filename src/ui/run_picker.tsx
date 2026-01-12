@@ -18,16 +18,29 @@ function parse_iso_ms(ts: any): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function format_local_ts(ts: any): string {
+function format_relative_time(date: Date): string {
+  const now = Date.now();
+  const then = date.getTime();
+  const diff = now - then;
+  
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (seconds < 60) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days <= 3) return `${days}d ago`;
+  
+  // Beyond 3 days, show actual date
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function format_time_ago(ts: any): string {
   const ms = parse_iso_ms(ts);
   if (ms === null) return "—";
-  const d = new Date(ms);
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const mon = months[d.getMonth()] || "—";
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${mon} ${dd} ${hh}:${mi}`;
+  return format_relative_time(new Date(ms));
 }
 
 function short_id(id: string, keep: number): string {
@@ -36,54 +49,105 @@ function short_id(id: string, keep: number): string {
   return `${s.slice(0, Math.max(0, keep - 1))}…`;
 }
 
-function status_chip_class(status: string): string {
+type StatusConfig = { label: string; cls: string };
+
+function get_status_config(status: string): StatusConfig {
   const st = String(status || "").trim().toLowerCase();
-  if (st === "completed") return "ok";
-  if (st === "failed" || st === "cancelled") return "danger";
-  if (st === "running") return "info";
-  if (st === "waiting") return "warn";
-  return "muted";
+  const config: Record<string, StatusConfig> = {
+    completed: { label: "Completed", cls: "success" },
+    failed: { label: "Failed", cls: "error" },
+    cancelled: { label: "Cancelled", cls: "muted" },
+    waiting: { label: "Waiting", cls: "warning" },
+    running: { label: "Running", cls: "info" },
+  };
+  return config[st] || { label: status || "Unknown", cls: "muted" };
 }
 
-function RunBadges({
+function extract_workflow_name(workflow_id: string, label_map: Record<string, string>): string {
+  const wid = String(workflow_id || "").trim();
+  
+  // Check if we have a mapped label
+  if (wid) {
+    const mapped = label_map[wid];
+    if (mapped) {
+      // Extract just the name part after the separator
+      const parts = mapped.split(/[·:]/);
+      return parts.length > 1 ? parts[parts.length - 1].trim() : mapped.trim();
+    }
+    
+    // Try to extract name from workflow_id itself (format: bundle_id:flow_id)
+    const idx = wid.indexOf(":");
+    if (idx > 0) {
+      return wid.slice(idx + 1).trim() || wid.slice(0, idx).trim();
+    }
+
+    // If it looks like a human name (contains letters), show it.
+    if (/[a-z]/i.test(wid)) return wid;
+  }
+
+  return "(unknown workflow)";
+}
+
+function RunCard({
   run,
   workflow_label_by_id,
-  compact,
+  selected,
+  onClick,
 }: {
   run: RunSummary;
   workflow_label_by_id: Record<string, string>;
-  compact: boolean;
+  selected: boolean;
+  onClick: () => void;
 }): React.ReactElement {
-  const rid = String(run.run_id || "").trim();
   const wid = typeof run.workflow_id === "string" ? String(run.workflow_id) : "";
-  const wf_label = wid ? workflow_label_by_id[wid] || wid : "";
-  const wf_display = wf_label ? wf_label.replace(/\s+/g, " ").trim() : "(unknown)";
+  const wf_display = extract_workflow_name(wid, workflow_label_by_id);
+  
   const st = typeof run.status === "string" ? String(run.status) : "";
-  const start_ts = format_local_ts(run.created_at || run.updated_at);
-  const cnt = typeof run.ledger_len === "number" ? `#${run.ledger_len}` : "";
-  const sid = String(run.session_id || "").trim();
-
-  if (compact) {
-    return (
-      <div className="run_badges_compact">
-        <span className="chip mono run_badge">{start_ts}</span>
-        <span className="chip mono run_badge workflow">{wf_display}</span>
-        <span className={`chip mono run_badge ${status_chip_class(st)}`}>{st || "unknown"}</span>
-        {cnt ? <span className="chip mono run_badge muted">{cnt}</span> : null}
-        <span className="chip mono run_badge muted">{short_id(rid, 14)}</span>
-        {sid ? <span className="chip mono run_badge muted">{`sid:${short_id(sid, 10)}`}</span> : null}
-      </div>
-    );
-  }
+  const status_info = get_status_config(st);
+  const time_ago = format_time_ago(run.updated_at || run.created_at);
+  const steps = typeof run.ledger_len === "number" && run.ledger_len > 0 ? run.ledger_len : null;
 
   return (
-    <div className="run_badges">
-      <span className="chip mono run_badge">{start_ts}</span>
-      <span className="chip mono run_badge workflow">{wf_display}</span>
-      <span className={`chip mono run_badge ${status_chip_class(st)}`}>{st || "unknown"}</span>
-      <span className="chip mono run_badge muted">{cnt || "—"}</span>
-      <span className="chip mono run_badge muted">{short_id(rid, 14)}</span>
-      {sid ? <span className="chip mono run_badge muted">{`sid:${short_id(sid, 10)}`}</span> : <span className="chip mono run_badge muted">—</span>}
+    <button
+      className={`run_card ${selected ? "selected" : ""}`}
+      onClick={onClick}
+      type="button"
+    >
+      <div className="run_card_header">
+        <span className="run_card_name">{wf_display}</span>
+        <span className={`run_card_status ${status_info.cls}`}>{status_info.label}</span>
+      </div>
+      <div className="run_card_time">
+        <span>{time_ago}</span>
+        <span className="run_card_sep">•</span>
+        <span className="mono">{short_id(run.run_id, 8)}</span>
+      </div>
+      {steps !== null ? (
+        <div className="run_card_meta">{steps} steps</div>
+      ) : null}
+    </button>
+  );
+}
+
+function SelectedRunBadge({
+  run,
+  workflow_label_by_id,
+}: {
+  run: RunSummary;
+  workflow_label_by_id: Record<string, string>;
+}): React.ReactElement {
+  const wid = typeof run.workflow_id === "string" ? String(run.workflow_id) : "";
+  const wf_display = extract_workflow_name(wid, workflow_label_by_id);
+  
+  const st = typeof run.status === "string" ? String(run.status) : "";
+  const status_info = get_status_config(st);
+  const time_ago = format_time_ago(run.updated_at || run.created_at);
+
+  return (
+    <div className="run_selected_badge">
+      <span className="run_selected_name">{wf_display}</span>
+      <span className={`run_selected_status ${status_info.cls}`}>{status_info.label}</span>
+      <span className="run_selected_time">{time_ago}</span>
     </div>
   );
 }
@@ -131,21 +195,21 @@ export function RunPicker({
       const rect = btn_ref.current.getBoundingClientRect();
       const pad = 12;
 
-      const minWidth =
-        window.innerWidth >= 1200 ? 980 : window.innerWidth >= 980 ? 860 : window.innerWidth >= 760 ? 720 : rect.width;
+      const minWidth = Math.min(720, window.innerWidth - pad * 2);
       let left = rect.left;
       let width = Math.max(rect.width, minWidth);
       if (width > window.innerWidth - pad * 2) width = window.innerWidth - pad * 2;
       if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pad - width);
       if (left < pad) left = pad;
 
-      const minHeight = 240;
+      const minHeight = 320;
+      const maxHeight = 520;
       const below = window.innerHeight - rect.bottom - pad;
       const above = rect.top - pad;
       const open_up = below < minHeight && above > below;
 
       let height = Math.max(minHeight, open_up ? above : below);
-      height = Math.min(height, window.innerHeight - pad * 2);
+      height = Math.min(height, maxHeight, window.innerHeight - pad * 2);
 
       let top = open_up ? rect.top - 8 - height : rect.bottom + 8;
       top = Math.min(top, window.innerHeight - pad - height);
@@ -183,7 +247,7 @@ export function RunPicker({
   return (
     <div className="run_picker" ref={root_ref}>
       <button
-        className="run_picker_btn mono"
+        className="run_picker_btn"
         ref={btn_ref}
         onClick={() => {
           if (disabled) return;
@@ -193,12 +257,13 @@ export function RunPicker({
         type="button"
       >
         {loading ? (
-          <span className="mono muted">(loading…)</span>
+          <span className="muted">Loading runs…</span>
         ) : selected ? (
-          <RunBadges run={selected} workflow_label_by_id={workflow_label_by_id} compact={true} />
+          <SelectedRunBadge run={selected} workflow_label_by_id={workflow_label_by_id} />
         ) : (
-          <span className="mono">(select)</span>
+          <span className="run_picker_placeholder">Select a run to observe</span>
         )}
+        <span className="run_picker_chevron">{open ? "▲" : "▼"}</span>
       </button>
 
       {open ? (
@@ -217,44 +282,36 @@ export function RunPicker({
         >
           <div className="run_picker_header">
             <input
-              className="mono run_picker_filter"
+              className="run_picker_filter"
               value={filter}
               onChange={(e) => set_filter(e.target.value)}
-              placeholder="filter runs…"
+              placeholder="Search runs by name, status..."
             />
           </div>
-          <div className="run_picker_cols mono muted">
-            <span>date</span>
-            <span>workflow</span>
-            <span>status</span>
-            <span>#</span>
-            <span>run</span>
-            <span>session</span>
-          </div>
 
-          <div className="run_picker_list">
+          <div className="run_picker_grid">
             {filtered.length ? (
               filtered.map((r) => {
                 const rid = String(r.run_id || "").trim();
                 if (!rid) return null;
                 const is_selected = String(selected_run_id || "").trim() === rid;
                 return (
-                  <button
+                  <RunCard
                     key={rid}
-                    className={`run_picker_row ${is_selected ? "selected" : ""}`}
+                    run={r}
+                    workflow_label_by_id={workflow_label_by_id}
+                    selected={is_selected}
                     onClick={() => {
                       set_open(false);
                       onSelect(rid);
                     }}
-                    type="button"
-                  >
-                    <RunBadges run={r} workflow_label_by_id={workflow_label_by_id} compact={false} />
-                  </button>
+                  />
                 );
               })
             ) : (
-              <div className="mono muted" style={{ padding: "10px" }}>
-                (no matches)
+              <div className="run_picker_empty">
+                <span className="run_picker_empty_icon">◇</span>
+                <span>No runs found</span>
               </div>
             )}
           </div>

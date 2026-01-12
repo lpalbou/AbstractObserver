@@ -322,8 +322,58 @@ function is_waiting_status(rec: StepRecord | null): boolean {
 function parse_iso_ms(ts: any): number | null {
   const s = typeof ts === "string" ? ts.trim() : "";
   if (!s) return null;
-  const ms = Date.parse(s);
+  // Some backends emit ISO timestamps with microseconds (e.g. `.123456Z`).
+  // JS `Date.parse` can be picky across environments; clamp to milliseconds.
+  const normalized = s.replace(/(\.\d{3})\d+/, "$1");
+  const ms = Date.parse(normalized);
   return Number.isFinite(ms) ? ms : null;
+}
+
+function format_relative_time_from_ms(ms: number): string {
+  const diff = Date.now() - ms;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days <= 3) return `${days}d ago`;
+
+  // Beyond 3 days, show date (matches AbstractFlow's "history" feel and avoids stale "Xd ago").
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function format_time_ago(ts: any): string {
+  const ms = parse_iso_ms(ts);
+  if (ms === null) return "—";
+  return format_relative_time_from_ms(ms);
+}
+
+function short_run_id(run_id: string): string {
+  const s = String(run_id || "").trim();
+  if (!s) return "";
+  if (s.length <= 8) return s;
+  return `${s.slice(0, 7)}…`;
+}
+
+function extract_workflow_label(workflow_id: any, label_map: Record<string, string>): string {
+  const wid = typeof workflow_id === "string" ? String(workflow_id).trim() : "";
+  if (!wid) return "Unknown workflow";
+
+  const mapped = label_map[wid];
+  if (mapped) {
+    const parts = mapped.split(/[·:]/);
+    return parts.length > 1 ? parts[parts.length - 1].trim() : mapped.trim();
+  }
+
+  const idx = wid.indexOf(":");
+  if (idx > 0) return wid.slice(idx + 1).trim() || wid.slice(0, idx).trim();
+
+  if (/[a-z]/i.test(wid)) return wid;
+
+  return "Unknown workflow";
 }
 
 function is_uuid(s: string): boolean {
@@ -957,7 +1007,6 @@ export function App(): React.ReactElement {
     const now = Date.now();
     const prev_active = active_node_ref.current;
     active_node_ref.current = node_id;
-    set_active_node_id(node_id);
     set_graph_now_ms(now);
 
     set_recent_nodes((prev) => {
@@ -1033,7 +1082,19 @@ export function App(): React.ReactElement {
       }
     }
 
-    if (node_id) mark_node_activity(graph_node_id_for(effective_run_id, node_id));
+    // Graph UX:
+    // - `recent_nodes` should still blink as we receive steps.
+    // - `active_node_id` should represent the *currently running/waiting* node, not the last completed step.
+    if (node_id) {
+      mark_node_activity(graph_node_id_for(effective_run_id, node_id));
+      if (status === "waiting" || status === "running") {
+        const nid = graph_node_id_for(effective_run_id, node_id);
+        if (nid) {
+          active_node_ref.current = nid;
+          set_active_node_id(nid);
+        }
+      }
+    }
 
     let kind: UiLogItem["kind"] = "step";
     let title = node_id_for_log || node_id || "(node?)";
@@ -1102,7 +1163,16 @@ export function App(): React.ReactElement {
         }
       }
     }
-    if (node_id) mark_node_activity(graph_node_id_for(child_run_id, node_id));
+    if (node_id) {
+      mark_node_activity(graph_node_id_for(child_run_id, node_id));
+      if (status === "waiting" || status === "running") {
+        const nid = graph_node_id_for(child_run_id, node_id);
+        if (nid) {
+          active_node_ref.current = nid;
+          set_active_node_id(nid);
+        }
+      }
+    }
 
     // If the currently-followed run completes, fall back to its parent (if any).
     if ((status === "completed" || status === "failed") && follow_run_ref.current.trim() === String(child_run_id || "").trim()) {
@@ -1185,7 +1255,16 @@ export function App(): React.ReactElement {
         if (sub && node_id) register_subworkflow_child_run(child_run_id, node_id, sub);
       }
     }
-    if (node_id) mark_node_activity(graph_node_id_for(child_run_id, node_id));
+    if (node_id) {
+      mark_node_activity(graph_node_id_for(child_run_id, node_id));
+      if (status === "waiting" || status === "running") {
+        const nid = graph_node_id_for(child_run_id, node_id);
+        if (nid) {
+          active_node_ref.current = nid;
+          set_active_node_id(nid);
+        }
+      }
+    }
 
     if (emit_name === "abstract.status") {
       const { text, duration } = extract_textish(emit?.payload);
@@ -2235,6 +2314,10 @@ export function App(): React.ReactElement {
     if (!node_id) return;
     const reason = String(run_state?.waiting?.reason || "").trim();
     if (reason === "subworkflow") return;
+    // Do not "stick" the active highlight to `current_node` (which may still point to the
+    // last non-terminal node even after completion). Keep the active highlight driven by
+    // the live ledger step stream (waiting/running), and only use `current_node` to refresh
+    // transient "recent" emphasis.
     mark_node_activity(graph_node_id_for(run_id.trim(), node_id));
   }, [connected, run_id, scheduled_workflow_id, run_state?.current_node, run_state?.waiting?.reason]);
 
@@ -2374,6 +2457,15 @@ export function App(): React.ReactElement {
     return Array.from(new Set(graph_entrypoint_ids)).sort();
   }, [bundle_info, graph_entrypoint_ids]);
 
+  // If the run is terminal, there is no "currently executing" node.
+  // Keep transient emphasis via `recent_nodes`, but clear the strong active highlight.
+  useEffect(() => {
+    if (!run_terminal) return;
+    if (!active_node_id.trim()) return;
+    set_active_node_id("");
+    active_node_ref.current = "";
+  }, [run_terminal, run_id, active_node_id]);
+
   // Follow the current deepest descendant run for status/events.
   useEffect(() => {
     const child_id = follow_run_id.trim();
@@ -2482,17 +2574,36 @@ export function App(): React.ReactElement {
     return log.filter(is_condensed_ledger_item);
   }, [ledger_condensed, log]);
 
+  const selected_run_summary = useMemo(() => {
+    const rid = run_id.trim();
+    if (!rid) return null;
+    return run_options.find((r) => String(r.run_id || "").trim() === rid) || null;
+  }, [run_options, run_id]);
+
+  const selected_run_label = useMemo(() => {
+    return extract_workflow_label(selected_run_summary?.workflow_id, workflow_label_by_id);
+  }, [selected_run_summary, workflow_label_by_id]);
+
+  const selected_run_status = String(run_state?.status || selected_run_summary?.status || "").trim();
+  const selected_run_when = format_time_ago(selected_run_summary?.updated_at || selected_run_summary?.created_at);
+
   return (
     <div className="app-shell">
-      <div className="container">
-        <div className="title">
-          <h1>AbstractObserver (Web/PWA)</h1>
-          <div className="badge mono">
-            {(gateway_connected ? "gateway ok" : discovery_loading ? "gateway…" : "gateway off")} •{" "}
-            {(connected ? "run ok" : connecting ? "run…" : "run off")} • cursor {cursor}
-          </div>
+      <div className="app-header">
+        <div className="logo" title="AbstractObserver (Web/PWA)">
+          <span className="logo-icon">◉</span>
+          <span>AbstractObserver</span>
         </div>
-
+        <div className="header_spacer" />
+        <div className="status_pills">
+          <span className={`status_pill ${gateway_connected ? "ok" : discovery_loading ? "warn" : "muted"}`}>
+            gateway {gateway_connected ? "ok" : discovery_loading ? "…" : "off"}
+          </span>
+          <span className={`status_pill ${connected ? "ok" : connecting ? "warn" : "muted"}`}>
+            run {connected ? "ok" : connecting ? "…" : "off"}
+          </span>
+          <span className="status_pill muted">cursor {cursor}</span>
+        </div>
         {is_narrow ? (
           <div className="tab_bar" style={{ justifyContent: "flex-start" }}>
             <button className={`tab mono ${mobile_tab === "controls" ? "active" : ""}`} onClick={() => set_mobile_tab("controls")}>
@@ -2503,7 +2614,9 @@ export function App(): React.ReactElement {
             </button>
           </div>
         ) : null}
+      </div>
 
+      <div className="container">
         <div className="app-main">
           <div className="panel" style={is_narrow && mobile_tab !== "controls" ? { display: "none" } : undefined}>
             <div className="card panel_card scroll_y">
@@ -2580,7 +2693,7 @@ export function App(): React.ReactElement {
 
             <div className="actions">
               <button
-                className="btn success big"
+                className="btn primary big"
                 onClick={() => {
                   set_new_run_error("");
                   set_new_run_open(true);
@@ -3459,13 +3572,32 @@ export function App(): React.ReactElement {
                 </button>
               </div>
 
+              <div className="viewer_header">
+                <div className="viewer_header_left">
+                  <div className="viewer_run_title">{run_id.trim() ? selected_run_label : "No run selected"}</div>
+                  <span
+                    className={`chip mono ${
+                      selected_run_status.toLowerCase() === "completed"
+                        ? "ok"
+                        : selected_run_status.toLowerCase() === "failed"
+                          ? "danger"
+                          : selected_run_status.toLowerCase() === "waiting" || selected_run_status.toLowerCase() === "running"
+                            ? "warn"
+                            : "muted"
+                    }`}
+                  >
+                    {selected_run_status || "—"}
+                  </span>
+                </div>
+                <div className="viewer_header_right">
+                  {run_id.trim() ? <span className="mono muted">{short_run_id(run_id.trim())}</span> : null}
+                  {run_id.trim() ? <span className="muted">{selected_run_when}</span> : null}
+                </div>
+              </div>
+
               {right_tab === "ledger" ? (
                 <>
-                  <div className="meta" style={{ marginTop: "10px" }}>
-                    <span className="mono">ledger log (newest first)</span>
-                    <span className="mono">{run_id.trim() ? `run ${run_id.trim()}` : ""}</span>
-                  </div>
-                  <div className="log_actions" style={{ marginTop: "10px" }}>
+                  <div className="log_actions" style={{ marginTop: "6px" }}>
                     <button className={`btn ${ledger_condensed ? "primary" : ""}`} onClick={() => set_ledger_condensed((v) => !v)}>
                       {ledger_condensed ? "Condensed" : "All"}
                     </button>
@@ -3509,19 +3641,8 @@ export function App(): React.ReactElement {
                 </>
               ) : right_tab === "graph" ? (
                 <>
-                  <div className="meta" style={{ marginTop: "10px" }}>
-                    <span className="mono">workflow graph</span>
-                    <span className="mono">
-                      {scheduled_workflow_id.trim()
-                        ? scheduled_workflow_id.trim()
-                        : bundle_id.trim() && graph_flow_id.trim()
-                          ? `${bundle_id.trim()}:${graph_flow_id.trim()}`
-                          : ""}
-                    </span>
-                  </div>
-
                   <div className="graph_toolbar">
-                    <div className="field" style={{ margin: 0 }}>
+                    <div className="field graph_flow_field" style={{ margin: 0 }}>
                       <label>Flow</label>
                       <select
                         className="mono"
@@ -3537,26 +3658,28 @@ export function App(): React.ReactElement {
                         ))}
                       </select>
                     </div>
-                    <div className="field" style={{ margin: 0 }}>
+                    <div className="field graph_view_field" style={{ margin: 0 }}>
                       <label>View</label>
-                      <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                        <input
-                          type="checkbox"
-                          checked={graph_show_subflows}
-                          onChange={(e) => set_graph_show_subflows(Boolean(e.target.checked))}
-                        />
-                        subflows {graph_show_subflows ? "shown" : "hidden"}
-                      </label>
-                      <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                        <input
-                          type="checkbox"
-                          checked={graph_highlight_path}
-                          onChange={(e) => set_graph_highlight_path(Boolean(e.target.checked))}
-                        />
-                        highlight path
-                      </label>
+                      <div className="graph_view_toggles">
+                        <label className="mono graph_toggle">
+                          <input
+                            type="checkbox"
+                            checked={graph_show_subflows}
+                            onChange={(e) => set_graph_show_subflows(Boolean(e.target.checked))}
+                          />
+                          <span className="graph_toggle_text">Show subflows</span>
+                        </label>
+                        <label className="mono graph_toggle">
+                          <input
+                            type="checkbox"
+                            checked={graph_highlight_path}
+                            onChange={(e) => set_graph_highlight_path(Boolean(e.target.checked))}
+                          />
+                          <span className="graph_toggle_text">Highlight path</span>
+                        </label>
+                      </div>
                     </div>
-                    <div className="field" style={{ margin: 0 }}>
+                    <div className="field graph_actions_field" style={{ margin: 0 }}>
                       <label>Actions</label>
                       <div className="field_inline">
                         <button
@@ -3617,11 +3740,7 @@ export function App(): React.ReactElement {
                 </>
               ) : right_tab === "digest" ? (
                 <>
-                  <div className="meta" style={{ marginTop: "10px" }}>
-                    <span className="mono">digest</span>
-                    <span className="mono">{run_id.trim() ? `run ${run_id.trim()}` : ""}</span>
-                  </div>
-                  <div className="log_actions" style={{ marginTop: "10px" }}>
+                  <div className="log_actions" style={{ marginTop: "6px" }}>
                     <button
                       className="btn"
                       onClick={() => {
@@ -3629,7 +3748,7 @@ export function App(): React.ReactElement {
                       }}
                       disabled={!digest.overall.stats.steps}
                     >
-                      Copy digest (JSON)
+                      Copy JSON
                     </button>
                   </div>
 
@@ -3719,12 +3838,16 @@ export function App(): React.ReactElement {
 	                          </div>
 	                        </div>
 	                        <div className="meta2" style={{ marginTop: "10px", justifyContent: "flex-start", flexWrap: "wrap" }}>
-	                          {digest.overall.stats.started_at ? (
-	                            <span className="chip mono muted">started {short_id(digest.overall.stats.started_at, 20)}</span>
-	                          ) : null}
-	                          {digest.overall.stats.ended_at ? (
-	                            <span className="chip mono muted">ended {short_id(digest.overall.stats.ended_at, 20)}</span>
-	                          ) : null}
+                          {digest.overall.stats.started_at ? (
+                            <span className="chip mono muted" title={String(digest.overall.stats.started_at)}>
+                              started {format_time_ago(digest.overall.stats.started_at)}
+                            </span>
+                          ) : null}
+                          {digest.overall.stats.ended_at ? (
+                            <span className="chip mono muted" title={String(digest.overall.stats.ended_at)}>
+                              ended {format_time_ago(digest.overall.stats.ended_at)}
+                            </span>
+                          ) : null}
 	                          {digest.subruns.length ? <span className="chip mono muted">subflows {digest.subruns.length}</span> : null}
 	                        </div>
 	                      </div>
@@ -3749,7 +3872,8 @@ export function App(): React.ReactElement {
 	                                    {t.signature}
 	                                  </summary>
 	                                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
-	                                    {t.ts} • {t.node_id ? `node ${t.node_id}` : "node ?"} • {short_id(t.run_id, 10)}
+	                                    <span title={String(t.ts)}>{format_time_ago(t.ts)}</span> •{" "}
+	                                    {t.node_id ? `node ${t.node_id}` : "node ?"} • {short_id(t.run_id, 10)}
 	                                  </div>
 	                                  {t.error ? (
 	                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(239, 68, 68, 0.9)" }}>
@@ -3786,7 +3910,8 @@ export function App(): React.ReactElement {
 	                                    {c.provider || "provider?"} • {c.model || "model?"} • in {c.tokens.prompt} / out {c.tokens.completion}
 	                                  </summary>
 	                                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
-	                                    {c.ts} • {c.node_id ? `node ${c.node_id}` : "node ?"} • {short_id(c.run_id, 10)}
+	                                    <span title={String(c.ts)}>{format_time_ago(c.ts)}</span> •{" "}
+	                                    {c.node_id ? `node ${c.node_id}` : "node ?"} • {short_id(c.run_id, 10)}
 	                                  </div>
 	                                  {c.prompt_preview ? (
 	                                    <div style={{ marginTop: "8px" }}>
@@ -4000,11 +4125,6 @@ export function App(): React.ReactElement {
                 </>
               ) : (
                 <>
-                  <div className="meta" style={{ marginTop: "10px" }}>
-                    <span className="mono">chat (read-only)</span>
-                    <span className="mono">{run_id.trim() ? `run ${run_id.trim()}` : ""}</span>
-                  </div>
-
                   <div className="row" style={{ marginTop: "10px" }}>
                     <div className="col">
                       <div className="field" style={{ margin: 0 }}>
@@ -4073,8 +4193,8 @@ export function App(): React.ReactElement {
                       <input type="checkbox" checked={chat_persist} onChange={(e) => set_chat_persist(Boolean(e.target.checked))} />
                       Save this chat to the run ledger
                     </label>
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
-                      Read-only: no tools. Answers are grounded in the parent run + subflows ledger.
+                    <div className="chat_hint">
+                      Read-only. No tools. Grounded in the parent run + subflows ledger.
                     </div>
                   </div>
 
@@ -4090,15 +4210,17 @@ export function App(): React.ReactElement {
 
                   <div className="chat_messages log_scroll" style={{ marginTop: "10px" }}>
                     {!chat_messages.length ? (
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
-                        Ask a question about this run (e.g. “Why did it fail?”, “Which tools were used?”, “What happened in subflows?”).
+                      <div className="chat_empty_hint">
+                        Ask about this run (why failed, which tools, what happened in subflows).
                       </div>
                     ) : null}
                     {chat_messages.map((m) => (
                       <div key={m.id} className={`chat_row ${m.role === "user" ? "right" : "left"}`}>
                         <div className={`chat_bubble ${m.role}`}>
                           <div className="chat_meta mono">
-                            <span className="mono muted">{m.ts}</span>
+                            <span className="mono muted" title={m.ts}>
+                              {format_time_ago(m.ts)}
+                            </span>
                             {m.persisted ? <span className="chip muted mono">saved</span> : null}
                           </div>
                           <div className="chat_text">
@@ -4112,13 +4234,13 @@ export function App(): React.ReactElement {
 
                   <div className="chat_composer" style={{ marginTop: "10px" }}>
                     <div className="field" style={{ margin: 0 }}>
-                      <label>Your question</label>
+                      <label>Message</label>
                       <textarea
                         className="mono"
                         value={chat_input}
                         onChange={(e) => set_chat_input(e.target.value)}
                         rows={3}
-                        placeholder="Ask about the run…"
+                        placeholder="Ask about this run…"
                         disabled={!run_id.trim() || chat_sending || !gateway_connected}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
@@ -4257,19 +4379,23 @@ function LedgerCard(props: {
               : "rgba(255, 255, 255, 0.14)");
 
   const status = String(item.status || "").trim();
+  const st = status.toLowerCase();
   const status_chip =
-    status === "completed"
+    st === "completed"
       ? "chip ok"
-      : status === "failed"
+      : st === "failed"
         ? "chip danger"
-        : status === "waiting"
-          ? "chip"
-          : status
-            ? "chip muted"
-            : "chip muted";
+        : st === "waiting"
+          ? "chip warn"
+          : st === "running"
+            ? "chip info"
+            : status
+              ? "chip muted"
+              : "chip muted";
 
   const response_text = extract_response_text_from_record(item.data);
   const has_response = Boolean(response_text && response_text.trim());
+  const when = format_time_ago(item.ts);
 
   return (
     <div className="log_item card" style={{ ["--card-accent" as any]: accent }}>
@@ -4277,7 +4403,9 @@ function LedgerCard(props: {
         <span className="mono">
           {item.kind} • {display_label}
         </span>
-        <span className="mono">{item.ts}</span>
+        <span className="mono muted" title={item.ts}>
+          {when}
+        </span>
       </div>
       <div className="meta2">
         {status ? <span className={`mono ${status_chip}`}>{status}</span> : null}
