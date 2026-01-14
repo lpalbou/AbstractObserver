@@ -107,7 +107,7 @@ function RunCard({
   const time_ago = format_time_ago(run.updated_at || run.created_at);
   const steps = typeof run.ledger_len === "number" && run.ledger_len > 0 ? run.ledger_len : null;
 
-  return (
+    return (
     <button
       className={`run_card ${selected ? "selected" : ""}`}
       onClick={onClick}
@@ -126,8 +126,8 @@ function RunCard({
         <div className="run_card_meta">{steps} steps</div>
       ) : null}
     </button>
-  );
-}
+    );
+  }
 
 function SelectedRunBadge({
   run,

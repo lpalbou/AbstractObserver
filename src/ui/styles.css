@@ -1612,10 +1612,10 @@ button.primary:hover:not(:disabled) {
   /* Prevent iOS Safari auto-zoom on focus (needs >= 16px).
      Scope to touch devices so desktop narrow windows keep normal sizing. */
   @media (pointer: coarse) {
-    .field input,
-    .field textarea,
-    .field select {
-      font-size: 16px;
+  .field input,
+  .field textarea,
+  .field select {
+    font-size: 16px;
     }
   }
 

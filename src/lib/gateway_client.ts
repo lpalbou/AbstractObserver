@@ -53,6 +53,7 @@ export class GatewayClient {
     start_at?: string | null;
     interval?: string | null;
     repeat_count?: number | null;
+    repeat_until?: string | null;
     share_context?: boolean | null;
     session_id?: string | null;
   }): Promise<string> {
@@ -70,6 +71,8 @@ export class GatewayClient {
     const interval = args?.interval === null || args?.interval === undefined ? "" : String(args.interval || "").trim();
     if (interval) req_body.interval = interval;
     if (typeof args?.repeat_count === "number" && Number.isFinite(args.repeat_count)) req_body.repeat_count = Number(args.repeat_count);
+    const repeat_until = args?.repeat_until === null || args?.repeat_until === undefined ? "" : String(args.repeat_until || "").trim();
+    if (repeat_until) req_body.repeat_until = repeat_until;
     if (typeof args?.share_context === "boolean") req_body.share_context = Boolean(args.share_context);
     const session_id = args?.session_id === null || args?.session_id === undefined ? "" : String(args.session_id || "").trim();
     if (session_id) req_body.session_id = session_id;

@@ -449,10 +449,12 @@ export function App(): React.ReactElement {
   const [schedule_submitting, set_schedule_submitting] = useState(false);
   const [schedule_start_mode, set_schedule_start_mode] = useState<"now" | "at">("now");
   const [schedule_start_at_local, set_schedule_start_at_local] = useState<string>("");
-  const [schedule_repeat_mode, set_schedule_repeat_mode] = useState<"once" | "forever" | "count">("once");
+  const [schedule_repeat_mode, set_schedule_repeat_mode] = useState<"once" | "forever" | "count" | "until">("once");
   const [schedule_every_n, set_schedule_every_n] = useState<number>(1);
   const [schedule_every_unit, set_schedule_every_unit] = useState<"minutes" | "hours" | "days" | "weeks" | "months">("days");
   const [schedule_repeat_count, set_schedule_repeat_count] = useState<number>(2);
+  const [schedule_repeat_until_date_local, set_schedule_repeat_until_date_local] = useState<string>("");
+  const [schedule_repeat_until_time_local, set_schedule_repeat_until_time_local] = useState<string>("23:59");
   const [schedule_share_context, set_schedule_share_context] = useState<boolean>(true);
   const [run_control_open, set_run_control_open] = useState(false);
   const [run_control_type, set_run_control_type] = useState<"pause" | "cancel">("pause");
@@ -1503,10 +1505,12 @@ export function App(): React.ReactElement {
   async function start_scheduled_run(args: {
     start_mode: "now" | "at";
     start_at_local: string;
-    repeat_mode: "once" | "forever" | "count";
+    repeat_mode: "once" | "forever" | "count" | "until";
     every_n: number;
     every_unit: "minutes" | "hours" | "days" | "weeks" | "months";
     repeat_count: number;
+    repeat_until_date_local?: string;
+    repeat_until_time_local?: string;
     share_context: boolean;
   }): Promise<string | null> {
     const fid = flow_id.trim();
@@ -1540,8 +1544,10 @@ export function App(): React.ReactElement {
       }
 
       let start_at: string | null = null;
+      let start_at_dt_utc: Date | null = null;
       if (args.start_mode === "now") {
         start_at = "now";
+        start_at_dt_utc = new Date();
       } else {
         const local = String(args.start_at_local || "").trim();
         if (!local) {
@@ -1556,6 +1562,7 @@ export function App(): React.ReactElement {
           return msg;
         }
         start_at = dt.toISOString();
+        start_at_dt_utc = new Date(start_at);
       }
 
       const every_raw = Number.isFinite(args.every_n) ? args.every_n : 1;
@@ -1573,6 +1580,28 @@ export function App(): React.ReactElement {
       const interval_to_send = repeat_mode === "once" ? null : interval;
       const repeat_count =
         repeat_mode === "count" ? Math.max(1, Math.floor(Number.isFinite(args.repeat_count) ? args.repeat_count : 1)) : null;
+      let repeat_until: string | null = null;
+      if (repeat_mode === "until") {
+        const d = String(args.repeat_until_date_local || "").trim();
+        const t = String(args.repeat_until_time_local || "").trim() || "23:59";
+        if (!d) {
+          const msg = "Pick an end date (Until).";
+          set_schedule_error(msg);
+          return msg;
+        }
+        const dt = new Date(`${d}T${t}`);
+        if (!Number.isFinite(dt.getTime())) {
+          const msg = "Invalid end date/time";
+          set_schedule_error(msg);
+          return msg;
+        }
+        repeat_until = dt.toISOString();
+        if (start_at_dt_utc && Number.isFinite(start_at_dt_utc.getTime()) && dt.getTime() < start_at_dt_utc.getTime()) {
+          const msg = "End date must be after the start date.";
+          set_schedule_error(msg);
+          return msg;
+        }
+      }
 
       const rid = await gateway.schedule_run({
         bundle_id: bid,
@@ -1581,6 +1610,7 @@ export function App(): React.ReactElement {
         start_at,
         interval: interval_to_send,
         repeat_count,
+        repeat_until,
         share_context: Boolean(args.share_context),
       });
       set_root_run_id(rid);
@@ -3266,6 +3296,8 @@ export function App(): React.ReactElement {
                           every_n: schedule_every_n,
                           every_unit: schedule_every_unit,
                           repeat_count: schedule_repeat_count,
+                          repeat_until_date_local: schedule_repeat_until_date_local,
+                          repeat_until_time_local: schedule_repeat_until_time_local,
                           share_context: schedule_share_context,
                         });
                         if (err) set_schedule_error(err);
@@ -3277,6 +3309,52 @@ export function App(): React.ReactElement {
                   </>
                 }
               >
+                {(() => {
+                  const unit_label = schedule_every_unit === "weeks" ? "week" : schedule_every_unit === "months" ? "month" : schedule_every_unit.slice(0, -1);
+                  const n = Math.max(1, Math.floor(schedule_every_n || 1));
+                  const every = `${n} ${unit_label}${n === 1 ? "" : "s"}`;
+                  const start_s =
+                    schedule_start_mode === "now"
+                      ? "now"
+                      : schedule_start_at_local
+                        ? (() => {
+                            const dt = new Date(schedule_start_at_local);
+                            return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "at …";
+                          })()
+                        : "at …";
+                  const until_s =
+                    schedule_repeat_mode === "until" && schedule_repeat_until_date_local
+                      ? (() => {
+                          const t = schedule_repeat_until_time_local || "23:59";
+                          const dt = new Date(`${schedule_repeat_until_date_local}T${t}`);
+                          return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "…";
+                        })()
+                      : "";
+                  const end_s =
+                    schedule_repeat_mode === "once"
+                      ? ""
+                      : schedule_repeat_mode === "forever"
+                        ? "forever"
+                        : schedule_repeat_mode === "count"
+                          ? `${Math.max(1, Math.floor(schedule_repeat_count || 1))} runs`
+                          : until_s
+                            ? `until ${until_s}`
+                            : "until …";
+                  const summary =
+                    schedule_repeat_mode === "once"
+                      ? `Runs once • starts ${start_s}`
+                      : `Repeats every ${every} • starts ${start_s} • ${end_s}`;
+                  return (
+                    <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginBottom: "10px" }}>
+                      <div className="meta">
+                        <span className="mono">schedule</span>
+                        <span className="mono">{schedule_repeat_mode}</span>
+                      </div>
+                      <div className="body">{summary}</div>
+                    </div>
+                  );
+                })()}
+
                 {schedule_error ? (
                   <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
                     <div className="meta">
@@ -3290,7 +3368,7 @@ export function App(): React.ReactElement {
                 <div className="field">
                   <label>Start</label>
                   <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                    <label className="mono" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                       <input
                         type="radio"
                         name="schedule_start"
@@ -3299,7 +3377,7 @@ export function App(): React.ReactElement {
                       />
                       now
                     </label>
-                    <label className="mono" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                       <input
                         type="radio"
                         name="schedule_start"
@@ -3310,7 +3388,6 @@ export function App(): React.ReactElement {
                     </label>
                     {schedule_start_mode === "at" ? (
                       <input
-                        className="mono"
                         type="datetime-local"
                         value={schedule_start_at_local}
                         onChange={(e) => set_schedule_start_at_local(e.target.value)}
@@ -3325,11 +3402,12 @@ export function App(): React.ReactElement {
                 </div>
 
                 <div className="field">
-                  <label>Repeat</label>
-                  <select className="mono" value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
-                    <option value="once">once</option>
-                    <option value="forever">forever</option>
-                    <option value="count">N times</option>
+                  <label>Cadence</label>
+                  <select value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
+                    <option value="once">Once</option>
+                    <option value="forever">Repeat</option>
+                    <option value="count">Repeat • N times</option>
+                    <option value="until">Repeat • until date</option>
                   </select>
                 </div>
 
@@ -3340,7 +3418,6 @@ export function App(): React.ReactElement {
                         <div className="field">
                           <label>Every</label>
                           <input
-                            className="mono"
                             type="number"
                             min={1}
                             value={String(schedule_every_n)}
@@ -3351,7 +3428,7 @@ export function App(): React.ReactElement {
                       <div className="col">
                         <div className="field">
                           <label>Unit</label>
-                          <select className="mono" value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
+                          <select value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
                             <option value="minutes">minutes</option>
                             <option value="hours">hours</option>
                             <option value="days">days</option>
@@ -3373,7 +3450,6 @@ export function App(): React.ReactElement {
                   <div className="field">
                     <label>Runs</label>
                     <input
-                      className="mono"
                       type="number"
                       min={1}
                       value={String(schedule_repeat_count)}
@@ -3382,9 +3458,34 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
+                {schedule_repeat_mode === "until" ? (
+                  <div className="row">
+                    <div className="col">
+                      <div className="field">
+                        <label>Until (date)</label>
+                        <input
+                          type="date"
+                          value={schedule_repeat_until_date_local}
+                          onChange={(e) => set_schedule_repeat_until_date_local(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="col">
+                      <div className="field">
+                        <label>Until (time)</label>
+                        <input
+                          type="time"
+                          value={schedule_repeat_until_time_local}
+                          onChange={(e) => set_schedule_repeat_until_time_local(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="field">
                   <label>Context</label>
-                  <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                  <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                     <input
                       type="checkbox"
                       checked={schedule_share_context}
