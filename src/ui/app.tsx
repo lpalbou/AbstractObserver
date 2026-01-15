@@ -267,6 +267,7 @@ function is_condensed_ledger_item(item: UiLogItem): boolean {
     if (effect_type === "llm_call") return true;
     if (effect_type === "ask_user") return true;
     if (effect_type === "answer_user") return true;
+    if (effect_type === "memory_compact") return true;
     if (effect_type === "start_subworkflow") return true;
     if (effect_type === "emit_event") {
       if (emit_name && CONDENSED_HIDE_EMIT_NAMES.has(emit_name)) return false;
@@ -456,6 +457,17 @@ export function App(): React.ReactElement {
   const [schedule_repeat_until_date_local, set_schedule_repeat_until_date_local] = useState<string>("");
   const [schedule_repeat_until_time_local, set_schedule_repeat_until_time_local] = useState<string>("23:59");
   const [schedule_share_context, set_schedule_share_context] = useState<boolean>(true);
+  const [schedule_edit_open, set_schedule_edit_open] = useState(false);
+  const [schedule_edit_interval, set_schedule_edit_interval] = useState<string>("");
+  const [schedule_edit_error, set_schedule_edit_error] = useState<string>("");
+  const [schedule_edit_submitting, set_schedule_edit_submitting] = useState(false);
+
+  const [compact_open, set_compact_open] = useState(false);
+  const [compact_preserve_recent, set_compact_preserve_recent] = useState<number>(6);
+  const [compact_mode, set_compact_mode] = useState<"light" | "standard" | "heavy">("standard");
+  const [compact_focus, set_compact_focus] = useState<string>("");
+  const [compact_error, set_compact_error] = useState<string>("");
+  const [compact_submitting, set_compact_submitting] = useState(false);
   const [run_control_open, set_run_control_open] = useState(false);
   const [run_control_type, set_run_control_type] = useState<"pause" | "cancel">("pause");
   const [run_control_reason, set_run_control_reason] = useState<string>("");
@@ -1800,6 +1812,107 @@ export function App(): React.ReactElement {
     }
   }
 
+  async function submit_update_schedule(opts: { interval: string; apply_immediately?: boolean }): Promise<string | null> {
+    const rid = run_id.trim();
+    if (!rid) {
+      set_error_text("Missing run_id");
+      return "Missing run_id";
+    }
+    if (schedule_edit_submitting) return "Schedule update already in progress";
+
+    const interval = String(opts.interval || "").trim();
+    const interval_re = /^\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)\s*$/i;
+    if (!interval_re.test(interval)) {
+      const msg = "Invalid interval (expected like '20m', '1h', '0.5s', '250ms')";
+      set_schedule_edit_error(msg);
+      return msg;
+    }
+
+    set_schedule_edit_error("");
+    set_error_text("");
+    set_schedule_edit_submitting(true);
+    set_connecting(true);
+    try {
+      await gateway.submit_command({
+        command_id: random_id(),
+        run_id: rid,
+        type: "update_schedule",
+        payload: { interval, apply_immediately: opts.apply_immediately !== false },
+        client_id: "web_pwa",
+      });
+      push_log({
+        ts: now_iso(),
+        kind: "info",
+        title: "Schedule updated",
+        preview: clamp_preview(`interval: ${interval}`),
+        data: { interval },
+        run_id: rid,
+      });
+      try {
+        const st = await gateway.get_run(rid);
+        set_run_state(st);
+      } catch {
+        // ignore
+      }
+      return null;
+    } catch (e: any) {
+      const msg = String(e?.message || e || "update_schedule failed");
+      set_schedule_edit_error(msg);
+      set_error_text(msg);
+      return msg;
+    } finally {
+      set_connecting(false);
+      set_schedule_edit_submitting(false);
+    }
+  }
+
+  async function submit_compact_memory(opts?: { preserve_recent?: number; compression_mode?: "light" | "standard" | "heavy"; focus?: string }): Promise<string | null> {
+    const rid = run_id.trim();
+    if (!rid) {
+      set_error_text("Missing run_id");
+      return "Missing run_id";
+    }
+    if (compact_submitting) return "Compaction already in progress";
+
+    const preserve_recent_raw = typeof opts?.preserve_recent === "number" ? opts.preserve_recent : compact_preserve_recent;
+    const preserve_recent = Math.max(0, Math.min(500, Math.floor(Number.isFinite(preserve_recent_raw) ? preserve_recent_raw : 6)));
+    const compression_mode = (opts?.compression_mode || compact_mode) as any;
+    const focus = String(opts?.focus ?? compact_focus ?? "").trim();
+
+    set_compact_error("");
+    set_error_text("");
+    set_compact_submitting(true);
+    set_connecting(true);
+    try {
+      const payload: any = { preserve_recent, compression_mode };
+      if (focus) payload.focus = focus;
+      await gateway.submit_command({
+        command_id: random_id(),
+        run_id: rid,
+        type: "compact_memory",
+        payload,
+        client_id: "web_pwa",
+      });
+      push_log({
+        ts: now_iso(),
+        kind: "info",
+        title: "Compaction requested",
+        preview: clamp_preview(`mode: ${compression_mode} • preserve_recent: ${preserve_recent}`),
+        data: payload,
+        run_id: rid,
+      });
+      return null;
+    } catch (e: any) {
+      const msg = String(e?.message || e || "compact_memory failed");
+      set_compact_error(msg);
+      set_error_text(msg);
+      return msg;
+    } finally {
+      set_connecting(false);
+      set_compact_submitting(false);
+    }
+  }
+
   async function generate_summary(): Promise<void> {
     const rid = run_id.trim();
     if (!rid) {
@@ -1945,6 +2058,16 @@ export function App(): React.ReactElement {
   const pause_resume_action: "pause" | "resume" = pause_resume_label === "Pause" ? "pause" : "resume";
   const pause_resume_disabled =
     !run_id.trim() || connecting || resuming || run_terminal || (pause_resume_label === "Resume" && !run_paused);
+
+  const schedule_meta = run_state?.schedule && typeof run_state.schedule === "object" ? run_state.schedule : null;
+  const schedule_interval = typeof schedule_meta?.interval === "string" ? String(schedule_meta.interval).trim() : "";
+  const schedule_share_ctx = typeof schedule_meta?.share_context === "boolean" ? Boolean(schedule_meta.share_context) : null;
+  const schedule_meta_repeat_count = typeof schedule_meta?.repeat_count === "number" ? Number(schedule_meta.repeat_count) : null;
+  const is_scheduled_run =
+    Boolean(run_state?.is_scheduled) ||
+    Boolean(schedule_meta) ||
+    (typeof run_state?.workflow_id === "string" && String(run_state.workflow_id).startsWith("scheduled:"));
+  const is_scheduled_recurrent = is_scheduled_run && Boolean(schedule_interval);
 
   const digest = useMemo(() => {
     type DigestStats = {
@@ -3500,6 +3623,169 @@ export function App(): React.ReactElement {
               </Modal>
             ) : null}
 
+            {schedule_edit_open ? (
+              <Modal
+                open={schedule_edit_open}
+                title="Edit schedule"
+                onClose={() => {
+                  set_schedule_edit_open(false);
+                  set_schedule_edit_interval("");
+                  set_schedule_edit_error("");
+                  set_schedule_edit_submitting(false);
+                }}
+                actions={
+                  <>
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        set_schedule_edit_open(false);
+                        set_schedule_edit_interval("");
+                        set_schedule_edit_error("");
+                        set_schedule_edit_submitting(false);
+                      }}
+                      disabled={connecting || schedule_edit_submitting}
+                    >
+                      Back
+                    </button>
+                    <button
+                      className="btn primary"
+                      onClick={async () => {
+                        const err = await submit_update_schedule({ interval: schedule_edit_interval, apply_immediately: true });
+                        if (err) return;
+                        set_schedule_edit_open(false);
+                        set_schedule_edit_error("");
+                        set_schedule_edit_submitting(false);
+                      }}
+                      disabled={connecting || schedule_edit_submitting || !schedule_edit_interval.trim()}
+                    >
+                      Save
+                    </button>
+                  </>
+                }
+              >
+                {schedule_edit_error ? (
+                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
+                    <div className="meta">
+                      <span className="mono">error</span>
+                      <span className="mono">{now_iso()}</span>
+                    </div>
+                    <div className="body mono">{schedule_edit_error}</div>
+                  </div>
+                ) : null}
+
+                <div className="field">
+                  <label>Interval</label>
+                  <input
+                    className="mono"
+                    value={schedule_edit_interval}
+                    onChange={(e) => set_schedule_edit_interval(String(e.target.value || ""))}
+                    placeholder="20m / 1h / 0.5s / 250ms"
+                    disabled={connecting || schedule_edit_submitting}
+                  />
+                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                    Accepted units: <span className="mono">ms</span>, <span className="mono">s</span>, <span className="mono">m</span>,{" "}
+                    <span className="mono">h</span>, <span className="mono">d</span>. This updates the existing scheduled run in place (no context loss).
+                  </div>
+                </div>
+              </Modal>
+            ) : null}
+
+            {compact_open ? (
+              <Modal
+                open={compact_open}
+                title="Compact scheduled context"
+                onClose={() => {
+                  set_compact_open(false);
+                  set_compact_error("");
+                  set_compact_submitting(false);
+                }}
+                actions={
+                  <>
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        set_compact_open(false);
+                        set_compact_error("");
+                        set_compact_submitting(false);
+                      }}
+                      disabled={connecting || compact_submitting}
+                    >
+                      Back
+                    </button>
+                    <button
+                      className="btn primary"
+                      onClick={async () => {
+                        const err = await submit_compact_memory({
+                          preserve_recent: compact_preserve_recent,
+                          compression_mode: compact_mode,
+                          focus: compact_focus,
+                        });
+                        if (err) return;
+                        set_compact_open(false);
+                        set_compact_error("");
+                        set_compact_submitting(false);
+                      }}
+                      disabled={connecting || compact_submitting}
+                    >
+                      Compact now
+                    </button>
+                  </>
+                }
+              >
+                {compact_error ? (
+                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
+                    <div className="meta">
+                      <span className="mono">error</span>
+                      <span className="mono">{now_iso()}</span>
+                    </div>
+                    <div className="body mono">{compact_error}</div>
+                  </div>
+                ) : null}
+
+                <div className="field">
+                  <label>Preserve recent messages</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={String(compact_preserve_recent)}
+                    onChange={(e) => set_compact_preserve_recent(Math.max(0, parseInt(e.target.value || "6", 10) || 0))}
+                    disabled={connecting || compact_submitting}
+                  />
+                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                    Keeps the most recent non-system messages verbatim; older messages are archived into a span and replaced with a summary handle.
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Compression</label>
+                  <select
+                    className="mono"
+                    value={compact_mode}
+                    onChange={(e) => set_compact_mode(String(e.target.value || "standard") as any)}
+                    disabled={connecting || compact_submitting}
+                  >
+                    <option value="light">light</option>
+                    <option value="standard">standard</option>
+                    <option value="heavy">heavy</option>
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Focus (optional)</label>
+                  <input
+                    className="mono"
+                    value={compact_focus}
+                    onChange={(e) => set_compact_focus(String(e.target.value || ""))}
+                    placeholder="e.g. keep filenames, schedule, outputs…"
+                    disabled={connecting || compact_submitting}
+                  />
+                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                    Auto-compaction also runs when scheduled context reaches ~90% of the configured max context window.
+                  </div>
+                </div>
+              </Modal>
+            ) : null}
+
             {run_control_open ? (
               <Modal
                 open={run_control_open}
@@ -3611,6 +3897,49 @@ export function App(): React.ReactElement {
                     ) : null}
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {is_scheduled_run ? (
+              <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+                <div className="meta">
+                  <span className="mono">schedule</span>
+                  <span className="mono">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
+                </div>
+                <div className="body mono">
+                  {safe_json({
+                    interval: schedule_interval || null,
+                    share_context: schedule_share_ctx,
+                    repeat_count: schedule_meta_repeat_count,
+                  })}
+                </div>
+                <div className="actions">
+                  {is_scheduled_recurrent ? (
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        set_schedule_edit_interval(schedule_interval || "");
+                        set_schedule_edit_error("");
+                        set_schedule_edit_open(true);
+                      }}
+                      disabled={connecting || schedule_edit_submitting}
+                    >
+                      Edit schedule
+                    </button>
+                  ) : null}
+                  {is_scheduled_recurrent ? (
+                    <button
+                      className="btn primary"
+                      onClick={() => {
+                        set_compact_error("");
+                        set_compact_open(true);
+                      }}
+                      disabled={connecting || compact_submitting}
+                    >
+                      Compact context
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
