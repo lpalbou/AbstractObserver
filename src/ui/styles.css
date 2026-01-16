@@ -1436,6 +1436,13 @@ button.primary:hover:not(:disabled) {
   fill: rgba(148, 163, 184, 0.95);
 }
 
+.graph_node_icon {
+  font-size: 12px;
+  fill: rgba(148, 163, 184, 0.95);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
 .graph_node.recent {
   filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.25));
 }

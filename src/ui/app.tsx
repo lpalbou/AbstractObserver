@@ -2541,6 +2541,32 @@ export function App(): React.ReactElement {
     last_record,
   ]);
 
+  const graph_node_last_ms = useMemo(() => {
+    const out: Record<string, number> = {};
+    const root = run_id.trim();
+
+    const add = (rid: string, rec: StepRecord) => {
+      if (!rec) return;
+      const node_id = typeof rec?.node_id === "string" ? String(rec.node_id).trim() : "";
+      if (!node_id) return;
+      const gid = graph_node_id_for(rid, node_id);
+      if (!gid) return;
+      const ts = String((rec as any)?.ended_at || (rec as any)?.started_at || "").trim();
+      const ms = parse_iso_ms(ts);
+      if (ms === null) return;
+      out[gid] = Math.max(out[gid] || 0, ms);
+    };
+
+    for (const x of records) {
+      if (x && x.record) add(root, x.record);
+    }
+    for (const x of child_records_for_digest) {
+      if (x && x.record) add(String(x.run_id || "").trim(), x.record);
+    }
+
+    return out;
+  }, [records, child_records_for_digest, run_id, subrun_ids]);
+
   useEffect(() => {
     if (!connected || !run_id.trim()) return;
     if (!scheduled_workflow_id.trim()) return;
@@ -4544,6 +4570,10 @@ export function App(): React.ReactElement {
                       expand_subflows={graph_show_subflows}
                       simplify={true}
                       prefer_vertical={true}
+                      vertical_compact={0.78}
+                      schedule_next_in={selected_next_in}
+                      schedule_interval={schedule_interval}
+                      node_last_ms={graph_node_last_ms}
                       active_node_id={graph_active_node_id}
                       recent_nodes={recent_nodes}
                       visited_nodes={visited_nodes}
