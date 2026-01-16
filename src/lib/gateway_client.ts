@@ -236,6 +236,17 @@ export class GatewayClient {
     return await r.json();
   }
 
+  async reload_bundles(): Promise<any> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/bundles/reload"), {
+      method: "POST",
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`reload_bundles failed: ${r.status}`);
+    return await r.json();
+  }
+
   async discovery_tools(): Promise<any> {
     const r = await fetch(_join(this._cfg.base_url, "/api/gateway/discovery/tools"), {
       headers: {

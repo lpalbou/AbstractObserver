@@ -162,6 +162,8 @@ button.primary:hover:not(:disabled) {
 
 .app-header {
   height: var(--header-height);
+  flex: 0 0 var(--header-height);
+  min-height: var(--header-height);
   display: flex;
   align-items: center;
   padding: 0 16px;
@@ -207,12 +209,13 @@ button.primary:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 5px 10px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.22);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1;
   color: var(--text-secondary);
   white-space: nowrap;
 }

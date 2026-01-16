@@ -245,8 +245,6 @@ function extract_response_text_from_record(rec: any): string {
       pick_from_obj(result) ||
       pick_text(result?.output) ||
       pick_from_obj(result?.output) ||
-      pick_from_obj(result?.output?.result) ||
-      pick_from_obj(result?.result) ||
       pick_text(result?.response);
     if (t) return t;
   }
@@ -254,7 +252,6 @@ function extract_response_text_from_record(rec: any): string {
   const t =
     pick_text(result?.output) ||
     pick_from_obj(result?.output) ||
-    pick_from_obj(result?.output?.result) ||
     pick_from_obj(result) ||
     pick_text(result?.response);
   return t;
@@ -463,6 +460,7 @@ export function App(): React.ReactElement {
   const [workflow_options, set_workflow_options] = useState<WorkflowOption[]>([]);
   const [run_options, set_run_options] = useState<RunSummary[]>([]);
   const [runs_loading, set_runs_loading] = useState(false);
+  const [bundles_reloading, set_bundles_reloading] = useState(false);
   const [discovered_tool_specs, set_discovered_tool_specs] = useState<any[]>([]);
   const [discovered_providers, set_discovered_providers] = useState<any[]>([]);
   const [discovered_models_by_provider, set_discovered_models_by_provider] = useState<Record<string, { models: string[]; error?: string }>>({});
@@ -951,6 +949,23 @@ export function App(): React.ReactElement {
       set_discovery_error(String(e?.message || e || "Discovery failed"));
     } finally {
       set_discovery_loading(false);
+    }
+  }
+
+  async function reload_gateway_bundles(): Promise<void> {
+    if (bundles_reloading || discovery_loading) return;
+    set_bundles_reloading(true);
+    try {
+      await gateway.reload_bundles();
+      const bundles = await gateway.list_bundles();
+      const opts = build_workflow_options_from_bundles(bundles);
+      set_workflow_options(opts);
+      push_log({ ts: now_iso(), kind: "info", title: "Bundles reloaded", preview: clamp_preview(`workflows: ${opts.length}`) });
+    } catch (e: any) {
+      const msg = String(e?.message || e || "Bundle reload failed");
+      push_log({ ts: now_iso(), kind: "error", title: "Bundle reload failed", preview: clamp_preview(msg), data: { error: msg } });
+    } finally {
+      set_bundles_reloading(false);
     }
   }
 
@@ -3012,8 +3027,13 @@ export function App(): React.ReactElement {
               title="GPU usage (host)"
               style={
                 {
-                  ["--monitor-gpu-width" as any]: "30px",
-                  ["--monitor-gpu-bars-height" as any]: "18px",
+                  ["--monitor-gpu-width" as any]: "34px",
+                  ["--monitor-gpu-bars-height" as any]: "22px",
+                  ["--monitor-gpu-padding" as any]: "2px 4px",
+                  ["--monitor-gpu-radius" as any]: "999px",
+                  ["--monitor-gpu-bg" as any]: "rgba(0,0,0,0.22)",
+                  ["--monitor-gpu-border" as any]: "rgba(255,255,255,0.16)",
+                  flexShrink: 0,
                 } as React.CSSProperties
               }
             />
@@ -3140,7 +3160,7 @@ export function App(): React.ReactElement {
               </button>
             </div>
 
-            {new_run_open ? (
+	            {new_run_open ? (
               <Modal
                 open={new_run_open}
                 title={bundle_id.trim() && flow_id.trim() ? `Start workflow • ${bundle_id.trim()}:${flow_id.trim()}` : "Start workflow"}
@@ -3212,9 +3232,9 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
-                <div className="field" style={{ marginBottom: "10px" }}>
-                  <label>Workflow (discovered)</label>
-                  <select
+	                <div className="field" style={{ marginBottom: "10px" }}>
+	                  <label>Workflow (discovered)</label>
+	                  <select
                     value={selected_workflow_value}
                     onChange={async (e) => {
                       const wid = String(e.target.value || "").trim();
@@ -3234,10 +3254,23 @@ export function App(): React.ReactElement {
                         {w.label}
                       </option>
                     ))}
-                  </select>
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
-                    Workflows are the gateway’s registered `.flow` bundles (configured via `ABSTRACTGATEWAY_FLOWS_DIR`).
-                  </div>
+	                  </select>
+	                  <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
+	                    <button
+	                      type="button"
+	                      className="btn"
+	                      onClick={() => void reload_gateway_bundles()}
+	                      disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming}
+	                    >
+	                      {bundles_reloading ? "Reloading…" : "Reload bundles"}
+	                    </button>
+	                    <div className="mono muted" style={{ fontSize: "12px" }}>
+	                      Picks up edited `.flow` files without restarting the gateway.
+	                    </div>
+	                  </div>
+	                  <div className="mono muted" style={{ fontSize: "12px" }}>
+	                    Workflows are the gateway’s registered `.flow` bundles (configured via `ABSTRACTGATEWAY_FLOWS_DIR`).
+	                  </div>
                   {selected_entrypoint?.description ? (
                     <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
                       {String(selected_entrypoint.description)}
