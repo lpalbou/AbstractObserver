@@ -17,6 +17,11 @@ type GraphNode = {
   label: string;
   type: string;
   color: string;
+  meta?: {
+    schedule?: string;
+    recurrent?: boolean;
+    subflow_id?: string;
+  };
 };
 
 type GraphEdge = {
@@ -267,6 +272,10 @@ export function FlowGraph(props: {
   expand_subflows?: boolean;
   simplify?: boolean;
   prefer_vertical?: boolean;
+  vertical_compact?: number;
+  schedule_next_in?: string;
+  schedule_interval?: string;
+  node_last_ms?: Record<string, number>;
   active_node_id?: string;
   recent_nodes?: Record<string, number>;
   visited_nodes?: Record<string, number>;
@@ -279,6 +288,7 @@ export function FlowGraph(props: {
   const recent = props.recent_nodes || {};
   const visited = props.visited_nodes || {};
   const highlight_path = props.highlight_path === true;
+  const vertical_compact = typeof props.vertical_compact === "number" ? Math.max(0.4, Math.min(1, props.vertical_compact)) : 0.78;
 
   const { nodes, edges, bounds } = useMemo(() => {
     const vf: any = merge_flow_with_subflows({
@@ -303,7 +313,15 @@ export function FlowGraph(props: {
       const label = safe_str(data?.label || n?.label || id) || id;
       const type = safe_str(data?.nodeType || n?.type || "unknown") || "unknown";
       const color = safe_str(data?.headerColor || n?.headerColor || "") || "";
-      nodes_out.push({ id, x, y, label, type, color });
+      const event_cfg = data?.eventConfig && typeof data.eventConfig === "object" ? data.eventConfig : null;
+      const schedule = event_cfg && typeof (event_cfg as any).schedule === "string" ? safe_str((event_cfg as any).schedule).trim() : "";
+      const recurrent = event_cfg && typeof (event_cfg as any).recurrent === "boolean" ? Boolean((event_cfg as any).recurrent) : undefined;
+      const subflow_id = type === "subflow" ? subflow_id_from_raw(n) : "";
+      const meta =
+        schedule || recurrent !== undefined || subflow_id
+          ? { schedule: schedule || undefined, recurrent, subflow_id: subflow_id || undefined }
+          : undefined;
+      nodes_out.push({ id, x, y, label, type, color, meta });
     }
     const node_lookup: Record<string, GraphNode> = {};
     for (const n of nodes_out) node_lookup[n.id] = n;
@@ -345,6 +363,9 @@ export function FlowGraph(props: {
       if (span_x >= span_y) {
         nodes_out = nodes_out.map((n) => ({ ...n, x: n.y, y: n.x }));
       }
+      // Condense vertical spacing a bit (mobile/portrait readability).
+      const min_y0 = Math.min(...nodes_out.map((n) => n.y));
+      nodes_out = nodes_out.map((n) => ({ ...n, y: min_y0 + (n.y - min_y0) * vertical_compact }));
     }
 
     const node_pos: Record<string, GraphNode> = {};
@@ -396,7 +417,7 @@ export function FlowGraph(props: {
       node_h: h,
     };
     return { nodes: nodes_out, edges: edges_out, bounds: vb };
-  }, [flow_in, props.flow_by_id, props.expand_subflows, props.simplify, props.prefer_vertical, active]);
+  }, [flow_in, props.flow_by_id, props.expand_subflows, props.simplify, props.prefer_vertical, active, vertical_compact]);
 
   if (!flow_in) {
     return (
@@ -460,6 +481,46 @@ export function FlowGraph(props: {
       visited_visible[vid] = typeof visited_visible[vid] === "number" ? Math.min(visited_visible[vid], t) : t;
     }
   }
+
+  const schedule_next_in = safe_str(props.schedule_next_in).trim();
+  const schedule_interval = safe_str(props.schedule_interval).trim();
+  const node_last_ms = props.node_last_ms && typeof props.node_last_ms === "object" ? props.node_last_ms : {};
+
+  const short_hhmm = (ms: number): string => {
+    try {
+      const d = new Date(ms);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      return `${hh}:${mm}`;
+    } catch {
+      return "";
+    }
+  };
+
+  const schedule_sublabel = (n: GraphNode, is_active: boolean): string => {
+    const schedule = safe_str(n.meta?.schedule).trim();
+    const recurrent = n.meta?.recurrent === true;
+    if (!recurrent) {
+      if (is_active && schedule_next_in) return `next ${schedule_next_in}`;
+      if (schedule && schedule.length <= 12 && !schedule.includes("T")) return `in ${schedule}`;
+      return "scheduled";
+    }
+    const every = schedule || schedule_interval;
+    if (!every) return is_active && schedule_next_in ? `next ${schedule_next_in}` : "scheduled";
+    if (is_active && schedule_next_in) return `${every} • next ${schedule_next_in}`;
+    return `every ${every}`;
+  };
+
+  const subflow_label = (n: GraphNode): { label: string; sub: string } => {
+    const sid = safe_str(n.meta?.subflow_id).trim();
+    const flow = sid && props.flow_by_id ? props.flow_by_id[sid] : null;
+    const name = safe_str(flow?.name).trim();
+    const label = name || sid || n.label || n.id;
+    const last_ms = typeof node_last_ms[n.id] === "number" ? Number(node_last_ms[n.id]) : null;
+    const last = last_ms !== null ? short_hhmm(last_ms) : "";
+    const sub = last ? `last ${last}` : "subflow";
+    return { label, sub };
+  };
 
   const client_to_svg = (client_x: number, client_y: number, use_view?: ViewBox): { x: number; y: number } => {
     const vb = use_view || view_ref.current;
@@ -681,18 +742,31 @@ export function FlowGraph(props: {
           const is_visited = highlight_path && visited_visible && visited_visible[n.id] !== undefined;
           const cls = `graph_node ${is_active ? "active" : is_recent ? "recent" : ""} ${is_visited ? "visited" : ""}`;
           const bar_color = n.color || "rgba(255,255,255,0.16)";
-          const label = clamp_text(n.label || n.id, 22);
-          const type = clamp_text(n.type, 18);
+          let label = n.label || n.id;
+          let type = n.type;
+          if (n.type === "on_schedule") type = schedule_sublabel(n, Boolean(is_active));
+          else if (n.type === "subflow") {
+            const sub = subflow_label(n);
+            label = sub.label;
+            type = sub.sub;
+          }
+          const label_clamped = clamp_text(label, 22);
+          const type_clamped = clamp_text(type, 22);
           return (
             <g key={n.id} className={cls} transform={`translate(${n.x}, ${n.y})`}>
               <rect className="graph_node_bg" width={bounds.node_w} height={bounds.node_h} rx={12} ry={12} />
               <rect className="graph_node_bar" width={bounds.node_w} height={6} rx={12} ry={12} fill={bar_color} />
               <text className="graph_node_label" x={12} y={28}>
-                {label}
+                {label_clamped}
               </text>
               <text className="graph_node_type" x={12} y={46}>
-                {type}
+                {type_clamped}
               </text>
+              {n.type === "on_schedule" ? (
+                <text className="graph_node_icon" x={bounds.node_w - 18} y={18}>
+                  ⏰
+                </text>
+              ) : null}
             </g>
           );
         })}

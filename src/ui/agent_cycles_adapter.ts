@@ -26,6 +26,18 @@ function node_id_of(rec: StepRecord): string {
   return as_string(rec?.node_id);
 }
 
+const AGENT_STAGE_SUFFIXES = new Set(["reason", "act", "observe", "thought", "think"]);
+
+function node_group_id(node_id: string): string {
+  const s = as_string(node_id);
+  if (!s.includes("::")) return s;
+  const parts = s.split("::");
+  if (parts.length < 2) return s;
+  const last = String(parts[parts.length - 1] || "").trim().toLowerCase();
+  if (!AGENT_STAGE_SUFFIXES.has(last)) return s;
+  return parts.slice(0, -1).join("::");
+}
+
 function effect_type_of(rec: StepRecord): string {
   return as_string(rec?.effect?.type);
 }
@@ -42,12 +54,12 @@ function ts_of(rec: StepRecord): string {
   return as_string(rec?.ended_at) || as_string(rec?.started_at);
 }
 
-function pick_best_node_id(records: StepRecord[]): string {
+function pick_best_node_group_id(records: StepRecord[]): string {
   const llm = new Map<string, number>();
   const tools = new Map<string, number>();
 
   for (const r of records) {
-    const nid = node_id_of(r);
+    const nid = node_group_id(node_id_of(r));
     if (!nid) continue;
     const t = effect_type_of(r);
     if (t === "llm_call") llm.set(nid, (llm.get(nid) || 0) + 1);
@@ -79,12 +91,12 @@ export function build_agent_trace(items: LedgerRecordItem[], opts: { run_id: str
     .sort((a, b) => (a.cursor || 0) - (b.cursor || 0));
 
   const records = raw.map((x) => x.record);
-  const requested_node_id = as_string(opts.node_id);
-  const node_id = requested_node_id || pick_best_node_id(records);
+  const requested_node_id = node_group_id(as_string(opts.node_id));
+  const node_id = requested_node_id || pick_best_node_group_id(records);
 
   const INTERESTING = new Set(["llm_call", "tool_calls", "ask_user", "answer_user"]);
   let filtered = raw.filter((x) => INTERESTING.has(effect_type_of(x.record)));
-  if (node_id) filtered = filtered.filter((x) => node_id_of(x.record) === node_id);
+  if (node_id) filtered = filtered.filter((x) => node_group_id(node_id_of(x.record)) === node_id);
 
   const by_step_id = new Map<string, { cursor: number; record: StepRecord }>();
   const passthrough: Array<{ cursor: number; record: StepRecord }> = [];
@@ -118,4 +130,3 @@ export function build_agent_trace(items: LedgerRecordItem[], opts: { run_id: str
 
   return { run_id, node_id, items: out };
 }
-
