@@ -13,10 +13,17 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@abstractuic/monitor-flow": ["../abstractuic/monitor-flow/src/index.ts"],
+      "@abstractuic/monitor-flow/*": ["../abstractuic/monitor-flow/src/*"],
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
+      "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]
+    }
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
-
 

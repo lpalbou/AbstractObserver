@@ -266,6 +266,7 @@ export function FlowGraph(props: {
   flow_by_id?: Record<string, any>;
   expand_subflows?: boolean;
   simplify?: boolean;
+  prefer_vertical?: boolean;
   active_node_id?: string;
   recent_nodes?: Record<string, number>;
   visited_nodes?: Record<string, number>;
@@ -335,10 +336,25 @@ export function FlowGraph(props: {
       edges_out = simplified.edges;
     }
 
+    if (props.prefer_vertical === true && nodes_out.length >= 2) {
+      const xs = nodes_out.map((n) => n.x);
+      const ys = nodes_out.map((n) => n.y);
+      const span_x = Math.max(...xs) - Math.min(...xs);
+      const span_y = Math.max(...ys) - Math.min(...ys);
+      // Force a "vertical-first" read: rotate only if it's not already taller than wide.
+      if (span_x >= span_y) {
+        nodes_out = nodes_out.map((n) => ({ ...n, x: n.y, y: n.x }));
+      }
+    }
+
+    const node_pos: Record<string, GraphNode> = {};
+    for (const n of nodes_out) node_pos[n.id] = n;
+
     // Estimate bounds based on node positions.
-    const pad = 60;
     const w = 160;
     const h = 56;
+    const half_w = w / 2;
+    const half_h = h / 2;
     let min_x = 0;
     let min_y = 0;
     let max_x = 0;
@@ -349,6 +365,28 @@ export function FlowGraph(props: {
       max_x = Math.max(...nodes_out.map((n) => n.x + w));
       max_y = Math.max(...nodes_out.map((n) => n.y + h));
     }
+
+    // Expand bounds to include large loop arcs (bidirectional edges).
+    let arc_pad = 0;
+    if (edges_out.length) {
+      const pair = new Set(edges_out.map((e) => `${e.source}->${e.target}`));
+      for (const e of edges_out) {
+        if (!pair.has(`${e.target}->${e.source}`)) continue;
+        const s = node_pos[e.source];
+        const t = node_pos[e.target];
+        if (!s || !t) continue;
+        const sx = s.x + half_w;
+        const sy = s.y + half_h;
+        const tx = t.x + half_w;
+        const ty = t.y + half_h;
+        const len = Math.max(1, Math.hypot(tx - sx, ty - sy));
+        const base = Math.max(28, Math.min(72, len * 0.14));
+        const mag = Math.min(200, base * 3.5);
+        if (mag > arc_pad) arc_pad = mag;
+      }
+    }
+
+    const pad = 60 + arc_pad;
     const vb = {
       x: min_x - pad,
       y: min_y - pad,
@@ -358,7 +396,7 @@ export function FlowGraph(props: {
       node_h: h,
     };
     return { nodes: nodes_out, edges: edges_out, bounds: vb };
-  }, [flow_in, props.flow_by_id, props.expand_subflows, props.simplify, active]);
+  }, [flow_in, props.flow_by_id, props.expand_subflows, props.simplify, props.prefer_vertical, active]);
 
   if (!flow_in) {
     return (
@@ -450,8 +488,9 @@ export function FlowGraph(props: {
     const svg = svg_ref.current;
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
-    const dx = rect.width > 0 ? (dx_client / rect.width) * vb.w : 0;
-    const dy = rect.height > 0 ? (dy_client / rect.height) * vb.h : 0;
+    const pan_scale = 0.8; // 20% slower pan
+    const dx = rect.width > 0 ? (dx_client / rect.width) * vb.w * pan_scale : 0;
+    const dy = rect.height > 0 ? (dy_client / rect.height) * vb.h * pan_scale : 0;
     set_view((prev) => clamp_view({ x: (base_view || prev).x - dx, y: (base_view || prev).y - dy, w: (base_view || prev).w, h: (base_view || prev).h }, bounds));
   };
 
@@ -525,8 +564,14 @@ export function FlowGraph(props: {
         onWheel={(e) => {
           e.preventDefault();
           const anchor = client_to_svg(e.clientX, e.clientY);
-          const delta = typeof e.deltaY === "number" ? e.deltaY : 0;
-          const factor = delta > 0 ? 1.12 : 0.89;
+          const raw = typeof e.deltaY === "number" ? e.deltaY : 0;
+          const mode = typeof (e as any).deltaMode === "number" ? Number((e as any).deltaMode) : 0; // 0=pixel, 1=line, 2=page
+          const delta = mode === 1 ? raw * 24 : mode === 2 ? raw * 800 : raw;
+
+          // Magnitude-aware + ~3x slower than the old fixed step.
+          const speed = 0.00045 * 1.15;
+          let factor = Math.exp(delta * speed);
+          factor = Math.max(0.86, Math.min(1.16, factor));
           zoom_at(anchor, factor);
         }}
         onPointerDown={(e) => {
@@ -613,12 +658,17 @@ export function FlowGraph(props: {
           const px = (-dy) / len;
           const py = dx / len;
           const sign = String(e.source) < String(e.target) ? 1 : -1;
-          const offset = bidirectional ? 18 * sign : 0;
+          // For pairs, draw one "primary" straight edge + one arced return edge (clearer loop signal).
+          // Choose "primary" by screen direction (forward edge), not by id ordering.
+          const dominant_is_x = Math.abs(dx) >= Math.abs(dy);
+          const forward = dominant_is_x ? dx >= 0 : dy >= 0;
+          const primary = !bidirectional || forward;
+          const base_offset_mag = Math.max(28, Math.min(72, len * 0.14));
+          const offset_mag = Math.min(200, base_offset_mag * 3.5);
+          const offset = bidirectional && !primary ? offset_mag * sign : 0;
           const cx = (start.x + end.x) / 2 + px * offset;
           const cy = (start.y + end.y) / 2 + py * offset;
-          const d = bidirectional
-            ? `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}`
-            : `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+          const d = bidirectional && !primary ? `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}` : `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
 
           const is_visited_edge = highlight_path && visited_visible && visited_visible[e.source] !== undefined && visited_visible[e.target] !== undefined;
           return <path key={e.id} d={d} className={`graph_edge ${is_visited_edge ? "visited" : ""}`} markerEnd="url(#arrow)" fill="none" />;

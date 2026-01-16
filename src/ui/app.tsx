@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+import { AgentCyclesPanel } from "@abstractuic/monitor-flow";
+
 import { GatewayClient } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
 import { McpWorkerClient } from "../lib/mcp_worker_client";
 import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
+import { build_agent_trace, type LedgerRecordItem } from "./agent_cycles_adapter";
 import { FlowGraph } from "./flow_graph";
 import { JsonViewer } from "./json_viewer";
 import { Modal } from "./modal";
@@ -519,6 +522,8 @@ export function App(): React.ReactElement {
 
   const [right_tab, set_right_tab] = useState<"ledger" | "graph" | "digest" | "chat">("ledger");
   const [ledger_condensed, set_ledger_condensed] = useState(true);
+  const [ledger_view, set_ledger_view] = useState<"steps" | "cycles">("steps");
+  const [ledger_cycles_run_id, set_ledger_cycles_run_id] = useState<string>("");
   const [graph_flow_id, set_graph_flow_id] = useState<string>("");
   const [graph_flow, set_graph_flow] = useState<any | null>(null);
   const [graph_flow_cache, set_graph_flow_cache] = useState<Record<string, any>>({});
@@ -639,6 +644,17 @@ export function App(): React.ReactElement {
   const request_value = typeof input_data_obj?.request === "string" ? String(input_data_obj.request) : "";
   const provider_value = typeof input_data_obj?.provider === "string" ? String(input_data_obj.provider) : "";
   const model_value = typeof input_data_obj?.model === "string" ? String(input_data_obj.model) : "";
+  const workspace_root_value = typeof input_data_obj?.workspace_root === "string" ? String(input_data_obj.workspace_root) : "";
+  const workspace_access_mode_value =
+    typeof input_data_obj?.workspace_access_mode === "string" ? String(input_data_obj.workspace_access_mode) : "";
+  const workspace_ignored_paths_value = useMemo(() => {
+    const raw = (input_data_obj as any)?.workspace_ignored_paths;
+    if (Array.isArray(raw)) {
+      return raw.map((x) => String(x || "").trim()).filter(Boolean).join("\n");
+    }
+    if (typeof raw === "string") return String(raw);
+    return "";
+  }, [input_data_obj]);
   const has_adaptive_inputs = adaptive_pins.length > 0 && Boolean(bundle_id.trim());
 
   const selected_workflow_value = bundle_id.trim() && flow_id.trim() ? `${bundle_id.trim()}:${flow_id.trim()}` : "";
@@ -1097,10 +1113,6 @@ export function App(): React.ReactElement {
 
     const emit = extract_emit_event(ev.record);
     const emit_name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
-    if (emit_name === "abstract.status") {
-      const { text, duration } = extract_textish(emit?.payload);
-      set_status(text, duration);
-    }
 
     const rec = ev.record;
     const node_id = typeof rec?.node_id === "string" ? rec.node_id : "";
@@ -1109,6 +1121,10 @@ export function App(): React.ReactElement {
     const rec_run_id = typeof rec?.run_id === "string" ? rec.run_id : "";
 
     const effective_run_id = rec_run_id || run_id.trim();
+    if (emit_name === "abstract.status" && effective_run_id === run_id.trim()) {
+      const { text, duration } = extract_textish(emit?.payload);
+      set_status(text, duration);
+    }
     const node_id_for_log = node_id ? graph_node_id_for(effective_run_id, node_id) : "";
     if (status === "waiting") {
       const w = extract_wait_from_record(rec);
@@ -1223,7 +1239,7 @@ export function App(): React.ReactElement {
       }
     }
 
-    if (emit_name === "abstract.status") {
+    if (emit_name === "abstract.status" && child_run_id === run_id.trim()) {
       const { text, duration } = extract_textish(emit?.payload);
       set_status(text, duration);
     }
@@ -1303,7 +1319,7 @@ export function App(): React.ReactElement {
       }
     }
 
-    if (emit_name === "abstract.status") {
+    if (emit_name === "abstract.status" && child_run_id === run_id.trim()) {
       const { text, duration } = extract_textish(emit?.payload);
       set_status(text, duration);
     }
@@ -1379,6 +1395,8 @@ export function App(): React.ReactElement {
     set_log([]);
     set_log_open({});
     set_log_response_open({});
+    set_ledger_view("steps");
+    set_ledger_cycles_run_id("");
     set_status_text("");
     set_run_state(null);
     set_input_field_drafts({});
@@ -1497,7 +1515,7 @@ export function App(): React.ReactElement {
     const fid = flow_id.trim();
     const bid = bundle_id.trim();
     if (!fid || !bid) {
-      const msg = "Select a workflow first (Connect → pick a workflow).";
+      const msg = "Select a workflow first (Start Workflow → pick a workflow).";
       set_error_text(msg);
       return msg;
     }
@@ -1551,7 +1569,7 @@ export function App(): React.ReactElement {
     const fid = flow_id.trim();
     const bid = bundle_id.trim();
     if (!fid || !bid) {
-      const msg = "Select a workflow first (Connect → pick a workflow).";
+      const msg = "Select a workflow first (Start Workflow → pick a workflow).";
       set_error_text(msg);
       return msg;
     }
@@ -2790,6 +2808,76 @@ export function App(): React.ReactElement {
     return log.filter(is_condensed_ledger_item);
   }, [ledger_condensed, log]);
 
+  const ledger_record_items = useMemo<LedgerRecordItem[]>(() => {
+    const root = run_id.trim();
+    const out: LedgerRecordItem[] = [];
+    for (const x of records) {
+      if (!x || !x.record) continue;
+      out.push({ run_id: root, cursor: x.cursor, record: x.record });
+    }
+    for (const x of child_records_for_digest) {
+      if (!x || !x.record) continue;
+      out.push({ run_id: String(x.run_id || "").trim(), cursor: x.cursor, record: x.record });
+    }
+    return out;
+  }, [records, child_records_for_digest, run_id]);
+
+  const cycles_run_counts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of ledger_record_items) {
+      const rid = String(item.record?.run_id || item.run_id || "").trim();
+      if (!rid) continue;
+      const eff = String(item.record?.effect?.type || "").trim();
+      if (eff !== "llm_call") continue;
+      counts[rid] = (counts[rid] || 0) + 1;
+    }
+    return counts;
+  }, [ledger_record_items]);
+
+  const default_cycles_run_id = useMemo(() => {
+    const follow = follow_run_id.trim();
+    if (follow) return follow;
+    let best = "";
+    let best_count = -1;
+    for (const [rid, count] of Object.entries(cycles_run_counts)) {
+      if (count > best_count) {
+        best = rid;
+        best_count = count;
+      }
+    }
+    return best || run_id.trim();
+  }, [cycles_run_counts, follow_run_id, run_id]);
+
+  const cycles_run_id = (ledger_cycles_run_id.trim() || default_cycles_run_id).trim();
+
+  const cycles_run_options = useMemo(() => {
+    const out = new Set<string>();
+    const root = run_id.trim();
+    const follow = follow_run_id.trim();
+    if (root) out.add(root);
+    if (follow) out.add(follow);
+    for (const r of subrun_ids) {
+      const rid = String(r || "").trim();
+      if (rid) out.add(rid);
+    }
+    for (const item of ledger_record_items) {
+      const rid = String(item.record?.run_id || item.run_id || "").trim();
+      if (rid) out.add(rid);
+    }
+
+    const ids = Array.from(out);
+    ids.sort((a, b) => {
+      if (root && a === root && b !== root) return -1;
+      if (root && b === root && a !== root) return 1;
+      if (follow && a === follow && b !== follow) return -1;
+      if (follow && b === follow && a !== follow) return 1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+    return ids;
+  }, [run_id, follow_run_id, subrun_ids, ledger_record_items]);
+
+  const agent_trace = useMemo(() => build_agent_trace(ledger_record_items, { run_id: cycles_run_id }), [ledger_record_items, cycles_run_id]);
+
   const selected_run_summary = useMemo(() => {
     const rid = run_id.trim();
     if (!rid) return null;
@@ -2892,41 +2980,7 @@ export function App(): React.ReactElement {
               />
             </div>
             <div className="section_divider" />
-            <div className="section_title">Workflow</div>
-            <div className="field">
-              <label>Workflows (discovered)</label>
-              <select
-                value={selected_workflow_value}
-                onChange={async (e) => {
-                  const wid = String(e.target.value || "").trim();
-                  if (!wid) return;
-                  const parsed = parse_namespaced_workflow_id(wid);
-                  if (!parsed) return;
-                  set_bundle_id(parsed.bundle_id);
-                  set_flow_id(parsed.flow_id);
-                  set_graph_flow_id(parsed.flow_id);
-                  await load_bundle_info(parsed.bundle_id);
-                }}
-                disabled={discovery_loading || !workflow_options.length}
-              >
-                <option value="">{workflow_options.length ? "(select)" : "(empty — click Connect)"}</option>
-                {workflow_options.map((w) => (
-                  <option key={w.workflow_id} value={w.workflow_id}>
-                    {w.label}
-                  </option>
-                ))}
-              </select>
-              <div className="mono muted" style={{ fontSize: "12px" }}>
-                Workflows are the gateway’s registered `.flow` bundles (configured via `ABSTRACTGATEWAY_FLOWS_DIR`).
-              </div>
-              {bundle_loading ? (
-                <div className="mono muted" style={{ fontSize: "12px" }}>
-                  Loading workflow…
-                </div>
-              ) : null}
-              {bundle_error ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{bundle_error}</div> : null}
-            </div>
-
+            <div className="section_title">START FLOW</div>
             <div className="actions">
               <button
                 className="btn primary big"
@@ -2934,14 +2988,14 @@ export function App(): React.ReactElement {
                   set_new_run_error("");
                   set_new_run_open(true);
                 }}
-                disabled={!gateway_connected || !bundle_id.trim() || !flow_id.trim() || discovery_loading || bundle_loading || connecting || resuming}
+                disabled={!gateway_connected || discovery_loading || connecting || resuming || !workflow_options.length}
               >
-                Start Workflow
+                Launch
               </button>
             </div>
 
             <div className="section_divider" />
-            <div className="section_title">Existing Runs</div>
+            <div className="section_title">RUNNING FLOWS</div>
             <div className="field">
               <label>Runs (parent — select to observe)</label>
               <div className="field_inline">
@@ -3025,7 +3079,15 @@ export function App(): React.ReactElement {
                         const err = await start_new_run();
                         if (err) set_new_run_error(err);
                       }}
-                      disabled={connecting || resuming}
+                      disabled={
+                        connecting ||
+                        resuming ||
+                        discovery_loading ||
+                        bundle_loading ||
+                        !gateway_connected ||
+                        !bundle_id.trim() ||
+                        !flow_id.trim()
+                      }
                     >
                       Start
                     </button>
@@ -3037,18 +3099,21 @@ export function App(): React.ReactElement {
                         set_schedule_error("");
                         set_schedule_open(true);
                       }}
-                      disabled={connecting || resuming}
+                      disabled={
+                        connecting ||
+                        resuming ||
+                        discovery_loading ||
+                        bundle_loading ||
+                        !gateway_connected ||
+                        !bundle_id.trim() ||
+                        !flow_id.trim()
+                      }
                     >
                       Schedule
                     </button>
                   </>
                 }
               >
-                {!bundle_id.trim() || !flow_id.trim() ? (
-                  <div className="mono muted" style={{ fontSize: "12px", marginBottom: "10px" }}>
-                    Select a workflow in the left panel before starting a run.
-                  </div>
-                ) : null}
                 {new_run_error ? (
                   <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
                     <div className="meta">
@@ -3059,7 +3124,54 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
-                {has_adaptive_inputs ? (
+                <div className="field" style={{ marginBottom: "10px" }}>
+                  <label>Workflow (discovered)</label>
+                  <select
+                    value={selected_workflow_value}
+                    onChange={async (e) => {
+                      const wid = String(e.target.value || "").trim();
+                      if (!wid) return;
+                      const parsed = parse_namespaced_workflow_id(wid);
+                      if (!parsed) return;
+                      set_bundle_id(parsed.bundle_id);
+                      set_flow_id(parsed.flow_id);
+                      set_graph_flow_id(parsed.flow_id);
+                      await load_bundle_info(parsed.bundle_id);
+                    }}
+                    disabled={discovery_loading || !workflow_options.length}
+                  >
+                    <option value="">{workflow_options.length ? "(select)" : "(empty — click Connect)"}</option>
+                    {workflow_options.map((w) => (
+                      <option key={w.workflow_id} value={w.workflow_id}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                    Workflows are the gateway’s registered `.flow` bundles (configured via `ABSTRACTGATEWAY_FLOWS_DIR`).
+                  </div>
+                  {selected_entrypoint?.description ? (
+                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                      {String(selected_entrypoint.description)}
+                    </div>
+                  ) : null}
+                  {bundle_loading ? (
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      Loading workflow…
+                    </div>
+                  ) : null}
+                  {bundle_error ? (
+                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+                      {bundle_error}
+                    </div>
+                  ) : null}
+                </div>
+
+                {!bundle_id.trim() || !flow_id.trim() ? (
+                  <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
+                    Select a workflow above to configure inputs.
+                  </div>
+                ) : has_adaptive_inputs ? (
                   <>
                 {input_data_obj === null ? (
                   <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
@@ -3403,6 +3515,7 @@ export function App(): React.ReactElement {
                     onChange={(e) => update_input_data_field("request", e.target.value)}
                     placeholder="What do you want the workflow/agent to do?"
                     rows={3}
+                    disabled={connecting || resuming}
                   />
                 </div>
                 <div className="row">
@@ -3414,6 +3527,7 @@ export function App(): React.ReactElement {
                         value={provider_value}
                         onChange={(e) => update_input_data_field("provider", e.target.value)}
                         placeholder="lmstudio / ollama / openai / ..."
+                        disabled={connecting || resuming}
                       />
                     </div>
                   </div>
@@ -3425,23 +3539,78 @@ export function App(): React.ReactElement {
                         value={model_value}
                         onChange={(e) => update_input_data_field("model", e.target.value)}
                         placeholder="qwen/qwen3-next-80b / gpt-4.1 / ..."
+                        disabled={connecting || resuming}
                       />
                     </div>
                   </div>
                 </div>
 
-                <div className="field">
-                  <label>Input data (JSON)</label>
-                  <textarea
-                    className="mono"
-                    value={input_data_text}
-                    onChange={(e) => set_input_data_text(e.target.value)}
-                    placeholder='{"request":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}'
-                    rows={6}
-                  />
-                </div>
+                <details style={{ marginTop: "6px" }}>
+                  <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
+                    Advanced: input_data JSON
+                  </summary>
+                  <div className="field" style={{ marginTop: "10px" }}>
+                    <label>Input data (JSON)</label>
+                    <textarea
+                      className="mono"
+                      value={input_data_text}
+                      onChange={(e) => set_input_data_text(e.target.value)}
+                      placeholder='{"request":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}'
+                      rows={8}
+                      disabled={connecting || resuming}
+                    />
+                  </div>
+                </details>
                   </>
                 )}
+
+                <details style={{ marginTop: "10px" }} open>
+                  <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
+                    Workspace policy (filesystem)
+                  </summary>
+                  <div className="field" style={{ marginTop: "10px" }}>
+                    <label>Workspace root (workspace_root)</label>
+                    <input
+                      className="mono"
+                      value={workspace_root_value}
+                      onChange={(e) => update_input_data_field("workspace_root", e.target.value)}
+                      placeholder="(leave blank to auto-generate a per-run workspace on the gateway)"
+                      disabled={connecting || resuming}
+                    />
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      Relative tool paths resolve under this directory.
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Filesystem access mode (workspace_access_mode)</label>
+                    <select
+                      className="mono"
+                      value={(workspace_access_mode_value || "workspace_only").trim() || "workspace_only"}
+                      onChange={(e) => update_input_data_field("workspace_access_mode", e.target.value)}
+                      disabled={connecting || resuming}
+                    >
+                      <option value="workspace_only">workspace_only (restrict absolute paths to workspace_root)</option>
+                      <option value="all_except_ignored">all_except_ignored (allow absolute paths outside workspace_root)</option>
+                    </select>
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      This only affects absolute paths; relative paths still stay under workspace_root.
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Ignored folders (workspace_ignored_paths)</label>
+                    <textarea
+                      className="mono"
+                      value={workspace_ignored_paths_value}
+                      onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)}
+                      placeholder={".git\nnode_modules\n.venv\n~/Library\n/Users/albou/.ssh"}
+                      rows={5}
+                      disabled={connecting || resuming}
+                    />
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      One path per line. Relative entries are resolved under workspace_root.
+                    </div>
+                  </div>
+                </details>
 
                 <details style={{ marginTop: "10px" }}>
                   <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
@@ -3975,13 +4144,27 @@ export function App(): React.ReactElement {
                   <span className="mono">{is_scheduled_run && wait_reason === "until" ? "scheduled" : "waiting"}</span>
                   <span className="mono">{wait_reason || "unknown"}</span>
                 </div>
-                <div className="body mono">
-                  {safe_json({
-                    wait_key: wait_key,
-                    reason: wait_reason,
-                    sub_run_id: sub_run_id || undefined,
-                    until: wait_until || undefined,
-                  })}
+                <div className="body">
+                  {wait_key ? (
+                    <div className="mono" title={wait_key}>
+                      <span className="muted">wait_key</span>: {short_id(wait_key, 46)}
+                    </div>
+                  ) : null}
+                  {wait_reason === "event" && wait_event_name ? (
+                    <div className="mono">
+                      <span className="muted">event</span>: {wait_event_name}
+                    </div>
+                  ) : null}
+                  {wait_reason === "subworkflow" && sub_run_id ? (
+                    <div className="mono">
+                      <span className="muted">child run</span>: {short_id(sub_run_id, 18)}
+                    </div>
+                  ) : null}
+                  {wait_reason === "until" && wait_until ? (
+                    <div className="mono" title={wait_until}>
+                      <span className="muted">until</span>: {short_id(wait_until, 46)}
+                    </div>
+                  ) : null}
                 </div>
                 {wait_reason === "until" && wait_until ? (
                   <div className="mono muted" style={{ marginTop: "10px", fontSize: "12px" }}>
@@ -4022,19 +4205,27 @@ export function App(): React.ReactElement {
               </div>
             ) : null}
 
-	            {is_scheduled_run ? (
-	              <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-	                <div className="meta">
-	                  <span className="mono">schedule</span>
-	                  <span className="mono">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
-	                </div>
-	                <div className="body mono">
-	                  {safe_json({
-	                    interval: schedule_interval || null,
-	                    share_context: schedule_share_ctx,
-	                    repeat_count: schedule_meta_repeat_count,
-	                  })}
-	                </div>
+            {is_scheduled_run ? (
+              <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+                <div className="meta">
+                  <span className="mono">schedule</span>
+                  <span className="mono">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
+                </div>
+                <div className="body">
+                  {schedule_interval ? (
+                    <div className="mono">
+                      <span className="muted">interval</span>: {schedule_interval}
+                    </div>
+                  ) : null}
+                  <div className="mono">
+                    <span className="muted">share context</span>: {schedule_share_ctx ? "true" : "false"}
+                  </div>
+                  {typeof schedule_meta_repeat_count === "number" ? (
+                    <div className="mono">
+                      <span className="muted">repeat count</span>: {schedule_meta_repeat_count}
+                    </div>
+                  ) : null}
+                </div>
                 {limits_pct !== null ? (
                   <div className="body" style={{ marginTop: "10px" }}>
                     <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
@@ -4061,18 +4252,18 @@ export function App(): React.ReactElement {
                     ) : null}
                   </div>
                 ) : null}
-	                <div className="actions">
-	                  {is_scheduled_recurrent ? (
-	                    <button
-	                      className="btn"
-	                      onClick={() => {
-	                        set_schedule_edit_interval(schedule_interval || "");
+                <div className="actions">
+                  {is_scheduled_recurrent ? (
+                    <button
+                      className="btn"
+                      onClick={() => {
+                        set_schedule_edit_interval(schedule_interval || "");
                         set_schedule_edit_apply_immediately(true);
-	                        set_schedule_edit_error("");
-	                        set_schedule_edit_open(true);
-	                      }}
-	                      disabled={connecting || schedule_edit_submitting}
-	                    >
+                        set_schedule_edit_error("");
+                        set_schedule_edit_open(true);
+                      }}
+                      disabled={connecting || schedule_edit_submitting}
+                    >
                       Edit schedule
                     </button>
                   ) : null}
@@ -4169,10 +4360,41 @@ export function App(): React.ReactElement {
 
               {right_tab === "ledger" ? (
                 <>
-                  <div className="log_actions" style={{ marginTop: "6px" }}>
-                    <button className={`btn ${ledger_condensed ? "primary" : ""}`} onClick={() => set_ledger_condensed((v) => !v)}>
-                      {ledger_condensed ? "Condensed" : "All"}
+                  <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
+                    <button className={`btn ${ledger_view === "steps" ? "primary" : ""}`} onClick={() => set_ledger_view("steps")}>
+                      Steps
                     </button>
+                    <button className={`btn ${ledger_view === "cycles" ? "primary" : ""}`} onClick={() => set_ledger_view("cycles")}>
+                      Cycles
+                    </button>
+                    {ledger_view === "steps" ? (
+                      <button className={`btn ${ledger_condensed ? "primary" : ""}`} onClick={() => set_ledger_condensed((v) => !v)}>
+                        {ledger_condensed ? "Condensed" : "All"}
+                      </button>
+                    ) : (
+                      <div className="field_inline" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                        <span className="mono muted" style={{ fontSize: "12px" }}>
+                          Run
+                        </span>
+                        <select
+                          className="mono"
+                          value={cycles_run_id}
+                          onChange={(e) => set_ledger_cycles_run_id(String(e.target.value || ""))}
+                          disabled={!cycles_run_options.length}
+                        >
+                          {!cycles_run_options.length ? <option value="">(no runs)</option> : null}
+                          {cycles_run_options.map((rid) => {
+                            const count = typeof cycles_run_counts[rid] === "number" ? Number(cycles_run_counts[rid]) : 0;
+                            const label = `${short_id(rid, 18)}${count ? ` • ${count} llm` : ""}`;
+                            return (
+                              <option key={rid} value={rid}>
+                                {label}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    )}
                     <button
                       className="btn"
                       disabled={!records.length && !child_records_for_digest.length}
@@ -4196,20 +4418,39 @@ export function App(): React.ReactElement {
                       Copy ledger (JSONL)
                     </button>
                   </div>
-                  <div className="log log_scroll">
-                    {visible_log.map((item) => (
-                      <LedgerCard
-                        key={item.id}
-                        item={item}
-                        open={log_open[item.id] === true}
-                        on_toggle={() => set_log_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
-                        response_open={log_response_open[item.id] === true}
-                        on_toggle_response={() => set_log_response_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
-                        node_index={node_index_for_run}
-                        on_copy={copy_to_clipboard}
+                  {ledger_view === "steps" ? (
+                    <div className="log log_scroll">
+                      {visible_log.map((item) => (
+                        <LedgerCard
+                          key={item.id}
+                          item={item}
+                          open={log_open[item.id] === true}
+                          on_toggle={() => set_log_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                          response_open={log_response_open[item.id] === true}
+                          on_toggle_response={() => set_log_response_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                          node_index={node_index_for_run}
+                          on_copy={copy_to_clipboard}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="log log_scroll">
+                      <AgentCyclesPanel
+                        items={agent_trace.items}
+                        title="Agent"
+                        subtitle={agent_trace.node_id ? `node_id: ${agent_trace.node_id}` : "Live per-effect trace (LLM/tool calls)."}
+                        subRunId={cycles_run_id}
+                        onOpenSubRun={
+                          cycles_run_id && cycles_run_id !== run_id.trim()
+                            ? () => {
+                                set_run_id(cycles_run_id);
+                                void connect_to_run(cycles_run_id);
+                              }
+                            : undefined
+                        }
                       />
-                    ))}
-                  </div>
+                    </div>
+                  )}
                 </>
               ) : right_tab === "graph" ? (
                 <>
@@ -4302,6 +4543,7 @@ export function App(): React.ReactElement {
                       flow_by_id={graph_flow_cache}
                       expand_subflows={graph_show_subflows}
                       simplify={true}
+                      prefer_vertical={true}
                       active_node_id={graph_active_node_id}
                       recent_nodes={recent_nodes}
                       visited_nodes={visited_nodes}
@@ -4837,7 +5079,18 @@ export function App(): React.ReactElement {
             </div>
 
             <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
-              <strong>Status</strong>: {status_text ? <span className="mono">{status_text}</span> : <span className="mono">(none)</span>}
+              <strong>Run</strong>:{" "}
+              {run_id.trim() ? (
+                <span className="mono">{selected_run_status_label || selected_run_status_raw || "unknown"}</span>
+              ) : (
+                <span className="mono">(none)</span>
+              )}
+              {run_id.trim() && selected_run_is_scheduled_until && selected_next_in ? (
+                <span className="mono muted"> • next in {selected_next_in}</span>
+              ) : null}
+              {status_text ? (
+                <span className="mono muted"> • {status_text}</span>
+              ) : null}
             </div>
           </div>
         </div>
