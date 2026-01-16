@@ -9,6 +9,9 @@ export type RunSummary = {
   ledger_len?: number | null;
   parent_run_id?: string | null;
   session_id?: string | null;
+  is_scheduled?: boolean | null;
+  waiting_reason?: string | null;
+  schedule_interval?: string | null;
 };
 
 function parse_iso_ms(ts: any): number | null {
@@ -51,8 +54,10 @@ function short_id(id: string, keep: number): string {
 
 type StatusConfig = { label: string; cls: string };
 
-function get_status_config(status: string): StatusConfig {
-  const st = String(status || "").trim().toLowerCase();
+function get_status_config(run: RunSummary): StatusConfig {
+  const st = String(run.status || "").trim().toLowerCase();
+  const waiting_reason = String(run.waiting_reason || "").trim().toLowerCase();
+  const is_scheduled = Boolean(run.is_scheduled);
   const config: Record<string, StatusConfig> = {
     completed: { label: "Completed", cls: "success" },
     failed: { label: "Failed", cls: "error" },
@@ -60,7 +65,12 @@ function get_status_config(status: string): StatusConfig {
     waiting: { label: "Waiting", cls: "warning" },
     running: { label: "Running", cls: "info" },
   };
-  return config[st] || { label: status || "Unknown", cls: "muted" };
+
+  if (st === "waiting" && is_scheduled && waiting_reason === "until") {
+    return { label: "Scheduled", cls: "scheduled" };
+  }
+
+  return config[st] || { label: run.status || "Unknown", cls: "muted" };
 }
 
 function extract_workflow_name(workflow_id: string, label_map: Record<string, string>): string {
@@ -102,8 +112,7 @@ function RunCard({
   const wid = typeof run.workflow_id === "string" ? String(run.workflow_id) : "";
   const wf_display = extract_workflow_name(wid, workflow_label_by_id);
   
-  const st = typeof run.status === "string" ? String(run.status) : "";
-  const status_info = get_status_config(st);
+  const status_info = get_status_config(run);
   const time_ago = format_time_ago(run.updated_at || run.created_at);
   const steps = typeof run.ledger_len === "number" && run.ledger_len > 0 ? run.ledger_len : null;
 
@@ -139,8 +148,7 @@ function SelectedRunBadge({
   const wid = typeof run.workflow_id === "string" ? String(run.workflow_id) : "";
   const wf_display = extract_workflow_name(wid, workflow_label_by_id);
   
-  const st = typeof run.status === "string" ? String(run.status) : "";
-  const status_info = get_status_config(st);
+  const status_info = get_status_config(run);
   const time_ago = format_time_ago(run.updated_at || run.created_at);
 
   return (

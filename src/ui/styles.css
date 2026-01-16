@@ -609,6 +609,12 @@ button.primary:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
+.chip.scheduled {
+  border-color: transparent;
+  background: rgba(96, 165, 250, 0.9);
+  color: #fff;
+}
+
 .digest_stats_grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -756,6 +762,11 @@ button.primary:hover:not(:disabled) {
   color: #000;
 }
 
+.run_selected_status.scheduled {
+  background: rgba(96, 165, 250, 0.9);
+  color: #fff;
+}
+
 .run_selected_status.info {
   background: var(--accent);
   color: var(--text-primary);
@@ -885,6 +896,11 @@ button.primary:hover:not(:disabled) {
 .run_card_status.warning {
   background: var(--warning);
   color: #000;
+}
+
+.run_card_status.scheduled {
+  background: rgba(96, 165, 250, 0.9);
+  color: #fff;
 }
 
 .run_card_status.info {

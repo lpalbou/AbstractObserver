@@ -455,6 +455,24 @@ export function FlowGraph(props: {
     set_view((prev) => clamp_view({ x: (base_view || prev).x - dx, y: (base_view || prev).y - dy, w: (base_view || prev).w, h: (base_view || prev).h }, bounds));
   };
 
+  const edge_pair_set = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of edges) set.add(`${e.source}->${e.target}`);
+    return set;
+  }, [edges]);
+
+  const rect_border_point = (cx: number, cy: number, dx: number, dy: number): { x: number; y: number } => {
+    const w = bounds.node_w;
+    const h = bounds.node_h;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    if (adx < 1e-6 && ady < 1e-6) return { x: cx, y: cy };
+    const sx = adx > 1e-6 ? (w / 2) / adx : Number.POSITIVE_INFINITY;
+    const sy = ady > 1e-6 ? (h / 2) / ady : Number.POSITIVE_INFINITY;
+    const s = Math.min(sx, sy);
+    return { x: cx + dx * s, y: cy + dy * s };
+  };
+
   return (
     <div className="graph_wrap">
       <div className="graph_corner">
@@ -580,12 +598,30 @@ export function FlowGraph(props: {
           const s = node_by_id[e.source];
           const t = node_by_id[e.target];
           if (!s || !t) return null;
-          const x1 = s.x + bounds.node_w / 2;
-          const y1 = s.y + bounds.node_h / 2;
-          const x2 = t.x + bounds.node_w / 2;
-          const y2 = t.y + bounds.node_h / 2;
+          const sx = s.x + bounds.node_w / 2;
+          const sy = s.y + bounds.node_h / 2;
+          const tx = t.x + bounds.node_w / 2;
+          const ty = t.y + bounds.node_h / 2;
+          const dx = tx - sx;
+          const dy = ty - sy;
+
+          const start = rect_border_point(sx, sy, dx, dy);
+          const end = rect_border_point(tx, ty, -dx, -dy);
+
+          const bidirectional = e.source !== e.target && edge_pair_set.has(`${e.target}->${e.source}`);
+          const len = Math.max(1, Math.hypot(dx, dy));
+          const px = (-dy) / len;
+          const py = dx / len;
+          const sign = String(e.source) < String(e.target) ? 1 : -1;
+          const offset = bidirectional ? 18 * sign : 0;
+          const cx = (start.x + end.x) / 2 + px * offset;
+          const cy = (start.y + end.y) / 2 + py * offset;
+          const d = bidirectional
+            ? `M ${start.x} ${start.y} Q ${cx} ${cy} ${end.x} ${end.y}`
+            : `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+
           const is_visited_edge = highlight_path && visited_visible && visited_visible[e.source] !== undefined && visited_visible[e.target] !== undefined;
-          return <line key={e.id} x1={x1} y1={y1} x2={x2} y2={y2} className={`graph_edge ${is_visited_edge ? "visited" : ""}`} markerEnd="url(#arrow)" />;
+          return <path key={e.id} d={d} className={`graph_edge ${is_visited_edge ? "visited" : ""}`} markerEnd="url(#arrow)" fill="none" />;
         })}
 
         {nodes.map((n) => {

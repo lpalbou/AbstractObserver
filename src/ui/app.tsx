@@ -352,6 +352,25 @@ function format_time_ago(ts: any): string {
   return format_relative_time_from_ms(ms);
 }
 
+function format_time_until_from_ms(ms_until: number): string {
+  if (!Number.isFinite(ms_until)) return "";
+  const total_s = Math.floor(ms_until / 1000);
+  if (total_s <= 0) return "now";
+
+  const total_m = Math.floor(total_s / 60);
+  const total_h = Math.floor(total_m / 60);
+  const total_d = Math.floor(total_h / 24);
+
+  const s = total_s % 60;
+  const m = total_m % 60;
+  const h = total_h % 24;
+
+  if (total_d > 0) return `${total_d}d ${h}h`;
+  if (total_h > 0) return `${total_h}h ${m}m`;
+  if (total_m > 0) return `${total_m}m ${s}s`;
+  return `${total_s}s`;
+}
+
 function short_run_id(run_id: string): string {
   const s = String(run_id || "").trim();
   if (!s) return "";
@@ -459,6 +478,7 @@ export function App(): React.ReactElement {
   const [schedule_share_context, set_schedule_share_context] = useState<boolean>(true);
   const [schedule_edit_open, set_schedule_edit_open] = useState(false);
   const [schedule_edit_interval, set_schedule_edit_interval] = useState<string>("");
+  const [schedule_edit_apply_immediately, set_schedule_edit_apply_immediately] = useState<boolean>(true);
   const [schedule_edit_error, set_schedule_edit_error] = useState<string>("");
   const [schedule_edit_submitting, set_schedule_edit_submitting] = useState(false);
 
@@ -837,6 +857,9 @@ export function App(): React.ReactElement {
           ledger_len: typeof r?.ledger_len === "number" ? Number(r.ledger_len) : r?.ledger_len ?? null,
           parent_run_id: typeof r?.parent_run_id === "string" ? String(r.parent_run_id) : r?.parent_run_id ?? null,
           session_id: typeof r?.session_id === "string" ? String(r.session_id) : r?.session_id ?? null,
+          is_scheduled: typeof r?.is_scheduled === "boolean" ? Boolean(r.is_scheduled) : r?.is_scheduled ?? null,
+          waiting_reason: typeof r?.waiting?.reason === "string" ? String(r.waiting.reason) : r?.waiting?.reason ?? null,
+          schedule_interval: typeof r?.schedule?.interval === "string" ? String(r.schedule.interval).trim() : r?.schedule?.interval ?? null,
         }))
         .filter((r) => Boolean(r.run_id))
         // Observability UX: show only parent/root runs (subruns are observable via the parent’s ledger).
@@ -2069,6 +2092,11 @@ export function App(): React.ReactElement {
     (typeof run_state?.workflow_id === "string" && String(run_state.workflow_id).startsWith("scheduled:"));
   const is_scheduled_recurrent = is_scheduled_run && Boolean(schedule_interval);
 
+  const limits_tokens = (run_state as any)?.limits?.tokens;
+  const limits_pct = typeof limits_tokens?.pct === "number" ? Number(limits_tokens.pct) : null;
+  const limits_used = limits_tokens?.estimated_used;
+  const limits_budget = limits_tokens?.max_input_tokens ?? limits_tokens?.max_tokens;
+
   const digest = useMemo(() => {
     type DigestStats = {
       steps: number;
@@ -2460,6 +2488,41 @@ export function App(): React.ReactElement {
     return connected && wid.startsWith("scheduled:") ? wid : "";
   }, [connected, run_state?.workflow_id]);
 
+  const graph_active_node_id = useMemo(() => {
+    if (!connected || !run_id.trim()) return active_node_id;
+    if (!scheduled_workflow_id.trim()) return active_node_id;
+
+    const st = String(run_state?.status || "").trim().toLowerCase();
+    const current_node = String(run_state?.current_node || "").trim();
+    if ((st !== "waiting" && st !== "running") || !current_node) return active_node_id;
+
+    const current_graph_id = graph_node_id_for(run_id.trim(), current_node);
+    if (!current_graph_id) return active_node_id;
+
+    const waiting_reason = String(wait_reason || run_state?.waiting?.reason || "").trim().toLowerCase();
+    const last_node_id = typeof (last_record as any)?.node_id === "string" ? String((last_record as any).node_id).trim() : "";
+    const last_status = typeof (last_record as any)?.status === "string" ? String((last_record as any).status).trim().toLowerCase() : "";
+
+    // For scheduled waits, prefer the durable run_state.current_node (it can be more accurate than the last ledger item).
+    if (st === "waiting" && waiting_reason === "until") return current_graph_id;
+
+    // If the ledger doesn't provide a waiting/running node id, fall back to current_node.
+    if (!active_node_id.trim()) return current_graph_id;
+    if ((last_status === "waiting" || last_status === "running") && !last_node_id) return current_graph_id;
+
+    return active_node_id;
+  }, [
+    connected,
+    run_id,
+    scheduled_workflow_id,
+    run_state?.status,
+    run_state?.current_node,
+    run_state?.waiting?.reason,
+    wait_reason,
+    active_node_id,
+    last_record,
+  ]);
+
   useEffect(() => {
     if (!connected || !run_id.trim()) return;
     if (!scheduled_workflow_id.trim()) return;
@@ -2737,7 +2800,30 @@ export function App(): React.ReactElement {
     return extract_workflow_label(selected_run_summary?.workflow_id, workflow_label_by_id);
   }, [selected_run_summary, workflow_label_by_id]);
 
-  const selected_run_status = String(run_state?.status || selected_run_summary?.status || "").trim();
+  const selected_run_status_raw = String(run_state?.status || selected_run_summary?.status || "").trim();
+  const selected_run_wait_reason = String(wait_reason || run_state?.waiting?.reason || selected_run_summary?.waiting_reason || "").trim().toLowerCase();
+  const selected_run_is_scheduled = Boolean(run_state?.is_scheduled || selected_run_summary?.is_scheduled);
+  const selected_run_is_scheduled_until =
+    selected_run_is_scheduled && selected_run_status_raw.toLowerCase() === "waiting" && selected_run_wait_reason === "until";
+  const selected_next_ms = parse_iso_ms(wait_until);
+  const selected_next_in =
+    selected_run_is_scheduled_until && selected_next_ms !== null ? format_time_until_from_ms(selected_next_ms - Date.now()) : "";
+  const selected_next_at =
+    selected_run_is_scheduled_until && selected_next_ms !== null
+      ? new Date(selected_next_ms).toLocaleString()
+      : selected_run_is_scheduled_until
+        ? String(wait_until || "").trim()
+        : "";
+  const selected_run_status_label = selected_run_is_scheduled_until ? "Scheduled" : selected_run_status_raw;
+  const selected_run_status_chip_cls = selected_run_is_scheduled_until
+    ? "scheduled"
+    : selected_run_status_raw.toLowerCase() === "completed"
+      ? "ok"
+      : selected_run_status_raw.toLowerCase() === "failed"
+        ? "danger"
+        : selected_run_status_raw.toLowerCase() === "waiting" || selected_run_status_raw.toLowerCase() === "running"
+          ? "warn"
+          : "muted";
   const selected_run_when = format_time_ago(selected_run_summary?.updated_at || selected_run_summary?.created_at);
 
   return (
@@ -3630,6 +3716,7 @@ export function App(): React.ReactElement {
                 onClose={() => {
                   set_schedule_edit_open(false);
                   set_schedule_edit_interval("");
+                  set_schedule_edit_apply_immediately(true);
                   set_schedule_edit_error("");
                   set_schedule_edit_submitting(false);
                 }}
@@ -3640,6 +3727,7 @@ export function App(): React.ReactElement {
                       onClick={() => {
                         set_schedule_edit_open(false);
                         set_schedule_edit_interval("");
+                        set_schedule_edit_apply_immediately(true);
                         set_schedule_edit_error("");
                         set_schedule_edit_submitting(false);
                       }}
@@ -3650,7 +3738,10 @@ export function App(): React.ReactElement {
                     <button
                       className="btn primary"
                       onClick={async () => {
-                        const err = await submit_update_schedule({ interval: schedule_edit_interval, apply_immediately: true });
+                        const err = await submit_update_schedule({
+                          interval: schedule_edit_interval,
+                          apply_immediately: schedule_edit_apply_immediately,
+                        });
                         if (err) return;
                         set_schedule_edit_open(false);
                         set_schedule_edit_error("");
@@ -3686,6 +3777,35 @@ export function App(): React.ReactElement {
                     Accepted units: <span className="mono">ms</span>, <span className="mono">s</span>, <span className="mono">m</span>,{" "}
                     <span className="mono">h</span>, <span className="mono">d</span>. This updates the existing scheduled run in place (no context loss).
                   </div>
+                </div>
+
+                <div className="field">
+                  <label>Quick picks</label>
+                  <div className="actions" style={{ gap: "8px", flexWrap: "wrap" }}>
+                    {["15m", "30m", "1h", "2h", "6h", "1d"].map((v) => (
+                      <button
+                        key={v}
+                        className="btn"
+                        onClick={() => set_schedule_edit_interval(v)}
+                        disabled={connecting || schedule_edit_submitting}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Apply</label>
+                  <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={schedule_edit_apply_immediately}
+                      onChange={(e) => set_schedule_edit_apply_immediately(Boolean(e.target.checked))}
+                      disabled={connecting || schedule_edit_submitting}
+                    />
+                    Apply immediately (recompute next run from now if waiting)
+                  </label>
                 </div>
               </Modal>
             ) : null}
@@ -3852,7 +3972,7 @@ export function App(): React.ReactElement {
             {is_waiting ? (
               <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
                 <div className="meta">
-                  <span className="mono">waiting</span>
+                  <span className="mono">{is_scheduled_run && wait_reason === "until" ? "scheduled" : "waiting"}</span>
                   <span className="mono">{wait_reason || "unknown"}</span>
                 </div>
                 <div className="body mono">
@@ -3865,9 +3985,11 @@ export function App(): React.ReactElement {
                 </div>
                 {wait_reason === "until" && wait_until ? (
                   <div className="mono muted" style={{ marginTop: "10px", fontSize: "12px" }}>
-                    Next execution at {(() => {
-                      const dt = new Date(wait_until);
-                      return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : wait_until;
+                    {(() => {
+                      const ms = parse_iso_ms(wait_until);
+                      const at = ms !== null ? new Date(ms).toLocaleString() : wait_until;
+                      const in_ = ms !== null ? format_time_until_from_ms(ms - Date.now()) : "";
+                      return `Next execution at ${at}${in_ ? ` (in ${in_})` : ""}`;
                     })()}
                   </div>
                 ) : null}
@@ -3900,30 +4022,57 @@ export function App(): React.ReactElement {
               </div>
             ) : null}
 
-            {is_scheduled_run ? (
-              <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                <div className="meta">
-                  <span className="mono">schedule</span>
-                  <span className="mono">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
-                </div>
-                <div className="body mono">
-                  {safe_json({
-                    interval: schedule_interval || null,
-                    share_context: schedule_share_ctx,
-                    repeat_count: schedule_meta_repeat_count,
-                  })}
-                </div>
-                <div className="actions">
-                  {is_scheduled_recurrent ? (
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        set_schedule_edit_interval(schedule_interval || "");
-                        set_schedule_edit_error("");
-                        set_schedule_edit_open(true);
-                      }}
-                      disabled={connecting || schedule_edit_submitting}
-                    >
+	            {is_scheduled_run ? (
+	              <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+	                <div className="meta">
+	                  <span className="mono">schedule</span>
+	                  <span className="mono">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
+	                </div>
+	                <div className="body mono">
+	                  {safe_json({
+	                    interval: schedule_interval || null,
+	                    share_context: schedule_share_ctx,
+	                    repeat_count: schedule_meta_repeat_count,
+	                  })}
+	                </div>
+                {limits_pct !== null ? (
+                  <div className="body" style={{ marginTop: "10px" }}>
+                    <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
+                      Context budget
+                    </div>
+                    <div className="mono" style={{ marginBottom: "6px" }}>
+                      {typeof limits_used === "number" && typeof limits_budget === "number" ? `${limits_used.toLocaleString()} / ${limits_budget.toLocaleString()}` : ""}
+                      {` • ${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`}
+                    </div>
+                    <div style={{ height: "6px", borderRadius: "999px", background: "rgba(148, 163, 184, 0.25)", overflow: "hidden" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`,
+                          background:
+                            limits_pct >= 0.9 ? "rgba(239, 68, 68, 0.9)" : limits_pct >= 0.75 ? "rgba(245, 158, 11, 0.9)" : "rgba(34, 197, 94, 0.9)",
+                        }}
+                      />
+                    </div>
+                    {is_scheduled_recurrent ? (
+                      <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                        Auto-compaction triggers at ~90% for recurrent schedules.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+	                <div className="actions">
+	                  {is_scheduled_recurrent ? (
+	                    <button
+	                      className="btn"
+	                      onClick={() => {
+	                        set_schedule_edit_interval(schedule_interval || "");
+                        set_schedule_edit_apply_immediately(true);
+	                        set_schedule_edit_error("");
+	                        set_schedule_edit_open(true);
+	                      }}
+	                      disabled={connecting || schedule_edit_submitting}
+	                    >
                       Edit schedule
                     </button>
                   ) : null}
@@ -4002,19 +4151,15 @@ export function App(): React.ReactElement {
               <div className="viewer_header">
                 <div className="viewer_header_left">
                   <div className="viewer_run_title">{run_id.trim() ? selected_run_label : "No run selected"}</div>
-                  <span
-                    className={`chip mono ${
-                      selected_run_status.toLowerCase() === "completed"
-                        ? "ok"
-                        : selected_run_status.toLowerCase() === "failed"
-                          ? "danger"
-                          : selected_run_status.toLowerCase() === "waiting" || selected_run_status.toLowerCase() === "running"
-                            ? "warn"
-                            : "muted"
-                    }`}
-                  >
-                    {selected_run_status || "—"}
-                  </span>
+                  <span className={`chip mono ${selected_run_status_chip_cls}`}>{selected_run_status_label || "—"}</span>
+                  {selected_run_is_scheduled_until && selected_next_in ? (
+                    <span className="chip mono scheduled" title={selected_next_at ? `Next at ${selected_next_at}` : undefined}>
+                      next in {selected_next_in}
+                    </span>
+                  ) : null}
+                  {selected_run_is_scheduled_until && is_scheduled_recurrent && schedule_interval ? (
+                    <span className="chip mono muted">every {schedule_interval}</span>
+                  ) : null}
                 </div>
                 <div className="viewer_header_right">
                   {run_id.trim() ? <span className="mono muted">{short_run_id(run_id.trim())}</span> : null}
@@ -4157,7 +4302,7 @@ export function App(): React.ReactElement {
                       flow_by_id={graph_flow_cache}
                       expand_subflows={graph_show_subflows}
                       simplify={true}
-                      active_node_id={active_node_id}
+                      active_node_id={graph_active_node_id}
                       recent_nodes={recent_nodes}
                       visited_nodes={visited_nodes}
                       highlight_path={graph_highlight_path}
