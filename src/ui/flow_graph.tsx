@@ -549,7 +549,7 @@ export function FlowGraph(props: {
     const svg = svg_ref.current;
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
-    const pan_scale = 0.8; // 20% slower pan
+    const pan_scale = 0.88; // +10% vs previous tuning
     const dx = rect.width > 0 ? (dx_client / rect.width) * vb.w * pan_scale : 0;
     const dy = rect.height > 0 ? (dy_client / rect.height) * vb.h * pan_scale : 0;
     set_view((prev) => clamp_view({ x: (base_view || prev).x - dx, y: (base_view || prev).y - dy, w: (base_view || prev).w, h: (base_view || prev).h }, bounds));
@@ -630,7 +630,7 @@ export function FlowGraph(props: {
           const delta = mode === 1 ? raw * 24 : mode === 2 ? raw * 800 : raw;
 
           // Magnitude-aware + ~3x slower than the old fixed step.
-          const speed = 0.00045 * 1.15;
+          const speed = 0.00045 * 1.15 * 1.1;
           let factor = Math.exp(delta * speed);
           factor = Math.max(0.86, Math.min(1.16, factor));
           zoom_at(anchor, factor);

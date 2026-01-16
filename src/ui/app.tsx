@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel } from "@abstractuic/monitor-flow";
+import { ChatMessageContent, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
+import { registerMonitorGpuWidget } from "@abstractutils/monitor-gpu";
 
 import { GatewayClient } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
@@ -178,6 +180,13 @@ function short_id(id: string, keep: number): string {
   const s = String(id || "");
   if (s.length <= keep) return s;
   return `${s.slice(0, Math.max(0, keep - 1))}…`;
+}
+
+function sanitize_filename_part(value: string): string {
+  const s = String(value || "").trim();
+  if (!s) return "untitled";
+  const cleaned = s.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+  return cleaned || "untitled";
 }
 
 function extract_textish(payload: any): { text: string; duration: number } {
@@ -433,6 +442,8 @@ export function App(): React.ReactElement {
   const [mobile_tab, set_mobile_tab] = useState<"controls" | "viewer">("controls");
 
   const [settings, set_settings] = useState<Settings>(() => load_settings());
+  const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
+  const monitor_gpu_ref = useRef<HTMLElement | null>(null);
   const [run_id, set_run_id] = useState<string>("");
   const [root_run_id, set_root_run_id] = useState<string>("");
   const [pending_url_run_id, set_pending_url_run_id] = useState<string>(() => parse_run_id_from_url());
@@ -509,11 +520,23 @@ export function App(): React.ReactElement {
   const [chat_input, set_chat_input] = useState<string>("");
   const [chat_error, set_chat_error] = useState<string>("");
   const [chat_sending, set_chat_sending] = useState<boolean>(false);
+  const [chat_export_state, set_chat_export_state] = useState<"idle" | "copied" | "failed">("idle");
   const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string; persisted?: boolean }>>(
     []
   );
   const chat_seen_persist_ids_ref = useRef<Set<string>>(new Set());
   const chat_bottom_ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!monitor_gpu_enabled) return;
+    registerMonitorGpuWidget();
+  }, [monitor_gpu_enabled]);
+
+  useEffect(() => {
+    if (!monitor_gpu_enabled) return;
+    const el = monitor_gpu_ref.current as any;
+    if (el) el.token = settings.auth_token || "";
+  }, [monitor_gpu_enabled, settings.auth_token]);
 
   const [log, set_log] = useState<UiLogItem[]>([]);
   const [log_open, set_log_open] = useState<Record<string, boolean>>({});
@@ -641,7 +664,7 @@ export function App(): React.ReactElement {
       return null;
     }
   }, [input_data_text]);
-  const request_value = typeof input_data_obj?.request === "string" ? String(input_data_obj.request) : "";
+  const prompt_value = typeof input_data_obj?.prompt === "string" ? String(input_data_obj.prompt) : "";
   const provider_value = typeof input_data_obj?.provider === "string" ? String(input_data_obj.provider) : "";
   const model_value = typeof input_data_obj?.model === "string" ? String(input_data_obj.model) : "";
   const workspace_root_value = typeof input_data_obj?.workspace_root === "string" ? String(input_data_obj.workspace_root) : "";
@@ -2021,6 +2044,29 @@ export function App(): React.ReactElement {
     }
   }
 
+  function export_chat_markdown(mode: "copy" | "download"): void {
+    if (!chat_messages.length) return;
+    const rid = run_id.trim();
+    const heading = rid ? `Run ${rid}` : "Chat";
+    const md = chatToMarkdown(
+      chat_messages.map((m) => ({ role: m.role, content: m.content, ts: m.ts })),
+      { heading }
+    );
+
+    if (mode === "download") {
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      const fname = `abstractobserver-chat-${sanitize_filename_part(rid || "run")}-${stamp}.md`;
+      downloadTextFile({ filename: fname, text: md, mime: "text/markdown;charset=utf-8" });
+      return;
+    }
+
+    void (async () => {
+      const ok = await copyText(md);
+      set_chat_export_state(ok ? "copied" : "failed");
+      window.setTimeout(() => set_chat_export_state("idle"), 900);
+    })();
+  }
+
   async function resume_wait(payload_obj: any): Promise<void> {
     const rid = run_id.trim();
     const wk = String(wait_state?.wait_key || "").trim();
@@ -2956,6 +3002,22 @@ export function App(): React.ReactElement {
             run {connected ? "ok" : connecting ? "…" : "off"}
           </span>
           <span className="status_pill muted">cursor {cursor}</span>
+          {monitor_gpu_enabled ? (
+            <monitor-gpu
+              ref={monitor_gpu_ref as any}
+              mode="icon"
+              history-size="5"
+              tick-ms="1500"
+              base-url={settings.gateway_url}
+              title="GPU usage (host)"
+              style={
+                {
+                  ["--monitor-gpu-width" as any]: "30px",
+                  ["--monitor-gpu-bars-height" as any]: "18px",
+                } as React.CSSProperties
+              }
+            />
+          ) : null}
         </div>
         {is_narrow ? (
           <div className="tab_bar" style={{ justifyContent: "flex-start" }}>
@@ -3480,7 +3542,7 @@ export function App(): React.ReactElement {
                     );
                   }
 
-                  const is_textarea = pid === "request" || pid.endsWith("_prompt") || pid.includes("prompt");
+                  const is_textarea = pid === "prompt" || pid.endsWith("_prompt") || pid.includes("prompt");
                   const sv = typeof cur === "string" ? String(cur) : cur !== undefined ? String(cur) : "";
                   return (
                     <div key={pid} className="field">
@@ -3524,7 +3586,7 @@ export function App(): React.ReactElement {
                       className="mono"
                       value={input_data_text}
                       onChange={(e) => set_input_data_text(e.target.value)}
-                      placeholder='{"request":"..."}'
+                      placeholder='{"prompt":"..."}'
                       rows={8}
                       disabled={connecting || resuming}
                     />
@@ -3534,11 +3596,11 @@ export function App(): React.ReactElement {
                 ) : (
                   <>
                 <div className="field">
-                  <label>Request (common)</label>
+                  <label>Prompt (common)</label>
                   <textarea
                     className="mono"
-                    value={request_value}
-                    onChange={(e) => update_input_data_field("request", e.target.value)}
+                    value={prompt_value}
+                    onChange={(e) => update_input_data_field("prompt", e.target.value)}
                     placeholder="What do you want the workflow/agent to do?"
                     rows={3}
                     disabled={connecting || resuming}
@@ -3581,7 +3643,7 @@ export function App(): React.ReactElement {
                       className="mono"
                       value={input_data_text}
                       onChange={(e) => set_input_data_text(e.target.value)}
-                      placeholder='{"request":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}'
+                      placeholder='{"prompt":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}'
                       rows={8}
                       disabled={connecting || resuming}
                     />
@@ -5040,6 +5102,14 @@ export function App(): React.ReactElement {
                     <div className="chat_hint">
                       Read-only. No tools. Grounded in the parent run + subflows ledger.
                     </div>
+                    <div className="actions" style={{ justifyContent: "flex-end", marginTop: "8px" }}>
+                      <button className="btn" type="button" disabled={!chat_messages.length} onClick={() => export_chat_markdown("download")}>
+                        Export Markdown
+                      </button>
+                      <button className="btn" type="button" disabled={!chat_messages.length} onClick={() => export_chat_markdown("copy")}>
+                        {chat_export_state === "copied" ? "Copied" : chat_export_state === "failed" ? "Copy failed" : "Copy Markdown"}
+                      </button>
+                    </div>
                   </div>
 
                   {chat_error ? (
@@ -5068,7 +5138,7 @@ export function App(): React.ReactElement {
                             {m.persisted ? <span className="chip muted mono">saved</span> : null}
                           </div>
                           <div className="chat_text">
-                            <Markdown text={m.content} />
+                            <ChatMessageContent text={m.content} />
                           </div>
                         </div>
                       </div>

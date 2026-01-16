@@ -14,6 +14,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
+const ARGV = process.argv.slice(2);
+const MONITOR_GPU =
+  ARGV.includes("--monitor-gpu") ||
+  ["1", "true", "yes", "on"].includes(String(process.env.ABSTRACTOBSERVER_MONITOR_GPU || "").trim().toLowerCase());
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -35,13 +39,35 @@ function getMimeType(filePath) {
   return MIME_TYPES[ext] || 'application/octet-stream';
 }
 
+function inject_config_html(html) {
+  if (!MONITOR_GPU) return html;
+  const marker = "window.__ABSTRACT_UI_CONFIG__";
+  if (html.includes(marker)) return html;
+  const snippet = `<script>${marker}=Object.assign(${marker}||{}, { monitor_gpu: true });</script>`;
+  if (html.includes("</head>")) return html.replace("</head>", `${snippet}\n</head>`);
+  if (html.includes("</body>")) return html.replace("</body>", `${snippet}\n</body>`);
+  return `${html}\n${snippet}\n`;
+}
+
 function serveFile(res, filePath) {
   try {
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
       return false;
     }
-    const content = readFileSync(filePath);
     const mimeType = getMimeType(filePath);
+
+    if (mimeType === "text/html") {
+      const html = readFileSync(filePath, "utf8");
+      const content = inject_config_html(html);
+      res.writeHead(200, {
+        "Content-Type": `${mimeType}; charset=utf-8`,
+        "Cache-Control": "no-cache",
+      });
+      res.end(content);
+      return true;
+    }
+
+    const content = readFileSync(filePath);
     res.writeHead(200, {
       'Content-Type': mimeType,
       'Cache-Control': 'no-cache',
