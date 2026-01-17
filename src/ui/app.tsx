@@ -2935,7 +2935,7 @@ export function App(): React.ReactElement {
   const cycles_run_counts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const item of ledger_record_items) {
-      const rid = String(item.record?.run_id || item.run_id || "").trim();
+      const rid = String(item.run_id || item.record?.run_id || "").trim();
       if (!rid) continue;
       const eff = String(item.record?.effect?.type || "").trim();
       if (eff !== "llm_call") continue;
@@ -2971,7 +2971,7 @@ export function App(): React.ReactElement {
       if (rid) out.add(rid);
     }
     for (const item of ledger_record_items) {
-      const rid = String(item.record?.run_id || item.run_id || "").trim();
+      const rid = String(item.run_id || item.record?.run_id || "").trim();
       if (rid) out.add(rid);
     }
 

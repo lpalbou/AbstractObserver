@@ -19,7 +19,9 @@ function as_string(value: unknown): string {
 }
 
 function run_id_of(item: LedgerRecordItem): string {
-  return as_string(item.record?.run_id) || as_string(item.run_id);
+  // Prefer the run id we tracked alongside the record (stream/batch context),
+  // since some ledger backends/clients may omit or mis-populate `record.run_id`.
+  return as_string(item.run_id) || as_string(item.record?.run_id);
 }
 
 function node_id_of(rec: StepRecord): string {
