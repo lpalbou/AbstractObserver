@@ -1549,7 +1549,7 @@ export function App(): React.ReactElement {
     stream_loop();
   }
 
-  async function start_new_run(): Promise<string | null> {
+	  async function start_new_run(): Promise<string | null> {
     const fid = flow_id.trim();
     const bid = bundle_id.trim();
     if (!fid || !bid) {
@@ -1560,8 +1560,8 @@ export function App(): React.ReactElement {
 
     set_error_text("");
     set_connecting(true);
-    try {
-      let input_data: Record<string, any> = {};
+	    try {
+	      let input_data: Record<string, any> = {};
       const raw = input_data_text.trim();
       if (raw) {
         try {
@@ -1572,10 +1572,22 @@ export function App(): React.ReactElement {
         } catch (e: any) {
           const msg = `Invalid input_data JSON: ${String(e?.message || e)}`;
           set_error_text(msg);
-          return msg;
-        }
-      }
-      const rid = await gateway.start_run(fid, input_data, { bundle_id: bid });
+	          return msg;
+	        }
+	      }
+	      // Fail fast for the common RunnableFlow contract: prompt is required unless the
+	      // workflow declared a pinDefault for it (rare; usually prompt is user-provided).
+	      const prompt_pin = (flow_pins || []).find((p) => p && typeof p === "object" && (p as any).id === "prompt");
+	      const prompt_default_specified =
+	        prompt_pin && typeof prompt_pin === "object" && Object.prototype.hasOwnProperty.call(prompt_pin, "default");
+	      const raw_prompt = (input_data as any)?.prompt;
+	      const prompt_text = typeof raw_prompt === "string" ? raw_prompt.trim() : "";
+	      if ((!flow_pins.length || (prompt_pin && !prompt_default_specified)) && !prompt_text) {
+	        const msg = "Missing required input_data.prompt";
+	        set_error_text(msg);
+	        return msg;
+	      }
+	      const rid = await gateway.start_run(fid, input_data, { bundle_id: bid });
       set_root_run_id(rid);
       set_run_id(rid);
       set_new_run_open(false);
@@ -1593,7 +1605,7 @@ export function App(): React.ReactElement {
     }
   }
 
-  async function start_scheduled_run(args: {
+	  async function start_scheduled_run(args: {
     start_mode: "now" | "at";
     start_at_local: string;
     repeat_mode: "once" | "forever" | "count" | "until";
@@ -1618,8 +1630,8 @@ export function App(): React.ReactElement {
     set_error_text("");
     set_schedule_submitting(true);
     set_connecting(true);
-    try {
-      let input_data: Record<string, any> = {};
+	    try {
+	      let input_data: Record<string, any> = {};
       const raw = input_data_text.trim();
       if (raw) {
         try {
@@ -1630,11 +1642,22 @@ export function App(): React.ReactElement {
         } catch (e: any) {
           const msg = `Invalid input_data JSON: ${String(e?.message || e)}`;
           set_schedule_error(msg);
-          return msg;
-        }
-      }
+	          return msg;
+	        }
+	      }
+	
+	      const prompt_pin = (flow_pins || []).find((p) => p && typeof p === "object" && (p as any).id === "prompt");
+	      const prompt_default_specified =
+	        prompt_pin && typeof prompt_pin === "object" && Object.prototype.hasOwnProperty.call(prompt_pin, "default");
+	      const raw_prompt = (input_data as any)?.prompt;
+	      const prompt_text = typeof raw_prompt === "string" ? raw_prompt.trim() : "";
+	      if ((!flow_pins.length || (prompt_pin && !prompt_default_specified)) && !prompt_text) {
+	        const msg = "Missing required input_data.prompt";
+	        set_schedule_error(msg);
+	        return msg;
+	      }
 
-      let start_at: string | null = null;
+	      let start_at: string | null = null;
       let start_at_dt_utc: Date | null = null;
       if (args.start_mode === "now") {
         start_at = "now";
