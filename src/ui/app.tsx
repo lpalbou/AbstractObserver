@@ -182,6 +182,34 @@ function short_id(id: string, keep: number): string {
   return `${s.slice(0, Math.max(0, keep - 1))}…`;
 }
 
+const _SAFE_RUN_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function _is_safe_run_id(value: string): boolean {
+  return _SAFE_RUN_ID_PATTERN.test(String(value || "").trim());
+}
+
+async function _sha256_hex(text: string): Promise<string> {
+  const payload = String(text || "");
+  const enc = new TextEncoder().encode(payload);
+  const c: any = (globalThis as any).crypto;
+  if (!c || !c.subtle || typeof c.subtle.digest !== "function") throw new Error("crypto.subtle.digest not available");
+  const digest = await c.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function session_memory_run_id(session_id: string): Promise<string> {
+  const sid = String(session_id || "").trim();
+  if (!sid) throw new Error("session_id is required");
+  if (_is_safe_run_id(sid)) {
+    const rid = `session_memory_${sid}`;
+    if (_is_safe_run_id(rid)) return rid;
+  }
+  const digest = await _sha256_hex(sid);
+  return `session_memory_sha_${digest.slice(0, 32)}`;
+}
+
 function sanitize_filename_part(value: string): string {
   const s = String(value || "").trim();
   if (!s) return "untitled";
@@ -541,10 +569,19 @@ export function App(): React.ReactElement {
   const [log_response_open, set_log_response_open] = useState<Record<string, boolean>>({});
   const [error_text, set_error_text] = useState<string>("");
 
-  const [right_tab, set_right_tab] = useState<"ledger" | "graph" | "digest" | "chat">("ledger");
+  const [right_tab, set_right_tab] = useState<"ledger" | "graph" | "digest" | "attachments" | "chat">("ledger");
   const [ledger_condensed, set_ledger_condensed] = useState(true);
   const [ledger_view, set_ledger_view] = useState<"steps" | "cycles">("steps");
   const [ledger_cycles_run_id, set_ledger_cycles_run_id] = useState<string>("");
+  const [session_attachments_run_id, set_session_attachments_run_id] = useState<string>("");
+  const [session_attachments, set_session_attachments] = useState<any[]>([]);
+  const [session_attachments_loading, set_session_attachments_loading] = useState(false);
+  const [session_attachments_error, set_session_attachments_error] = useState<string>("");
+  const [attachment_preview_open, set_attachment_preview_open] = useState(false);
+  const [attachment_preview_title, set_attachment_preview_title] = useState<string>("");
+  const [attachment_preview_text, set_attachment_preview_text] = useState<string>("");
+  const [attachment_preview_error, set_attachment_preview_error] = useState<string>("");
+  const [attachment_preview_loading, set_attachment_preview_loading] = useState<boolean>(false);
   const [graph_flow_id, set_graph_flow_id] = useState<string>("");
   const [graph_flow, set_graph_flow] = useState<any | null>(null);
   const [graph_flow_cache, set_graph_flow_cache] = useState<Record<string, any>>({});
@@ -1039,6 +1076,140 @@ export function App(): React.ReactElement {
       window.clearInterval(timer);
     };
   }, [connected, run_id, gateway]);
+
+  const session_id_for_run = useMemo(() => {
+    const sid = (run_state as any)?.session_id;
+    if (typeof sid === "string") return sid.trim();
+    if (sid == null) return "";
+    return String(sid || "").trim();
+  }, [run_state]);
+
+  function _download_blob(blob: Blob, filename: string): void {
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "download";
+      a.rel = "noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function refresh_session_attachments(): Promise<void> {
+    if (session_attachments_loading) return;
+    if (!gateway_connected || !session_id_for_run) {
+      set_session_attachments_run_id("");
+      set_session_attachments([]);
+      set_session_attachments_error("");
+      return;
+    }
+    set_session_attachments_loading(true);
+    set_session_attachments_error("");
+    try {
+      const rid = await session_memory_run_id(session_id_for_run);
+      set_session_attachments_run_id(rid);
+      const res = await gateway.list_run_artifacts(rid, { limit: 800 });
+      const items = Array.isArray((res as any)?.items) ? ((res as any).items as any[]) : [];
+      const atts = items.filter((it) => {
+        const tags = it?.tags;
+        return tags && typeof tags === "object" && String((tags as any).kind || "").trim() === "attachment";
+      });
+      set_session_attachments(atts);
+    } catch (e: any) {
+      const msg = String(e?.message || e || "Failed to load session attachments");
+      // No session memory run yet → treat as empty instead of error noise.
+      if (msg.includes("404")) {
+        set_session_attachments([]);
+        set_session_attachments_error("");
+      } else {
+        set_session_attachments([]);
+        set_session_attachments_error(msg);
+      }
+      set_session_attachments_run_id("");
+    } finally {
+      set_session_attachments_loading(false);
+    }
+  }
+
+  async function download_session_attachment(item: any): Promise<void> {
+    const rid = String(session_attachments_run_id || "").trim();
+    if (!rid) {
+      set_status("No session attachment store yet", 2);
+      return;
+    }
+    const artifact_id = String(item?.artifact_id || "").trim();
+    if (!artifact_id) return;
+    const tags = item?.tags && typeof item.tags === "object" ? item.tags : {};
+    const filename = String((tags as any).filename || "").trim();
+    const path = String((tags as any).path || "").trim();
+    const fallback = filename || (path ? path.split("/").pop() : "") || artifact_id;
+    const safe = sanitize_filename_part(fallback);
+    try {
+      const blob = await gateway.download_run_artifact_content(rid, artifact_id);
+      _download_blob(blob, safe);
+      set_status("Downloaded attachment", 2);
+    } catch (e: any) {
+      set_status(String(e?.message || e || "Download failed"), 3);
+    }
+  }
+
+  async function preview_session_attachment(item: any): Promise<void> {
+    const rid = String(session_attachments_run_id || "").trim();
+    const artifact_id = String(item?.artifact_id || "").trim();
+    if (!rid || !artifact_id) return;
+
+    const tags = item?.tags && typeof item.tags === "object" ? item.tags : {};
+    const filename = String((tags as any).filename || "").trim();
+    const path = String((tags as any).path || "").trim();
+    const label = path ? `@${path}` : filename || artifact_id;
+
+    const size_bytes = typeof item?.size_bytes === "number" ? Number(item.size_bytes) : null;
+    const content_type = String(item?.content_type || (tags as any).content_type || "").trim().toLowerCase();
+
+    set_attachment_preview_title(label);
+    set_attachment_preview_text("");
+    set_attachment_preview_error("");
+    set_attachment_preview_open(true);
+
+    if (typeof size_bytes === "number" && size_bytes > 1_000_000) {
+      set_attachment_preview_text(`(Attachment is ${size_bytes.toLocaleString()} bytes; download to view.)`);
+      return;
+    }
+
+    const textish =
+      !content_type ||
+      content_type.startsWith("text/") ||
+      content_type.includes("json") ||
+      content_type.includes("yaml") ||
+      content_type.includes("toml") ||
+      content_type.includes("xml");
+    if (!textish) {
+      set_attachment_preview_text(`(Binary attachment: ${content_type || "unknown"}; download to view.)`);
+      return;
+    }
+
+    set_attachment_preview_loading(true);
+    try {
+      const blob = await gateway.download_run_artifact_content(rid, artifact_id);
+      const raw = await blob.text();
+      const max_chars = 14000;
+      const text = raw.length > max_chars ? `${raw.slice(0, Math.max(0, max_chars - 1))}…` : raw;
+      set_attachment_preview_text(text);
+    } catch (e: any) {
+      set_attachment_preview_error(String(e?.message || e || "Preview failed"));
+    } finally {
+      set_attachment_preview_loading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh_session_attachments();
+  }, [gateway, gateway_connected, session_id_for_run]);
 
   function push_log(item: Omit<UiLogItem, "id"> & { id?: string }): void {
     const id = String(item.id || "").trim() || random_id();
@@ -4478,6 +4649,9 @@ export function App(): React.ReactElement {
                 <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
                   Digest
                 </button>
+                <button className={`tab mono ${right_tab === "attachments" ? "active" : ""}`} onClick={() => set_right_tab("attachments")}>
+                  Attachments
+                </button>
                 <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
                   Chat
                 </button>
@@ -5084,6 +5258,135 @@ export function App(): React.ReactElement {
                       </div>
                     ) : null}
                   </div>
+                </>
+              ) : right_tab === "attachments" ? (
+                <>
+                  <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
+                    <button
+                      className="btn"
+                      onClick={() => void refresh_session_attachments()}
+                      disabled={!gateway_connected || session_attachments_loading || !session_id_for_run}
+                    >
+                      {session_attachments_loading ? "Refreshing…" : "Refresh"}
+                    </button>
+                    {session_id_for_run ? (
+                      <span className="chip mono muted" title={session_id_for_run}>
+                        session {short_id(session_id_for_run, 18)}
+                      </span>
+                    ) : (
+                      <span className="mono muted" style={{ fontSize: "12px" }}>
+                        No session id (pick a run)
+                      </span>
+                    )}
+                    {session_attachments_run_id.trim() ? (
+                      <span className="chip mono muted" title={session_attachments_run_id}>
+                        store {short_id(session_attachments_run_id, 18)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {session_attachments_error ? (
+                    <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                      <div className="meta">
+                        <span className="mono">error</span>
+                        <span className="mono">{now_iso()}</span>
+                      </div>
+                      <div className="body mono">{session_attachments_error}</div>
+                    </div>
+                  ) : null}
+
+                  <div className="log log_scroll" style={{ marginTop: "10px" }}>
+                    {!session_attachments_loading && !session_attachments_error && !session_attachments.length ? (
+                      <div className="chat_empty_hint">No session attachments.</div>
+                    ) : null}
+                    {session_attachments.map((a: any) => {
+                      const artifact_id = String(a?.artifact_id || "").trim();
+                      if (!artifact_id) return null;
+                      const tags = a?.tags && typeof a.tags === "object" ? (a.tags as any) : {};
+                      const filename = String(tags?.filename || "").trim();
+                      const path = String(tags?.path || "").trim();
+                      const sha = String(tags?.sha256 || "").trim();
+                      const ct = String(a?.content_type || "").trim();
+                      const size_bytes = typeof a?.size_bytes === "number" ? Number(a.size_bytes) : null;
+                      const label = path ? `@${path}` : filename || artifact_id;
+                      return (
+                        <div key={artifact_id} className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+                          <div className="meta">
+                            <span className="mono">{label}</span>
+                            <span className="mono">{short_id(artifact_id, 18)}</span>
+                          </div>
+                          <div className="body">
+                            {sha ? (
+                              <div className="mono">
+                                <span className="muted">sha256</span>: {short_id(sha, 18)}
+                              </div>
+                            ) : null}
+                            {ct ? (
+                              <div className="mono">
+                                <span className="muted">type</span>: {ct}
+                              </div>
+                            ) : null}
+                            {typeof size_bytes === "number" ? (
+                              <div className="mono">
+                                <span className="muted">size</span>: {size_bytes.toLocaleString()} bytes
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="actions">
+                            <button className="btn" onClick={() => void copy_to_clipboard(artifact_id)}>
+                              Copy id
+                            </button>
+                            <button className="btn" onClick={() => void preview_session_attachment(a)} disabled={!session_attachments_run_id.trim()}>
+                              Preview
+                            </button>
+                            <button className="btn" onClick={() => void download_session_attachment(a)} disabled={!session_attachments_run_id.trim()}>
+                              Download
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <Modal
+                    open={attachment_preview_open}
+                    title={attachment_preview_title || "Attachment"}
+                    onClose={() => {
+                      set_attachment_preview_open(false);
+                      set_attachment_preview_text("");
+                      set_attachment_preview_error("");
+                      set_attachment_preview_loading(false);
+                    }}
+                    actions={
+                      <>
+                        <button
+                          className="btn"
+                          onClick={() => {
+                            set_attachment_preview_open(false);
+                            set_attachment_preview_text("");
+                            set_attachment_preview_error("");
+                            set_attachment_preview_loading(false);
+                          }}
+                        >
+                          Close
+                        </button>
+                      </>
+                    }
+                  >
+                    {attachment_preview_loading ? (
+                      <div className="mono muted" style={{ fontSize: "12px", marginBottom: "8px" }}>
+                        Loading…
+                      </div>
+                    ) : null}
+                    {attachment_preview_error ? (
+                      <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginBottom: "8px" }}>
+                        {attachment_preview_error}
+                      </div>
+                    ) : null}
+                    <pre className="mono" style={{ whiteSpace: "pre-wrap", maxHeight: "62vh", overflow: "auto", margin: 0 }}>
+                      {attachment_preview_text || "(empty)"}
+                    </pre>
+                  </Modal>
                 </>
               ) : (
                 <>

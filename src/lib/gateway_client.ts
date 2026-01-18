@@ -18,6 +18,15 @@ function _auth_headers(token?: string): Record<string, string> {
   return { Authorization: `Bearer ${t}` };
 }
 
+async function _read_error(resp: Response): Promise<string> {
+  try {
+    const text = await resp.text();
+    return text?.trim() ? text.trim() : `${resp.status}`;
+  } catch {
+    return `${resp.status}`;
+  }
+}
+
 export class GatewayClient {
   private _cfg: GatewayClientConfig;
 
@@ -98,7 +107,7 @@ export class GatewayClient {
         ..._auth_headers(this._cfg.auth_token),
       },
     });
-    if (!r.ok) throw new Error(`get_run failed: ${r.status}`);
+    if (!r.ok) throw new Error(`get_run failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
@@ -120,7 +129,7 @@ export class GatewayClient {
         ..._auth_headers(this._cfg.auth_token),
       },
     });
-    if (!r.ok) throw new Error(`list_runs failed: ${r.status}`);
+    if (!r.ok) throw new Error(`list_runs failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
@@ -132,8 +141,40 @@ export class GatewayClient {
         ..._auth_headers(this._cfg.auth_token),
       },
     });
-    if (!r.ok) throw new Error(`get_run_input_data failed: ${r.status}`);
+    if (!r.ok) throw new Error(`get_run_input_data failed: ${await _read_error(r)}`);
     return await r.json();
+  }
+
+  async list_run_artifacts(run_id: string, opts?: { limit?: number }): Promise<any> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("list_run_artifacts: run_id is required");
+    const limit = typeof opts?.limit === "number" ? opts.limit : 200;
+    const url = _join(
+      this._cfg.base_url,
+      `/api/gateway/runs/${encodeURIComponent(rid)}/artifacts?limit=${encodeURIComponent(String(limit))}`
+    );
+    const r = await fetch(url, {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`list_run_artifacts failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async download_run_artifact_content(run_id: string, artifact_id: string): Promise<Blob> {
+    const rid = String(run_id || "").trim();
+    const aid = String(artifact_id || "").trim();
+    if (!rid) throw new Error("download_run_artifact_content: run_id is required");
+    if (!aid) throw new Error("download_run_artifact_content: artifact_id is required");
+    const url = _join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/artifacts/${encodeURIComponent(aid)}/content`);
+    const r = await fetch(url, {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`download_run_artifact_content failed: ${await _read_error(r)}`);
+    return await r.blob();
   }
 
   async get_ledger(run_id: string, opts: { after: number; limit: number }): Promise<{ items: any[]; next_after: number }> {
