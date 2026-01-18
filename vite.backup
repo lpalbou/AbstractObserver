@@ -12,10 +12,6 @@ export default defineConfig({
     },
   },
   server: {
-    host: "0.0.0.0",
-    allowedHosts: true,
-    strictPort: false,
-    cors: true,
     fs: {
       // Vite blocks serving files outside an allowlist. When we customize it to
       // include shared workspace packages (e.g. AbstractUIC), we must also include
@@ -28,7 +24,6 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
         ws: true,
-        secure: false,
       },
     },
   },

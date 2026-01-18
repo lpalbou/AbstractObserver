@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import { AgentCyclesPanel } from "@abstractuic/monitor-flow";
+import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractuic/monitor-flow";
 import { ChatMessageContent, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
 import { registerMonitorGpuWidget } from "@abstractutils/monitor-gpu";
 
@@ -9,7 +9,6 @@ import { random_id } from "../lib/ids";
 import { McpWorkerClient } from "../lib/mcp_worker_client";
 import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
-import { build_agent_trace, type LedgerRecordItem } from "./agent_cycles_adapter";
 import { FlowGraph } from "./flow_graph";
 import { JsonViewer } from "./json_viewer";
 import { Modal } from "./modal";
@@ -1123,7 +1122,12 @@ export function App(): React.ReactElement {
     } catch (e: any) {
       const msg = String(e?.message || e || "Failed to load session attachments");
       // No session memory run yet → treat as empty instead of error noise.
-      if (msg.includes("404")) {
+      const low = msg.toLowerCase();
+      const missing_session_store =
+        msg.includes("404") ||
+        (low.includes("session_memory_") && low.includes("not found")) ||
+        (low.includes("\"detail\"") && low.includes("not found") && low.includes("session_memory_"));
+      if (missing_session_store) {
         set_session_attachments([]);
         set_session_attachments_error("");
       } else {
