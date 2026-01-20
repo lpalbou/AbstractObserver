@@ -34,12 +34,18 @@ export class GatewayClient {
     this._cfg = { ...cfg, base_url: (cfg.base_url || "").trim() };
   }
 
-  async start_run(flow_id: string | null | undefined, input_data: Record<string, any>, opts?: { bundle_id?: string }): Promise<string> {
+  async start_run(
+    flow_id: string | null | undefined,
+    input_data: Record<string, any>,
+    opts?: { bundle_id?: string; session_id?: string | null }
+  ): Promise<string> {
     const bundle_id = String(opts?.bundle_id || "").trim();
+    const session_id = opts?.session_id === null || opts?.session_id === undefined ? "" : String(opts.session_id || "").trim();
     const fid = String(flow_id || "").trim();
     const req_body: any = { input_data: input_data || {} };
     if (bundle_id) req_body.bundle_id = bundle_id;
     if (fid) req_body.flow_id = fid;
+    if (session_id) req_body.session_id = session_id;
     const r = await fetch(_join(this._cfg.base_url, "/api/gateway/runs/start"), {
       method: "POST",
       headers: {

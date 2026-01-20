@@ -455,6 +455,28 @@ function parse_run_id_from_url(): string {
   return "";
 }
 
+function getOrCreateStableSessionId(): string {
+  // Session scope is powered by RunState.session_id (host contract).
+  // For AbstractObserver, default to a stable-per-tab session id so workflows
+  // started from the UI can share `scope=session` memory when desired.
+  try {
+    const key = "abstractobserver_session_id_v1";
+    const existing = window.sessionStorage.getItem(key);
+    if (existing && existing.trim()) return existing.trim();
+
+    const c: any = (globalThis as any).crypto;
+    const uuid =
+      c && typeof c.randomUUID === "function"
+        ? c.randomUUID()
+        : `${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+    const next = `obs_${uuid}`;
+    window.sessionStorage.setItem(key, next);
+    return next;
+  } catch {
+    return "";
+  }
+}
+
 export function App(): React.ReactElement {
   const [is_narrow, set_is_narrow] = useState<boolean>(() => {
     try {
@@ -474,6 +496,7 @@ export function App(): React.ReactElement {
   const [flow_id, set_flow_id] = useState<string>("");
   const [bundle_id, set_bundle_id] = useState<string>("");
   const [input_data_text, set_input_data_text] = useState<string>("{}");
+  const [start_session_id, set_start_session_id] = useState<string>(() => getOrCreateStableSessionId());
 
   const [bundle_info, set_bundle_info] = useState<BundleInfo | null>(null);
   const [bundle_loading, set_bundle_loading] = useState(false);
@@ -1762,7 +1785,10 @@ export function App(): React.ReactElement {
 	        set_error_text(msg);
 	        return msg;
 	      }
-	      const rid = await gateway.start_run(fid, input_data, { bundle_id: bid });
+		      const rid = await gateway.start_run(fid, input_data, {
+		        bundle_id: bid,
+		        session_id: String(start_session_id || "").trim() || null,
+		      });
       set_root_run_id(rid);
       set_run_id(rid);
       set_new_run_open(false);
@@ -1892,16 +1918,17 @@ export function App(): React.ReactElement {
         }
       }
 
-      const rid = await gateway.schedule_run({
-        bundle_id: bid,
-        flow_id: fid,
-        input_data,
-        start_at,
-        interval: interval_to_send,
-        repeat_count,
-        repeat_until,
-        share_context: Boolean(args.share_context),
-      });
+	      const rid = await gateway.schedule_run({
+	        bundle_id: bid,
+	        flow_id: fid,
+	        input_data,
+	        start_at,
+	        interval: interval_to_send,
+	        repeat_count,
+	        repeat_until,
+	        share_context: Boolean(args.share_context),
+	        session_id: String(start_session_id || "").trim() || null,
+	      });
       set_root_run_id(rid);
       set_run_id(rid);
       set_schedule_open(false);
@@ -3479,14 +3506,28 @@ export function App(): React.ReactElement {
                       Loading workflow…
                     </div>
                   ) : null}
-                  {bundle_error ? (
-                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
-                      {bundle_error}
-                    </div>
-                  ) : null}
-                </div>
+	                  {bundle_error ? (
+	                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+	                      {bundle_error}
+	                    </div>
+	                  ) : null}
+	                </div>
 
-                {!bundle_id.trim() || !flow_id.trim() ? (
+	                <div className="field" style={{ marginBottom: "10px" }}>
+	                  <label>session_id (scope=session)</label>
+	                  <input
+	                    className="mono"
+	                    value={start_session_id}
+	                    onChange={(e) => set_start_session_id(e.target.value)}
+	                    placeholder="(optional; empty ⇒ scope=session behaves like per-run)"
+	                    disabled={connecting || resuming}
+	                  />
+	                  <div className="mono muted" style={{ fontSize: "12px" }}>
+	                    Shared across runs when the same session_id is sent to the gateway. Clear it to avoid session-scoped sharing.
+	                  </div>
+	                </div>
+
+	                {!bundle_id.trim() || !flow_id.trim() ? (
                   <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
                     Select a workflow above to configure inputs.
                   </div>
