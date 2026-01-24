@@ -13,7 +13,6 @@ import { FlowGraph } from "./flow_graph";
 import { JsonViewer } from "./json_viewer";
 import { MindmapPanel } from "./mindmap_panel";
 import { Modal } from "./modal";
-import { MultiSelect } from "./multi_select";
 import { Markdown } from "./markdown";
 import { RunPicker, type RunSummary } from "./run_picker";
 
@@ -479,14 +478,7 @@ function getOrCreateStableSessionId(): string {
 }
 
 export function App(): React.ReactElement {
-  const [is_narrow, set_is_narrow] = useState<boolean>(() => {
-    try {
-      return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 900px)").matches;
-    } catch {
-      return false;
-    }
-  });
-  const [mobile_tab, set_mobile_tab] = useState<"controls" | "viewer">("controls");
+  const [page, set_page] = useState<"launch" | "observe" | "mindmap" | "settings">("observe");
 
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
@@ -502,8 +494,6 @@ export function App(): React.ReactElement {
   const [bundle_info, set_bundle_info] = useState<BundleInfo | null>(null);
   const [bundle_loading, set_bundle_loading] = useState(false);
   const [bundle_error, set_bundle_error] = useState<string>("");
-  const [input_field_drafts, set_input_field_drafts] = useState<Record<string, string>>({});
-  const [input_field_errors, set_input_field_errors] = useState<Record<string, string>>({});
 
   const [discovery_loading, set_discovery_loading] = useState(false);
   const [discovery_error, set_discovery_error] = useState<string>("");
@@ -525,9 +515,7 @@ export function App(): React.ReactElement {
   const cursor_ref = useRef<number>(0);
   const [run_state, set_run_state] = useState<any>(null);
 
-  const [new_run_open, set_new_run_open] = useState(false);
   const [new_run_error, set_new_run_error] = useState<string>("");
-  const [schedule_open, set_schedule_open] = useState(false);
   const [schedule_error, set_schedule_error] = useState<string>("");
   const [schedule_submitting, set_schedule_submitting] = useState(false);
   const [schedule_start_mode, set_schedule_start_mode] = useState<"now" | "at">("now");
@@ -698,19 +686,6 @@ export function App(): React.ReactElement {
     };
   }, []);
 
-  useEffect(() => {
-    try {
-      if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-      const media = window.matchMedia("(max-width: 900px)");
-      const on_change = (ev: MediaQueryListEvent) => set_is_narrow(Boolean(ev.matches));
-      set_is_narrow(Boolean(media.matches));
-      media.addEventListener("change", on_change);
-      return () => media.removeEventListener("change", on_change);
-    } catch {
-      return;
-    }
-  }, []);
-
   const input_data_obj: Record<string, any> | null = useMemo(() => {
     const raw = input_data_text.trim();
     if (!raw) return {};
@@ -750,15 +725,6 @@ export function App(): React.ReactElement {
     return out;
   }, [workflow_options]);
 
-  const available_tool_names = useMemo(() => {
-    const out = new Set<string>();
-    for (const s of Array.isArray(discovered_tool_specs) ? discovered_tool_specs : []) {
-      const name = String((s as any)?.name || "").trim();
-      if (name) out.add(name);
-    }
-    return Array.from(out).sort();
-  }, [discovered_tool_specs]);
-
   const available_providers = useMemo(() => {
     const out = new Set<string>();
     for (const p of Array.isArray(discovered_providers) ? discovered_providers : []) {
@@ -767,15 +733,6 @@ export function App(): React.ReactElement {
     }
     return Array.from(out).sort();
   }, [discovered_providers]);
-
-  const models_for_provider = useMemo(() => {
-    const prov = provider_value.trim();
-    if (!prov) return { models: [] as string[], error: "" };
-    const found = discovered_models_by_provider[prov];
-    if (!found) return { models: [] as string[], error: "" };
-    const models = Array.isArray(found.models) ? found.models : [];
-    return { models: models.map((x) => String(x || "").trim()).filter(Boolean), error: String((found as any).error || "") };
-  }, [discovered_models_by_provider, provider_value]);
 
   const chat_models_for_provider = useMemo(() => {
     const prov = chat_provider.trim();
@@ -871,27 +828,6 @@ export function App(): React.ReactElement {
     set_input_data_text(JSON.stringify(obj, null, 2));
   }
 
-  function set_input_data_value(key: string, value: any): void {
-    if (input_data_obj === null) {
-      set_error_text("Invalid input_data JSON (fix it in Advanced JSON).");
-      return;
-    }
-    const obj: Record<string, any> = { ...(input_data_obj || {}) };
-    if (value === undefined) delete obj[key];
-    else obj[key] = value;
-    set_input_data_text(JSON.stringify(obj, null, 2));
-  }
-
-  function delete_input_data_key(key: string): void {
-    if (input_data_obj === null) {
-      set_error_text("Invalid input_data JSON (fix it in Advanced JSON).");
-      return;
-    }
-    const obj: Record<string, any> = { ...(input_data_obj || {}) };
-    delete obj[key];
-    set_input_data_text(JSON.stringify(obj, null, 2));
-  }
-
   async function load_bundle_info(bid_raw: string): Promise<BundleInfo | null> {
     const bid = String(bid_raw || "").trim();
     if (!bid) {
@@ -903,8 +839,6 @@ export function App(): React.ReactElement {
     try {
       const info = (await gateway.get_bundle(bid)) as BundleInfo;
       set_bundle_info(info);
-      set_input_field_drafts({});
-      set_input_field_errors({});
       push_log({ ts: now_iso(), kind: "info", title: `Loaded bundle ${bid}` });
       return info;
     } catch (e: any) {
@@ -1636,8 +1570,6 @@ export function App(): React.ReactElement {
     set_ledger_cycles_run_id("");
     set_status_text("");
     set_run_state(null);
-    set_input_field_drafts({});
-    set_input_field_errors({});
     set_dismissed_wait_key("");
     set_active_node_id("");
     active_node_ref.current = "";
@@ -1693,8 +1625,6 @@ export function App(): React.ReactElement {
         const data = inp && typeof inp.input_data === "object" && inp.input_data && !Array.isArray(inp.input_data) ? inp.input_data : null;
         if (data) {
           set_input_data_text(JSON.stringify(data, null, 2));
-          set_input_field_drafts({});
-          set_input_field_errors({});
         }
       } catch {
         // ignore
@@ -1786,13 +1716,12 @@ export function App(): React.ReactElement {
 	        set_error_text(msg);
 	        return msg;
 	      }
-		      const rid = await gateway.start_run(fid, input_data, {
-		        bundle_id: bid,
-		        session_id: String(start_session_id || "").trim() || null,
-		      });
+      const rid = await gateway.start_run(fid, input_data, {
+        bundle_id: bid,
+        session_id: String(start_session_id || "").trim() || null,
+      });
       set_root_run_id(rid);
       set_run_id(rid);
-      set_new_run_open(false);
       set_new_run_error("");
       await connect_to_run(rid);
       // Best-effort refresh so the run appears in the dropdown quickly.
@@ -1919,20 +1848,19 @@ export function App(): React.ReactElement {
         }
       }
 
-	      const rid = await gateway.schedule_run({
-	        bundle_id: bid,
-	        flow_id: fid,
-	        input_data,
-	        start_at,
-	        interval: interval_to_send,
+      const rid = await gateway.schedule_run({
+        bundle_id: bid,
+        flow_id: fid,
+        input_data,
+        start_at,
+        interval: interval_to_send,
 	        repeat_count,
 	        repeat_until,
-	        share_context: Boolean(args.share_context),
-	        session_id: String(start_session_id || "").trim() || null,
-	      });
+        share_context: Boolean(args.share_context),
+        session_id: String(start_session_id || "").trim() || null,
+      });
       set_root_run_id(rid);
       set_run_id(rid);
-      set_schedule_open(false);
       set_schedule_error("");
       await connect_to_run(rid);
       void refresh_runs();
@@ -3234,6 +3162,20 @@ export function App(): React.ReactElement {
           <span className="logo-icon">◉</span>
           <span>AbstractObserver</span>
         </div>
+        <div className="app_nav">
+          <button className={`nav_tab ${page === "launch" ? "active" : ""}`} onClick={() => set_page("launch")}>
+            Launch
+          </button>
+          <button className={`nav_tab ${page === "observe" ? "active" : ""}`} onClick={() => set_page("observe")}>
+            Observe
+          </button>
+          <button className={`nav_tab ${page === "mindmap" ? "active" : ""}`} onClick={() => set_page("mindmap")}>
+            Mindmap
+          </button>
+          <button className={`nav_tab ${page === "settings" ? "active" : ""}`} onClick={() => set_page("settings")}>
+            Settings
+          </button>
+        </div>
         <div className="header_spacer" />
         <div className="status_pills">
           <span className={`status_pill ${gateway_connected ? "ok" : discovery_loading ? "warn" : "muted"}`}>
@@ -3265,717 +3207,51 @@ export function App(): React.ReactElement {
             />
           ) : null}
         </div>
-        {is_narrow ? (
-          <div className="tab_bar" style={{ justifyContent: "flex-start" }}>
-            <button className={`tab mono ${mobile_tab === "controls" ? "active" : ""}`} onClick={() => set_mobile_tab("controls")}>
-              Controls
-            </button>
-            <button className={`tab mono ${mobile_tab === "viewer" ? "active" : ""}`} onClick={() => set_mobile_tab("viewer")}>
-              Viewer
-            </button>
-          </div>
-        ) : null}
       </div>
 
-      <div className="container">
-        <div className="app-main">
-          <div className="panel" style={is_narrow && mobile_tab !== "controls" ? { display: "none" } : undefined}>
-            <div className="card panel_card scroll_y">
-            <div className="section_title">Connect</div>
-            <div className="field">
-              <label>Gateway URL (blank = same origin / dev proxy)</label>
-              <div className="field_inline">
-                <input
-                  value={settings.gateway_url}
-                  onChange={(e) => set_settings((s) => ({ ...s, gateway_url: e.target.value }))}
-                  placeholder="https://your-gateway-host"
-                />
-                <button
-                  className="btn"
-                  onClick={gateway_connected ? disconnect_gateway : on_discover_gateway}
-                  disabled={discovery_loading}
-                >
-                  {discovery_loading ? "Connecting…" : gateway_connected ? "Disconnect" : "Connect"}
-                </button>
-              </div>
-              {discovery_error ? (
-                <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
-                  {discovery_error}
+      <div className="app-body">
+        {page === "settings" ? (
+          <div className="page page_scroll">
+            <div className="page_inner constrained">
+              <div className="card">
+                <div className="title">
+                  <h1>Settings</h1>
                 </div>
-              ) : null}
-            </div>
-            <div className="field">
-              <label>Gateway token (Authorization: Bearer …)</label>
-              <input
-                type="password"
-                value={settings.auth_token}
-                onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value }))}
-                placeholder="(optional for localhost dev)"
-              />
-            </div>
-            <div className="section_divider" />
-            <div className="section_title">START FLOW</div>
-            <div className="actions">
-              <button
-                className="btn primary big"
-                onClick={() => {
-                  set_new_run_error("");
-                  set_new_run_open(true);
-                }}
-                disabled={!gateway_connected || discovery_loading || connecting || resuming || !workflow_options.length}
-              >
-                Launch
-              </button>
-            </div>
 
-            <div className="section_divider" />
-            <div className="section_title">RUNNING FLOWS</div>
-            <div className="field">
-              <label>Runs (parent — select to observe)</label>
-              <div className="field_inline">
-                <RunPicker
-                  runs={run_options}
-                  selected_run_id={run_id}
-                  workflow_label_by_id={workflow_label_by_id}
-                  disabled={!gateway_connected || runs_loading || discovery_loading || connecting || resuming}
-                  loading={runs_loading}
-                  onSelect={(rid) => void attach_to_run(rid)}
-                />
-                <button className="btn" onClick={refresh_runs} disabled={!gateway_connected || runs_loading || discovery_loading}>
-                  {runs_loading ? "Refreshing…" : "Refresh"}
-                </button>
-                <button className="btn" onClick={clear_run_view} disabled={!run_id.trim() && !connected}>
-                  Disconnect
-                </button>
-              </div>
-              {!run_options.length ? (
-                <div className="mono muted" style={{ fontSize: "12px" }}>
-                  Tip: click “Connect” to load recent runs from the gateway.
-                </div>
-              ) : null}
-            </div>
-
-            <div className="actions">
-              <button
-                className="btn"
-                onClick={() => {
-                  if (pause_resume_action === "pause") {
-                    set_run_control_type("pause");
-                    set_run_control_reason("");
-                    set_run_control_error("");
-                    set_run_control_open(true);
-                    return;
-                  }
-                  void submit_run_control("resume");
-                }}
-                disabled={pause_resume_disabled}
-              >
-                {pause_resume_label}
-              </button>
-              <button
-                className="btn danger"
-                onClick={() => {
-                  set_run_control_type("cancel");
-                  set_run_control_reason("");
-                  set_run_control_error("");
-                  set_run_control_open(true);
-                }}
-                disabled={!run_id.trim() || connecting || resuming || run_terminal}
-              >
-                Cancel
-              </button>
-            </div>
-
-	            {new_run_open ? (
-              <Modal
-                open={new_run_open}
-                title={bundle_id.trim() && flow_id.trim() ? `Start workflow • ${bundle_id.trim()}:${flow_id.trim()}` : "Start workflow"}
-                onClose={() => {
-                  set_new_run_open(false);
-                  set_new_run_error("");
-                }}
-                actions={
-                  <>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        set_new_run_open(false);
-                        set_new_run_error("");
-                      }}
-                      disabled={connecting || resuming}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className="btn primary"
-                      onClick={async () => {
-                        set_new_run_error("");
-                        const err = await start_new_run();
-                        if (err) set_new_run_error(err);
-                      }}
-                      disabled={
-                        connecting ||
-                        resuming ||
-                        discovery_loading ||
-                        bundle_loading ||
-                        !gateway_connected ||
-                        !bundle_id.trim() ||
-                        !flow_id.trim()
-                      }
-                    >
-                      Start
-                    </button>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        set_new_run_open(false);
-                        set_new_run_error("");
-                        set_schedule_error("");
-                        set_schedule_open(true);
-                      }}
-                      disabled={
-                        connecting ||
-                        resuming ||
-                        discovery_loading ||
-                        bundle_loading ||
-                        !gateway_connected ||
-                        !bundle_id.trim() ||
-                        !flow_id.trim()
-                      }
-                    >
-                      Schedule
-                    </button>
-                  </>
-                }
-              >
-                {new_run_error ? (
-                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
-                    <div className="meta">
-                      <span className="mono">error</span>
-                      <span className="mono">{now_iso()}</span>
-                    </div>
-                    <div className="body mono">{new_run_error}</div>
-                  </div>
-                ) : null}
-
-	                <div className="field" style={{ marginBottom: "10px" }}>
-	                  <label>Workflow (discovered)</label>
-	                  <select
-                    value={selected_workflow_value}
-                    onChange={async (e) => {
-                      const wid = String(e.target.value || "").trim();
-                      if (!wid) return;
-                      const parsed = parse_namespaced_workflow_id(wid);
-                      if (!parsed) return;
-                      set_bundle_id(parsed.bundle_id);
-                      set_flow_id(parsed.flow_id);
-                      set_graph_flow_id(parsed.flow_id);
-                      await load_bundle_info(parsed.bundle_id);
-                    }}
-                    disabled={discovery_loading || !workflow_options.length}
-                  >
-                    <option value="">{workflow_options.length ? "(select)" : "(empty — click Connect)"}</option>
-                    {workflow_options.map((w) => (
-                      <option key={w.workflow_id} value={w.workflow_id}>
-                        {w.label}
-                      </option>
-                    ))}
-	                  </select>
-	                  <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
-	                    <button
-	                      type="button"
-	                      className="btn"
-	                      onClick={() => void reload_gateway_bundles()}
-	                      disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming}
-	                    >
-	                      {bundles_reloading ? "Reloading…" : "Reload bundles"}
-	                    </button>
-	                    <div className="mono muted" style={{ fontSize: "12px" }}>
-	                      Picks up edited `.flow` files without restarting the gateway.
-	                    </div>
-	                  </div>
-	                  <div className="mono muted" style={{ fontSize: "12px" }}>
-	                    Workflows are the gateway’s registered `.flow` bundles (configured via `ABSTRACTGATEWAY_FLOWS_DIR`).
-	                  </div>
-                  {selected_entrypoint?.description ? (
-                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
-                      {String(selected_entrypoint.description)}
-                    </div>
-                  ) : null}
-                  {bundle_loading ? (
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
-                      Loading workflow…
-                    </div>
-                  ) : null}
-	                  {bundle_error ? (
-	                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
-	                      {bundle_error}
-	                    </div>
-	                  ) : null}
-	                </div>
-
-	                <div className="field" style={{ marginBottom: "10px" }}>
-	                  <label>session_id (scope=session)</label>
-	                  <input
-	                    className="mono"
-	                    value={start_session_id}
-	                    onChange={(e) => set_start_session_id(e.target.value)}
-	                    placeholder="(optional; empty ⇒ scope=session behaves like per-run)"
-	                    disabled={connecting || resuming}
-	                  />
-	                  <div className="mono muted" style={{ fontSize: "12px" }}>
-	                    Shared across runs when the same session_id is sent to the gateway. Clear it to avoid session-scoped sharing.
-	                  </div>
-	                </div>
-
-	                {!bundle_id.trim() || !flow_id.trim() ? (
-                  <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
-                    Select a workflow above to configure inputs.
-                  </div>
-                ) : has_adaptive_inputs ? (
-                  <>
-                {input_data_obj === null ? (
-                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                    <div className="meta">
-                      <span className="mono">input error</span>
-                      <span className="mono">{now_iso()}</span>
-                    </div>
-                    <div className="body mono">Invalid input JSON. Fix it in Advanced JSON.</div>
-                  </div>
-                ) : null}
-
-                {adaptive_pins.map((p) => {
-                  const pid = String(p?.id || "").trim();
-                  if (!pid) return null;
-                  const ptype = String(p?.type || "").trim().toLowerCase() || "unknown";
-                  const disabled = input_data_obj === null || connecting || resuming;
-                  const cur = input_data_obj && input_data_obj[pid] !== undefined ? input_data_obj[pid] : undefined;
-                  const err = input_field_errors[pid];
-                  const def = (p as any).default;
-
-                  const label_bits: string[] = [pid];
-                  if (ptype) label_bits.push(ptype);
-                  if (def !== undefined) label_bits.push(`default ${safe_json_inline(def, 60)}`);
-
-                  const label = label_bits.join(" • ");
-
-                  // Special-cases: tools/context are common and benefit from dedicated widgets.
-                  if (pid === "tools") {
-                    const cur_arr: string[] = Array.isArray(cur) ? (cur as any[]).map((x) => String(x)).filter(Boolean) : [];
-                    const draft = input_field_drafts[pid] ?? cur_arr.join("\n");
-                    const has_discovery = available_tool_names.length > 0;
-                    return (
-                      <div key={pid} className="field">
-                        <label>{label}</label>
-                        {has_discovery ? (
-                          <MultiSelect
-                            options={available_tool_names}
-                            value={cur_arr}
-                            disabled={disabled}
-                            placeholder="Select allowed tools…"
-                            onChange={(next) => {
-                              set_input_field_drafts((prev) => {
-                                const n = { ...prev };
-                                delete n[pid];
-                                return n;
-                              });
-                              set_input_field_errors((prev) => {
-                                const n = { ...prev };
-                                delete n[pid];
-                                return n;
-                              });
-                              if (!next.length) delete_input_data_key(pid);
-                              else set_input_data_value(pid, next);
-                            }}
-                          />
-                        ) : (
-                          <textarea
-                            className="mono"
-                            disabled={disabled}
-                            value={draft}
-                            onChange={(e) => {
-                              const text = e.target.value;
-                              set_input_field_drafts((prev) => ({ ...prev, [pid]: text }));
-                              const arr = text
-                                .split("\n")
-                                .map((x) => x.trim())
-                                .filter(Boolean);
-                              set_input_field_errors((prev) => {
-                                const next = { ...prev };
-                                delete next[pid];
-                                return next;
-                              });
-                              if (!arr.length) delete_input_data_key(pid);
-                              else set_input_data_value(pid, arr);
-                            }}
-                            rows={4}
-                            placeholder={"tool_name\nanother_tool\n..."}
-                          />
-                        )}
-                        {err ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{err}</div> : null}
-                        {!has_discovery ? (
-                          <div className="mono muted" style={{ fontSize: "12px" }}>
-                            Tip: click “Connect” to load tool list from the gateway.
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  }
-
-                  if (pid === "provider" || ptype === "provider") {
-                    const has_discovery = available_providers.length > 0;
-                    return (
-                      <div key={pid} className="field">
-                        <label>{label}</label>
-                        {has_discovery ? (
-                          <select
-                            className="mono"
-                            disabled={disabled}
-                            value={provider_value}
-                            onChange={(e) => {
-                              const next = String(e.target.value || "").trim();
-                              if (!next) {
-                                delete_input_data_key("provider");
-                                delete_input_data_key("model");
-                                return;
-                              }
-                              set_input_data_value("provider", next);
-                              if (model_value.trim()) delete_input_data_key("model");
-                            }}
-                          >
-                            <option value="">(select)</option>
-                            {available_providers.map((pname) => (
-                              <option key={pname} value={pname}>
-                                {pname}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            className="mono"
-                            disabled={disabled}
-                            value={provider_value}
-                            onChange={(e) => {
-                              const t = String(e.target.value || "");
-                              if (!t.trim()) delete_input_data_key(pid);
-                              else set_input_data_value(pid, t);
-                            }}
-                          />
-                        )}
-                        {!has_discovery ? (
-                          <div className="mono muted" style={{ fontSize: "12px" }}>
-                            Tip: click “Connect” to load providers from the gateway.
-                          </div>
-                        ) : null}
-                        {err ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{err}</div> : null}
-                      </div>
-                    );
-                  }
-
-                  if (pid === "model" || ptype === "model") {
-                    const prov = provider_value.trim();
-                    const models = models_for_provider.models;
-                    const has_models = models.length > 0;
-                    const disabled_model = disabled || !prov;
-                    return (
-                      <div key={pid} className="field">
-                        <label>{label}</label>
-                        <select
-                          className="mono"
-                          disabled={disabled_model}
-                          value={model_value}
-                          onChange={(e) => {
-                            const next = String(e.target.value || "").trim();
-                            if (!next) delete_input_data_key("model");
-                            else set_input_data_value("model", next);
-                          }}
-                        >
-                          <option value="">{prov ? (has_models ? "(select)" : "(loading…)") : "(select provider first)"}</option>
-                          {models.map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))}
-                        </select>
-                        {models_for_provider.error ? (
-                          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
-                            {models_for_provider.error}
-                          </div>
-                        ) : null}
-                        {err ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{err}</div> : null}
-                      </div>
-                    );
-                  }
-
-                  if (ptype === "number" || pid === "max_iterations") {
-                    const base = typeof cur === "number" ? String(cur) : cur !== undefined ? String(cur) : "";
-                    const draft = input_field_drafts[pid] ?? base;
-                    return (
-                      <div key={pid} className="field">
-                        <label>{label}</label>
-                        <input
-                          className="mono"
-                          disabled={disabled}
-                          type="number"
-                          value={draft}
-                          onChange={(e) => {
-                            const raw = e.target.value;
-                            set_input_field_drafts((prev) => ({ ...prev, [pid]: raw }));
-                            if (!raw.trim()) {
-                              set_input_field_errors((prev) => {
-                                const next = { ...prev };
-                                delete next[pid];
-                                return next;
-                              });
-                              delete_input_data_key(pid);
-                              return;
-                            }
-                            const num = Number(raw);
-                            if (!Number.isFinite(num)) {
-                              set_input_field_errors((prev) => ({ ...prev, [pid]: "Invalid number" }));
-                              return;
-                            }
-                            set_input_field_errors((prev) => {
-                              const next = { ...prev };
-                              delete next[pid];
-                              return next;
-                            });
-                            set_input_data_value(pid, num);
-                          }}
-                        />
-                        {err ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{err}</div> : null}
-                      </div>
-                    );
-                  }
-
-                  if (ptype === "boolean") {
-                    const checked = Boolean(cur === true);
-                    return (
-                      <div key={pid} className="field">
-                        <label>{label}</label>
-                        <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={disabled}
-                            onChange={(e) => {
-                              set_input_field_errors((prev) => {
-                                const next = { ...prev };
-                                delete next[pid];
-                                return next;
-                              });
-                              set_input_data_value(pid, Boolean(e.target.checked));
-                            }}
-                          />
-                          {checked ? "true" : "false"}
-                        </label>
-                        {err ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{err}</div> : null}
-                      </div>
-                    );
-                  }
-
-                  if (ptype === "object" || ptype === "array" || pid === "context") {
-                    const draft = input_field_drafts[pid] ?? (cur !== undefined ? safe_json(cur) : "");
-                    return (
-                      <div key={pid} className="field">
-                        <label>{label}</label>
-                        <textarea
-                          className="mono"
-                          disabled={disabled}
-                          value={draft}
-                          onChange={(e) => {
-                            const text = e.target.value;
-                            set_input_field_drafts((prev) => ({ ...prev, [pid]: text }));
-                            if (!text.trim()) {
-                              set_input_field_errors((prev) => {
-                                const next = { ...prev };
-                                delete next[pid];
-                                return next;
-                              });
-                              delete_input_data_key(pid);
-                              return;
-                            }
-                            try {
-                              const parsed = JSON.parse(text);
-                              set_input_field_errors((prev) => {
-                                const next = { ...prev };
-                                delete next[pid];
-                                return next;
-                              });
-                              set_input_data_value(pid, parsed);
-                            } catch (e2: any) {
-                              set_input_field_errors((prev) => ({ ...prev, [pid]: String(e2?.message || "Invalid JSON") }));
-                            }
-                          }}
-                          rows={4}
-                          placeholder={ptype === "array" ? '["a","b"]' : '{"key":"value"}'}
-                        />
-                        {err ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{err}</div> : null}
-                      </div>
-                    );
-                  }
-
-                  const is_textarea = pid === "prompt" || pid.endsWith("_prompt") || pid.includes("prompt");
-                  const sv = typeof cur === "string" ? String(cur) : cur !== undefined ? String(cur) : "";
-                  return (
-                    <div key={pid} className="field">
-                      <label>{label}</label>
-                      {is_textarea ? (
-                        <textarea
-                          className="mono"
-                          disabled={disabled}
-                          value={sv}
-                          onChange={(e) => {
-                            const t = e.target.value;
-                            if (!t.trim()) delete_input_data_key(pid);
-                            else set_input_data_value(pid, t);
-                          }}
-                          rows={3}
-                        />
-                      ) : (
-                        <input
-                          className="mono"
-                          disabled={disabled}
-                          value={sv}
-                          onChange={(e) => {
-                            const t = e.target.value;
-                            if (!t.trim()) delete_input_data_key(pid);
-                            else set_input_data_value(pid, t);
-                          }}
-                        />
-                      )}
-                      {err ? <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>{err}</div> : null}
-                    </div>
-                  );
-                })}
-
-                <details style={{ marginTop: "6px" }}>
-                  <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
-                    Advanced: input_data JSON
-                  </summary>
-                  <div className="field" style={{ marginTop: "10px" }}>
-                    <label>Input data (JSON)</label>
-                    <textarea
-                      className="mono"
-                      value={input_data_text}
-                      onChange={(e) => set_input_data_text(e.target.value)}
-                      placeholder='{"prompt":"..."}'
-                      rows={8}
-                      disabled={connecting || resuming}
-                    />
-                  </div>
-                </details>
-                  </>
-                ) : (
-                  <>
+                <div className="section_title">Gateway</div>
                 <div className="field">
-                  <label>Prompt (common)</label>
-                  <textarea
-                    className="mono"
-                    value={prompt_value}
-                    onChange={(e) => update_input_data_field("prompt", e.target.value)}
-                    placeholder="What do you want the workflow/agent to do?"
-                    rows={3}
-                    disabled={connecting || resuming}
+                  <label>Gateway URL (blank = same origin / dev proxy)</label>
+                  <div className="field_inline">
+                    <input
+                      value={settings.gateway_url}
+                      onChange={(e) => set_settings((s) => ({ ...s, gateway_url: e.target.value }))}
+                      placeholder="https://your-gateway-host"
+                    />
+                    <button className="btn" onClick={gateway_connected ? disconnect_gateway : on_discover_gateway} disabled={discovery_loading}>
+                      {discovery_loading ? "Connecting…" : gateway_connected ? "Disconnect" : "Connect"}
+                    </button>
+                  </div>
+                  {discovery_error ? (
+                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+                      {discovery_error}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="field">
+                  <label>Gateway token (Authorization: Bearer …)</label>
+                  <input
+                    type="password"
+                    value={settings.auth_token}
+                    onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value }))}
+                    placeholder="(optional for localhost dev)"
                   />
                 </div>
-                <div className="row">
-                  <div className="col">
-                    <div className="field">
-                      <label>Provider (common)</label>
-                      <input
-                        className="mono"
-                        value={provider_value}
-                        onChange={(e) => update_input_data_field("provider", e.target.value)}
-                        placeholder="lmstudio / ollama / openai / ..."
-                        disabled={connecting || resuming}
-                      />
-                    </div>
-                  </div>
-                  <div className="col">
-                    <div className="field">
-                      <label>Model (common)</label>
-                      <input
-                        className="mono"
-                        value={model_value}
-                        onChange={(e) => update_input_data_field("model", e.target.value)}
-                        placeholder="qwen/qwen3-next-80b / gpt-4.1 / ..."
-                        disabled={connecting || resuming}
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                <details style={{ marginTop: "6px" }}>
-                  <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
-                    Advanced: input_data JSON
-                  </summary>
-                  <div className="field" style={{ marginTop: "10px" }}>
-                    <label>Input data (JSON)</label>
-                    <textarea
-                      className="mono"
-                      value={input_data_text}
-                      onChange={(e) => set_input_data_text(e.target.value)}
-                      placeholder='{"prompt":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}'
-                      rows={8}
-                      disabled={connecting || resuming}
-                    />
-                  </div>
-                </details>
-                  </>
-                )}
-
-                <details style={{ marginTop: "10px" }} open>
-                  <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
-                    Workspace policy (filesystem)
-                  </summary>
-                  <div className="field" style={{ marginTop: "10px" }}>
-                    <label>Workspace root (workspace_root)</label>
-                    <input
-                      className="mono"
-                      value={workspace_root_value}
-                      onChange={(e) => update_input_data_field("workspace_root", e.target.value)}
-                      placeholder="(leave blank to auto-generate a per-run workspace on the gateway)"
-                      disabled={connecting || resuming}
-                    />
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
-                      Relative tool paths resolve under this directory.
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label>Filesystem access mode (workspace_access_mode)</label>
-                    <select
-                      className="mono"
-                      value={(workspace_access_mode_value || "workspace_only").trim() || "workspace_only"}
-                      onChange={(e) => update_input_data_field("workspace_access_mode", e.target.value)}
-                      disabled={connecting || resuming}
-                    >
-                      <option value="workspace_only">workspace_only (restrict absolute paths to workspace_root)</option>
-                      <option value="all_except_ignored">all_except_ignored (allow absolute paths outside workspace_root)</option>
-                    </select>
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
-                      This only affects absolute paths; relative paths still stay under workspace_root.
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label>Ignored folders (workspace_ignored_paths)</label>
-                    <textarea
-                      className="mono"
-                      value={workspace_ignored_paths_value}
-                      onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)}
-                      placeholder={".git\nnode_modules\n.venv\n~/Library\n/Users/albou/.ssh"}
-                      rows={5}
-                      disabled={connecting || resuming}
-                    />
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
-                      One path per line. Relative entries are resolved under workspace_root.
-                    </div>
-                  </div>
-                </details>
-
-                <details style={{ marginTop: "10px" }}>
-                  <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
-                    Advanced: remote tool worker (MCP)
+                <div className="section_divider" />
+                <div className="section_title">Remote Tool Worker (MCP)</div>
+                <details>
+                  <summary className="mono muted" style={{ cursor: "pointer" }}>
+                    Advanced
                   </summary>
                   <div className="field" style={{ marginTop: "10px" }}>
                     <label>Tool worker endpoint (MCP HTTP)</label>
@@ -4000,957 +3276,969 @@ export function App(): React.ReactElement {
                     Used to execute tool waits from the UI (advanced / potentially dangerous).
                   </div>
                 </details>
-              </Modal>
-            ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
-            {schedule_open ? (
-              <Modal
-                open={schedule_open}
-                title={bundle_id.trim() && flow_id.trim() ? `Schedule workflow • ${bundle_id.trim()}:${flow_id.trim()}` : "Schedule workflow"}
-                onClose={() => {
-                  set_schedule_open(false);
-                  set_schedule_error("");
-                }}
-                actions={
-                  <>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        set_schedule_open(false);
-                        set_schedule_error("");
-                        set_new_run_open(true);
-                      }}
-                      disabled={schedule_submitting}
-                    >
-                      Back
-                    </button>
-                    <button
-                      className="btn primary"
-                      onClick={async () => {
-                        set_schedule_error("");
-                        const err = await start_scheduled_run({
-                          start_mode: schedule_start_mode,
-                          start_at_local: schedule_start_at_local,
-                          repeat_mode: schedule_repeat_mode,
-                          every_n: schedule_every_n,
-                          every_unit: schedule_every_unit,
-                          repeat_count: schedule_repeat_count,
-                          repeat_until_date_local: schedule_repeat_until_date_local,
-                          repeat_until_time_local: schedule_repeat_until_time_local,
-                          share_context: schedule_share_context,
-                        });
-                        if (err) set_schedule_error(err);
-                      }}
-                      disabled={schedule_submitting}
-                    >
-                      {schedule_submitting ? "Scheduling…" : "Schedule"}
-                    </button>
-                  </>
-                }
-              >
-                {(() => {
-                  const unit_label = schedule_every_unit === "weeks" ? "week" : schedule_every_unit === "months" ? "month" : schedule_every_unit.slice(0, -1);
-                  const n = Math.max(1, Math.floor(schedule_every_n || 1));
-                  const every = `${n} ${unit_label}${n === 1 ? "" : "s"}`;
-                  const start_s =
-                    schedule_start_mode === "now"
-                      ? "now"
-                      : schedule_start_at_local
-                        ? (() => {
-                            const dt = new Date(schedule_start_at_local);
-                            return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "at …";
-                          })()
-                        : "at …";
-                  const until_s =
-                    schedule_repeat_mode === "until" && schedule_repeat_until_date_local
-                      ? (() => {
-                          const t = schedule_repeat_until_time_local || "23:59";
-                          const dt = new Date(`${schedule_repeat_until_date_local}T${t}`);
-                          return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "…";
-                        })()
-                      : "";
-                  const end_s =
-                    schedule_repeat_mode === "once"
-                      ? ""
-                      : schedule_repeat_mode === "forever"
-                        ? "forever"
-                        : schedule_repeat_mode === "count"
-                          ? `${Math.max(1, Math.floor(schedule_repeat_count || 1))} runs`
-                          : until_s
-                            ? `until ${until_s}`
-                            : "until …";
-                  const summary =
-                    schedule_repeat_mode === "once"
-                      ? `Runs once • starts ${start_s}`
-                      : `Repeats every ${every} • starts ${start_s} • ${end_s}`;
-                  return (
-                    <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginBottom: "10px" }}>
-                      <div className="meta">
-                        <span className="mono">schedule</span>
-                        <span className="mono">{schedule_repeat_mode}</span>
-                      </div>
-                      <div className="body">{summary}</div>
-                    </div>
-                  );
-                })()}
+        {page === "launch" ? (
+          <div className="page page_scroll">
+            <div className="page_inner constrained">
+              <div className="card">
+                <div className="title">
+                  <h1>Launch</h1>
+                </div>
 
-                {schedule_error ? (
-                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
+                {!gateway_connected ? (
+                  <div className="log_item" style={{ borderColor: "rgba(245, 158, 11, 0.35)" }}>
                     <div className="meta">
-                      <span className="mono">error</span>
+                      <span className="mono">gateway</span>
                       <span className="mono">{now_iso()}</span>
                     </div>
-                    <div className="body mono">{schedule_error}</div>
-                  </div>
-                ) : null}
-
-                <div className="field">
-                  <label>Start</label>
-                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                    <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                      <input
-                        type="radio"
-                        name="schedule_start"
-                        checked={schedule_start_mode === "now"}
-                        onChange={() => set_schedule_start_mode("now")}
-                      />
-                      now
-                    </label>
-                    <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                      <input
-                        type="radio"
-                        name="schedule_start"
-                        checked={schedule_start_mode === "at"}
-                        onChange={() => set_schedule_start_mode("at")}
-                      />
-                      at
-                    </label>
-                    {schedule_start_mode === "at" ? (
-                      <input
-                        type="datetime-local"
-                        value={schedule_start_at_local}
-                        onChange={(e) => set_schedule_start_at_local(e.target.value)}
-                      />
-                    ) : null}
-                  </div>
-                  {schedule_start_mode === "at" ? (
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
-                      Uses your device time; the gateway stores UTC.
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="field">
-                  <label>Cadence</label>
-                  <select value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
-                    <option value="once">Once</option>
-                    <option value="forever">Repeat</option>
-                    <option value="count">Repeat • N times</option>
-                    <option value="until">Repeat • until date</option>
-                  </select>
-                </div>
-
-                {schedule_repeat_mode !== "once" ? (
-                  <>
-                    <div className="row">
-                      <div className="col">
-                        <div className="field">
-                          <label>Every</label>
-                          <input
-                            type="number"
-                            min={1}
-                            value={String(schedule_every_n)}
-                            onChange={(e) => set_schedule_every_n(Math.max(1, parseInt(e.target.value || "1", 10) || 1))}
-                          />
-                        </div>
-                      </div>
-                      <div className="col">
-                        <div className="field">
-                          <label>Unit</label>
-                          <select value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
-                            <option value="minutes">minutes</option>
-                            <option value="hours">hours</option>
-                            <option value="days">days</option>
-                            <option value="weeks">weeks (≈7d)</option>
-                            <option value="months">months (≈30d)</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                    {schedule_every_unit === "months" || schedule_every_unit === "weeks" ? (
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
-                        Note: weeks/months are implemented as fixed day intervals (calendar-aware scheduling is planned).
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {schedule_repeat_mode === "count" ? (
-                  <div className="field">
-                    <label>Runs</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={String(schedule_repeat_count)}
-                      onChange={(e) => set_schedule_repeat_count(Math.max(1, parseInt(e.target.value || "1", 10) || 1))}
-                    />
-                  </div>
-                ) : null}
-
-                {schedule_repeat_mode === "until" ? (
-                  <div className="row">
-                    <div className="col">
-                      <div className="field">
-                        <label>Until (date)</label>
-                        <input
-                          type="date"
-                          value={schedule_repeat_until_date_local}
-                          onChange={(e) => set_schedule_repeat_until_date_local(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="col">
-                      <div className="field">
-                        <label>Until (time)</label>
-                        <input
-                          type="time"
-                          value={schedule_repeat_until_time_local}
-                          onChange={(e) => set_schedule_repeat_until_time_local(e.target.value)}
-                        />
-                      </div>
+                    <div className="body mono">
+                      Not connected. Open{" "}
+                      <button className="btn" onClick={() => set_page("settings")}>
+                        Settings
+                      </button>{" "}
+                      to connect to a gateway.
                     </div>
                   </div>
                 ) : null}
 
                 <div className="field">
-                  <label>Context</label>
-                  <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                    <input
-                      type="checkbox"
-                      checked={schedule_share_context}
-                      onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))}
-                    />
-                    Share context over time/calls
-                  </label>
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
-                    When disabled, each execution runs in its own session (isolated memory).
-                  </div>
-                </div>
-              </Modal>
-            ) : null}
-
-            {schedule_edit_open ? (
-              <Modal
-                open={schedule_edit_open}
-                title="Edit schedule"
-                onClose={() => {
-                  set_schedule_edit_open(false);
-                  set_schedule_edit_interval("");
-                  set_schedule_edit_apply_immediately(true);
-                  set_schedule_edit_error("");
-                  set_schedule_edit_submitting(false);
-                }}
-                actions={
-                  <>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        set_schedule_edit_open(false);
-                        set_schedule_edit_interval("");
-                        set_schedule_edit_apply_immediately(true);
-                        set_schedule_edit_error("");
-                        set_schedule_edit_submitting(false);
-                      }}
-                      disabled={connecting || schedule_edit_submitting}
-                    >
-                      Back
-                    </button>
-                    <button
-                      className="btn primary"
-                      onClick={async () => {
-                        const err = await submit_update_schedule({
-                          interval: schedule_edit_interval,
-                          apply_immediately: schedule_edit_apply_immediately,
-                        });
-                        if (err) return;
-                        set_schedule_edit_open(false);
-                        set_schedule_edit_error("");
-                        set_schedule_edit_submitting(false);
-                      }}
-                      disabled={connecting || schedule_edit_submitting || !schedule_edit_interval.trim()}
-                    >
-                      Save
-                    </button>
-                  </>
-                }
-              >
-                {schedule_edit_error ? (
-                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
-                    <div className="meta">
-                      <span className="mono">error</span>
-                      <span className="mono">{now_iso()}</span>
-                    </div>
-                    <div className="body mono">{schedule_edit_error}</div>
-                  </div>
-                ) : null}
-
-                <div className="field">
-                  <label>Interval</label>
-                  <input
-                    className="mono"
-                    value={schedule_edit_interval}
-                    onChange={(e) => set_schedule_edit_interval(String(e.target.value || ""))}
-                    placeholder="20m / 1h / 0.5s / 250ms"
-                    disabled={connecting || schedule_edit_submitting}
-                  />
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
-                    Accepted units: <span className="mono">ms</span>, <span className="mono">s</span>, <span className="mono">m</span>,{" "}
-                    <span className="mono">h</span>, <span className="mono">d</span>. This updates the existing scheduled run in place (no context loss).
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Quick picks</label>
-                  <div className="actions" style={{ gap: "8px", flexWrap: "wrap" }}>
-                    {["15m", "30m", "1h", "2h", "6h", "1d"].map((v) => (
-                      <button
-                        key={v}
-                        className="btn"
-                        onClick={() => set_schedule_edit_interval(v)}
-                        disabled={connecting || schedule_edit_submitting}
-                      >
-                        {v}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Apply</label>
-                  <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                    <input
-                      type="checkbox"
-                      checked={schedule_edit_apply_immediately}
-                      onChange={(e) => set_schedule_edit_apply_immediately(Boolean(e.target.checked))}
-                      disabled={connecting || schedule_edit_submitting}
-                    />
-                    Apply immediately (recompute next run from now if waiting)
-                  </label>
-                </div>
-              </Modal>
-            ) : null}
-
-            {compact_open ? (
-              <Modal
-                open={compact_open}
-                title="Compact scheduled context"
-                onClose={() => {
-                  set_compact_open(false);
-                  set_compact_error("");
-                  set_compact_submitting(false);
-                }}
-                actions={
-                  <>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        set_compact_open(false);
-                        set_compact_error("");
-                        set_compact_submitting(false);
-                      }}
-                      disabled={connecting || compact_submitting}
-                    >
-                      Back
-                    </button>
-                    <button
-                      className="btn primary"
-                      onClick={async () => {
-                        const err = await submit_compact_memory({
-                          preserve_recent: compact_preserve_recent,
-                          compression_mode: compact_mode,
-                          focus: compact_focus,
-                        });
-                        if (err) return;
-                        set_compact_open(false);
-                        set_compact_error("");
-                        set_compact_submitting(false);
-                      }}
-                      disabled={connecting || compact_submitting}
-                    >
-                      Compact now
-                    </button>
-                  </>
-                }
-              >
-                {compact_error ? (
-                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
-                    <div className="meta">
-                      <span className="mono">error</span>
-                      <span className="mono">{now_iso()}</span>
-                    </div>
-                    <div className="body mono">{compact_error}</div>
-                  </div>
-                ) : null}
-
-                <div className="field">
-                  <label>Preserve recent messages</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={String(compact_preserve_recent)}
-                    onChange={(e) => set_compact_preserve_recent(Math.max(0, parseInt(e.target.value || "6", 10) || 0))}
-                    disabled={connecting || compact_submitting}
-                  />
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
-                    Keeps the most recent non-system messages verbatim; older messages are archived into a span and replaced with a summary handle.
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Compression</label>
+                  <label>Workflow (discovered)</label>
                   <select
-                    className="mono"
-                    value={compact_mode}
-                    onChange={(e) => set_compact_mode(String(e.target.value || "standard") as any)}
-                    disabled={connecting || compact_submitting}
+                    value={selected_workflow_value}
+                    onChange={async (e) => {
+                      const wid = String(e.target.value || "").trim();
+                      if (!wid) return;
+                      const parsed = parse_namespaced_workflow_id(wid);
+                      if (!parsed) return;
+                      set_bundle_id(parsed.bundle_id);
+                      set_flow_id(parsed.flow_id);
+                      set_graph_flow_id(parsed.flow_id);
+                      await load_bundle_info(parsed.bundle_id);
+                    }}
+                    disabled={discovery_loading || !workflow_options.length}
                   >
-                    <option value="light">light</option>
-                    <option value="standard">standard</option>
-                    <option value="heavy">heavy</option>
+                    <option value="">{workflow_options.length ? "(select)" : "(empty — connect in Settings)"}</option>
+                    {workflow_options.map((w) => (
+                      <option key={w.workflow_id} value={w.workflow_id}>
+                        {w.label}
+                      </option>
+                    ))}
                   </select>
+                  <div className="actions" style={{ justifyContent: "flex-start", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => void reload_gateway_bundles()}
+                      disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming}
+                    >
+                      {bundles_reloading ? "Reloading…" : "Reload bundles"}
+                    </button>
+                    <button type="button" className="btn" onClick={() => void refresh_runs()} disabled={!gateway_connected || runs_loading || discovery_loading}>
+                      {runs_loading ? "Refreshing…" : "Refresh runs"}
+                    </button>
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      Picks up edited `.flow` files without restarting the gateway.
+                    </div>
+                  </div>
+                  {selected_entrypoint?.description ? (
+                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                      {String(selected_entrypoint.description)}
+                    </div>
+                  ) : null}
+                  {bundle_loading ? (
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      Loading workflow…
+                    </div>
+                  ) : null}
+                  {bundle_error ? (
+                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+                      {bundle_error}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="field">
-                  <label>Focus (optional)</label>
+                  <label>session_id (scope=session)</label>
                   <input
                     className="mono"
-                    value={compact_focus}
-                    onChange={(e) => set_compact_focus(String(e.target.value || ""))}
-                    placeholder="e.g. keep filenames, schedule, outputs…"
-                    disabled={connecting || compact_submitting}
+                    value={start_session_id}
+                    onChange={(e) => set_start_session_id(e.target.value)}
+                    placeholder="(optional; empty ⇒ scope=session behaves like per-run)"
+                    disabled={connecting || resuming}
                   />
                   <div className="mono muted" style={{ fontSize: "12px" }}>
-                    Auto-compaction also runs when scheduled context reaches ~90% of the configured max context window.
+                    Shared across runs when the same session_id is sent to the gateway.
                   </div>
                 </div>
-              </Modal>
-            ) : null}
 
-            {run_control_open ? (
-              <Modal
-                open={run_control_open}
-                title={run_control_type === "pause" ? "Pause run" : "Cancel run"}
-                onClose={() => {
-                  set_run_control_open(false);
-                  set_run_control_reason("");
-                  set_run_control_error("");
-                }}
-                actions={
-                  <>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        set_run_control_open(false);
-                        set_run_control_reason("");
-                        set_run_control_error("");
-                      }}
-                      disabled={connecting || resuming}
-                    >
-                      Back
-                    </button>
-                    <button
-                      className={`btn ${run_control_type === "cancel" ? "danger" : "primary"}`}
-                      onClick={async () => {
-                        set_run_control_error("");
-                        const err = await submit_run_control(run_control_type, { reason: run_control_reason });
-                        if (err) {
-                          set_run_control_error(err);
-                          return;
-                        }
-                        set_run_control_open(false);
-                        set_run_control_reason("");
-                        set_run_control_error("");
-                      }}
-                      disabled={connecting || resuming}
-                    >
-                      {run_control_type === "pause" ? "Pause" : "Cancel"}
-                    </button>
-                  </>
-                }
-              >
-                {run_control_error ? (
-                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
+                <div className="actions" style={{ justifyContent: "flex-start" }}>
+                  <button
+                    className="btn primary"
+                    onClick={async () => {
+                      set_new_run_error("");
+                      const err = await start_new_run();
+                      if (err) set_new_run_error(err);
+                    }}
+                    disabled={
+                      connecting || resuming || discovery_loading || bundle_loading || !gateway_connected || !bundle_id.trim() || !flow_id.trim()
+                    }
+                  >
+                    Start now
+                  </button>
+                </div>
+
+                {new_run_error ? (
+                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
                     <div className="meta">
                       <span className="mono">error</span>
                       <span className="mono">{now_iso()}</span>
                     </div>
-                    <div className="body mono">{run_control_error}</div>
+                    <div className="body mono">{new_run_error}</div>
                   </div>
                 ) : null}
-                <div className="field">
-                  <label>Reason (optional)</label>
-                  <input
-                    className="mono"
-                    value={run_control_reason}
-                    onChange={(e) => set_run_control_reason(e.target.value)}
-                    placeholder="reason…"
-                  />
-                </div>
-              </Modal>
-            ) : null}
 
-            {is_waiting ? (
-              <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
-                <div className="meta">
-                  <span className="mono">{is_scheduled_run && wait_reason === "until" ? "scheduled" : "waiting"}</span>
-                  <span className="mono">{wait_reason || "unknown"}</span>
-                </div>
-                <div className="body">
-                  {wait_key ? (
-                    <div className="mono" title={wait_key}>
-                      <span className="muted">wait_key</span>: {short_id(wait_key, 46)}
-                    </div>
-                  ) : null}
-                  {wait_reason === "event" && wait_event_name ? (
-                    <div className="mono">
-                      <span className="muted">event</span>: {wait_event_name}
-                    </div>
-                  ) : null}
-                  {wait_reason === "subworkflow" && sub_run_id ? (
-                    <div className="mono">
-                      <span className="muted">child run</span>: {short_id(sub_run_id, 18)}
-                    </div>
-                  ) : null}
-                  {wait_reason === "until" && wait_until ? (
-                    <div className="mono" title={wait_until}>
-                      <span className="muted">until</span>: {short_id(wait_until, 46)}
-                    </div>
-                  ) : null}
-                </div>
-                {wait_reason === "until" && wait_until ? (
-                  <div className="mono muted" style={{ marginTop: "10px", fontSize: "12px" }}>
-                    {(() => {
-                      const ms = parse_iso_ms(wait_until);
-                      const at = ms !== null ? new Date(ms).toLocaleString() : wait_until;
-                      const in_ = ms !== null ? format_time_until_from_ms(ms - Date.now()) : "";
-                      return `Next execution at ${at}${in_ ? ` (in ${in_})` : ""}`;
-                    })()}
-                  </div>
-                ) : null}
-                {wait_reason === "subworkflow" && sub_run_id ? (
-                  <div className="actions">
-                    <button
-                      className="btn primary"
-                      onClick={async () => {
-                        set_run_id(sub_run_id);
-                        await connect_to_run(sub_run_id);
-                      }}
-                      disabled={connecting}
-                    >
-                      Attach to child run
-                    </button>
-                    {root_run_id.trim() && root_run_id.trim() !== run_id.trim() ? (
-                      <button
-                        className="btn"
-                        onClick={async () => {
-                          set_run_id(root_run_id.trim());
-                          await connect_to_run(root_run_id.trim());
-                        }}
-                        disabled={connecting}
-                      >
-                        Back to root
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+                <details style={{ marginTop: "10px" }} open={!has_adaptive_inputs}>
+                  <summary className="mono muted" style={{ cursor: "pointer" }}>
+                    Inputs
+                  </summary>
 
-            {is_scheduled_run ? (
-              <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                <div className="meta">
-                  <span className="mono">schedule</span>
-                  <span className="mono">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
-                </div>
-                <div className="body">
-                  {schedule_interval ? (
-                    <div className="mono">
-                      <span className="muted">interval</span>: {schedule_interval}
+                  {!bundle_id.trim() || !flow_id.trim() ? (
+                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+                      Select a workflow above to configure inputs.
                     </div>
-                  ) : null}
-                  <div className="mono">
-                    <span className="muted">share context</span>: {schedule_share_ctx ? "true" : "false"}
-                  </div>
-                  {typeof schedule_meta_repeat_count === "number" ? (
-                    <div className="mono">
-                      <span className="muted">repeat count</span>: {schedule_meta_repeat_count}
-                    </div>
-                  ) : null}
-                </div>
-                {limits_pct !== null ? (
-                  <div className="body" style={{ marginTop: "10px" }}>
-                    <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
-                      Context budget
-                    </div>
-                    <div className="mono" style={{ marginBottom: "6px" }}>
-                      {typeof limits_used === "number" && typeof limits_budget === "number" ? `${limits_used.toLocaleString()} / ${limits_budget.toLocaleString()}` : ""}
-                      {` • ${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`}
-                    </div>
-                    <div style={{ height: "6px", borderRadius: "999px", background: "rgba(148, 163, 184, 0.25)", overflow: "hidden" }}>
-                      <div
-                        style={{
-                          height: "100%",
-                          width: `${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`,
-                          background:
-                            limits_pct >= 0.9 ? "rgba(239, 68, 68, 0.9)" : limits_pct >= 0.75 ? "rgba(245, 158, 11, 0.9)" : "rgba(34, 197, 94, 0.9)",
-                        }}
-                      />
-                    </div>
-                    {is_scheduled_recurrent ? (
-                      <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
-                        Auto-compaction triggers at ~90% for recurrent schedules.
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="actions">
-                  {is_scheduled_recurrent ? (
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        set_schedule_edit_interval(schedule_interval || "");
-                        set_schedule_edit_apply_immediately(true);
-                        set_schedule_edit_error("");
-                        set_schedule_edit_open(true);
-                      }}
-                      disabled={connecting || schedule_edit_submitting}
-                    >
-                      Edit schedule
-                    </button>
-                  ) : null}
-                  {is_scheduled_recurrent ? (
-                    <button
-                      className="btn primary"
-                      onClick={() => {
-                        set_compact_error("");
-                        set_compact_open(true);
-                      }}
-                      disabled={connecting || compact_submitting}
-                    >
-                      Compact context
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            {run_state ? (
-              <details style={{ marginTop: "10px" }}>
-                <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
-                  Run state • {run_status || "unknown"}
-                  {run_paused ? " • paused" : ""}
-                </summary>
-                <div className="log_item" style={{ marginTop: "10px" }}>
-                  <div className="body mono">
-                    {safe_json({
-                      status: run_state?.status,
-                      paused: run_state?.paused,
-                      current_node: run_state?.current_node,
-                      waiting: run_state?.waiting
-                        ? {
-                            reason: run_state.waiting.reason,
-                            wait_key: run_state.waiting.wait_key,
-                            prompt: run_state.waiting.prompt,
-                            details: run_state.waiting.details,
-                          }
-                        : null,
-                      error: run_state?.error,
-                    })}
-                  </div>
-                </div>
-              </details>
-            ) : null}
-
-            {error_text ? (
-              <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                <div className="meta">
-                  <span className="mono">error</span>
-                  <span className="mono">{now_iso()}</span>
-                </div>
-                <div className="body mono">{error_text}</div>
-              </div>
-            ) : null}
-          </div>
-          </div>
-
-          <div className="panel" style={is_narrow && mobile_tab !== "viewer" ? { display: "none" } : undefined}>
-            <div className="card panel_card card_scroll">
-              <div className="tab_bar">
-                <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
-                  Ledger
-                </button>
-                <button className={`tab mono ${right_tab === "mindmap" ? "active" : ""}`} onClick={() => set_right_tab("mindmap")}>
-                  Mindmap
-                </button>
-                <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
-                  Graph
-                </button>
-                <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
-                  Digest
-                </button>
-                <button className={`tab mono ${right_tab === "attachments" ? "active" : ""}`} onClick={() => set_right_tab("attachments")}>
-                  Attachments
-                </button>
-                <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
-                  Chat
-                </button>
-              </div>
-
-              <div className="viewer_header">
-                <div className="viewer_header_left">
-                  <div className="viewer_run_title">{run_id.trim() ? selected_run_label : "No run selected"}</div>
-                  <span className={`chip mono ${selected_run_status_chip_cls}`}>{selected_run_status_label || "—"}</span>
-                  {selected_run_is_scheduled_until && selected_next_in ? (
-                    <span className="chip mono scheduled" title={selected_next_at ? `Next at ${selected_next_at}` : undefined}>
-                      next in {selected_next_in}
-                    </span>
-                  ) : null}
-                  {selected_run_is_scheduled_until && is_scheduled_recurrent && schedule_interval ? (
-                    <span className="chip mono muted">every {schedule_interval}</span>
-                  ) : null}
-                </div>
-                <div className="viewer_header_right">
-                  {run_id.trim() ? <span className="mono muted">{short_run_id(run_id.trim())}</span> : null}
-                  {run_id.trim() ? <span className="muted">{selected_run_when}</span> : null}
-                </div>
-              </div>
-
-              {right_tab === "ledger" ? (
-                <>
-                  <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
-                    <button className={`btn ${ledger_view === "steps" ? "primary" : ""}`} onClick={() => set_ledger_view("steps")}>
-                      Steps
-                    </button>
-                    <button className={`btn ${ledger_view === "cycles" ? "primary" : ""}`} onClick={() => set_ledger_view("cycles")}>
-                      Cycles
-                    </button>
-                    {ledger_view === "steps" ? (
-                      <button className={`btn ${ledger_condensed ? "primary" : ""}`} onClick={() => set_ledger_condensed((v) => !v)}>
-                        {ledger_condensed ? "Condensed" : "All"}
-                      </button>
-                    ) : (
-                      <div className="field_inline" style={{ alignItems: "center", flexWrap: "wrap" }}>
-                        <span className="mono muted" style={{ fontSize: "12px" }}>
-                          Run
-                        </span>
-                        <select
-                          className="mono"
-                          value={cycles_run_id}
-                          onChange={(e) => set_ledger_cycles_run_id(String(e.target.value || ""))}
-                          disabled={!cycles_run_options.length}
-                        >
-                          {!cycles_run_options.length ? <option value="">(no runs)</option> : null}
-                          {cycles_run_options.map((rid) => {
-                            const count = typeof cycles_run_counts[rid] === "number" ? Number(cycles_run_counts[rid]) : 0;
-                            const label = `${short_id(rid, 18)}${count ? ` • ${count} llm` : ""}`;
-                            return (
-                              <option key={rid} value={rid}>
-                                {label}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </div>
-                    )}
-                    <button
-                      className="btn"
-                      disabled={!records.length && !child_records_for_digest.length}
-                      onClick={() => {
-                        const max = 5000;
-                        const merged = [
-                          ...records.map((x) => ({ run_id: run_id.trim() || x.record.run_id || "", cursor: x.cursor, record: x.record })),
-                          ...child_records_for_digest.map((x) => ({ run_id: x.run_id, cursor: x.cursor, record: x.record })),
-                        ];
-                        const with_ms = merged.map((x) => {
-                          const ts = String((x.record as any)?.ended_at || (x.record as any)?.started_at || "").trim();
-                          const ms = parse_iso_ms(ts);
-                          return { ...x, _ms: ms ?? 0 };
-                        });
-                        with_ms.sort((a, b) => (a._ms || 0) - (b._ms || 0));
-                        const items = with_ms.length > max ? with_ms.slice(with_ms.length - max) : with_ms;
-                        const text = items.map(({ _ms, ...x }) => JSON.stringify(x)).join("\n");
-                        copy_to_clipboard(text);
-                      }}
-                    >
-                      Copy ledger (JSONL)
-                    </button>
-                  </div>
-                  {ledger_view === "steps" ? (
-                    <div className="log log_scroll">
-                      {visible_log.map((item) => (
-                        <LedgerCard
-                          key={item.id}
-                          item={item}
-                          open={log_open[item.id] === true}
-                          on_toggle={() => set_log_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
-                          response_open={log_response_open[item.id] === true}
-                          on_toggle_response={() => set_log_response_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
-                          node_index={node_index_for_run}
-                          on_copy={copy_to_clipboard}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="log log_scroll">
-                      <AgentCyclesPanel
-                        items={agent_trace.items}
-                        title="Agent"
-                        subtitle={agent_trace.node_id ? `node_id: ${agent_trace.node_id}` : "Live per-effect trace (LLM/tool calls)."}
-                        subRunId={cycles_run_id}
-                        onOpenSubRun={
-                          cycles_run_id && cycles_run_id !== run_id.trim()
-                            ? () => {
-                                set_run_id(cycles_run_id);
-                                void connect_to_run(cycles_run_id);
-                              }
-                            : undefined
-                        }
-                      />
-                    </div>
-                  )}
-                </>
-              ) : right_tab === "mindmap" ? (
-                <div style={{ paddingTop: 10 }}>
-                  <MindmapPanel
-                    gateway={gateway}
-                    selected_run_id={run_id.trim()}
-                    selected_session_id={typeof run_state?.session_id === "string" ? String(run_state.session_id) : ""}
-                  />
-                </div>
-              ) : right_tab === "graph" ? (
-                <>
-                  <div className="graph_toolbar">
-                    <div className="field graph_flow_field" style={{ margin: 0 }}>
-                      <label>Flow</label>
-                      <select
-                        className="mono"
-                        value={graph_flow_id}
-                        onChange={(e) => set_graph_flow_id(String(e.target.value || ""))}
-                        disabled={Boolean(scheduled_workflow_id.trim()) || !bundle_id.trim() || graph_loading}
-                      >
-                        <option value="">(select)</option>
-                        {graph_flow_options.map((fid) => (
-                          <option key={fid} value={fid}>
-                            {fid}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="field graph_view_field" style={{ margin: 0 }}>
-                      <label>View</label>
-                      <div className="graph_view_toggles">
-                        <label className="mono graph_toggle">
-                          <input
-                            type="checkbox"
-                            checked={graph_show_subflows}
-                            onChange={(e) => set_graph_show_subflows(Boolean(e.target.checked))}
-                          />
-                          <span className="graph_toggle_text">Show subflows</span>
-                        </label>
-                        <label className="mono graph_toggle">
-                          <input
-                            type="checkbox"
-                            checked={graph_highlight_path}
-                            onChange={(e) => set_graph_highlight_path(Boolean(e.target.checked))}
-                          />
-                          <span className="graph_toggle_text">Highlight path</span>
-                        </label>
-                      </div>
-                    </div>
-                    <div className="field graph_actions_field" style={{ margin: 0 }}>
-                      <label>Actions</label>
-                      <div className="field_inline">
-                        <button
-                          className="btn"
-                          onClick={() => {
-                            const root = String(selected_entrypoint?.flow_id || "").trim();
-                            if (root) set_graph_flow_id(root);
-                          }}
-                          disabled={Boolean(scheduled_workflow_id.trim()) || !selected_entrypoint?.flow_id}
-                        >
-                          Go to root
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={() => {
-                            if (graph_flow) copy_to_clipboard(JSON.stringify(graph_flow, null, 2));
-                          }}
-                          disabled={!graph_flow}
-                        >
-                          Copy flow JSON
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {graph_error ? (
-                    <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                  ) : input_data_obj === null ? (
+                    <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
                       <div className="meta">
-                        <span className="mono">graph error</span>
+                        <span className="mono">input error</span>
                         <span className="mono">{now_iso()}</span>
                       </div>
-                      <div className="body mono">{graph_error}</div>
+                      <div className="body mono">Invalid input JSON. Fix it in Advanced JSON.</div>
                     </div>
-                  ) : null}
-                  {graph_loading ? (
-                    <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
-                      <div className="meta">
-                        <span className="mono">loading</span>
-                        <span className="mono">{scheduled_workflow_id.trim() ? scheduled_workflow_id.trim() : graph_flow_id}</span>
+                  ) : has_adaptive_inputs ? (
+                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+                      This workflow exposes typed inputs. Use Advanced JSON to edit full `input_data`.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="field" style={{ marginTop: "10px" }}>
+                        <label>Prompt (common)</label>
+                        <textarea
+                          className="mono"
+                          value={prompt_value}
+                          onChange={(e) => update_input_data_field("prompt", e.target.value)}
+                          placeholder="What do you want the workflow/agent to do?"
+                          rows={3}
+                          disabled={connecting || resuming}
+                        />
                       </div>
-                      <div className="body mono">Loading graph…</div>
-                    </div>
-                  ) : null}
+                      <div className="row">
+                        <div className="col">
+                          <div className="field">
+                            <label>Provider (common)</label>
+                            <input
+                              className="mono"
+                              value={provider_value}
+                              onChange={(e) => update_input_data_field("provider", e.target.value)}
+                              placeholder="lmstudio / ollama / openai / ..."
+                              disabled={connecting || resuming}
+                            />
+                          </div>
+                        </div>
+                        <div className="col">
+                          <div className="field">
+                            <label>Model (common)</label>
+                            <input
+                              className="mono"
+                              value={model_value}
+                              onChange={(e) => update_input_data_field("model", e.target.value)}
+                              placeholder="qwen/qwen3-next-80b / gpt-4.1 / ..."
+                              disabled={connecting || resuming}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
-                  <div className="graph_panel">
-                    <FlowGraph
-                      flow={graph_flow}
-                      flow_by_id={graph_flow_cache}
-                      expand_subflows={graph_show_subflows}
-                      simplify={true}
-                      prefer_vertical={true}
-                      vertical_compact={0.78}
-                      schedule_next_in={selected_next_in}
-                      schedule_interval={schedule_interval}
-                      node_last_ms={graph_node_last_ms}
-                      active_node_id={graph_active_node_id}
-                      recent_nodes={recent_nodes}
-                      visited_nodes={visited_nodes}
-                      highlight_path={graph_highlight_path}
-                      now_ms={graph_now_ms}
-                    />
+                  <details style={{ marginTop: "10px" }}>
+                    <summary className="mono muted" style={{ cursor: "pointer" }}>
+                      Advanced: input_data JSON
+                    </summary>
+                    <div className="field" style={{ marginTop: "10px" }}>
+                      <label>Input data (JSON)</label>
+                      <textarea
+                        className="mono"
+                        value={input_data_text}
+                        onChange={(e) => set_input_data_text(e.target.value)}
+                        placeholder='{"prompt":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}'
+                        rows={10}
+                        disabled={connecting || resuming}
+                      />
+                    </div>
+                  </details>
+
+                  <details style={{ marginTop: "10px" }}>
+                    <summary className="mono muted" style={{ cursor: "pointer" }}>
+                      Workspace policy (filesystem)
+                    </summary>
+                    <div className="field" style={{ marginTop: "10px" }}>
+                      <label>Workspace root (workspace_root)</label>
+                      <input
+                        className="mono"
+                        value={workspace_root_value}
+                        onChange={(e) => update_input_data_field("workspace_root", e.target.value)}
+                        placeholder="(leave blank to auto-generate a per-run workspace on the gateway)"
+                        disabled={connecting || resuming}
+                      />
+                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                        Relative tool paths resolve under this directory.
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label>Filesystem access mode (workspace_access_mode)</label>
+                      <select
+                        className="mono"
+                        value={(workspace_access_mode_value || "workspace_only").trim() || "workspace_only"}
+                        onChange={(e) => update_input_data_field("workspace_access_mode", e.target.value)}
+                        disabled={connecting || resuming}
+                      >
+                        <option value="workspace_only">workspace_only (restrict absolute paths to workspace_root)</option>
+                        <option value="all_except_ignored">all_except_ignored (allow absolute paths outside workspace_root)</option>
+                      </select>
+                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                        This only affects absolute paths; relative paths still stay under workspace_root.
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label>Ignored folders (workspace_ignored_paths)</label>
+                      <textarea
+                        className="mono"
+                        value={workspace_ignored_paths_value}
+                        onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)}
+                        placeholder={".git\nnode_modules\n.venv\n~/Library\n/Users/albou/.ssh"}
+                        rows={5}
+                        disabled={connecting || resuming}
+                      />
+                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                        One path per line. Relative entries are resolved under workspace_root.
+                      </div>
+                    </div>
+                  </details>
+
+                  <details style={{ marginTop: "10px" }}>
+                    <summary className="mono muted" style={{ cursor: "pointer" }}>
+                      Schedule
+                    </summary>
+
+                    {(() => {
+                      const unit_label = schedule_every_unit === "weeks" ? "week" : schedule_every_unit === "months" ? "month" : schedule_every_unit.slice(0, -1);
+                      const n = Math.max(1, Math.floor(schedule_every_n || 1));
+                      const every = `${n} ${unit_label}${n === 1 ? "" : "s"}`;
+                      const start_s =
+                        schedule_start_mode === "now"
+                          ? "now"
+                          : schedule_start_at_local
+                            ? (() => {
+                                const dt = new Date(schedule_start_at_local);
+                                return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "at …";
+                              })()
+                            : "at …";
+                      const until_s =
+                        schedule_repeat_mode === "until" && schedule_repeat_until_date_local
+                          ? (() => {
+                              const t = schedule_repeat_until_time_local || "23:59";
+                              const dt = new Date(`${schedule_repeat_until_date_local}T${t}`);
+                              return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "…";
+                            })()
+                          : "";
+                      const end_s =
+                        schedule_repeat_mode === "once"
+                          ? ""
+                          : schedule_repeat_mode === "forever"
+                            ? "forever"
+                            : schedule_repeat_mode === "count"
+                              ? `${Math.max(1, Math.floor(schedule_repeat_count || 1))} runs`
+                              : until_s
+                                ? `until ${until_s}`
+                                : "until …";
+                      const summary =
+                        schedule_repeat_mode === "once"
+                          ? `Runs once • starts ${start_s}`
+                          : `Repeats every ${every} • starts ${start_s} • ${end_s}`;
+                      return (
+                        <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
+                          <div className="meta">
+                            <span className="mono">schedule</span>
+                            <span className="mono">{schedule_repeat_mode}</span>
+                          </div>
+                          <div className="body">{summary}</div>
+                        </div>
+                      );
+                    })()}
+
+                    {schedule_error ? (
+                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
+                        <div className="meta">
+                          <span className="mono">error</span>
+                          <span className="mono">{now_iso()}</span>
+                        </div>
+                        <div className="body mono">{schedule_error}</div>
+                      </div>
+                    ) : null}
+
+                    <div className="field" style={{ marginTop: "10px" }}>
+                      <label>Start</label>
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                        <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <input
+                            type="radio"
+                            name="schedule_start"
+                            checked={schedule_start_mode === "now"}
+                            onChange={() => set_schedule_start_mode("now")}
+                          />
+                          now
+                        </label>
+                        <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <input
+                            type="radio"
+                            name="schedule_start"
+                            checked={schedule_start_mode === "at"}
+                            onChange={() => set_schedule_start_mode("at")}
+                          />
+                          at
+                        </label>
+                        {schedule_start_mode === "at" ? (
+                          <input type="datetime-local" value={schedule_start_at_local} onChange={(e) => set_schedule_start_at_local(e.target.value)} />
+                        ) : null}
+                      </div>
+                      {schedule_start_mode === "at" ? (
+                        <div className="mono muted" style={{ fontSize: "12px" }}>
+                          Uses your device time; the gateway stores UTC.
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="field">
+                      <label>Cadence</label>
+                      <select value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
+                        <option value="once">Once</option>
+                        <option value="forever">Repeat</option>
+                        <option value="count">Repeat • N times</option>
+                        <option value="until">Repeat • until date</option>
+                      </select>
+                    </div>
+
+                    {schedule_repeat_mode !== "once" ? (
+                      <>
+                        <div className="row">
+                          <div className="col">
+                            <div className="field">
+                              <label>Every</label>
+                              <input
+                                type="number"
+                                min={1}
+                                value={String(schedule_every_n)}
+                                onChange={(e) => set_schedule_every_n(Math.max(1, parseInt(e.target.value || "1", 10) || 1))}
+                              />
+                            </div>
+                          </div>
+                          <div className="col">
+                            <div className="field">
+                              <label>Unit</label>
+                              <select value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
+                                <option value="minutes">minutes</option>
+                                <option value="hours">hours</option>
+                                <option value="days">days</option>
+                                <option value="weeks">weeks (≈7d)</option>
+                                <option value="months">months (≈30d)</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                        {schedule_every_unit === "months" || schedule_every_unit === "weeks" ? (
+                          <div className="mono muted" style={{ fontSize: "12px" }}>
+                            Note: weeks/months are implemented as fixed day intervals (calendar-aware scheduling is planned).
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+
+                    {schedule_repeat_mode === "count" ? (
+                      <div className="field">
+                        <label>Runs</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={String(schedule_repeat_count)}
+                          onChange={(e) => set_schedule_repeat_count(Math.max(1, parseInt(e.target.value || "1", 10) || 1))}
+                        />
+                      </div>
+                    ) : null}
+
+                    {schedule_repeat_mode === "until" ? (
+                      <div className="row">
+                        <div className="col">
+                          <div className="field">
+                            <label>Until (date)</label>
+                            <input type="date" value={schedule_repeat_until_date_local} onChange={(e) => set_schedule_repeat_until_date_local(e.target.value)} />
+                          </div>
+                        </div>
+                        <div className="col">
+                          <div className="field">
+                            <label>Until (time)</label>
+                            <input type="time" value={schedule_repeat_until_time_local} onChange={(e) => set_schedule_repeat_until_time_local(e.target.value)} />
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="field">
+                      <label>Context</label>
+                      <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                        <input type="checkbox" checked={schedule_share_context} onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))} />
+                        Share context over time/calls
+                      </label>
+                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                        When disabled, each execution runs in its own session (isolated memory).
+                      </div>
+                    </div>
+
+                    <div className="actions" style={{ justifyContent: "flex-start" }}>
+                      <button
+                        className="btn primary"
+                        onClick={async () => {
+                          set_schedule_error("");
+                          const err = await start_scheduled_run({
+                            start_mode: schedule_start_mode,
+                            start_at_local: schedule_start_at_local,
+                            repeat_mode: schedule_repeat_mode,
+                            every_n: schedule_every_n,
+                            every_unit: schedule_every_unit,
+                            repeat_count: schedule_repeat_count,
+                            repeat_until_date_local: schedule_repeat_until_date_local,
+                            repeat_until_time_local: schedule_repeat_until_time_local,
+                            share_context: schedule_share_context,
+                          });
+                          if (err) set_schedule_error(err);
+                        }}
+                        disabled={schedule_submitting}
+                      >
+                        {schedule_submitting ? "Scheduling…" : "Schedule"}
+                      </button>
+                    </div>
+                  </details>
+                </details>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {page === "mindmap" ? (
+          <div className="page mindmap_page">
+            {!gateway_connected ? (
+              <div className="page_inner constrained">
+                <div className="card">
+                  <div className="title">
+                    <h1>Mindmap</h1>
                   </div>
-                </>
-              ) : right_tab === "digest" ? (
-                <>
-                  <div className="log_actions" style={{ marginTop: "6px" }}>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        copy_to_clipboard(JSON.stringify(digest, null, 2));
-                      }}
-                      disabled={!digest.overall.stats.steps}
-                    >
-                      Copy JSON
+                  <div className="mono muted">
+                    Not connected. Open{" "}
+                    <button className="btn" onClick={() => set_page("settings")}>
+                      Settings
+                    </button>{" "}
+                    to connect to a gateway.
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mindmap_full">
+                <MindmapPanel gateway={gateway} selected_run_id={run_id} selected_session_id={session_id_for_run || start_session_id} />
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {page === "observe" ? (
+          <div className="page observe_page">
+            <div className="observe_layout">
+              <div className="card panel_card scroll_y observe_sidebar">
+                <div className="section_title">Runs</div>
+                <div className="field">
+                  <label>Runs (parent — select to observe)</label>
+                  <div className="field_inline">
+                    <RunPicker
+                      runs={run_options}
+                      selected_run_id={run_id}
+                      workflow_label_by_id={workflow_label_by_id}
+                      disabled={!gateway_connected || runs_loading || discovery_loading || connecting || resuming}
+                      loading={runs_loading}
+                      onSelect={(rid) => void attach_to_run(rid)}
+                    />
+                    <button className="btn" onClick={refresh_runs} disabled={!gateway_connected || runs_loading || discovery_loading}>
+                      {runs_loading ? "Refreshing…" : "Refresh"}
+                    </button>
+                    <button className="btn" onClick={clear_run_view} disabled={!run_id.trim() && !connected}>
+                      Disconnect
                     </button>
                   </div>
+                </div>
 
-                  <div className="log log_scroll">
+                <div className="actions" style={{ justifyContent: "flex-start" }}>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      if (pause_resume_action === "pause") {
+                        set_run_control_type("pause");
+                        set_run_control_reason("");
+                        set_run_control_error("");
+                        set_run_control_open(true);
+                        return;
+                      }
+                      void submit_run_control("resume");
+                    }}
+                    disabled={pause_resume_disabled}
+                  >
+                    {pause_resume_label}
+                  </button>
+                  <button
+                    className="btn danger"
+                    onClick={() => {
+                      set_run_control_type("cancel");
+                      set_run_control_reason("");
+                      set_run_control_error("");
+                      set_run_control_open(true);
+                    }}
+                    disabled={!run_id.trim() || connecting || resuming || run_terminal}
+                  >
+                    Cancel
+                  </button>
+                  <button className="btn" onClick={() => set_page("launch")} disabled={!gateway_connected || discovery_loading}>
+                    Launch…
+                  </button>
+                </div>
+
+                {is_waiting ? (
+                  <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
+                    <div className="meta">
+                      <span className="mono">{is_scheduled_run && wait_reason === "until" ? "scheduled" : "waiting"}</span>
+                      <span className="mono">{wait_reason || "unknown"}</span>
+                    </div>
+                    <div className="body">
+                      {wait_key ? (
+                        <div className="mono" title={wait_key}>
+                          <span className="muted">wait_key</span>: {short_id(wait_key, 46)}
+                        </div>
+                      ) : null}
+                      {wait_reason === "event" && wait_event_name ? (
+                        <div className="mono">
+                          <span className="muted">event</span>: {wait_event_name}
+                        </div>
+                      ) : null}
+                      {wait_reason === "subworkflow" && sub_run_id ? (
+                        <div className="mono">
+                          <span className="muted">child run</span>: {short_id(sub_run_id, 18)}
+                        </div>
+                      ) : null}
+                      {wait_reason === "until" && wait_until ? (
+                        <div className="mono" title={wait_until}>
+                          <span className="muted">until</span>: {short_id(wait_until, 46)}
+                        </div>
+                      ) : null}
+                    </div>
+                    {wait_reason === "until" && wait_until ? (
+                      <div className="mono muted" style={{ marginTop: "10px", fontSize: "12px" }}>
+                        {(() => {
+                          const ms = parse_iso_ms(wait_until);
+                          const at = ms !== null ? new Date(ms).toLocaleString() : wait_until;
+                          const in_ = ms !== null ? format_time_until_from_ms(ms - Date.now()) : "";
+                          return `Next execution at ${at}${in_ ? ` (in ${in_})` : ""}`;
+                        })()}
+                      </div>
+                    ) : null}
+                    {wait_reason === "subworkflow" && sub_run_id ? (
+                      <div className="actions">
+                        <button
+                          className="btn primary"
+                          onClick={async () => {
+                            set_run_id(sub_run_id);
+                            await connect_to_run(sub_run_id);
+                          }}
+                          disabled={connecting}
+                        >
+                          Attach to child run
+                        </button>
+                        {root_run_id.trim() && root_run_id.trim() !== run_id.trim() ? (
+                          <button
+                            className="btn"
+                            onClick={async () => {
+                              set_run_id(root_run_id.trim());
+                              await connect_to_run(root_run_id.trim());
+                            }}
+                            disabled={connecting}
+                          >
+                            Back to root
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {is_scheduled_run ? (
+                  <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+                    <div className="meta">
+                      <span className="mono">schedule</span>
+                      <span className="mono">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
+                    </div>
+                    <div className="body">
+                      {schedule_interval ? (
+                        <div className="mono">
+                          <span className="muted">interval</span>: {schedule_interval}
+                        </div>
+                      ) : null}
+                      <div className="mono">
+                        <span className="muted">share context</span>: {schedule_share_ctx ? "true" : "false"}
+                      </div>
+                      {typeof schedule_meta_repeat_count === "number" ? (
+                        <div className="mono">
+                          <span className="muted">repeat count</span>: {schedule_meta_repeat_count}
+                        </div>
+                      ) : null}
+                    </div>
+                    {limits_pct !== null ? (
+                      <div className="body" style={{ marginTop: "10px" }}>
+                        <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
+                          Context budget
+                        </div>
+                        <div className="mono" style={{ marginBottom: "6px" }}>
+                          {typeof limits_used === "number" && typeof limits_budget === "number"
+                            ? `${limits_used.toLocaleString()} / ${limits_budget.toLocaleString()}`
+                            : ""}
+                          {` • ${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`}
+                        </div>
+                        <div style={{ height: "6px", borderRadius: "999px", background: "rgba(148, 163, 184, 0.25)", overflow: "hidden" }}>
+                          <div
+                            style={{
+                              height: "100%",
+                              width: `${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`,
+                              background:
+                                limits_pct >= 0.9
+                                  ? "rgba(239, 68, 68, 0.9)"
+                                  : limits_pct >= 0.75
+                                    ? "rgba(245, 158, 11, 0.9)"
+                                    : "rgba(34, 197, 94, 0.9)",
+                            }}
+                          />
+                        </div>
+                        {is_scheduled_recurrent ? (
+                          <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                            Auto-compaction triggers at ~90% for recurrent schedules.
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="actions">
+                      {is_scheduled_recurrent ? (
+                        <button
+                          className="btn"
+                          onClick={() => {
+                            set_schedule_edit_interval(schedule_interval || "");
+                            set_schedule_edit_apply_immediately(true);
+                            set_schedule_edit_error("");
+                            set_schedule_edit_open(true);
+                          }}
+                          disabled={connecting || schedule_edit_submitting}
+                        >
+                          Edit schedule
+                        </button>
+                      ) : null}
+                      {is_scheduled_recurrent ? (
+                        <button
+                          className="btn primary"
+                          onClick={() => {
+                            set_compact_error("");
+                            set_compact_open(true);
+                          }}
+                          disabled={connecting || compact_submitting}
+                        >
+                          Compact context
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {run_state ? (
+                  <details style={{ marginTop: "10px" }}>
+                    <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
+                      Run state • {run_status || "unknown"}
+                      {run_paused ? " • paused" : ""}
+                    </summary>
+                    <div className="log_item" style={{ marginTop: "10px" }}>
+                      <div className="body mono">
+                        {safe_json({
+                          status: run_state?.status,
+                          paused: run_state?.paused,
+                          current_node: run_state?.current_node,
+                          waiting: run_state?.waiting
+                            ? {
+                                reason: run_state.waiting.reason,
+                                wait_key: run_state.waiting.wait_key,
+                                prompt: run_state.waiting.prompt,
+                                details: run_state.waiting.details,
+                              }
+                            : null,
+                          error: run_state?.error,
+                        })}
+                      </div>
+                    </div>
+                  </details>
+                ) : null}
+
+                {error_text ? (
+                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                    <div className="meta">
+                      <span className="mono">error</span>
+                      <span className="mono">{now_iso()}</span>
+                    </div>
+                    <div className="body mono">{error_text}</div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="card panel_card card_scroll observe_viewer">
+                <div className="tab_bar">
+                  <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
+                    Ledger
+                  </button>
+                  <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
+                    Graph
+                  </button>
+                  <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
+                    Digest
+                  </button>
+                  <button className={`tab mono ${right_tab === "attachments" ? "active" : ""}`} onClick={() => set_right_tab("attachments")}>
+                    Attachments
+                  </button>
+                  <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
+                    Chat
+                  </button>
+                </div>
+
+                <div className="viewer_header">
+                  <div className="viewer_header_left">
+                    <div className="viewer_run_title">{run_id.trim() ? selected_run_label : "No run selected"}</div>
+                    <span className={`chip mono ${selected_run_status_chip_cls}`}>{selected_run_status_label || "—"}</span>
+                    {selected_run_is_scheduled_until && selected_next_in ? (
+                      <span className="chip mono scheduled" title={selected_next_at ? `Next at ${selected_next_at}` : undefined}>
+                        next in {selected_next_in}
+                      </span>
+                    ) : null}
+                    {selected_run_is_scheduled_until && is_scheduled_recurrent && schedule_interval ? (
+                      <span className="chip mono muted">every {schedule_interval}</span>
+                    ) : null}
+                  </div>
+                  <div className="viewer_header_right">
+                    {run_id.trim() ? <span className="mono muted">{short_run_id(run_id.trim())}</span> : null}
+                    {run_id.trim() ? <span className="muted">{selected_run_when}</span> : null}
+                  </div>
+                </div>
+
+                {right_tab === "ledger" ? (
+                  <>
+                    <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
+                      <button className={`btn ${ledger_view === "steps" ? "primary" : ""}`} onClick={() => set_ledger_view("steps")}>
+                        Steps
+                      </button>
+                      <button className={`btn ${ledger_view === "cycles" ? "primary" : ""}`} onClick={() => set_ledger_view("cycles")}>
+                        Cycles
+                      </button>
+                      {ledger_view === "steps" ? (
+                        <button className={`btn ${ledger_condensed ? "primary" : ""}`} onClick={() => set_ledger_condensed((v) => !v)}>
+                          {ledger_condensed ? "Condensed" : "All"}
+                        </button>
+                      ) : (
+                        <div className="field_inline" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                          <span className="mono muted" style={{ fontSize: "12px" }}>
+                            Run
+                          </span>
+                          <select
+                            className="mono"
+                            value={cycles_run_id}
+                            onChange={(e) => set_ledger_cycles_run_id(String(e.target.value || ""))}
+                            disabled={!cycles_run_options.length}
+                          >
+                            {!cycles_run_options.length ? <option value="">(no runs)</option> : null}
+                            {cycles_run_options.map((rid) => {
+                              const count = typeof cycles_run_counts[rid] === "number" ? Number(cycles_run_counts[rid]) : 0;
+                              const label = `${short_id(rid, 18)}${count ? ` • ${count} llm` : ""}`;
+                              return (
+                                <option key={rid} value={rid}>
+                                  {label}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                      )}
+                      <button
+                        className="btn"
+                        disabled={!records.length && !child_records_for_digest.length}
+                        onClick={() => {
+                          const max = 5000;
+                          const merged = [
+                            ...records.map((x) => ({ run_id: run_id.trim() || x.record.run_id || "", cursor: x.cursor, record: x.record })),
+                            ...child_records_for_digest.map((x) => ({ run_id: x.run_id, cursor: x.cursor, record: x.record })),
+                          ];
+                          const with_ms = merged.map((x) => {
+                            const ts = String((x.record as any)?.ended_at || (x.record as any)?.started_at || "").trim();
+                            const ms = parse_iso_ms(ts);
+                            return { ...x, _ms: ms ?? 0 };
+                          });
+                          with_ms.sort((a, b) => (a._ms || 0) - (b._ms || 0));
+                          const items = with_ms.length > max ? with_ms.slice(with_ms.length - max) : with_ms;
+                          const text = items.map(({ _ms, ...x }) => JSON.stringify(x)).join("\n");
+                          copy_to_clipboard(text);
+                        }}
+                      >
+                        Copy ledger (JSONL)
+                      </button>
+                    </div>
+                    {ledger_view === "steps" ? (
+                      <div className="log log_scroll">
+                        {visible_log.map((item) => (
+                          <LedgerCard
+                            key={item.id}
+                            item={item}
+                            open={log_open[item.id] === true}
+                            on_toggle={() => set_log_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                            response_open={log_response_open[item.id] === true}
+                            on_toggle_response={() => set_log_response_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                            node_index={node_index_for_run}
+                            on_copy={(t) => void copy_to_clipboard(t)}
+                          />
+                        ))}
+                        {!visible_log.length ? (
+                          <div className="mono muted" style={{ padding: "10px 12px" }}>
+                            (no ledger items)
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="log log_scroll">
+                        <AgentCyclesPanel
+                          items={agent_trace.items}
+                          title="Agent"
+                          subtitle={agent_trace.node_id ? `node_id: ${agent_trace.node_id}` : "Live per-effect trace (LLM/tool calls)."}
+                          subRunId={cycles_run_id}
+                          onOpenSubRun={
+                            cycles_run_id && cycles_run_id !== run_id.trim()
+                              ? () => {
+                                  set_run_id(cycles_run_id);
+                                  void connect_to_run(cycles_run_id);
+                                }
+                              : undefined
+                          }
+                        />
+                      </div>
+                    )}
+                  </>
+                ) : null}
+
+                {right_tab === "graph" ? (
+                  <>
+                    <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
+                      <button className={`btn ${graph_show_subflows ? "primary" : ""}`} onClick={() => set_graph_show_subflows((v) => !v)}>
+                        {graph_show_subflows ? "Subflows: on" : "Subflows: off"}
+                      </button>
+                      <button
+                        className={`btn ${graph_highlight_path ? "primary" : ""}`}
+                        onClick={() => set_graph_highlight_path((v) => !v)}
+                      >
+                        {graph_highlight_path ? "Path: on" : "Path: off"}
+                      </button>
+                      {graph_flow_options.length ? (
+                        <select
+                          className="mono"
+                          value={graph_flow_id}
+                          onChange={(e) => set_graph_flow_id(String(e.target.value || ""))}
+                          disabled={Boolean(scheduled_workflow_id.trim()) || !bundle_id.trim() || graph_loading}
+                        >
+                          {graph_flow_options.map((fid) => (
+                            <option key={fid} value={fid}>
+                              {fid}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                      <span className="mono muted" style={{ fontSize: "12px" }}>
+                        {scheduled_workflow_id.trim() ? scheduled_workflow_id.trim() : graph_flow_id ? `flow ${graph_flow_id}` : ""}
+                      </span>
+                    </div>
+
+                    {graph_error ? (
+                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                        <div className="meta">
+                          <span className="mono">graph error</span>
+                          <span className="mono">{now_iso()}</span>
+                        </div>
+                        <div className="body mono">{graph_error}</div>
+                      </div>
+                    ) : null}
+                    {graph_loading ? (
+                      <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
+                        <div className="meta">
+                          <span className="mono">loading</span>
+                          <span className="mono">{scheduled_workflow_id.trim() ? scheduled_workflow_id.trim() : graph_flow_id}</span>
+                        </div>
+                        <div className="body mono">Loading graph…</div>
+                      </div>
+                    ) : null}
+
+                    <div className="graph_panel">
+                      <FlowGraph
+                        flow={graph_flow}
+                        flow_by_id={graph_flow_cache}
+                        expand_subflows={graph_show_subflows}
+                        simplify={true}
+                        prefer_vertical={true}
+                        vertical_compact={0.78}
+                        schedule_next_in={selected_next_in}
+                        schedule_interval={schedule_interval}
+                        node_last_ms={graph_node_last_ms}
+                        active_node_id={graph_active_node_id}
+                        recent_nodes={recent_nodes}
+                        visited_nodes={visited_nodes}
+                        highlight_path={graph_highlight_path}
+                        now_ms={graph_now_ms}
+                      />
+                    </div>
+                  </>
+                ) : null}
+
+                {right_tab === "digest" ? (
+                  <div className="log log_scroll" style={{ marginTop: "6px" }}>
+                    <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
+                      <button
+                        className="btn"
+                        onClick={() => {
+                          copy_to_clipboard(JSON.stringify(digest, null, 2));
+                        }}
+                        disabled={!digest?.overall?.stats?.steps}
+                      >
+                        Copy JSON
+                      </button>
+                    </div>
+
                     <div
                       className="log_item"
                       style={{
-                        borderColor: digest.latest_summary
-                          ? digest.summary_outdated
+                        borderColor: digest?.latest_summary
+                          ? digest?.summary_outdated
                             ? "rgba(239, 68, 68, 0.45)"
                             : "rgba(34, 197, 94, 0.35)"
                           : "rgba(96, 165, 250, 0.25)",
@@ -4958,12 +4246,10 @@ export function App(): React.ReactElement {
                     >
                       <div className="meta">
                         <span className="mono">summary</span>
-                        <span className="mono">
-                          {digest.latest_summary ? (digest.summary_outdated ? "outdated" : "current") : "(none)"}
-                        </span>
+                        <span className="mono">{digest?.latest_summary ? (digest?.summary_outdated ? "outdated" : "current") : "(none)"}</span>
                       </div>
                       <div className="body" style={{ whiteSpace: "pre-wrap" }}>
-                        {digest.latest_summary ? (
+                        {digest?.latest_summary ? (
                           <>
                             <div className="mono muted" style={{ fontSize: "12px", marginBottom: "8px" }}>
                               {digest.latest_summary.generated_at || digest.latest_summary.ts || ""} •{" "}
@@ -4977,7 +4263,7 @@ export function App(): React.ReactElement {
                       </div>
                       <div className="actions">
                         <button className="btn primary" onClick={() => void generate_summary()} disabled={!run_id.trim() || summary_generating}>
-                          {summary_generating ? "Generating…" : digest.latest_summary ? "Regenerate" : "Generate"}
+                          {summary_generating ? "Generating…" : digest?.latest_summary ? "Regenerate" : "Generate"}
                         </button>
                       </div>
                       {summary_error ? (
@@ -4986,630 +4272,585 @@ export function App(): React.ReactElement {
                         </div>
                       ) : null}
                     </div>
-
-	                    <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
-	                      <div className="meta">
-	                        <span className="mono">stats</span>
-	                        <span className="mono">{digest.overall.stats.duration_s ? `${digest.overall.stats.duration_s}s` : ""}</span>
-	                      </div>
-	                      <div className="body">
-	                        <div className="digest_stats_grid">
-	                          <div className="digest_stat">
-	                            <div className="label">Steps</div>
-	                            <div className="value mono">{digest.overall.stats.steps}</div>
-	                          </div>
-	                          <div className="digest_stat">
-	                            <div className="label">LLM Calls</div>
-	                            <div className="value mono">{digest.overall.stats.llm_calls}</div>
-	                            {digest.overall.stats.llm_missing_responses ? (
-	                              <div className="mono" style={{ marginTop: "6px" }}>
-	                                <span className="chip warn mono">missing response {digest.overall.stats.llm_missing_responses}</span>
-	                              </div>
-	                            ) : null}
-	                          </div>
-	                          <div className="digest_stat">
-	                            <div className="label">Tool Calls</div>
-	                            <div className="value mono">{digest.overall.stats.tool_calls}</div>
-	                            <div className="mono muted" style={{ marginTop: "6px", fontSize: "12px" }}>
-	                              unique {digest.overall.stats.unique_tools}
-	                            </div>
-	                          </div>
-	                          <div className="digest_stat">
-	                            <div className="label">Errors</div>
-	                            <div className="value mono">{digest.overall.stats.errors}</div>
-	                          </div>
-	                          <div className="digest_stat">
-	                            <div className="label">Tokens In</div>
-	                            <div className="value mono">{digest.overall.stats.prompt_tokens || 0}</div>
-	                          </div>
-	                          <div className="digest_stat">
-	                            <div className="label">Tokens Out</div>
-	                            <div className="value mono">{digest.overall.stats.completion_tokens || 0}</div>
-	                            <div className="mono muted" style={{ marginTop: "6px", fontSize: "12px" }}>
-	                              total {digest.overall.stats.total_tokens || 0}
-	                            </div>
-	                          </div>
-	                        </div>
-	                        <div className="meta2" style={{ marginTop: "10px", justifyContent: "flex-start", flexWrap: "wrap" }}>
-                          {digest.overall.stats.started_at ? (
-                            <span className="chip mono muted" title={String(digest.overall.stats.started_at)}>
-                              started {format_time_ago(digest.overall.stats.started_at)}
-                            </span>
-                          ) : null}
-                          {digest.overall.stats.ended_at ? (
-                            <span className="chip mono muted" title={String(digest.overall.stats.ended_at)}>
-                              ended {format_time_ago(digest.overall.stats.ended_at)}
-                            </span>
-                          ) : null}
-	                          {digest.subruns.length ? <span className="chip mono muted">subflows {digest.subruns.length}</span> : null}
-	                        </div>
-	                      </div>
-	                    </div>
-
-	                    {digest.overall.tool_calls_detail.length ? (
-	                      <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-	                        <div className="meta">
-	                          <span className="mono">tool calls</span>
-	                          <span className="mono">{digest.overall.tool_calls_detail.length}</span>
-	                        </div>
-	                        <div className="body mono">
-	                          <details>
-	                            <summary style={{ cursor: "pointer" }}>Show tool calls</summary>
-	                            <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
-	                              {digest.overall.tool_calls_detail.slice(0, 120).map((t, idx) => (
-	                                <details key={`${t.run_id}:${t.ts}:${t.signature}:${idx}`} className="digest_detail">
-	                                  <summary style={{ cursor: "pointer" }}>
-	                                    <span className={`chip mono ${t.success === true ? "ok" : t.success === false ? "danger" : "muted"}`}>
-	                                      {t.success === true ? "ok" : t.success === false ? "fail" : "?"}
-	                                    </span>{" "}
-	                                    {t.signature}
-	                                  </summary>
-	                                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
-	                                    <span title={String(t.ts)}>{format_time_ago(t.ts)}</span> •{" "}
-	                                    {t.node_id ? `node ${t.node_id}` : "node ?"} • {short_id(t.run_id, 10)}
-	                                  </div>
-	                                  {t.error ? (
-	                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(239, 68, 68, 0.9)" }}>
-	                                      {t.error}
-	                                    </div>
-	                                  ) : null}
-	                                  {t.output_preview ? (
-	                                    <pre className="mono" style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}>
-	                                      {t.output_preview}
-	                                    </pre>
-	                                  ) : null}
-	                                </details>
-	                              ))}
-	                            </div>
-	                          </details>
-	                        </div>
-	                      </div>
-	                    ) : null}
-
-	                    {digest.overall.llm_calls_detail.length ? (
-	                      <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-	                        <div className="meta">
-	                          <span className="mono">llm calls</span>
-	                          <span className="mono">{digest.overall.llm_calls_detail.length}</span>
-	                        </div>
-	                        <div className="body mono">
-	                          <details>
-	                            <summary style={{ cursor: "pointer" }}>Show LLM calls</summary>
-	                            <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
-	                              {digest.overall.llm_calls_detail.slice(0, 60).map((c, idx) => (
-	                                <details key={`${c.run_id}:${c.ts}:${idx}`} className="digest_detail">
-	                                  <summary style={{ cursor: "pointer" }}>
-	                                    {c.missing_response ? <span className="chip warn mono">missing response</span> : <span className="chip ok mono">ok</span>}{" "}
-	                                    {c.provider || "provider?"} • {c.model || "model?"} • in {c.tokens.prompt} / out {c.tokens.completion}
-	                                  </summary>
-	                                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
-	                                    <span title={String(c.ts)}>{format_time_ago(c.ts)}</span> •{" "}
-	                                    {c.node_id ? `node ${c.node_id}` : "node ?"} • {short_id(c.run_id, 10)}
-	                                  </div>
-	                                  {c.prompt_preview ? (
-	                                    <div style={{ marginTop: "8px" }}>
-	                                      <div className="mono muted" style={{ fontSize: "12px" }}>
-	                                        prompt:
-	                                      </div>
-	                                      <pre className="mono" style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>
-	                                        {c.prompt_preview}
-	                                      </pre>
-	                                    </div>
-	                                  ) : null}
-	                                  {c.response_preview ? (
-	                                    <div style={{ marginTop: "8px" }}>
-	                                      <div className="mono muted" style={{ fontSize: "12px" }}>
-	                                        response:
-	                                      </div>
-	                                      <div style={{ marginTop: "6px" }}>
-	                                        <Markdown text={c.response_preview} />
-	                                      </div>
-	                                    </div>
-	                                  ) : (
-	                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(245, 158, 11, 0.95)" }}>
-	                                      (no response captured)
-	                                    </div>
-	                                  )}
-	                                </details>
-	                              ))}
-	                            </div>
-	                          </details>
-	                        </div>
-	                      </div>
-	                    ) : null}
-
-	                    {digest.subruns.length ? (
-	                      <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-	                        <div className="meta">
-	                          <span className="mono">subflows</span>
-	                          <span className="mono">{digest.subruns.length}</span>
-	                        </div>
-	                        <div className="body mono">
-	                          <details>
-	                            <summary style={{ cursor: "pointer" }}>Show subflows</summary>
-	                            <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
-	                              {digest.subruns.map((s) => {
-	                                const st = s.digest?.stats;
-	                                const tools = s.digest?.tool_calls_detail || [];
-	                                const llm = s.digest?.llm_calls_detail || [];
-	                                const tool_preview = tools.slice(0, 4).map((t) => t.signature).join(" • ");
-	                                return (
-	                                  <details
-	                                    key={s.run_id}
-	                                    className="digest_detail"
-	                                    style={{
-	                                      padding: "10px 12px",
-	                                      borderRadius: "12px",
-	                                      border: "1px solid rgba(148, 163, 184, 0.14)",
-	                                      background: "rgba(0,0,0,0.10)",
-	                                    }}
-	                                  >
-	                                    <summary style={{ cursor: "pointer" }}>
-	                                      <span className="mono">
-	                                        {s.parent_node_id ? `${s.parent_node_id} → ` : ""}
-	                                        {s.run_id.slice(0, 8)}…
-	                                      </span>
-	                                      <span className="chip mono muted" style={{ marginLeft: "10px" }}>
-	                                        steps {st?.steps ?? 0}
-	                                      </span>
-	                                      <span className="chip mono muted" style={{ marginLeft: "6px" }}>
-	                                        llm {st?.llm_calls ?? 0}
-	                                      </span>
-	                                      <span className="chip mono muted" style={{ marginLeft: "6px" }}>
-	                                        tools {st?.tool_calls ?? 0}
-	                                      </span>
-	                                      <span className={`chip mono ${st?.errors ? "danger" : "ok"}`} style={{ marginLeft: "6px" }}>
-	                                        err {st?.errors ?? 0}
-	                                      </span>
-	                                    </summary>
-	                                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
-	                                      {st?.duration_s ? `${st.duration_s}s` : ""} {st?.started_at ? `• ${st.started_at}` : ""} •{" "}
-	                                      {short_id(s.run_id, 10)}
-	                                    </div>
-	                                    {tool_preview ? <div className="mono" style={{ marginTop: "8px" }}>{tool_preview}</div> : null}
-	                                    {(tools.length || llm.length) && (
-	                                      <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
-	                                        {tools.length ? (
-	                                          <div>
-	                                            <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
-	                                              tool calls
-	                                            </div>
-	                                            <div style={{ display: "grid", gap: "6px" }}>
-	                                              {tools.slice(0, 40).map((t, idx2) => (
-	                                                <div key={`${t.run_id}:${t.ts}:${idx2}`} className="mono">
-	                                                  <span className={`chip mono ${t.success === true ? "ok" : t.success === false ? "danger" : "muted"}`}>
-	                                                    {t.success === true ? "ok" : t.success === false ? "fail" : "?"}
-	                                                  </span>{" "}
-	                                                  {t.signature}
-	                                                </div>
-	                                              ))}
-	                                            </div>
-	                                          </div>
-	                                        ) : null}
-	                                        {llm.length ? (
-	                                          <div>
-	                                            <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
-	                                              llm calls
-	                                            </div>
-	                                            <div style={{ display: "grid", gap: "8px" }}>
-	                                              {llm.slice(0, 20).map((c, idx2) => (
-	                                                <details key={`${c.run_id}:${c.ts}:${idx2}`} className="digest_detail">
-	                                                  <summary style={{ cursor: "pointer" }}>
-	                                                    {c.missing_response ? <span className="chip warn mono">missing</span> : <span className="chip ok mono">ok</span>}{" "}
-	                                                    {c.provider || "provider?"} • {c.model || "model?"} • in {c.tokens.prompt} / out{" "}
-	                                                    {c.tokens.completion}
-	                                                  </summary>
-	                                                  {c.prompt_preview ? (
-	                                                    <div style={{ marginTop: "8px" }}>
-	                                                      <div className="mono muted" style={{ fontSize: "12px" }}>
-	                                                        prompt:
-	                                                      </div>
-	                                                      <pre className="mono" style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>
-	                                                        {c.prompt_preview}
-	                                                      </pre>
-	                                                    </div>
-	                                                  ) : null}
-	                                                  {c.response_preview ? (
-	                                                    <div style={{ marginTop: "8px" }}>
-	                                                      <div className="mono muted" style={{ fontSize: "12px" }}>
-	                                                        response:
-	                                                      </div>
-	                                                      <div style={{ marginTop: "6px" }}>
-	                                                        <Markdown text={c.response_preview} />
-	                                                      </div>
-	                                                    </div>
-	                                                  ) : (
-	                                                    <div className="mono" style={{ marginTop: "8px", color: "rgba(245, 158, 11, 0.95)" }}>
-	                                                      (no response captured)
-	                                                    </div>
-	                                                  )}
-	                                                </details>
-	                                              ))}
-	                                            </div>
-	                                          </div>
-	                                        ) : null}
-	                                      </div>
-	                                    )}
-	                                  </details>
-	                                );
-	                              })}
-	                            </div>
-	                          </details>
-	                        </div>
-	                      </div>
-                    ) : null}
-
-                    {digest.overall.files.length ? (
-                      <div className="log_item">
-                        <div className="meta">
-                          <span className="mono">files</span>
-                          <span className="mono">{digest.overall.files.length}</span>
-                        </div>
-                        <div className="body mono">
-                          {digest.overall.files.slice(0, 120).map((f, idx) => (
-                            <div key={`${f.run_id}:${f.ts}:${f.file_path}:${idx}`}>
-                              {f.tool} • {f.file_path}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {digest.overall.commands.length ? (
-                      <div className="log_item">
-                        <div className="meta">
-                          <span className="mono">commands</span>
-                          <span className="mono">{digest.overall.commands.length}</span>
-                        </div>
-                        <div className="body mono">
-                          {digest.overall.commands.slice(0, 80).map((c, idx) => (
-                            <div key={`${c.run_id}:${c.ts}:${idx}`}>{c.command}</div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {digest.overall.web.length ? (
-                      <div className="log_item">
-                        <div className="meta">
-                          <span className="mono">web</span>
-                          <span className="mono">{digest.overall.web.length}</span>
-                        </div>
-                        <div className="body mono">
-                          {digest.overall.web.slice(0, 80).map((w, idx) => (
-                            <div key={`${w.run_id}:${w.ts}:${idx}`}>
-                              {w.tool} • {w.value}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {digest.overall.tools_used.length ? (
-                      <div className="log_item">
-                        <div className="meta">
-                          <span className="mono">tools used</span>
-                          <span className="mono">{digest.overall.tools_used.length}</span>
-                        </div>
-                        <div className="body mono">{digest.overall.tools_used.join(", ")}</div>
-                      </div>
-                    ) : null}
-                  </div>
-                </>
-              ) : right_tab === "attachments" ? (
-                <>
-                  <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
-                    <button
-                      className="btn"
-                      onClick={() => void refresh_session_attachments()}
-                      disabled={!gateway_connected || session_attachments_loading || !session_id_for_run}
-                    >
-                      {session_attachments_loading ? "Refreshing…" : "Refresh"}
-                    </button>
-                    {session_id_for_run ? (
-                      <span className="chip mono muted" title={session_id_for_run}>
-                        session {short_id(session_id_for_run, 18)}
-                      </span>
-                    ) : (
-                      <span className="mono muted" style={{ fontSize: "12px" }}>
-                        No session id (pick a run)
-                      </span>
-                    )}
-                    {session_attachments_run_id.trim() ? (
-                      <span className="chip mono muted" title={session_attachments_run_id}>
-                        store {short_id(session_attachments_run_id, 18)}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {session_attachments_error ? (
-                    <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                      <div className="meta">
-                        <span className="mono">error</span>
-                        <span className="mono">{now_iso()}</span>
-                      </div>
-                      <div className="body mono">{session_attachments_error}</div>
-                    </div>
-                  ) : null}
-
-                  <div className="log log_scroll" style={{ marginTop: "10px" }}>
-                    {!session_attachments_loading && !session_attachments_error && !session_attachments.length ? (
-                      <div className="chat_empty_hint">No session attachments.</div>
-                    ) : null}
-                    {session_attachments.map((a: any) => {
-                      const artifact_id = String(a?.artifact_id || "").trim();
-                      if (!artifact_id) return null;
-                      const tags = a?.tags && typeof a.tags === "object" ? (a.tags as any) : {};
-                      const filename = String(tags?.filename || "").trim();
-                      const path = String(tags?.path || "").trim();
-                      const sha = String(tags?.sha256 || "").trim();
-                      const ct = String(a?.content_type || "").trim();
-                      const size_bytes = typeof a?.size_bytes === "number" ? Number(a.size_bytes) : null;
-                      const label = path ? `@${path}` : filename || artifact_id;
-                      return (
-                        <div key={artifact_id} className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                          <div className="meta">
-                            <span className="mono">{label}</span>
-                            <span className="mono">{short_id(artifact_id, 18)}</span>
-                          </div>
-                          <div className="body">
-                            {sha ? (
-                              <div className="mono">
-                                <span className="muted">sha256</span>: {short_id(sha, 18)}
-                              </div>
-                            ) : null}
-                            {ct ? (
-                              <div className="mono">
-                                <span className="muted">type</span>: {ct}
-                              </div>
-                            ) : null}
-                            {typeof size_bytes === "number" ? (
-                              <div className="mono">
-                                <span className="muted">size</span>: {size_bytes.toLocaleString()} bytes
-                              </div>
-                            ) : null}
-                          </div>
-                          <div className="actions">
-                            <button className="btn" onClick={() => void copy_to_clipboard(artifact_id)}>
-                              Copy id
-                            </button>
-                            <button className="btn" onClick={() => void preview_session_attachment(a)} disabled={!session_attachments_run_id.trim()}>
-                              Preview
-                            </button>
-                            <button className="btn" onClick={() => void download_session_attachment(a)} disabled={!session_attachments_run_id.trim()}>
-                              Download
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <Modal
-                    open={attachment_preview_open}
-                    title={attachment_preview_title || "Attachment"}
-                    onClose={() => {
-                      set_attachment_preview_open(false);
-                      set_attachment_preview_text("");
-                      set_attachment_preview_error("");
-                      set_attachment_preview_loading(false);
-                    }}
-                    actions={
+                    {digest ? (
                       <>
-                        <button
-                          className="btn"
-                          onClick={() => {
-                            set_attachment_preview_open(false);
-                            set_attachment_preview_text("");
-                            set_attachment_preview_error("");
-                            set_attachment_preview_loading(false);
-                          }}
-                        >
-                          Close
-                        </button>
-                      </>
-                    }
-                  >
-                    {attachment_preview_loading ? (
-                      <div className="mono muted" style={{ fontSize: "12px", marginBottom: "8px" }}>
-                        Loading…
-                      </div>
-                    ) : null}
-                    {attachment_preview_error ? (
-                      <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginBottom: "8px" }}>
-                        {attachment_preview_error}
-                      </div>
-                    ) : null}
-                    <pre className="mono" style={{ whiteSpace: "pre-wrap", maxHeight: "62vh", overflow: "auto", margin: 0 }}>
-                      {attachment_preview_text || "(empty)"}
-                    </pre>
-                  </Modal>
-                </>
-              ) : (
-                <>
-                  <div className="row" style={{ marginTop: "10px" }}>
-                    <div className="col">
-                      <div className="field" style={{ margin: 0 }}>
-                        <label>Provider</label>
-                        {available_providers.length ? (
-                          <select
-                            className="mono"
-                            value={chat_provider}
-                            onChange={(e) => {
-                              const next = String(e.target.value || "").trim();
-                              set_chat_provider(next);
-                              if (chat_model.trim()) set_chat_model("");
-                            }}
-                            disabled={!gateway_connected}
-                          >
-                            <option value="">(select)</option>
-                            {available_providers.map((p) => (
-                              <option key={p} value={p}>
-                                {p}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            className="mono"
-                            value={chat_provider}
-                            onChange={(e) => set_chat_provider(e.target.value)}
-                            placeholder="lmstudio / ollama / openai / ..."
-                            disabled={!gateway_connected}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <div className="col">
-                      <div className="field" style={{ margin: 0 }}>
-                        <label>Model</label>
-                        {chat_provider.trim() && chat_models_for_provider.models.length ? (
-                          <select
-                            className="mono"
-                            value={chat_model}
-                            onChange={(e) => set_chat_model(String(e.target.value || "").trim())}
-                            disabled={!gateway_connected || !chat_provider.trim()}
-                          >
-                            <option value="">(select)</option>
-                            {chat_models_for_provider.models.map((m) => (
-                              <option key={m} value={m}>
-                                {m}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            className="mono"
-                            value={chat_model}
-                            onChange={(e) => set_chat_model(e.target.value)}
-                            placeholder={chat_provider.trim() ? "(loading models…)" : "select provider first"}
-                            disabled={!gateway_connected || !chat_provider.trim()}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="field" style={{ marginTop: "10px" }}>
-                    <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                      <input type="checkbox" checked={chat_persist} onChange={(e) => set_chat_persist(Boolean(e.target.checked))} />
-                      Save this chat to the run ledger
-                    </label>
-                    <div className="chat_hint">
-                      Read-only. No tools. Grounded in the parent run + subflows ledger.
-                    </div>
-                    <div className="actions" style={{ justifyContent: "flex-end", marginTop: "8px" }}>
-                      <button className="btn" type="button" disabled={!chat_messages.length} onClick={() => export_chat_markdown("download")}>
-                        Export Markdown
-                      </button>
-                      <button className="btn" type="button" disabled={!chat_messages.length} onClick={() => export_chat_markdown("copy")}>
-                        {chat_export_state === "copied" ? "Copied" : chat_export_state === "failed" ? "Copy failed" : "Copy Markdown"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {chat_error ? (
-                    <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                      <div className="meta">
-                        <span className="mono">error</span>
-                        <span className="mono">{now_iso()}</span>
-                      </div>
-                      <div className="body mono">{chat_error}</div>
-                    </div>
-                  ) : null}
-
-                  <div className="chat_messages log_scroll" style={{ marginTop: "10px" }}>
-                    {!chat_messages.length ? (
-                      <div className="chat_empty_hint">
-                        Ask about this run (why failed, which tools, what happened in subflows).
-                      </div>
-                    ) : null}
-                    {chat_messages.map((m) => (
-                      <div key={m.id} className={`chat_row ${m.role === "user" ? "right" : "left"}`}>
-                        <div className={`chat_bubble ${m.role}`}>
-                          <div className="chat_meta mono">
-                            <span className="mono muted" title={m.ts}>
-                              {format_time_ago(m.ts)}
-                            </span>
-                            {m.persisted ? <span className="chip muted mono">saved</span> : null}
+                        <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+                          <div className="meta">
+                            <span className="mono">overall</span>
+                            <span className="mono">{digest.overall?.stats?.steps ?? 0} steps</span>
                           </div>
-                          <div className="chat_text">
-                            <ChatMessageContent text={m.content} />
+                          <div className="body mono">
+                            <div>tools: {digest.overall?.stats?.tool_calls ?? 0} calls • {digest.overall?.stats?.unique_tools ?? 0} unique</div>
+                            <div>llm: {digest.overall?.stats?.llm_calls ?? 0} calls • missing {digest.overall?.stats?.llm_missing_responses ?? 0}</div>
+                            <div>
+                              tokens: {digest.overall?.stats?.prompt_tokens ?? 0} / {digest.overall?.stats?.completion_tokens ?? 0} • total{" "}
+                              {digest.overall?.stats?.total_tokens ?? 0}
+                            </div>
+                            <div>
+                              duration:{" "}
+                              {typeof digest.overall?.stats?.duration_s === "number"
+                                ? `${Math.round(digest.overall.stats.duration_s)}s`
+                                : digest.overall?.stats?.duration_s ?? 0}
+                              {" • "}errors: {digest.overall?.stats?.errors ?? 0}
+                            </div>
                           </div>
                         </div>
+
+                        {Array.isArray(digest.overall?.tools_used) && digest.overall.tools_used.length ? (
+                          <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+                            <div className="meta">
+                              <span className="mono">tools used</span>
+                              <span className="mono">{digest.overall.tools_used.length}</span>
+                            </div>
+                            <div className="body mono">{digest.overall.tools_used.join(", ")}</div>
+                          </div>
+                        ) : null}
+
+                        <details style={{ marginTop: "10px" }}>
+                          <summary className="mono muted" style={{ cursor: "pointer" }}>
+                            Advanced: digest JSON
+                          </summary>
+                          <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
+                            <div className="body mono">
+                              <JsonViewer value={digest as any} max_string_len={240} />
+                            </div>
+                          </div>
+                        </details>
+                      </>
+                    ) : (
+                      <div className="mono muted" style={{ padding: "10px 12px" }}>
+                        (no digest)
                       </div>
-                    ))}
-                    <div ref={chat_bottom_ref} />
+                    )}
                   </div>
+                ) : null}
 
-                  <div className="chat_composer" style={{ marginTop: "10px" }}>
-                    <div className="field" style={{ margin: 0 }}>
-                      <label>Message</label>
-                      <textarea
-                        className="mono"
-                        value={chat_input}
-                        onChange={(e) => set_chat_input(e.target.value)}
-                        rows={3}
-                        placeholder="Ask about this run…"
-                        disabled={!run_id.trim() || chat_sending || !gateway_connected}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            void send_chat_message();
-                          }
-                        }}
-                      />
-                    </div>
-                    <div className="actions" style={{ justifyContent: "flex-end" }}>
+                {right_tab === "attachments" ? (
+                  <div className="log log_scroll" style={{ marginTop: "6px" }}>
+                    <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
                       <button
-                        className="btn primary"
-                        onClick={() => void send_chat_message()}
-                        disabled={!run_id.trim() || !chat_input.trim() || chat_sending || !gateway_connected}
+                        className="btn"
+                        onClick={() => void refresh_session_attachments()}
+                        disabled={!gateway_connected || session_attachments_loading || !session_id_for_run}
                       >
-                        {chat_sending ? "Thinking…" : "Send"}
+                        {session_attachments_loading ? "Refreshing…" : "Refresh"}
                       </button>
+                      {session_id_for_run ? (
+                        <span className="chip mono muted" title={session_id_for_run}>
+                          session {short_id(session_id_for_run, 18)}
+                        </span>
+                      ) : (
+                        <span className="mono muted" style={{ fontSize: "12px" }}>
+                          No session id (pick a run)
+                        </span>
+                      )}
+                      {session_attachments_run_id.trim() ? (
+                        <span className="chip mono muted" title={session_attachments_run_id}>
+                          store {short_id(session_attachments_run_id, 18)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {session_attachments_error ? (
+                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                        <div className="meta">
+                          <span className="mono">error</span>
+                          <span className="mono">{now_iso()}</span>
+                        </div>
+                        <div className="body mono">{session_attachments_error}</div>
+                      </div>
+                    ) : null}
+
+                    <div className="log" style={{ marginTop: "10px" }}>
+                      {!session_attachments_loading && !session_attachments_error && !session_attachments.length ? (
+                        <div className="chat_empty_hint">No session attachments.</div>
+                      ) : null}
+                      {session_attachments.map((a: any) => {
+                        const artifact_id = String(a?.artifact_id || "").trim();
+                        if (!artifact_id) return null;
+                        const tags = a?.tags && typeof a.tags === "object" ? (a.tags as any) : {};
+                        const filename = String(tags?.filename || "").trim();
+                        const path = String(tags?.path || "").trim();
+                        const sha = String(tags?.sha256 || "").trim();
+                        const ct = String(a?.content_type || "").trim();
+                        const size_bytes = typeof a?.size_bytes === "number" ? Number(a.size_bytes) : null;
+                        const label = path ? `@${path}` : filename || artifact_id;
+                        return (
+                          <div key={artifact_id} className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
+                            <div className="meta">
+                              <span className="mono">{label}</span>
+                              <span className="mono">{short_id(artifact_id, 18)}</span>
+                            </div>
+                            <div className="body">
+                              {sha ? (
+                                <div className="mono">
+                                  <span className="muted">sha256</span>: {short_id(sha, 18)}
+                                </div>
+                              ) : null}
+                              {ct ? (
+                                <div className="mono">
+                                  <span className="muted">type</span>: {ct}
+                                </div>
+                              ) : null}
+                              {typeof size_bytes === "number" ? (
+                                <div className="mono">
+                                  <span className="muted">size</span>: {size_bytes.toLocaleString()} bytes
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="actions">
+                              <button className="btn" onClick={() => void copy_to_clipboard(artifact_id)}>
+                                Copy id
+                              </button>
+                              <button className="btn" onClick={() => void preview_session_attachment(a)} disabled={!session_attachments_run_id.trim()}>
+                                Preview
+                              </button>
+                              <button className="btn" onClick={() => void download_session_attachment(a)} disabled={!session_attachments_run_id.trim()}>
+                                Download
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      <Modal
+                        open={attachment_preview_open}
+                        title={attachment_preview_title || "Attachment"}
+                        onClose={() => {
+                          set_attachment_preview_open(false);
+                          set_attachment_preview_text("");
+                          set_attachment_preview_error("");
+                          set_attachment_preview_loading(false);
+                        }}
+                        actions={
+                          <>
+                            <button
+                              className="btn"
+                              onClick={() => {
+                                set_attachment_preview_open(false);
+                                set_attachment_preview_text("");
+                                set_attachment_preview_error("");
+                                set_attachment_preview_loading(false);
+                              }}
+                            >
+                              Close
+                            </button>
+                          </>
+                        }
+                      >
+                        {attachment_preview_loading ? (
+                          <div className="mono muted" style={{ fontSize: "12px", marginBottom: "8px" }}>
+                            Loading…
+                          </div>
+                        ) : null}
+                        {attachment_preview_error ? (
+                          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginBottom: "8px" }}>
+                            {attachment_preview_error}
+                          </div>
+                        ) : null}
+                        <pre className="mono" style={{ whiteSpace: "pre-wrap", maxHeight: "62vh", overflow: "auto", margin: 0 }}>
+                          {attachment_preview_text || "(empty)"}
+                        </pre>
+                      </Modal>
                     </div>
                   </div>
-                </>
-              )}
-            </div>
+                ) : null}
 
-            <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
-              <strong>Run</strong>:{" "}
-              {run_id.trim() ? (
-                <span className="mono">{selected_run_status_label || selected_run_status_raw || "unknown"}</span>
-              ) : (
-                <span className="mono">(none)</span>
-              )}
-              {run_id.trim() && selected_run_is_scheduled_until && selected_next_in ? (
-                <span className="mono muted"> • next in {selected_next_in}</span>
-              ) : null}
-              {status_text ? (
-                <span className="mono muted"> • {status_text}</span>
-              ) : null}
+                {right_tab === "chat" ? (
+                  <div className="log log_scroll" style={{ marginTop: "6px" }}>
+                    <div className="row" style={{ marginBottom: "6px" }}>
+                      <div className="col">
+                        <div className="field" style={{ margin: 0 }}>
+                          <label>Provider</label>
+                          {available_providers.length ? (
+                            <select
+                              className="mono"
+                              value={chat_provider}
+                              onChange={(e) => set_chat_provider(String(e.target.value || "").trim())}
+                              disabled={!gateway_connected}
+                            >
+                              <option value="">(select)</option>
+                              {available_providers.map((p) => (
+                                <option key={p} value={p}>
+                                  {p}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              className="mono"
+                              value={chat_provider}
+                              onChange={(e) => set_chat_provider(e.target.value)}
+                              placeholder="lmstudio / ollama / openai / ..."
+                              disabled={!gateway_connected}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <div className="col">
+                        <div className="field" style={{ margin: 0 }}>
+                          <label>Model</label>
+                          {chat_provider.trim() && chat_models_for_provider.models.length ? (
+                            <select
+                              className="mono"
+                              value={chat_model}
+                              onChange={(e) => set_chat_model(String(e.target.value || "").trim())}
+                              disabled={!gateway_connected || !chat_provider.trim()}
+                            >
+                              <option value="">(select)</option>
+                              {chat_models_for_provider.models.map((m) => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              className="mono"
+                              value={chat_model}
+                              onChange={(e) => set_chat_model(e.target.value)}
+                              placeholder={chat_provider.trim() ? "(loading models…)" : "select provider first"}
+                              disabled={!gateway_connected || !chat_provider.trim()}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="field" style={{ marginTop: "10px" }}>
+                      <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                        <input type="checkbox" checked={chat_persist} onChange={(e) => set_chat_persist(Boolean(e.target.checked))} />
+                        Save this chat to the run ledger
+                      </label>
+                      <div className="chat_hint">Read-only. No tools. Grounded in the parent run + subflows ledger.</div>
+                      <div className="actions" style={{ justifyContent: "flex-end", marginTop: "8px" }}>
+                        <button className="btn" type="button" disabled={!chat_messages.length} onClick={() => export_chat_markdown("download")}>
+                          Export Markdown
+                        </button>
+                        <button className="btn" type="button" disabled={!chat_messages.length} onClick={() => export_chat_markdown("copy")}>
+                          {chat_export_state === "copied"
+                            ? "Copied"
+                            : chat_export_state === "failed"
+                              ? "Copy failed"
+                              : "Copy Markdown"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {chat_error ? (
+                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                        <div className="meta">
+                          <span className="mono">error</span>
+                          <span className="mono">{now_iso()}</span>
+                        </div>
+                        <div className="body mono">{chat_error}</div>
+                      </div>
+                    ) : null}
+
+                    <div className="chat_messages log_scroll" style={{ marginTop: "10px" }}>
+                      {!chat_messages.length ? <div className="chat_empty_hint">Ask about this run (why failed, which tools, what happened in subflows).</div> : null}
+                      {chat_messages.map((m) => (
+                        <div key={m.id} className={`chat_row ${m.role === "user" ? "right" : "left"}`}>
+                          <div className={`chat_bubble ${m.role}`}>
+                            <div className="chat_meta mono">
+                              <span className="mono muted" title={m.ts}>
+                                {format_time_ago(m.ts)}
+                              </span>
+                              {m.persisted ? <span className="chip muted mono">saved</span> : null}
+                            </div>
+                            <div className="chat_text">
+                              <ChatMessageContent text={m.content} />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <div ref={chat_bottom_ref} />
+                    </div>
+
+                    <div className="chat_composer" style={{ marginTop: "10px" }}>
+                      <div className="field" style={{ margin: 0 }}>
+                        <label>Message</label>
+                        <textarea
+                          className="mono"
+                          value={chat_input}
+                          onChange={(e) => set_chat_input(e.target.value)}
+                          rows={3}
+                          placeholder="Ask about this run…"
+                          disabled={!run_id.trim() || chat_sending || !gateway_connected}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              void send_chat_message();
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="actions" style={{ justifyContent: "flex-end" }}>
+                        <button
+                          className="btn primary"
+                          onClick={() => void send_chat_message()}
+                          disabled={!run_id.trim() || !chat_input.trim() || chat_sending || !gateway_connected}
+                        >
+                          {chat_sending ? "Thinking…" : "Send"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
+                  <strong>Run</strong>:{" "}
+                  {run_id.trim() ? (
+                    <span className="mono">{selected_run_status_label || selected_run_status_raw || "unknown"}</span>
+                  ) : (
+                    <span className="mono">(none)</span>
+                  )}
+                  {run_id.trim() && selected_run_is_scheduled_until && selected_next_in ? <span className="mono muted"> • next in {selected_next_in}</span> : null}
+                  {status_text ? <span className="mono muted"> • {status_text}</span> : null}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        ) : null}
+
+        {schedule_edit_open ? (
+          <Modal
+            open={schedule_edit_open}
+            title="Edit schedule"
+            onClose={() => {
+              set_schedule_edit_open(false);
+              set_schedule_edit_interval("");
+              set_schedule_edit_apply_immediately(true);
+              set_schedule_edit_error("");
+              set_schedule_edit_submitting(false);
+            }}
+            actions={
+              <>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    set_schedule_edit_open(false);
+                    set_schedule_edit_interval("");
+                    set_schedule_edit_apply_immediately(true);
+                    set_schedule_edit_error("");
+                    set_schedule_edit_submitting(false);
+                  }}
+                  disabled={connecting || schedule_edit_submitting}
+                >
+                  Back
+                </button>
+                <button
+                  className="btn primary"
+                  onClick={async () => {
+                    const err = await submit_update_schedule({
+                      interval: schedule_edit_interval,
+                      apply_immediately: schedule_edit_apply_immediately,
+                    });
+                    if (err) return;
+                    set_schedule_edit_open(false);
+                    set_schedule_edit_error("");
+                    set_schedule_edit_submitting(false);
+                  }}
+                  disabled={connecting || schedule_edit_submitting || !schedule_edit_interval.trim()}
+                >
+                  Save
+                </button>
+              </>
+            }
+          >
+            {schedule_edit_error ? (
+              <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
+                <div className="meta">
+                  <span className="mono">error</span>
+                  <span className="mono">{now_iso()}</span>
+                </div>
+                <div className="body mono">{schedule_edit_error}</div>
+              </div>
+            ) : null}
+
+            <div className="field">
+              <label>Interval</label>
+              <input
+                className="mono"
+                value={schedule_edit_interval}
+                onChange={(e) => set_schedule_edit_interval(String(e.target.value || ""))}
+                placeholder="20m / 1h / 0.5s / 250ms"
+                disabled={connecting || schedule_edit_submitting}
+              />
+              <div className="mono muted" style={{ fontSize: "12px" }}>
+                Accepted units: <span className="mono">ms</span>, <span className="mono">s</span>, <span className="mono">m</span>,{" "}
+                <span className="mono">h</span>, <span className="mono">d</span>. This updates the existing scheduled run in place (no context loss).
+              </div>
+            </div>
+
+            <div className="field">
+              <label>Quick picks</label>
+              <div className="actions" style={{ gap: "8px", flexWrap: "wrap" }}>
+                {["15m", "30m", "1h", "2h", "6h", "1d"].map((v) => (
+                  <button key={v} className="btn" onClick={() => set_schedule_edit_interval(v)} disabled={connecting || schedule_edit_submitting}>
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>Apply</label>
+              <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={schedule_edit_apply_immediately}
+                  onChange={(e) => set_schedule_edit_apply_immediately(Boolean(e.target.checked))}
+                  disabled={connecting || schedule_edit_submitting}
+                />
+                Apply immediately (recompute next run from now if waiting)
+              </label>
+            </div>
+          </Modal>
+        ) : null}
+
+        {compact_open ? (
+          <Modal
+            open={compact_open}
+            title="Compact scheduled context"
+            onClose={() => {
+              set_compact_open(false);
+              set_compact_error("");
+              set_compact_submitting(false);
+            }}
+            actions={
+              <>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    set_compact_open(false);
+                    set_compact_error("");
+                    set_compact_submitting(false);
+                  }}
+                  disabled={connecting || compact_submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn primary"
+                  onClick={async () => {
+                    const err = await submit_compact_memory({
+                      preserve_recent: compact_preserve_recent,
+                      compression_mode: compact_mode,
+                      focus: compact_focus,
+                    });
+                    if (err) return;
+                    set_compact_open(false);
+                    set_compact_error("");
+                    set_compact_submitting(false);
+                  }}
+                  disabled={connecting || compact_submitting}
+                >
+                  {compact_submitting ? "Compacting…" : "Compact"}
+                </button>
+              </>
+            }
+          >
+            {compact_error ? (
+              <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
+                <div className="meta">
+                  <span className="mono">error</span>
+                  <span className="mono">{now_iso()}</span>
+                </div>
+                <div className="body mono">{compact_error}</div>
+              </div>
+            ) : null}
+
+            <div className="field">
+              <label>Preserve recent turns</label>
+              <input
+                type="number"
+                min={1}
+                value={String(compact_preserve_recent)}
+                onChange={(e) => set_compact_preserve_recent(Math.max(1, parseInt(e.target.value || "6", 10) || 6))}
+                disabled={connecting || compact_submitting}
+              />
+            </div>
+
+            <div className="field">
+              <label>Mode</label>
+              <select value={compact_mode} onChange={(e) => set_compact_mode(e.target.value as any)} disabled={connecting || compact_submitting}>
+                <option value="light">light</option>
+                <option value="standard">standard</option>
+                <option value="heavy">heavy</option>
+              </select>
+            </div>
+
+            <div className="field">
+              <label>Focus (optional)</label>
+              <input
+                className="mono"
+                value={compact_focus}
+                onChange={(e) => set_compact_focus(String(e.target.value || ""))}
+                placeholder="e.g. important decisions, next steps…"
+                disabled={connecting || compact_submitting}
+              />
+            </div>
+          </Modal>
+        ) : null}
+
+        {run_control_open ? (
+          <Modal
+            open={run_control_open}
+            title={run_control_type === "cancel" ? "Cancel run" : "Pause run"}
+            onClose={() => {
+              set_run_control_open(false);
+              set_run_control_reason("");
+              set_run_control_error("");
+            }}
+            actions={
+              <>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    set_run_control_open(false);
+                    set_run_control_reason("");
+                    set_run_control_error("");
+                  }}
+                  disabled={connecting || resuming}
+                >
+                  Back
+                </button>
+                <button
+                  className={`btn ${run_control_type === "cancel" ? "danger" : "primary"}`}
+                  onClick={async () => {
+                    set_run_control_error("");
+                    const err = await submit_run_control(run_control_type, { reason: run_control_reason });
+                    if (err) {
+                      set_run_control_error(err);
+                      return;
+                    }
+                    set_run_control_open(false);
+                    set_run_control_reason("");
+                    set_run_control_error("");
+                  }}
+                  disabled={connecting || resuming}
+                >
+                  {run_control_type === "pause" ? "Pause" : "Cancel"}
+                </button>
+              </>
+            }
+          >
+            {run_control_error ? (
+              <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
+                <div className="meta">
+                  <span className="mono">error</span>
+                  <span className="mono">{now_iso()}</span>
+                </div>
+                <div className="body mono">{run_control_error}</div>
+              </div>
+            ) : null}
+            <div className="field">
+              <label>Reason (optional)</label>
+              <input className="mono" value={run_control_reason} onChange={(e) => set_run_control_reason(e.target.value)} placeholder="reason…" />
+            </div>
+          </Modal>
+        ) : null}
 
         {show_wait_modal ? (
           <div className="overlay">
@@ -5648,6 +4889,7 @@ export function App(): React.ReactElement {
       </div>
     </div>
   );
+
 }
 
 function AskForm(props: { wait: WaitState; disabled?: boolean; on_submit: (value: string) => void }): React.ReactElement {

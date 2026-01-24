@@ -72,9 +72,10 @@ function format_assertion_line(a: KgAssertion): string {
 export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: MindmapPanelProps) {
   const [run_id_override, set_run_id_override] = useState<string>(String(selected_run_id || "").trim());
   const [session_id_override, set_session_id_override] = useState<string>(String(selected_session_id || "").trim());
-  const [all_owners, set_all_owners] = useState(false);
+  const [source, set_source] = useState<"all" | "global" | "session" | "run">("all");
+  const all_owners = source === "all";
 
-  const [live, set_live] = useState(false);
+  const [live, set_live] = useState(true);
   const [poll_ms, set_poll_ms] = useState(750);
   const [highlight_ms, set_highlight_ms] = useState(2000);
 
@@ -101,8 +102,8 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
   const reset_key = useMemo(() => {
     const rid = String(run_id_override || "").trim();
     const sid = String(session_id_override || "").trim();
-    return `mindmap:${all_owners ? "all_owners" : "scoped"}:${rid}:${sid}`;
-  }, [all_owners, run_id_override, session_id_override]);
+    return `mindmap:${source}:${rid}:${sid}`;
+  }, [run_id_override, session_id_override, source]);
 
   const time_bounds = useMemo(() => {
     let min_ms: number | null = null;
@@ -238,9 +239,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
     set_error("");
     set_loading(true);
     try {
-      const rid = String(run_id_override || "").trim();
-      const sid = String(session_id_override || "").trim();
-      const scope: MemoryScope = all_owners ? "all" : rid || sid ? "all" : "global";
+      const scope: MemoryScope = source === "all" ? "all" : source;
       const res = await query_gateway({ scope, limit: 0, order: "desc" });
       replace_items(res.items || [], { warnings: res.warnings });
       base_query_ref.current = { scope };
@@ -250,7 +249,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
     } finally {
       set_loading(false);
     }
-  }, [all_owners, query_gateway, replace_items, run_id_override, session_id_override]);
+  }, [query_gateway, replace_items, source]);
 
   useEffect(() => {
     if (items.length) return;
@@ -389,32 +388,44 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
           {loading ? "Loading…" : "Load snapshot"}
         </button>
         <label className="field_inline">
+          <span className="mono muted">source</span>
+          <select
+            value={source}
+            onChange={(e) => {
+              const next = String(e.target.value || "").trim() as any;
+              if (next === "all" || next === "global" || next === "session" || next === "run") set_source(next);
+            }}
+          >
+            <option value="all">all memory</option>
+            <option value="global">global</option>
+            <option value="session">session</option>
+            <option value="run">run</option>
+          </select>
+        </label>
+        <label className="field_inline">
           <span className="mono muted">live</span>
           <input type="checkbox" checked={live} onChange={(e) => set_live(Boolean(e.target.checked))} />
         </label>
-        <label className="field_inline">
-          <span className="mono muted">all owners</span>
-          <input type="checkbox" checked={all_owners} onChange={(e) => set_all_owners(Boolean(e.target.checked))} />
-        </label>
+        {source === "session" ? (
+          <label className="field_inline">
+            <span className="mono muted">session_id</span>
+            <input
+              className="mono"
+              value={session_id_override}
+              onChange={(e) => set_session_id_override(String(e.target.value || ""))}
+              placeholder="(required)"
+            />
+          </label>
+        ) : null}
+        {source === "run" ? (
+          <label className="field_inline">
+            <span className="mono muted">run_id</span>
+            <input className="mono" value={run_id_override} onChange={(e) => set_run_id_override(String(e.target.value || ""))} placeholder="(required)" />
+          </label>
+        ) : null}
         <details className="mindmap_details">
           <summary className="mono muted">advanced</summary>
           <div className="mindmap_advanced">
-            <div className="field_inline">
-              <span className="mono muted" style={{ width: 84 }}>
-                run_id
-              </span>
-              <input value={run_id_override} onChange={(e) => set_run_id_override(String(e.target.value || ""))} placeholder="(optional)" />
-            </div>
-            <div className="field_inline">
-              <span className="mono muted" style={{ width: 84 }}>
-                session_id
-              </span>
-              <input
-                value={session_id_override}
-                onChange={(e) => set_session_id_override(String(e.target.value || ""))}
-                placeholder="(optional; used for scope=session/all)"
-              />
-            </div>
             <div className="field_inline">
               <span className="mono muted" style={{ width: 84 }}>
                 poll_ms
@@ -498,15 +509,17 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
         </div>
       ) : null}
 
-      <KgActiveMemoryExplorer
-        title="mindmap"
-        resetKey={reset_key}
-        queryMode="replace"
-        items={filtered_items}
-        warnings={warnings}
-        onQuery={on_query}
-        onItemsReplace={on_items_replace}
-      />
+      <div className="mindmap_explorer">
+        <KgActiveMemoryExplorer
+          title="mindmap"
+          resetKey={reset_key}
+          queryMode="replace"
+          items={filtered_items}
+          warnings={warnings}
+          onQuery={on_query}
+          onItemsReplace={on_items_replace}
+        />
+      </div>
     </div>
   );
 }

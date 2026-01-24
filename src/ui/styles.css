@@ -178,6 +178,40 @@ button.primary:hover:not(:disabled) {
   padding-bottom: 0;
 }
 
+.app_nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.nav_tab {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.nav_tab:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.nav_tab.active {
+  background: var(--accent);
+  border-color: rgba(233, 69, 96, 0.65);
+  color: var(--text-primary);
+}
+
 .logo {
   display: flex;
   align-items: center;
@@ -254,6 +288,89 @@ button.primary:hover:not(:disabled) {
 
 .app-shell {
   height: 100vh;
+}
+
+.app-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 12px 16px 16px;
+  gap: 12px;
+}
+
+.page {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page.page_scroll {
+  overflow: auto;
+}
+
+.page_inner {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.constrained {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.observe_layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(320px, 440px) 1fr;
+  gap: 12px;
+}
+
+.observe_sidebar {
+  min-height: 0;
+}
+
+.observe_viewer {
+  min-height: 0;
+}
+
+.mindmap_page {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mindmap_full {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+.mindmap_full > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.mindmap_page .amx-root {
+  min-height: 0;
+}
+
+.mindmap_page .amx-graph {
+  min-height: 0;
 }
 
 .app-main {
@@ -1040,6 +1157,9 @@ button.primary:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
 }
 
 .mindmap_bar {
@@ -1047,6 +1167,20 @@ button.primary:hover:not(:disabled) {
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.mindmap_explorer {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.mindmap_explorer > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
 }
 
 .mindmap_details summary {
@@ -1059,7 +1193,8 @@ button.primary:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-width: 520px;
+  min-width: 0;
+  width: min(640px, 100%);
 }
 
 .mindmap_error {
