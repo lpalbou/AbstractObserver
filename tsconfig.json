@@ -16,11 +16,15 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
+      "@abstractuic/monitor-active-memory": ["../abstractuic/monitor-active-memory/src/index.ts"],
+      "@abstractuic/monitor-active-memory/*": ["../abstractuic/monitor-active-memory/src/*"],
       "@abstractuic/monitor-flow": ["../abstractuic/monitor-flow/src/index.ts"],
       "@abstractuic/monitor-flow/*": ["../abstractuic/monitor-flow/src/*"],
       "@abstractuic/panel-chat": ["../abstractuic/panel-chat/src/index.ts"],
       "@abstractuic/panel-chat/*": ["../abstractuic/panel-chat/src/*"],
       "@abstractutils/monitor-gpu": ["../abstractuic/monitor-gpu/src/index.d.ts"],
+      "reactflow": ["./node_modules/reactflow/dist/esm/index.d.ts"],
+      "reactflow/*": ["./node_modules/reactflow/*"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]

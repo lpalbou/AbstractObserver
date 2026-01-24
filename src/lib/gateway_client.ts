@@ -385,6 +385,69 @@ export class GatewayClient {
     return await r.json();
   }
 
+  async kg_query(opts: {
+    run_id?: string | null;
+    session_id?: string | null;
+    scope?: string | null;
+    owner_id?: string | null;
+    all_owners?: boolean | null;
+    subject?: string | null;
+    predicate?: string | null;
+    object?: string | null;
+    since?: string | null;
+    until?: string | null;
+    active_at?: string | null;
+    query_text?: string | null;
+    min_score?: number | null;
+    limit?: number | null;
+    order?: string | null;
+  }): Promise<any> {
+    const scope = String(opts?.scope || "session")
+      .trim()
+      .toLowerCase();
+    const order = String(opts?.order || "desc")
+      .trim()
+      .toLowerCase();
+    const limit = typeof opts?.limit === "number" && Number.isFinite(opts.limit) ? Number(opts.limit) : 500;
+
+    const req_body: any = { scope, order, limit };
+
+    const run_id = String(opts?.run_id || "").trim();
+    if (run_id) req_body.run_id = run_id;
+    const session_id = String(opts?.session_id || "").trim();
+    if (session_id) req_body.session_id = session_id;
+    const owner_id = String(opts?.owner_id || "").trim();
+    if (owner_id) req_body.owner_id = owner_id;
+    if (opts?.all_owners) req_body.all_owners = true;
+
+    const subject = String(opts?.subject || "").trim();
+    if (subject) req_body.subject = subject;
+    const predicate = String(opts?.predicate || "").trim();
+    if (predicate) req_body.predicate = predicate;
+    const object = String(opts?.object || "").trim();
+    if (object) req_body.object = object;
+    const since = String(opts?.since || "").trim();
+    if (since) req_body.since = since;
+    const until = String(opts?.until || "").trim();
+    if (until) req_body.until = until;
+    const active_at = String(opts?.active_at || "").trim();
+    if (active_at) req_body.active_at = active_at;
+    const query_text = String(opts?.query_text || "").trim();
+    if (query_text) req_body.query_text = query_text;
+    if (typeof opts?.min_score === "number" && Number.isFinite(opts.min_score)) req_body.min_score = Number(opts.min_score);
+
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/kg/query"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify(req_body),
+    });
+    if (!r.ok) throw new Error(`kg_query failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
   async stream_ledger(
     run_id: string,
     opts: { after: number; on_step: (ev: LedgerStreamEvent) => void; signal?: AbortSignal }

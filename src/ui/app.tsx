@@ -11,6 +11,7 @@ import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_rec
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
 import { FlowGraph } from "./flow_graph";
 import { JsonViewer } from "./json_viewer";
+import { MindmapPanel } from "./mindmap_panel";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
 import { Markdown } from "./markdown";
@@ -591,7 +592,7 @@ export function App(): React.ReactElement {
   const [log_response_open, set_log_response_open] = useState<Record<string, boolean>>({});
   const [error_text, set_error_text] = useState<string>("");
 
-  const [right_tab, set_right_tab] = useState<"ledger" | "graph" | "digest" | "attachments" | "chat">("ledger");
+  const [right_tab, set_right_tab] = useState<"ledger" | "mindmap" | "graph" | "digest" | "attachments" | "chat">("ledger");
   const [ledger_condensed, set_ledger_condensed] = useState(true);
   const [ledger_view, set_ledger_view] = useState<"steps" | "cycles">("steps");
   const [ledger_cycles_run_id, set_ledger_cycles_run_id] = useState<string>("");
@@ -4688,6 +4689,9 @@ export function App(): React.ReactElement {
                 <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
                   Ledger
                 </button>
+                <button className={`tab mono ${right_tab === "mindmap" ? "active" : ""}`} onClick={() => set_right_tab("mindmap")}>
+                  Mindmap
+                </button>
                 <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
                   Graph
                 </button>
@@ -4815,6 +4819,14 @@ export function App(): React.ReactElement {
                     </div>
                   )}
                 </>
+              ) : right_tab === "mindmap" ? (
+                <div style={{ paddingTop: 10 }}>
+                  <MindmapPanel
+                    gateway={gateway}
+                    selected_run_id={run_id.trim()}
+                    selected_session_id={typeof run_state?.session_id === "string" ? String(run_state.session_id) : ""}
+                  />
+                </div>
               ) : right_tab === "graph" ? (
                 <>
                   <div className="graph_toolbar">

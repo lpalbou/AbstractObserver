@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 
+import "reactflow/dist/style.css";
+
 import { App } from "./ui/app";
 import "./ui/styles.css";
 
@@ -41,4 +43,3 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>
 );
-

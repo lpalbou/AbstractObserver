@@ -1035,6 +1035,81 @@ button.primary:hover:not(:disabled) {
   border-bottom: 1px solid var(--bg-tertiary);
 }
 
+/* Mindmap (KG observability) */
+.mindmap_root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mindmap_bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.mindmap_details summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.mindmap_advanced {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 520px;
+}
+
+.mindmap_error {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.mindmap_recent {
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mindmap_recent_title {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.mindmap_recent_list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.mindmap_recent_item {
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.20);
+  background: rgba(251, 191, 36, 0.10);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.mindmap_timeline {
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mindmap_slider {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .tab {
   appearance: none;
   border: none;
