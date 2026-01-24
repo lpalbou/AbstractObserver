@@ -52,6 +52,15 @@ function format_utc_minute(ms: number | null): string {
   return `${yyyy}/${mm}/${dd} ${hh}:${mi}`;
 }
 
+function format_transcript_timestamp(value: string): string {
+  const s = String(value ?? "").trim();
+  if (!s) return "";
+  if (/^\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}$/.test(s)) return s;
+  const ms = parse_iso_ms(s);
+  if (ms !== null) return format_utc_minute(ms);
+  return s;
+}
+
 function decode_escaped_whitespace(text: unknown): string {
   const s = typeof text === "string" ? text : String(text ?? "");
   if (!s) return "";
@@ -92,10 +101,25 @@ function contains_evidence(text: string, evidence: string): boolean {
   return hay2.includes(n2);
 }
 
-function best_highlight_fragment_from_evidence(evidence: string): string {
+function highlight_fragments_from_evidence(evidence: string): string[] {
   const e = decode_escaped_whitespace(evidence).trim();
-  if (!e) return "";
-  const candidates: string[] = [];
+  if (!e) return [];
+  const out: string[] = [];
+
+  const add = (value: string) => {
+    const t = String(value ?? "").replace(/\s+/g, " ").trim();
+    if (!t) return;
+    if (t.length < 6) return;
+    if (!out.includes(t)) out.push(t);
+  };
+
+  // If evidence contains Markdown markers, also highlight the plain-text prefix
+  // so the user sees more than just the emphasized fragment.
+  const first_marker = e.search(/[`*_~]/);
+  if (first_marker > 0) {
+    const prefix = e.slice(0, first_marker);
+    if (prefix.replace(/\s+/g, " ").trim().length >= 10) add(prefix);
+  }
 
   // Prefer inner content of formatting markers to avoid crossing Markdown node boundaries.
   const patterns: RegExp[] = [
@@ -109,15 +133,13 @@ function best_highlight_fragment_from_evidence(evidence: string): string {
     let m: RegExpExecArray | null;
     while ((m = re.exec(e)) !== null) {
       const inner = String(m[1] ?? "").trim();
-      if (inner) candidates.push(inner);
+      if (inner) add(inner);
     }
   }
 
-  const pick_longest = (arr: string[]) => arr.sort((a, b) => b.length - a.length || a.localeCompare(b))[0] || "";
-  const best = pick_longest(candidates);
-  if (best && best.length >= 6) return best;
+  add(strip_markdown_markers(e));
 
-  return strip_markdown_markers(e).replace(/\s+/g, " ").trim();
+  return out;
 }
 
 type ParsedNoteChat = {
@@ -1013,7 +1035,9 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
                 if (parsed) {
                   const evidence = source_evidence_quote;
                   const hit_idx = evidence ? parsed.messages.findIndex((m) => contains_evidence(m.content, evidence)) : -1;
-                  const highlight_fragment = evidence ? best_highlight_fragment_from_evidence(evidence) : "";
+                  const highlight_fragments = evidence ? highlight_fragments_from_evidence(evidence) : [];
+                  const bubble_ts_raw = parsed.created_at || created_at;
+                  const bubble_ts = bubble_ts_raw ? format_transcript_timestamp(bubble_ts_raw) : created_at ? created_at_display : "";
                   return (
                     <div className="source_chat">
                       {created_at ? (
@@ -1041,11 +1065,12 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
                                 #{idx + 1} · {role_label}
                                 {is_match ? <span className="source_match_badge">evidence</span> : null}
                               </span>
+                              {bubble_ts ? <span title={bubble_ts_raw || ""}>{bubble_ts}</span> : null}
                             </div>
                             <div className="source_msg_body">
                               <Markdown
                                 text={m.content}
-                                highlight={is_match && highlight_fragment ? highlight_fragment : undefined}
+                                highlights={is_match && highlight_fragments.length ? highlight_fragments : undefined}
                                 highlightClassName="source_note_hit"
                                 highlightId={idx === hit_idx ? "source_note_hit_0" : undefined}
                               />
@@ -1065,7 +1090,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
                     ) : null}
                     <Markdown
                       text={note}
-                      highlight={source_evidence_quote ? best_highlight_fragment_from_evidence(source_evidence_quote) : undefined}
+                      highlights={source_evidence_quote ? highlight_fragments_from_evidence(source_evidence_quote) : undefined}
                       highlightClassName="source_note_hit"
                       highlightId="source_note_hit_0"
                     />
