@@ -1175,12 +1175,79 @@ button.primary:hover:not(:disabled) {
   min-width: 0;
   display: flex;
   overflow: hidden;
+  position: relative;
 }
 
 .mindmap_explorer > * {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
+}
+
+.mindmap_overlay {
+  position: absolute;
+  z-index: 6;
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 18, 34, 0.78);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.45);
+}
+
+.mindmap_overlay_recent {
+  top: 12px;
+  right: 12px;
+  width: min(520px, calc(100% - 24px));
+  max-height: 220px;
+}
+
+.mindmap_overlay_timeline {
+  left: 72px; /* keep clear of ReactFlow controls (bottom-left) */
+  bottom: 16px;
+  width: 50%;
+  max-width: calc(100% - 420px - 84px);
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+@media (max-width: 1080px) {
+  .mindmap_overlay_timeline {
+    max-width: calc(100% - 84px);
+  }
+}
+
+.mindmap_overlay_timeline * {
+  pointer-events: auto;
+}
+
+.mindmap_timeline_row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.mindmap_timeline_btn {
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.mindmap_timeline_label {
+  width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mindmap_timeline_counts {
+  width: 84px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .mindmap_details summary {
@@ -1205,10 +1272,8 @@ button.primary:hover:not(:disabled) {
 }
 
 .mindmap_recent {
-  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 10px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.02);
 }
 
 .mindmap_recent_title {
@@ -1224,6 +1289,141 @@ button.primary:hover:not(:disabled) {
   overflow: auto;
 }
 
+.source_span {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.source_header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source_triple {
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+  opacity: 0.95;
+}
+
+.source_actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.source_evidence {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.16);
+  padding: 10px;
+}
+
+.source_evidence_quote {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.source_evidence_more summary {
+  cursor: pointer;
+  user-select: none;
+  margin-top: 10px;
+}
+
+.source_note {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 10px;
+}
+
+.source_chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 65vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.source_msg {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.16);
+  padding: 10px;
+}
+
+.source_match {
+  border-color: rgba(251, 191, 36, 0.30);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.12), 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+
+.source_match_badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  background: rgba(251, 191, 36, 0.10);
+  color: rgba(251, 191, 36, 0.95);
+  font-size: 9px;
+  margin-left: 8px;
+}
+
+.source_msg_id {
+  margin-left: 8px;
+  opacity: 0.8;
+}
+
+.source_user {
+  border-color: rgba(96, 165, 250, 0.22);
+  background: rgba(96, 165, 250, 0.06);
+}
+
+.source_assistant {
+  border-color: rgba(233, 69, 96, 0.22);
+  background: rgba(233, 69, 96, 0.06);
+}
+
+.source_system {
+  border-color: rgba(168, 85, 247, 0.22);
+  background: rgba(168, 85, 247, 0.06);
+}
+
+.source_msg_meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+}
+
+.source_msg_body {
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.source_raw {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 10px;
+  max-height: 70vh;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .mindmap_recent_item {
   padding: 8px;
   border-radius: 10px;
@@ -1234,15 +1434,15 @@ button.primary:hover:not(:disabled) {
 }
 
 .mindmap_timeline {
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 10px;
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0;
+  padding: 0;
 }
 
 .mindmap_slider {
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
-  margin-top: 10px;
+  margin: 0;
 }
 
 .tab {

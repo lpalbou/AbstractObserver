@@ -10,11 +10,14 @@ import {
 } from "@abstractuic/monitor-active-memory";
 
 import { GatewayClient } from "../lib/gateway_client";
+import { Markdown } from "./markdown";
+import { Modal } from "./modal";
 
 type MindmapPanelProps = {
   gateway: GatewayClient;
   selected_run_id: string;
   selected_session_id: string;
+  onOpenRun?: (args: { run_id: string; tab?: "ledger" | "graph" | "digest" | "attachments" | "chat" }) => void;
 };
 
 type RecentAssertion = {
@@ -37,6 +40,17 @@ function parse_iso_ms(ts: unknown): number | null {
   const normalized = s.replace(/(\.\d{3})\d+/, "$1");
   const ms = Date.parse(normalized);
   return Number.isFinite(ms) ? ms : null;
+}
+
+function format_utc_minute(ms: number | null): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "—";
+  const d = new Date(ms);
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mi = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${yyyy}/${mm}/${dd} ${hh}:${mi}`;
 }
 
 function iso_max(a: string, b: string): string {
@@ -69,7 +83,7 @@ function format_assertion_line(a: KgAssertion): string {
   return `${ts ? `[${ts}] ` : ""}${s} --${p}--> ${o}${meta}`;
 }
 
-export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: MindmapPanelProps) {
+export function MindmapPanel({ gateway, selected_run_id, selected_session_id, onOpenRun }: MindmapPanelProps) {
   const [run_id_override, set_run_id_override] = useState<string>(String(selected_run_id || "").trim());
   const [session_id_override, set_session_id_override] = useState<string>(String(selected_session_id || "").trim());
   const [source, set_source] = useState<"all" | "global" | "session" | "run">("all");
@@ -85,6 +99,62 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
   const [loading, set_loading] = useState(false);
 
   const [recent, set_recent] = useState<RecentAssertion[]>([]);
+
+  const [source_open, set_source_open] = useState(false);
+  const [source_loading, set_source_loading] = useState(false);
+  const [source_error, set_source_error] = useState<string>("");
+  const [source_title, set_source_title] = useState<string>("");
+  const [source_run_id, set_source_run_id] = useState<string>("");
+  const [source_span_id, set_source_span_id] = useState<string>("");
+  const [source_json, set_source_json] = useState<any>(null);
+  const [source_text, set_source_text] = useState<string>("");
+  const [source_assertion, set_source_assertion] = useState<KgAssertion | null>(null);
+  const source_scrolled_ref = useRef(false);
+
+  const source_evidence_quote = useMemo(() => {
+    const a = source_assertion;
+    const attrs = a?.attributes && typeof a.attributes === "object" && !Array.isArray(a.attributes) ? (a.attributes as any) : null;
+    const evidence = attrs && typeof attrs.evidence_quote === "string" ? String(attrs.evidence_quote) : "";
+    return evidence.trim();
+  }, [source_assertion]);
+
+  const source_messages = useMemo(() => {
+    const obj = source_json && typeof source_json === "object" && !Array.isArray(source_json) ? (source_json as any) : null;
+    const messages = obj && Array.isArray(obj.messages) ? obj.messages : null;
+    return Array.isArray(messages) ? messages : null;
+  }, [source_json]);
+
+  const source_message_matches = useMemo(() => {
+    const messages = source_messages;
+    const evidence = source_evidence_quote;
+    if (!messages || !evidence) return [];
+    const out: number[] = [];
+    for (let i = 0; i < Math.min(messages.length, 500); i++) {
+      const m = messages[i];
+      const content = m?.content == null ? "" : String(m.content);
+      if (content.includes(evidence)) out.push(i);
+    }
+    return out;
+  }, [source_evidence_quote, source_messages]);
+
+  const source_message_match_set = useMemo(() => new Set(source_message_matches), [source_message_matches]);
+  const source_first_match = source_message_matches.length ? source_message_matches[0] : null;
+
+  const scroll_to_source_message = useCallback((idx: number) => {
+    const el = document.getElementById(`source_msg_${idx}`);
+    if (el && typeof (el as any).scrollIntoView === "function") {
+      (el as any).scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!source_open) return;
+    if (source_loading || source_error) return;
+    if (source_scrolled_ref.current) return;
+    if (source_first_match === null) return;
+    source_scrolled_ref.current = true;
+    window.setTimeout(() => scroll_to_source_message(source_first_match), 0);
+  }, [scroll_to_source_message, source_error, source_first_match, source_loading, source_open]);
 
   const seen_keys_ref = useRef<Set<string>>(new Set());
   const last_seen_observed_at_ref = useRef<string>("");
@@ -233,6 +303,60 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
       }
     },
     [all_owners, gateway, run_id_override, session_id_override]
+  );
+
+  const open_source_span = useCallback(
+    async (args: { run_id: string; span_id: string; assertion?: KgAssertion }) => {
+      const run_id = String(args.run_id || "").trim();
+      const span_id = String(args.span_id || "").trim();
+      if (!run_id || !span_id) return;
+
+      set_source_open(true);
+      set_source_loading(true);
+      set_source_error("");
+      set_source_run_id(run_id);
+      set_source_span_id(span_id);
+      set_source_title(`source span:${span_id}`);
+      set_source_json(null);
+      set_source_text("");
+      set_source_assertion(args.assertion && typeof args.assertion === "object" ? (args.assertion as KgAssertion) : null);
+      source_scrolled_ref.current = false;
+
+      try {
+        const candidates = [run_id];
+        const owner_fallback = typeof args.assertion?.owner_id === "string" ? String(args.assertion.owner_id).trim() : "";
+        if (owner_fallback && owner_fallback !== run_id) candidates.push(owner_fallback);
+
+        let last_error: string | null = null;
+        let loaded_text: string | null = null;
+        for (const rid of candidates) {
+          try {
+            const blob = await gateway.download_run_artifact_content(rid, span_id);
+            loaded_text = await blob.text();
+            if (rid !== run_id) set_source_run_id(rid);
+            break;
+          } catch (e) {
+            last_error = e instanceof Error ? e.message : String(e);
+          }
+        }
+
+        if (loaded_text == null) throw new Error(last_error || "Failed to load source span");
+
+        set_source_text(loaded_text);
+        try {
+          const parsed = JSON.parse(loaded_text);
+          set_source_json(parsed);
+        } catch {
+          set_source_json(null);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        set_source_error(msg || "Failed to load source span");
+      } finally {
+        set_source_loading(false);
+      }
+    },
+    [gateway]
   );
 
   const load_default = useCallback(async () => {
@@ -458,57 +582,6 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
         </div>
       ) : null}
 
-      {recent.length ? (
-        <div className="mindmap_recent">
-          <div className="mindmap_recent_title mono muted">new assertions</div>
-          <div className="mindmap_recent_list">
-            {recent
-              .slice()
-              .sort((a, b) => b.expires_at_ms - a.expires_at_ms)
-              .slice(0, 12)
-              .map((it) => (
-                <div key={it.id} className="mindmap_recent_item mono">
-                  {format_assertion_line(it.assertion)}
-                </div>
-              ))}
-          </div>
-        </div>
-      ) : null}
-
-      {typeof time_bounds.min_ms === "number" && typeof time_bounds.max_ms === "number" ? (
-        <div className="mindmap_timeline">
-          <div className="field_inline" style={{ justifyContent: "space-between", width: "100%" }}>
-            <div className="field_inline" style={{ gap: 8 }}>
-              <span className="mono muted">time</span>
-              <button
-                className={`btn ${follow_latest ? "primary" : ""}`}
-                onClick={() => {
-                  set_follow_latest(true);
-                  if (typeof time_bounds.max_ms === "number") set_time_cursor_ms(time_bounds.max_ms);
-                }}
-              >
-                follow
-              </button>
-            </div>
-            <div className="mono muted">
-              {time_cursor_ms ? new Date(time_cursor_ms).toISOString() : "—"} · {filtered_items.length.toLocaleString()} / {items.length.toLocaleString()}
-            </div>
-          </div>
-          <input
-            className="mindmap_slider"
-            type="range"
-            min={time_bounds.min_ms}
-            max={time_bounds.max_ms}
-            step={1000}
-            value={typeof time_cursor_ms === "number" ? time_cursor_ms : time_bounds.max_ms}
-            onChange={(e) => {
-              set_follow_latest(false);
-              set_time_cursor_ms(Number(e.target.value || 0));
-            }}
-          />
-        </div>
-      ) : null}
-
       <div className="mindmap_explorer">
         <KgActiveMemoryExplorer
           title="mindmap"
@@ -518,8 +591,232 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
           warnings={warnings}
           onQuery={on_query}
           onItemsReplace={on_items_replace}
+          onOpenSpan={({ run_id, span_id, assertion }) => {
+            void open_source_span({ run_id, span_id, assertion });
+          }}
+          onOpenRun={(rid) => {
+            const run_id = String(rid || "").trim();
+            if (!run_id) return;
+            onOpenRun?.({ run_id, tab: "chat" });
+          }}
         />
+
+        {recent.length ? (
+          <div className="mindmap_recent mindmap_overlay mindmap_overlay_recent">
+            <div className="mindmap_recent_title mono muted">new assertions</div>
+            <div className="mindmap_recent_list">
+              {recent
+                .slice()
+                .sort((a, b) => b.expires_at_ms - a.expires_at_ms)
+                .slice(0, 12)
+                .map((it) => (
+                  <div key={it.id} className="mindmap_recent_item mono">
+                    {format_assertion_line(it.assertion)}
+                  </div>
+                ))}
+            </div>
+          </div>
+        ) : null}
+
+        {typeof time_bounds.min_ms === "number" && typeof time_bounds.max_ms === "number" ? (
+          <div className="mindmap_timeline mindmap_overlay mindmap_overlay_timeline">
+            <div className="mindmap_timeline_row">
+              <button
+                className={`btn mindmap_timeline_btn ${follow_latest ? "primary" : ""}`}
+                onClick={() => {
+                  set_follow_latest(true);
+                  if (typeof time_bounds.max_ms === "number") set_time_cursor_ms(time_bounds.max_ms);
+                }}
+              >
+                follow
+              </button>
+              <div className="mindmap_timeline_label mono muted">{format_utc_minute(time_cursor_ms)}</div>
+              <input
+                className="mindmap_slider"
+                type="range"
+                min={time_bounds.min_ms}
+                max={time_bounds.max_ms}
+                step={1000}
+                value={typeof time_cursor_ms === "number" ? time_cursor_ms : time_bounds.max_ms}
+                onChange={(e) => {
+                  set_follow_latest(false);
+                  set_time_cursor_ms(Number(e.target.value || 0));
+                }}
+              />
+              <div className="mindmap_timeline_counts mono muted">
+                {filtered_items.length.toLocaleString()}/{items.length.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
+
+      <Modal
+        open={source_open}
+        title={source_title || "source"}
+        onClose={() => {
+          set_source_open(false);
+        }}
+      >
+        {source_loading ? <div className="mono muted">Loading…</div> : null}
+        {source_error ? <div className="mindmap_error mono">{source_error}</div> : null}
+        {!source_loading && !source_error ? (
+          <div className="source_span">
+            {(() => {
+              const a = source_assertion;
+              if (!a) return null;
+              const s = String(a.subject || "").trim();
+              const p = String(a.predicate || "").trim();
+              const o = String(a.object || "").trim();
+              const t = format_utc_minute(parse_iso_ms(a.observed_at));
+              const attrs = a.attributes && typeof a.attributes === "object" && !Array.isArray(a.attributes) ? (a.attributes as any) : null;
+              const evidence = attrs && typeof attrs.evidence_quote === "string" ? String(attrs.evidence_quote) : "";
+              const ctx = attrs && typeof attrs.original_context === "string" ? String(attrs.original_context) : "";
+              return (
+                <div className="source_header">
+                  <div className="mono source_triple" title={`${s} --${p}--> ${o}`}>
+                    {s} <span className="muted">—{p}→</span> {o} {t ? <span className="muted">[{t}]</span> : null}
+                  </div>
+                  {evidence ? (
+                    <div className="source_evidence">
+                      <div className="mono muted" style={{ fontSize: 11, marginBottom: 6 }}>
+                        evidence_quote
+                      </div>
+                      <pre className="mono source_evidence_quote">{evidence}</pre>
+                      {ctx ? (
+                        <details className="source_evidence_more">
+                          <summary className="mono muted">original_context</summary>
+                          <pre className="mono source_evidence_quote">{ctx}</pre>
+                        </details>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
+            <div className="mono muted" style={{ marginBottom: 10 }}>
+              run_id={source_run_id} · span_id={source_span_id}
+            </div>
+            <div className="source_actions">
+              {source_first_match !== null ? (
+                <button className="btn" onClick={() => scroll_to_source_message(source_first_match)}>
+                  Jump to evidence
+                </button>
+              ) : null}
+              {onOpenRun && source_run_id ? (
+                <button
+                  className="btn primary"
+                  onClick={() => {
+                    onOpenRun({ run_id: source_run_id, tab: "chat" });
+                    set_source_open(false);
+                  }}
+                >
+                  Open full discussion
+                </button>
+              ) : null}
+            </div>
+            {(() => {
+              const data = source_json;
+              const obj = data && typeof data === "object" && !Array.isArray(data) ? (data as any) : null;
+              const messages = source_messages;
+              const note = obj && typeof obj.note === "string" ? String(obj.note) : "";
+              const created_at = obj && typeof obj.created_at === "string" ? String(obj.created_at) : "";
+              const created_at_ms = created_at ? parse_iso_ms(created_at) : null;
+              const created_at_display = created_at_ms !== null ? format_utc_minute(created_at_ms) : created_at;
+              const span_meta = obj && obj.span && typeof obj.span === "object" && !Array.isArray(obj.span) ? (obj.span as any) : null;
+              const span_from = span_meta && typeof span_meta.from_timestamp === "string" ? String(span_meta.from_timestamp) : "";
+              const span_to = span_meta && typeof span_meta.to_timestamp === "string" ? String(span_meta.to_timestamp) : "";
+              const span_from_ms = span_from ? parse_iso_ms(span_from) : null;
+              const span_to_ms = span_to ? parse_iso_ms(span_to) : null;
+              const span_range =
+                span_from_ms !== null && span_to_ms !== null ? `${format_utc_minute(span_from_ms)} → ${format_utc_minute(span_to_ms)}` : "";
+
+              if (note) {
+                return (
+                  <div className="source_note">
+                    {created_at ? (
+                      <div className="mono muted" style={{ marginBottom: 10 }}>
+                        <span title={created_at}>created_at={created_at_display}</span>
+                      </div>
+                    ) : null}
+                    <Markdown text={note} />
+                  </div>
+                );
+              }
+
+              if (messages) {
+                const participants = new Map<string, number>();
+                for (const m of messages) {
+                  const role = typeof m?.role === "string" ? String(m.role) : "unknown";
+                  participants.set(role, (participants.get(role) || 0) + 1);
+                }
+                const participants_list = Array.from(participants.entries())
+                  .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                  .map(([r, c]) => `${r}×${c}`)
+                  .join(" · ");
+
+                return (
+                  <div className="source_chat">
+                    {created_at ? (
+                      <div className="mono muted" style={{ marginBottom: 10 }}>
+                        <span title={created_at}>created_at={created_at_display}</span> · messages={messages.length}
+                      </div>
+                    ) : null}
+                    {span_range ? (
+                      <div className="mono muted" style={{ marginBottom: 10 }}>
+                        span={span_range}
+                      </div>
+                    ) : null}
+                    {participants_list ? (
+                      <div className="mono muted" style={{ marginBottom: 10 }}>
+                        participants: {participants_list}
+                      </div>
+                    ) : null}
+                    {messages.slice(0, 200).map((m: any, idx: number) => {
+                      const role = typeof m?.role === "string" ? String(m.role) : "unknown";
+                      const content = m?.content == null ? "" : String(m.content);
+                      const ts = typeof m?.timestamp === "string" ? String(m.timestamp) : "";
+                      const ts_ms = ts ? parse_iso_ms(ts) : null;
+                      const ts_display = ts_ms !== null ? format_utc_minute(ts_ms) : ts;
+                      const msg_id =
+                        typeof m?.message_id === "string"
+                          ? String(m.message_id)
+                          : typeof m?.metadata?.message_id === "string"
+                            ? String(m.metadata.message_id)
+                            : typeof m?.metadata?.id === "string"
+                              ? String(m.metadata.id)
+                              : "";
+                      const is_match = source_message_match_set.has(idx);
+                      return (
+                        <div key={idx} id={`source_msg_${idx}`} className={`source_msg source_${role} ${is_match ? "source_match" : ""}`}>
+                          <div className="source_msg_meta mono muted">
+                            <span>
+                              #{idx + 1} · {role}
+                              {is_match ? <span className="source_match_badge">evidence</span> : null}
+                              {msg_id ? <span className="source_msg_id">{msg_id}</span> : null}
+                            </span>
+                            {ts ? <span title={ts}>{ts_display}</span> : null}
+                          </div>
+                          <div className="source_msg_body">
+                            <Markdown text={content} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              // Fallback: show raw JSON/text.
+              return (
+                <pre className="mono source_raw" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                  {(typeof data === "string" ? data : source_text) || "(empty)"}
+                </pre>
+              );
+            })()}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

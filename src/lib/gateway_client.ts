@@ -294,6 +294,37 @@ export class GatewayClient {
     return await r.json();
   }
 
+  async upload_bundle(file: File, opts?: { overwrite?: boolean; reload?: boolean }): Promise<any> {
+    const overwrite = opts?.overwrite === true;
+    const reload = opts?.reload !== false;
+    const fd = new FormData();
+    fd.set("overwrite", overwrite ? "true" : "false");
+    fd.set("reload", reload ? "true" : "false");
+    fd.set("file", file, file.name || "upload.flow");
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/bundles/upload"), {
+      method: "POST",
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: fd,
+    });
+    if (!r.ok) throw new Error(`upload_bundle failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async remove_bundle(bundle_id: string, opts?: { bundle_version?: string; reload?: boolean }): Promise<any> {
+    const bid = String(bundle_id || "").trim();
+    if (!bid) throw new Error("remove_bundle: bundle_id is required");
+    const qs = new URLSearchParams();
+    const ver = String(opts?.bundle_version || "").trim();
+    if (ver) qs.set("bundle_version", ver);
+    qs.set("reload", opts?.reload === false ? "false" : "true");
+    const url = _join(this._cfg.base_url, `/api/gateway/bundles/${encodeURIComponent(bid)}?${qs.toString()}`);
+    const r = await fetch(url, { method: "DELETE", headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`remove_bundle failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
   async discovery_tools(): Promise<any> {
     const r = await fetch(_join(this._cfg.base_url, "/api/gateway/discovery/tools"), {
       headers: {

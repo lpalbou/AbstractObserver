@@ -3756,7 +3756,18 @@ export function App(): React.ReactElement {
               </div>
             ) : (
               <div className="mindmap_full">
-                <MindmapPanel gateway={gateway} selected_run_id={run_id} selected_session_id={session_id_for_run || start_session_id} />
+                <MindmapPanel
+                  gateway={gateway}
+                  selected_run_id={run_id}
+                  selected_session_id={session_id_for_run || start_session_id}
+                  onOpenRun={({ run_id: rid, tab }) => {
+                    const run_id2 = String(rid || "").trim();
+                    if (!run_id2) return;
+                    set_page("observe");
+                    set_right_tab(tab || "chat");
+                    void attach_to_run(run_id2);
+                  }}
+                />
               </div>
             )}
           </div>
