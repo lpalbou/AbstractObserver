@@ -8,16 +8,15 @@ import {
   type KgQueryResult,
   type MemoryScope,
 } from "@abstractuic/monitor-active-memory";
+import { Markdown } from "@abstractuic/panel-chat";
 
 import { GatewayClient } from "../lib/gateway_client";
-import { Markdown } from "./markdown";
 import { Modal } from "./modal";
 
 type MindmapPanelProps = {
   gateway: GatewayClient;
   selected_run_id: string;
   selected_session_id: string;
-  onOpenRun?: (args: { run_id: string; tab?: "ledger" | "graph" | "digest" | "attachments" | "chat" }) => void;
 };
 
 type RecentAssertion = {
@@ -53,6 +52,13 @@ function format_utc_minute(ms: number | null): string {
   return `${yyyy}/${mm}/${dd} ${hh}:${mi}`;
 }
 
+function decode_escaped_whitespace(text: unknown): string {
+  const s = typeof text === "string" ? text : String(text ?? "");
+  if (!s) return "";
+  if (!s.includes("\\n") && !s.includes("\\r") && !s.includes("\\t")) return s;
+  return s.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+}
+
 function iso_max(a: string, b: string): string {
   const s1 = String(a || "");
   const s2 = String(b || "");
@@ -83,7 +89,7 @@ function format_assertion_line(a: KgAssertion): string {
   return `${ts ? `[${ts}] ` : ""}${s} --${p}--> ${o}${meta}`;
 }
 
-export function MindmapPanel({ gateway, selected_run_id, selected_session_id, onOpenRun }: MindmapPanelProps) {
+export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: MindmapPanelProps) {
   const [run_id_override, set_run_id_override] = useState<string>(String(selected_run_id || "").trim());
   const [session_id_override, set_session_id_override] = useState<string>(String(selected_session_id || "").trim());
   const [source, set_source] = useState<"all" | "global" | "session" | "run">("all");
@@ -91,7 +97,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
 
   const [live, set_live] = useState(true);
   const [poll_ms, set_poll_ms] = useState(750);
-  const [highlight_ms, set_highlight_ms] = useState(2000);
+  const [highlight_ms, set_highlight_ms] = useState(5000);
 
   const [items, set_items] = useState<KgAssertion[]>([]);
   const [warnings, set_warnings] = useState<JsonValue | undefined>(undefined);
@@ -106,6 +112,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
   const [source_title, set_source_title] = useState<string>("");
   const [source_run_id, set_source_run_id] = useState<string>("");
   const [source_span_id, set_source_span_id] = useState<string>("");
+  const [source_origin, set_source_origin] = useState<"artifact" | "run_input">("artifact");
   const [source_json, set_source_json] = useState<any>(null);
   const [source_text, set_source_text] = useState<string>("");
   const [source_assertion, set_source_assertion] = useState<KgAssertion | null>(null);
@@ -118,11 +125,25 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
     return evidence.trim();
   }, [source_assertion]);
 
+  const source_note = useMemo(() => {
+    const data = source_json;
+    const obj = data && typeof data === "object" && !Array.isArray(data) ? (data as any) : null;
+    const note = obj && typeof obj.note === "string" ? String(obj.note) : "";
+    return decode_escaped_whitespace(note).trim();
+  }, [source_json]);
+
   const source_messages = useMemo(() => {
     const obj = source_json && typeof source_json === "object" && !Array.isArray(source_json) ? (source_json as any) : null;
     const messages = obj && Array.isArray(obj.messages) ? obj.messages : null;
     return Array.isArray(messages) ? messages : null;
   }, [source_json]);
+
+  const source_note_has_match = useMemo(() => {
+    const note = source_note;
+    const evidence = source_evidence_quote;
+    if (!note || !evidence) return false;
+    return note.includes(evidence);
+  }, [source_evidence_quote, source_note]);
 
   const source_message_matches = useMemo(() => {
     const messages = source_messages;
@@ -147,14 +168,28 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
     }
   }, []);
 
+  const scroll_to_source_note = useCallback(() => {
+    const el = document.getElementById("source_note_hit_0");
+    if (el && typeof (el as any).scrollIntoView === "function") {
+      (el as any).scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, []);
+
   useEffect(() => {
     if (!source_open) return;
     if (source_loading || source_error) return;
     if (source_scrolled_ref.current) return;
-    if (source_first_match === null) return;
-    source_scrolled_ref.current = true;
-    window.setTimeout(() => scroll_to_source_message(source_first_match), 0);
-  }, [scroll_to_source_message, source_error, source_first_match, source_loading, source_open]);
+    if (source_first_match !== null) {
+      source_scrolled_ref.current = true;
+      window.setTimeout(() => scroll_to_source_message(source_first_match), 0);
+      return;
+    }
+    if (source_note_has_match) {
+      source_scrolled_ref.current = true;
+      window.setTimeout(() => scroll_to_source_note(), 0);
+      return;
+    }
+  }, [scroll_to_source_message, scroll_to_source_note, source_error, source_first_match, source_loading, source_note_has_match, source_open]);
 
   const seen_keys_ref = useRef<Set<string>>(new Set());
   const last_seen_observed_at_ref = useRef<string>("");
@@ -208,6 +243,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
 
   const replace_items = useCallback((next_items_raw: KgAssertion[], meta?: { warnings?: JsonValue }) => {
     const next_items = Array.isArray(next_items_raw) ? next_items_raw : [];
+    const prev_last_seen = String(last_seen_observed_at_ref.current || "").trim();
     const seen = new Set<string>();
     const deduped: KgAssertion[] = [];
     let last_seen = "";
@@ -226,7 +262,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
     set_items(deduped);
     set_warnings(meta?.warnings);
     seen_keys_ref.current = seen;
-    last_seen_observed_at_ref.current = last_seen;
+    last_seen_observed_at_ref.current = last_seen || prev_last_seen;
   }, []);
 
   const query_gateway = useCallback(
@@ -316,6 +352,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
       set_source_error("");
       set_source_run_id(run_id);
       set_source_span_id(span_id);
+      set_source_origin("artifact");
       set_source_title(`source span:${span_id}`);
       set_source_json(null);
       set_source_text("");
@@ -357,6 +394,131 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
       }
     },
     [gateway]
+  );
+
+  const recover_span_id_from_run = useCallback(
+    async (args: { run_id: string; assertion?: KgAssertion }): Promise<string | null> => {
+      const run_id = String(args.run_id || "").trim();
+      if (!run_id) return null;
+
+      try {
+        const res = await gateway.list_run_artifacts(run_id, { limit: 200 });
+        const items = Array.isArray(res?.items) ? res.items : [];
+        const candidates = items
+          .map((it: any) => {
+            const artifact_id = typeof it?.artifact_id === "string" ? String(it.artifact_id).trim() : "";
+            const tags = it?.tags && typeof it.tags === "object" && !Array.isArray(it.tags) ? (it.tags as any) : null;
+            const kind = tags && typeof tags.kind === "string" ? String(tags.kind).trim() : "";
+            return { artifact_id, kind };
+          })
+          .filter((it: { artifact_id: string; kind: string }) => Boolean(it.artifact_id && (it.kind === "conversation_span" || it.kind === "memory_note")));
+
+        if (!candidates.length) return null;
+        if (candidates.length === 1) return candidates[0].artifact_id;
+
+        const a = args.assertion;
+        const attrs = a?.attributes && typeof a.attributes === "object" && !Array.isArray(a.attributes) ? (a.attributes as any) : null;
+        const evidence = attrs && typeof attrs.evidence_quote === "string" ? String(attrs.evidence_quote) : "";
+        const needle = evidence.trim();
+        if (!needle) return null;
+
+        for (const cand of candidates.slice(0, 10)) {
+          try {
+            const blob = await gateway.download_run_artifact_content(run_id, cand.artifact_id);
+            const txt = await blob.text();
+            const parsed = JSON.parse(txt);
+            if (parsed && typeof parsed === "object") {
+              const note = typeof (parsed as any).note === "string" ? String((parsed as any).note) : "";
+              if (note && note.includes(needle)) return cand.artifact_id;
+              const messages = Array.isArray((parsed as any).messages) ? (parsed as any).messages : null;
+              if (messages) {
+                for (const m of messages.slice(0, 200)) {
+                  const content = m?.content == null ? "" : String(m.content);
+                  if (content.includes(needle)) return cand.artifact_id;
+                }
+              }
+            }
+          } catch {
+            // Best-effort.
+          }
+        }
+      } catch {
+        // Best-effort.
+      }
+
+      return null;
+    },
+    [gateway]
+  );
+
+  const open_run_input_transcript = useCallback(
+    async (args: { run_id: string; assertion?: KgAssertion }) => {
+      const run_id = String(args.run_id || "").trim();
+      if (!run_id) return;
+
+      set_source_open(true);
+      set_source_loading(true);
+      set_source_error("");
+      set_source_run_id(run_id);
+      set_source_span_id("");
+      set_source_origin("run_input");
+      set_source_title(`transcript run:${run_id}`);
+      set_source_json(null);
+      set_source_text("");
+      set_source_assertion(args.assertion && typeof args.assertion === "object" ? (args.assertion as KgAssertion) : null);
+      source_scrolled_ref.current = false;
+
+      try {
+        const recovered_span_id = await recover_span_id_from_run({ run_id, assertion: args.assertion });
+        if (recovered_span_id) {
+          await open_source_span({ run_id, span_id: recovered_span_id, assertion: args.assertion });
+          return;
+        }
+
+        const raw = await gateway.get_run_input_data(run_id);
+        const input_data = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as any).input_data : null;
+        const src: any = { kind: "run_input_data", run_id };
+        if (raw && typeof raw?.workflow_id === "string") src.workflow_id = String(raw.workflow_id);
+        if (input_data && typeof input_data === "object" && !Array.isArray(input_data)) {
+          const ctx = (input_data as any).context;
+          const ctx_messages = ctx && typeof ctx === "object" && Array.isArray((ctx as any).messages) ? (ctx as any).messages : null;
+          const messages = ctx_messages || (Array.isArray((input_data as any).messages) ? (input_data as any).messages : null);
+          if (Array.isArray(messages)) src.messages = messages;
+
+          const candidates = ["text", "prompt", "task", "message"];
+          for (const k of candidates) {
+            const v = (input_data as any)[k];
+            if (typeof v === "string" && v.trim()) {
+              src.note = v.trim();
+              break;
+            }
+          }
+
+          src.input_data = input_data;
+        }
+
+        if (!src.messages && !src.note) {
+          src.note = JSON.stringify(input_data ?? raw ?? {}, null, 2);
+        }
+
+        try {
+          const run = await gateway.get_run(run_id);
+          const created_at = run && typeof run?.created_at === "string" ? String(run.created_at) : "";
+          if (created_at) src.created_at = created_at;
+        } catch {
+          // Best-effort.
+        }
+
+        set_source_json(src);
+        set_source_text(JSON.stringify(raw, null, 2));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        set_source_error(msg || "Failed to load run input transcript");
+      } finally {
+        set_source_loading(false);
+      }
+    },
+    [gateway, open_source_span, recover_span_id_from_run]
   );
 
   const load_default = useCallback(async () => {
@@ -569,7 +731,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
                 max={20_000}
                 step={250}
                 value={highlight_ms}
-                onChange={(e) => set_highlight_ms(Math.max(250, Number(e.target.value || 0) || 2000))}
+                onChange={(e) => set_highlight_ms(Math.max(250, Number(e.target.value || 0) || 5000))}
               />
             </div>
           </div>
@@ -594,10 +756,12 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
           onOpenSpan={({ run_id, span_id, assertion }) => {
             void open_source_span({ run_id, span_id, assertion });
           }}
-          onOpenRun={(rid) => {
-            const run_id = String(rid || "").trim();
-            if (!run_id) return;
-            onOpenRun?.({ run_id, tab: "chat" });
+          onOpenTranscript={({ run_id, span_id, assertion }) => {
+            const rid = String(run_id || "").trim();
+            const sid = typeof span_id === "string" ? String(span_id).trim() : "";
+            if (!rid) return;
+            if (sid) void open_source_span({ run_id: rid, span_id: sid, assertion });
+            else void open_run_input_transcript({ run_id: rid, assertion });
           }}
         />
 
@@ -695,7 +859,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
               );
             })()}
             <div className="mono muted" style={{ marginBottom: 10 }}>
-              run_id={source_run_id} · span_id={source_span_id}
+              run_id={source_run_id} · {source_origin === "artifact" ? `span_id=${source_span_id}` : "source=input_data"}
             </div>
             <div className="source_actions">
               {source_first_match !== null ? (
@@ -703,15 +867,9 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
                   Jump to evidence
                 </button>
               ) : null}
-              {onOpenRun && source_run_id ? (
-                <button
-                  className="btn primary"
-                  onClick={() => {
-                    onOpenRun({ run_id: source_run_id, tab: "chat" });
-                    set_source_open(false);
-                  }}
-                >
-                  Open full discussion
+              {source_first_match === null && source_note_has_match ? (
+                <button className="btn" onClick={() => scroll_to_source_note()}>
+                  Jump to evidence
                 </button>
               ) : null}
             </div>
@@ -719,7 +877,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
               const data = source_json;
               const obj = data && typeof data === "object" && !Array.isArray(data) ? (data as any) : null;
               const messages = source_messages;
-              const note = obj && typeof obj.note === "string" ? String(obj.note) : "";
+              const note = source_note;
               const created_at = obj && typeof obj.created_at === "string" ? String(obj.created_at) : "";
               const created_at_ms = created_at ? parse_iso_ms(created_at) : null;
               const created_at_display = created_at_ms !== null ? format_utc_minute(created_at_ms) : created_at;
@@ -739,7 +897,12 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id, on
                         <span title={created_at}>created_at={created_at_display}</span>
                       </div>
                     ) : null}
-                    <Markdown text={note} />
+                    <Markdown
+                      text={note}
+                      highlight={source_evidence_quote || undefined}
+                      highlightClassName="source_note_hit"
+                      highlightId="source_note_hit_0"
+                    />
                   </div>
                 );
               }

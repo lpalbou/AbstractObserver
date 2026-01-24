@@ -1345,6 +1345,23 @@ button.primary:hover:not(:disabled) {
   padding: 10px;
 }
 
+.source_note_text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.source_note_hit {
+  border-radius: 6px;
+  padding: 0 3px;
+  border: 1px solid rgba(251, 191, 36, 0.30);
+  background: rgba(251, 191, 36, 0.10);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.10), 0 10px 30px rgba(0, 0, 0, 0.50);
+  color: rgba(251, 191, 36, 0.98);
+}
+
 .source_chat {
   display: flex;
   flex-direction: column;
@@ -1697,54 +1714,6 @@ button.primary:hover:not(:disabled) {
   font-size: 12px;
   color: var(--text-muted);
   padding: 6px 8px;
-}
-
-.md {
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--text);
-}
-
-.md h1,
-.md h2,
-.md h3 {
-  margin: 6px 0 4px 0;
-  font-size: 12px;
-}
-
-.md_p {
-  margin: 4px 0;
-}
-
-.md_ul {
-  margin: 4px 0;
-  padding-left: 14px;
-}
-
-.md code {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 1px 4px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-}
-
-.md_pre {
-  margin: 6px 0;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-  overflow: auto;
-}
-
-.md_pre code {
-  padding: 0;
-  border: none;
-  background: transparent;
-  font-size: 10px;
-  white-space: pre;
 }
 
 .pin-legend-toggle:hover {

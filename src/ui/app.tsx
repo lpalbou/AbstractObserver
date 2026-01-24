@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractuic/monitor-flow";
-import { ChatMessageContent, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
+import { ChatMessageContent, Markdown, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
 import { registerMonitorGpuWidget } from "@abstractutils/monitor-gpu";
 
 import { GatewayClient } from "../lib/gateway_client";
@@ -13,7 +13,7 @@ import { FlowGraph } from "./flow_graph";
 import { JsonViewer } from "./json_viewer";
 import { MindmapPanel } from "./mindmap_panel";
 import { Modal } from "./modal";
-import { Markdown } from "./markdown";
+import { MultiSelect } from "./multi_select";
 import { RunPicker, type RunSummary } from "./run_picker";
 
 type Settings = {
@@ -58,6 +58,7 @@ type BundleEntrypoint = {
 type BundleInfo = {
   bundle_id?: string;
   bundle_version?: string;
+  bundle_ref?: string;
   created_at?: string;
   default_entrypoint?: string | null;
   entrypoints?: BundleEntrypoint[];
@@ -518,6 +519,11 @@ export function App(): React.ReactElement {
   const [new_run_error, set_new_run_error] = useState<string>("");
   const [schedule_error, set_schedule_error] = useState<string>("");
   const [schedule_submitting, set_schedule_submitting] = useState(false);
+  const [bundle_uploading, set_bundle_uploading] = useState(false);
+  const bundle_upload_input_ref = useRef<HTMLInputElement | null>(null);
+
+  const [pin_json_text_by_id, set_pin_json_text_by_id] = useState<Record<string, string>>({});
+  const [pin_json_error_by_id, set_pin_json_error_by_id] = useState<Record<string, string>>({});
   const [schedule_start_mode, set_schedule_start_mode] = useState<"now" | "at">("now");
   const [schedule_start_at_local, set_schedule_start_at_local] = useState<string>("");
   const [schedule_repeat_mode, set_schedule_repeat_mode] = useState<"once" | "forever" | "count" | "until">("once");
@@ -713,6 +719,42 @@ export function App(): React.ReactElement {
   }, [input_data_obj]);
   const has_adaptive_inputs = adaptive_pins.length > 0 && Boolean(bundle_id.trim());
 
+  const is_json_pin_type = (t: string): boolean => {
+    const s = String(t || "").trim().toLowerCase();
+    return s === "object" || s === "memory" || s === "assertion" || s === "assertions" || s === "any";
+  };
+
+  useEffect(() => {
+    // Reset per-pin editor errors when switching workflows.
+    set_pin_json_error_by_id({});
+  }, [bundle_id, flow_id]);
+
+  useEffect(() => {
+    if (input_data_obj === null) return;
+    set_pin_json_text_by_id((prev) => {
+      const next: Record<string, string> = {};
+      for (const p of adaptive_pins) {
+        if (!p || typeof p !== "object") continue;
+        const pid = String((p as any).id || "").trim();
+        if (!pid) continue;
+        const ptype = String((p as any).type || "").trim();
+        if (!is_json_pin_type(ptype)) continue;
+        const cur_err = String(pin_json_error_by_id[pid] || "").trim();
+        if (cur_err) {
+          next[pid] = typeof prev[pid] === "string" ? prev[pid] : "";
+          continue;
+        }
+        const cur_val = (input_data_obj as any)?.[pid];
+        if (cur_val === undefined) {
+          next[pid] = "";
+        } else {
+          next[pid] = safe_json(cur_val);
+        }
+      }
+      return next;
+    });
+  }, [adaptive_pins, input_data_obj, pin_json_error_by_id]);
+
   const selected_workflow_value = bundle_id.trim() && flow_id.trim() ? `${bundle_id.trim()}:${flow_id.trim()}` : "";
 
   const workflow_label_by_id = useMemo(() => {
@@ -733,6 +775,16 @@ export function App(): React.ReactElement {
     }
     return Array.from(out).sort();
   }, [discovered_providers]);
+
+  const available_tool_names = useMemo(() => {
+    const out = new Set<string>();
+    for (const s of discovered_tool_specs || []) {
+      if (!s || typeof s !== "object") continue;
+      const name = String((s as any).name || "").trim();
+      if (name) out.add(name);
+    }
+    return Array.from(out).sort();
+  }, [discovered_tool_specs]);
 
   const chat_models_for_provider = useMemo(() => {
     const prov = chat_provider.trim();
@@ -812,7 +864,10 @@ export function App(): React.ReactElement {
     };
   }, [provider_value, discovered_models_by_provider, gateway]);
 
-  function update_input_data_field(key: string, value: string): void {
+  function update_input_data_field(key: string, value: any): void {
+    const k = String(key || "").trim();
+    if (!k) return;
+
     let obj: Record<string, any> = {};
     try {
       const parsed = JSON.parse(input_data_text || "{}");
@@ -821,9 +876,23 @@ export function App(): React.ReactElement {
       obj = {};
     }
 
-    const trimmed = String(value || "").trim();
-    if (!trimmed) delete obj[key];
-    else obj[key] = trimmed;
+    if (value === null || value === undefined) {
+      delete obj[k];
+      set_input_data_text(JSON.stringify(obj, null, 2));
+      return;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = String(value || "").trim();
+      if (!trimmed) delete obj[k];
+      else obj[k] = trimmed;
+    } else if (Array.isArray(value)) {
+      const cleaned = value.map((x) => x).filter((x) => x !== undefined && x !== null);
+      if (!cleaned.length) delete obj[k];
+      else obj[k] = cleaned;
+    } else {
+      obj[k] = value;
+    }
 
     set_input_data_text(JSON.stringify(obj, null, 2));
   }
@@ -960,6 +1029,33 @@ export function App(): React.ReactElement {
       push_log({ ts: now_iso(), kind: "error", title: "Bundle reload failed", preview: clamp_preview(msg), data: { error: msg } });
     } finally {
       set_bundles_reloading(false);
+    }
+  }
+
+  async function upload_gateway_bundle(file: File): Promise<void> {
+    if (bundle_uploading || discovery_loading) return;
+    if (!gateway_connected) return;
+    const f = file;
+    if (!f) return;
+    set_bundle_uploading(true);
+    set_error_text("");
+    try {
+      const res = await gateway.upload_bundle(f, { overwrite: false, reload: true });
+      push_log({ ts: now_iso(), kind: "info", title: "Bundle uploaded", preview: clamp_preview(String(res?.bundle_ref || "")) });
+      const bundles = await gateway.list_bundles();
+      const opts = build_workflow_options_from_bundles(bundles);
+      set_workflow_options(opts);
+    } catch (e: any) {
+      const msg = String(e?.message || e || "Upload failed");
+      set_error_text(msg);
+      push_log({ ts: now_iso(), kind: "error", title: "Upload .flow failed", preview: clamp_preview(msg), data: { error: msg } });
+    } finally {
+      set_bundle_uploading(false);
+      try {
+        if (bundle_upload_input_ref.current) bundle_upload_input_ref.current.value = "";
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -1704,14 +1800,13 @@ export function App(): React.ReactElement {
 	          return msg;
 	        }
 	      }
-	      // Fail fast for the common RunnableFlow contract: prompt is required unless the
-	      // workflow declared a pinDefault for it (rare; usually prompt is user-provided).
-	      const prompt_pin = (flow_pins || []).find((p) => p && typeof p === "object" && (p as any).id === "prompt");
+	      // Best-effort contract for common agent workflows: require prompt only when declared.
+	      const prompt_pin = (adaptive_pins || []).find((p) => p && typeof p === "object" && (p as any).id === "prompt");
 	      const prompt_default_specified =
 	        prompt_pin && typeof prompt_pin === "object" && Object.prototype.hasOwnProperty.call(prompt_pin, "default");
 	      const raw_prompt = (input_data as any)?.prompt;
 	      const prompt_text = typeof raw_prompt === "string" ? raw_prompt.trim() : "";
-	      if ((!flow_pins.length || (prompt_pin && !prompt_default_specified)) && !prompt_text) {
+	      if (prompt_pin && !prompt_default_specified && !prompt_text) {
 	        const msg = "Missing required input_data.prompt";
 	        set_error_text(msg);
 	        return msg;
@@ -1736,7 +1831,7 @@ export function App(): React.ReactElement {
     }
   }
 
-	  async function start_scheduled_run(args: {
+  async function start_scheduled_run(args: {
     start_mode: "now" | "at";
     start_at_local: string;
     repeat_mode: "once" | "forever" | "count" | "until";
@@ -1777,12 +1872,12 @@ export function App(): React.ReactElement {
 	        }
 	      }
 	
-	      const prompt_pin = (flow_pins || []).find((p) => p && typeof p === "object" && (p as any).id === "prompt");
+	      const prompt_pin = (adaptive_pins || []).find((p) => p && typeof p === "object" && (p as any).id === "prompt");
 	      const prompt_default_specified =
 	        prompt_pin && typeof prompt_pin === "object" && Object.prototype.hasOwnProperty.call(prompt_pin, "default");
 	      const raw_prompt = (input_data as any)?.prompt;
 	      const prompt_text = typeof raw_prompt === "string" ? raw_prompt.trim() : "";
-	      if ((!flow_pins.length || (prompt_pin && !prompt_default_specified)) && !prompt_text) {
+	      if (prompt_pin && !prompt_default_specified && !prompt_text) {
 	        const msg = "Missing required input_data.prompt";
 	        set_schedule_error(msg);
 	        return msg;
@@ -1796,7 +1891,7 @@ export function App(): React.ReactElement {
       } else {
         const local = String(args.start_at_local || "").trim();
         if (!local) {
-          const msg = "Pick a start date/time (or use Start now).";
+          const msg = "Pick a start date/time (or choose 'now').";
           set_schedule_error(msg);
           return msg;
         }
@@ -1874,6 +1969,26 @@ export function App(): React.ReactElement {
       set_connecting(false);
       set_schedule_submitting(false);
     }
+  }
+
+  async function submit_launch(): Promise<void> {
+    set_new_run_error("");
+    set_schedule_error("");
+    const should_schedule = schedule_start_mode !== "now" || schedule_repeat_mode !== "once";
+    const err = should_schedule
+      ? await start_scheduled_run({
+          start_mode: schedule_start_mode,
+          start_at_local: schedule_start_at_local,
+          repeat_mode: schedule_repeat_mode,
+          every_n: schedule_every_n,
+          every_unit: schedule_every_unit,
+          repeat_count: schedule_repeat_count,
+          repeat_until_date_local: schedule_repeat_until_date_local,
+          repeat_until_time_local: schedule_repeat_until_time_local,
+          share_context: schedule_share_context,
+        })
+      : await start_new_run();
+    if (err) set_new_run_error(err);
   }
 
   async function attach_to_run(rid: string): Promise<void> {
@@ -3329,6 +3444,25 @@ export function App(): React.ReactElement {
                     ))}
                   </select>
                   <div className="actions" style={{ justifyContent: "flex-start", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
+                    <input
+                      ref={bundle_upload_input_ref}
+                      type="file"
+                      accept=".flow"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const f = e.target.files && e.target.files.length ? e.target.files[0] : null;
+                        if (!f) return;
+                        void upload_gateway_bundle(f);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => bundle_upload_input_ref.current?.click()}
+                      disabled={!gateway_connected || discovery_loading || bundle_uploading || connecting || resuming}
+                    >
+                      {bundle_uploading ? "Uploading…" : "Upload .flow"}
+                    </button>
                     <button
                       type="button"
                       className="btn"
@@ -3341,7 +3475,7 @@ export function App(): React.ReactElement {
                       {runs_loading ? "Refreshing…" : "Refresh runs"}
                     </button>
                     <div className="mono muted" style={{ fontSize: "12px" }}>
-                      Picks up edited `.flow` files without restarting the gateway.
+                      Use Upload for remote installs. Reload picks up server-side edits (dev).
                     </div>
                   </div>
                   {selected_entrypoint?.description ? (
@@ -3354,16 +3488,45 @@ export function App(): React.ReactElement {
                       Loading workflow…
                     </div>
                   ) : null}
-                  {bundle_error ? (
-                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
-                      {bundle_error}
-                    </div>
-                  ) : null}
-                </div>
+	                  {bundle_error ? (
+	                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+	                      {bundle_error}
+	                    </div>
+	                  ) : null}
+	                </div>
 
-                <div className="field">
-                  <label>session_id (scope=session)</label>
-                  <input
+	                {bundle_info && selected_entrypoint ? (
+	                  <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
+	                    <div className="meta">
+	                      <span className="mono">workflow</span>
+	                      <span className="mono">{String(bundle_info.bundle_ref || `${bundle_id.trim()}:${flow_id.trim()}`)}</span>
+	                    </div>
+	                    <div className="body">
+	                      {selected_entrypoint.name ? (
+	                        <div className="mono">
+	                          <span className="muted">name</span>: {String(selected_entrypoint.name)}
+	                        </div>
+	                      ) : null}
+	                      {selected_entrypoint.interfaces && selected_entrypoint.interfaces.length ? (
+	                        <div className="mono">
+	                          <span className="muted">interfaces</span>: {selected_entrypoint.interfaces.join(", ")}
+	                        </div>
+	                      ) : null}
+	                      <div className="mono">
+	                        <span className="muted">inputs</span>: {adaptive_pins.length}
+	                      </div>
+	                      {bundle_info.created_at ? (
+	                        <div className="mono">
+	                          <span className="muted">created</span>: {String(bundle_info.created_at)}
+	                        </div>
+	                      ) : null}
+	                    </div>
+	                  </div>
+	                ) : null}
+
+	                <div className="field">
+	                  <label>session_id (scope=session)</label>
+	                  <input
                     className="mono"
                     value={start_session_id}
                     onChange={(e) => set_start_session_id(e.target.value)}
@@ -3375,20 +3538,29 @@ export function App(): React.ReactElement {
                   </div>
                 </div>
 
-                <div className="actions" style={{ justifyContent: "flex-start" }}>
+                <div className="actions" style={{ justifyContent: "flex-start", flexWrap: "wrap", gap: "10px" }}>
                   <button
                     className="btn primary"
-                    onClick={async () => {
-                      set_new_run_error("");
-                      const err = await start_new_run();
-                      if (err) set_new_run_error(err);
-                    }}
+                    onClick={() => void submit_launch()}
                     disabled={
-                      connecting || resuming || discovery_loading || bundle_loading || !gateway_connected || !bundle_id.trim() || !flow_id.trim()
+                      connecting ||
+                      resuming ||
+                      discovery_loading ||
+                      bundle_loading ||
+                      schedule_submitting ||
+                      !gateway_connected ||
+                      !bundle_id.trim() ||
+                      !flow_id.trim() ||
+                      input_data_obj === null
                     }
                   >
-                    Start now
+                    {schedule_start_mode !== "now" || schedule_repeat_mode !== "once" ? "Launch (scheduled)" : "Launch now"}
                   </button>
+                  <div className="mono muted" style={{ fontSize: "12px", alignSelf: "center" }}>
+                    {schedule_start_mode !== "now" || schedule_repeat_mode !== "once"
+                      ? "Uses the schedule settings below."
+                      : "Starts immediately (no schedule)."}
+                  </div>
                 </div>
 
                 {new_run_error ? (
@@ -3401,7 +3573,7 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
-                <details style={{ marginTop: "10px" }} open={!has_adaptive_inputs}>
+                <details style={{ marginTop: "10px" }} open>
                   <summary className="mono muted" style={{ cursor: "pointer" }}>
                     Inputs
                   </summary>
@@ -3419,8 +3591,248 @@ export function App(): React.ReactElement {
                       <div className="body mono">Invalid input JSON. Fix it in Advanced JSON.</div>
                     </div>
                   ) : has_adaptive_inputs ? (
-                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
-                      This workflow exposes typed inputs. Use Advanced JSON to edit full `input_data`.
+                    <div style={{ marginTop: "10px" }}>
+                      {adaptive_pins.map((p) => {
+                        if (!p || typeof p !== "object") return null;
+                        const pid = String((p as any).id || "").trim();
+                        if (!pid) return null;
+                        const label = String((p as any).label || pid).trim() || pid;
+                        const ptype = String((p as any).type || "").trim().toLowerCase();
+                        const has_default = Object.prototype.hasOwnProperty.call(p, "default");
+                        const default_s = has_default ? safe_json_inline((p as any).default, 160) : "";
+                        const disabled = connecting || resuming;
+                        const cur = (input_data_obj as any)?.[pid];
+
+                        const field_label = ptype && ptype !== "unknown" ? `${label} (${ptype})` : label;
+                        const hint = default_s ? `default: ${default_s}` : "";
+
+                        if (ptype === "tools") {
+                          const selected = Array.isArray(cur)
+                            ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean)
+                            : [];
+                          return (
+                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
+                              <label>{field_label}</label>
+                              <MultiSelect
+                                options={available_tool_names}
+                                value={selected}
+                                disabled={disabled}
+                                placeholder="(no tools selected)"
+                                onChange={(next) => update_input_data_field(pid, next)}
+                              />
+                              {hint ? (
+                                <div className="mono muted" style={{ fontSize: "12px" }}>
+                                  {hint}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        }
+
+                        if (ptype === "provider") {
+                          const selected = typeof cur === "string" ? String(cur) : "";
+                          return (
+                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
+                              <label>{field_label}</label>
+                              <select value={selected} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}>
+                                <option value="">{has_default ? `(default: ${default_s || "…" })` : "(unset)"}</option>
+                                {available_providers.map((p) => (
+                                  <option key={p} value={p}>
+                                    {p}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        }
+
+                        if (ptype === "model") {
+                          const selected = typeof cur === "string" ? String(cur) : "";
+                          const prov = String((input_data_obj as any)?.provider || "").trim();
+                          const found = prov ? discovered_models_by_provider[prov] : undefined;
+                          const models = found && Array.isArray(found.models) ? found.models.map((x) => String(x || "").trim()).filter(Boolean) : [];
+                          return (
+                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
+                              <label>{field_label}</label>
+                              {models.length ? (
+                                <select value={selected} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}>
+                                  <option value="">{has_default ? `(default: ${default_s || "…" })` : "(unset)"}</option>
+                                  {models.map((m) => (
+                                    <option key={m} value={m}>
+                                      {m}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  className="mono"
+                                  value={selected}
+                                  onChange={(e) => update_input_data_field(pid, e.target.value)}
+                                  placeholder={has_default ? `(default: ${default_s || "…" })` : "model id"}
+                                  disabled={disabled}
+                                />
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (ptype === "boolean") {
+                          const selected = typeof cur === "boolean" ? (cur ? "true" : "false") : "";
+                          return (
+                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
+                              <label>{field_label}</label>
+                              <select
+                                value={selected}
+                                onChange={(e) => {
+                                  const v = String(e.target.value || "").trim();
+                                  if (!v) update_input_data_field(pid, undefined);
+                                  else update_input_data_field(pid, v === "true");
+                                }}
+                                disabled={disabled}
+                              >
+                                <option value="">{has_default ? `(default: ${default_s || "…" })` : "(unset)"}</option>
+                                <option value="true">true</option>
+                                <option value="false">false</option>
+                              </select>
+                            </div>
+                          );
+                        }
+
+                        if (ptype === "number") {
+                          const selected = typeof cur === "number" && Number.isFinite(cur) ? String(cur) : "";
+                          return (
+                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
+                              <label>{field_label}</label>
+                              <input
+                                type="number"
+                                value={selected}
+                                onChange={(e) => {
+                                  const raw = String(e.target.value || "").trim();
+                                  if (!raw) {
+                                    update_input_data_field(pid, undefined);
+                                    return;
+                                  }
+                                  const n = Number(raw);
+                                  if (Number.isFinite(n)) update_input_data_field(pid, n);
+                                }}
+                                placeholder={has_default ? `(default: ${default_s || "…" })` : ""}
+                                disabled={disabled}
+                              />
+                            </div>
+                          );
+                        }
+
+                        if (ptype === "array") {
+                          const selected = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean).join("\n") : "";
+                          return (
+                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
+                              <label>{field_label}</label>
+                              <textarea
+                                className="mono"
+                                value={selected}
+                                onChange={(e) => {
+                                  const lines = String(e.target.value || "")
+                                    .split(/\r?\n/g)
+                                    .map((x) => String(x || "").trim())
+                                    .filter(Boolean);
+                                  update_input_data_field(pid, lines.length ? lines : undefined);
+                                }}
+                                placeholder={has_default ? `(default: ${default_s || "…" })` : "(one item per line)"}
+                                rows={3}
+                                disabled={disabled}
+                              />
+                            </div>
+                          );
+                        }
+
+                        if (is_json_pin_type(ptype)) {
+                          const val = typeof pin_json_text_by_id[pid] === "string" ? pin_json_text_by_id[pid] : "";
+                          const err = String(pin_json_error_by_id[pid] || "").trim();
+                          return (
+                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
+                              <label>{field_label}</label>
+                              <textarea
+                                className="mono"
+                                value={val}
+                                onChange={(e) => {
+                                  const next = String(e.target.value ?? "");
+                                  set_pin_json_text_by_id((prev) => ({ ...prev, [pid]: next }));
+                                  const trimmed = next.trim();
+                                  if (!trimmed) {
+                                    set_pin_json_error_by_id((prev) => {
+                                      const out = { ...prev };
+                                      delete out[pid];
+                                      return out;
+                                    });
+                                    update_input_data_field(pid, undefined);
+                                    return;
+                                  }
+                                  try {
+                                    const parsed = JSON.parse(trimmed);
+                                    set_pin_json_error_by_id((prev) => {
+                                      const out = { ...prev };
+                                      delete out[pid];
+                                      return out;
+                                    });
+                                    update_input_data_field(pid, parsed);
+                                  } catch (e: any) {
+                                    set_pin_json_error_by_id((prev) => ({
+                                      ...prev,
+                                      [pid]: String(e?.message || e || "Invalid JSON"),
+                                    }));
+                                  }
+                                }}
+                                placeholder={has_default ? `(default: ${default_s || "…" })` : "{...}"}
+                                rows={5}
+                                disabled={disabled}
+                              />
+                              {err ? (
+                                <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+                                  {err}
+                                </div>
+                              ) : hint ? (
+                                <div className="mono muted" style={{ fontSize: "12px" }}>
+                                  {hint}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        }
+
+                        const selected = typeof cur === "string" ? String(cur) : "";
+                        const is_prompt = pid === "prompt";
+                        return (
+                          <div key={pid} className="field" style={{ marginTop: "10px" }}>
+                            <label>{field_label}</label>
+                            {is_prompt ? (
+                              <textarea
+                                className="mono"
+                                value={selected}
+                                onChange={(e) => update_input_data_field(pid, e.target.value)}
+                                placeholder={has_default ? `(default: ${default_s || "…" })` : "prompt"}
+                                rows={3}
+                                disabled={disabled}
+                              />
+                            ) : (
+                              <input
+                                className="mono"
+                                value={selected}
+                                onChange={(e) => update_input_data_field(pid, e.target.value)}
+                                placeholder={has_default ? `(default: ${default_s || "…" })` : ""}
+                                disabled={disabled}
+                              />
+                            )}
+                            {hint ? (
+                              <div className="mono muted" style={{ fontSize: "12px" }}>
+                                {hint}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                      <div className="mono muted" style={{ fontSize: "12px", marginTop: "10px" }}>
+                        Advanced JSON below is the source of truth for full `input_data`.
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -3526,13 +3938,15 @@ export function App(): React.ReactElement {
                       <div className="mono muted" style={{ fontSize: "12px" }}>
                         One path per line. Relative entries are resolved under workspace_root.
                       </div>
-                    </div>
-                  </details>
+	                    </div>
+	                  </details>
 
-                  <details style={{ marginTop: "10px" }}>
-                    <summary className="mono muted" style={{ cursor: "pointer" }}>
-                      Schedule
-                    </summary>
+	                </details>
+
+	                <details style={{ marginTop: "10px" }}>
+	                    <summary className="mono muted" style={{ cursor: "pointer" }}>
+	                      Schedule
+	                    </summary>
 
                     {(() => {
                       const unit_label = schedule_every_unit === "weeks" ? "week" : schedule_every_unit === "months" ? "month" : schedule_every_unit.slice(0, -1);
@@ -3707,31 +4121,10 @@ export function App(): React.ReactElement {
                       </div>
                     </div>
 
-                    <div className="actions" style={{ justifyContent: "flex-start" }}>
-                      <button
-                        className="btn primary"
-                        onClick={async () => {
-                          set_schedule_error("");
-                          const err = await start_scheduled_run({
-                            start_mode: schedule_start_mode,
-                            start_at_local: schedule_start_at_local,
-                            repeat_mode: schedule_repeat_mode,
-                            every_n: schedule_every_n,
-                            every_unit: schedule_every_unit,
-                            repeat_count: schedule_repeat_count,
-                            repeat_until_date_local: schedule_repeat_until_date_local,
-                            repeat_until_time_local: schedule_repeat_until_time_local,
-                            share_context: schedule_share_context,
-                          });
-                          if (err) set_schedule_error(err);
-                        }}
-                        disabled={schedule_submitting}
-                      >
-                        {schedule_submitting ? "Scheduling…" : "Schedule"}
-                      </button>
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      Tip: set cadence to Once + now for an immediate launch.
                     </div>
                   </details>
-                </details>
               </div>
             </div>
           </div>
@@ -3760,13 +4153,6 @@ export function App(): React.ReactElement {
                   gateway={gateway}
                   selected_run_id={run_id}
                   selected_session_id={session_id_for_run || start_session_id}
-                  onOpenRun={({ run_id: rid, tab }) => {
-                    const run_id2 = String(rid || "").trim();
-                    if (!run_id2) return;
-                    set_page("observe");
-                    set_right_tab(tab || "chat");
-                    void attach_to_run(run_id2);
-                  }}
                 />
               </div>
             )}
