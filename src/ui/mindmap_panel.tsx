@@ -59,6 +59,125 @@ function decode_escaped_whitespace(text: unknown): string {
   return s.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
 }
 
+function strip_markdown_markers(text: string): string {
+  // Keep content but remove common lightweight Markdown markers used in our transcripts.
+  // This is deliberately conservative (best-effort) to avoid unexpected loss.
+  return String(text ?? "").replace(/[*_`~]/g, "");
+}
+
+function normalize_for_match(text: string, opts?: { strip_punct?: boolean }): string {
+  const strip_punct = Boolean(opts?.strip_punct);
+  const s0 = decode_escaped_whitespace(text);
+  let s = strip_markdown_markers(s0)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!strip_punct) return s;
+  // Remove most punctuation to tolerate minor formatting diffs (quotes, dashes, etc).
+  // Unicode property escapes are supported (target ES2020).
+  s = s.replace(/[^\p{L}\p{N}\s]+/gu, "").replace(/\s+/g, " ").trim();
+  return s;
+}
+
+function contains_evidence(text: string, evidence: string): boolean {
+  const needle = String(evidence ?? "").trim();
+  if (!needle) return false;
+  const n = normalize_for_match(needle, { strip_punct: false });
+  if (!n) return false;
+  const hay = normalize_for_match(String(text ?? ""), { strip_punct: false });
+  if (hay.includes(n)) return true;
+  const n2 = normalize_for_match(needle, { strip_punct: true });
+  if (!n2) return false;
+  const hay2 = normalize_for_match(String(text ?? ""), { strip_punct: true });
+  return hay2.includes(n2);
+}
+
+function best_highlight_fragment_from_evidence(evidence: string): string {
+  const e = decode_escaped_whitespace(evidence).trim();
+  if (!e) return "";
+  const candidates: string[] = [];
+
+  // Prefer inner content of formatting markers to avoid crossing Markdown node boundaries.
+  const patterns: RegExp[] = [
+    /`([^`]+)`/g, // code
+    /\*\*([^*]+)\*\*/g, // bold
+    /__([^_]+)__/g, // bold
+    /\*([^*]+)\*/g, // italic
+    /_([^_]+)_/g, // italic
+  ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(e)) !== null) {
+      const inner = String(m[1] ?? "").trim();
+      if (inner) candidates.push(inner);
+    }
+  }
+
+  const pick_longest = (arr: string[]) => arr.sort((a, b) => b.length - a.length || a.localeCompare(b))[0] || "";
+  const best = pick_longest(candidates);
+  if (best && best.length >= 6) return best;
+
+  return strip_markdown_markers(e).replace(/\s+/g, " ").trim();
+}
+
+type ParsedNoteChat = {
+  created_at?: string;
+  messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+};
+
+function parse_note_chat(note: string): ParsedNoteChat | null {
+  const raw = String(note ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!raw) return null;
+  const lines = raw.split("\n");
+
+  let created_at: string | undefined;
+  const preamble: string[] = [];
+  const messages: Array<{ role: "user" | "assistant" | "system"; lines: string[] }> = [];
+  let cur_role: "user" | "assistant" | "system" | null = null;
+  let cur_lines: string[] = [];
+  let saw_marker = false;
+
+  const flush = () => {
+    if (!cur_role) return;
+    const content = cur_lines.join("\n").trim();
+    if (content) messages.push({ role: cur_role, lines: [content] });
+    cur_role = null;
+    cur_lines = [];
+  };
+
+  for (const line of lines) {
+    const created_m = !created_at ? line.match(/^\s*created_at\s*=\s*(.+)\s*$/i) : null;
+    if (created_m && created_m[1]) {
+      created_at = created_m[1].trim();
+      continue;
+    }
+
+    const m = line.match(/^\s*(USER|ASSISTANT|SYSTEM)\s*:\s*(.*)$/i);
+    if (m) {
+      saw_marker = true;
+      flush();
+      const kind = String(m[1] || "").trim().toLowerCase();
+      cur_role = kind === "user" ? "user" : kind === "assistant" ? "assistant" : "system";
+      const rest = String(m[2] ?? "");
+      cur_lines = rest ? [rest] : [];
+      continue;
+    }
+
+    if (cur_role) cur_lines.push(line);
+    else preamble.push(line);
+  }
+  flush();
+
+  if (!saw_marker || !messages.length) return null;
+
+  const pre = preamble.join("\n").trim();
+  const out: ParsedNoteChat = { messages: [] };
+  if (created_at) out.created_at = created_at;
+  if (pre) out.messages.push({ role: "system", content: pre });
+  for (const m of messages) out.messages.push({ role: m.role, content: m.lines.join("\n") });
+  return out.messages.length ? out : null;
+}
+
 function iso_max(a: string, b: string): string {
   const s1 = String(a || "");
   const s2 = String(b || "");
@@ -142,7 +261,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
     const note = source_note;
     const evidence = source_evidence_quote;
     if (!note || !evidence) return false;
-    return note.includes(evidence);
+    return contains_evidence(note, evidence);
   }, [source_evidence_quote, source_note]);
 
   const source_message_matches = useMemo(() => {
@@ -153,7 +272,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
     for (let i = 0; i < Math.min(messages.length, 500); i++) {
       const m = messages[i];
       const content = m?.content == null ? "" : String(m.content);
-      if (content.includes(evidence)) out.push(i);
+      if (contains_evidence(content, evidence)) out.push(i);
     }
     return out;
   }, [source_evidence_quote, source_messages]);
@@ -169,7 +288,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
   }, []);
 
   const scroll_to_source_note = useCallback(() => {
-    const el = document.getElementById("source_note_hit_0");
+    const el = document.getElementById("source_note_hit_0") || document.getElementById("source_note_msg_hit_0");
     if (el && typeof (el as any).scrollIntoView === "function") {
       (el as any).scrollIntoView({ block: "center", behavior: "smooth" });
     }
@@ -890,6 +1009,53 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
                 span_from_ms !== null && span_to_ms !== null ? `${format_utc_minute(span_from_ms)} → ${format_utc_minute(span_to_ms)}` : "";
 
               if (note) {
+                const parsed = parse_note_chat(note);
+                if (parsed) {
+                  const evidence = source_evidence_quote;
+                  const hit_idx = evidence ? parsed.messages.findIndex((m) => contains_evidence(m.content, evidence)) : -1;
+                  const highlight_fragment = evidence ? best_highlight_fragment_from_evidence(evidence) : "";
+                  return (
+                    <div className="source_chat">
+                      {created_at ? (
+                        <div className="mono muted" style={{ marginBottom: 10 }}>
+                          <span title={created_at}>created_at={created_at_display}</span>
+                        </div>
+                      ) : null}
+                      {parsed.created_at ? (
+                        <div className="mono muted" style={{ marginBottom: 10 }}>
+                          transcript_created_at={parsed.created_at}
+                        </div>
+                      ) : null}
+                      {parsed.messages.map((m, idx) => {
+                        const role = m.role;
+                        const is_match = Boolean(evidence && contains_evidence(m.content, evidence));
+                        const role_label = role === "user" ? "USER" : role === "assistant" ? "ASSISTANT" : "SYSTEM";
+                        return (
+                          <div
+                            key={`note_msg:${idx}`}
+                            id={idx === hit_idx ? "source_note_msg_hit_0" : undefined}
+                            className={`source_msg source_${role} ${is_match ? "source_match" : ""}`}
+                          >
+                            <div className="source_msg_meta mono muted">
+                              <span>
+                                #{idx + 1} · {role_label}
+                                {is_match ? <span className="source_match_badge">evidence</span> : null}
+                              </span>
+                            </div>
+                            <div className="source_msg_body">
+                              <Markdown
+                                text={m.content}
+                                highlight={is_match && highlight_fragment ? highlight_fragment : undefined}
+                                highlightClassName="source_note_hit"
+                                highlightId={idx === hit_idx ? "source_note_hit_0" : undefined}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
                 return (
                   <div className="source_note">
                     {created_at ? (
@@ -899,7 +1065,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
                     ) : null}
                     <Markdown
                       text={note}
-                      highlight={source_evidence_quote || undefined}
+                      highlight={source_evidence_quote ? best_highlight_fragment_from_evidence(source_evidence_quote) : undefined}
                       highlightClassName="source_note_hit"
                       highlightId="source_note_hit_0"
                     />

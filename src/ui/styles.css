@@ -1365,6 +1365,7 @@ button.primary:hover:not(:disabled) {
 .source_chat {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 10px;
   max-height: 65vh;
   overflow: auto;
@@ -1376,6 +1377,7 @@ button.primary:hover:not(:disabled) {
   border: 1px solid rgba(255, 255, 255, 0.10);
   background: rgba(0, 0, 0, 0.16);
   padding: 10px;
+  max-width: min(92%, 86ch);
 }
 
 .source_match {
@@ -1401,16 +1403,22 @@ button.primary:hover:not(:disabled) {
 }
 
 .source_user {
+  align-self: flex-end;
   border-color: rgba(96, 165, 250, 0.22);
   background: rgba(96, 165, 250, 0.06);
+  border-bottom-right-radius: 6px;
 }
 
 .source_assistant {
+  align-self: flex-start;
   border-color: rgba(233, 69, 96, 0.22);
   background: rgba(233, 69, 96, 0.06);
+  border-bottom-left-radius: 6px;
 }
 
 .source_system {
+  align-self: stretch;
+  max-width: 100%;
   border-color: rgba(168, 85, 247, 0.22);
   background: rgba(168, 85, 247, 0.06);
 }
