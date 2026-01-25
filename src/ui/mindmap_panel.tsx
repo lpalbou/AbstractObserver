@@ -1040,16 +1040,6 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
                   const bubble_ts = bubble_ts_raw ? format_transcript_timestamp(bubble_ts_raw) : created_at ? created_at_display : "";
                   return (
                     <div className="source_chat">
-                      {created_at ? (
-                        <div className="mono muted" style={{ marginBottom: 10 }}>
-                          <span title={created_at}>created_at={created_at_display}</span>
-                        </div>
-                      ) : null}
-                      {parsed.created_at ? (
-                        <div className="mono muted" style={{ marginBottom: 10 }}>
-                          transcript_created_at={parsed.created_at}
-                        </div>
-                      ) : null}
                       {parsed.messages.map((m, idx) => {
                         const role = m.role;
                         const is_match = Boolean(evidence && contains_evidence(m.content, evidence));
