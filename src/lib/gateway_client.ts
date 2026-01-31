@@ -6,6 +6,65 @@ export type GatewayClientConfig = {
   auth_token?: string;
 };
 
+export type ReportInboxItem = {
+  report_type: "bug" | "feature";
+  filename: string;
+  relpath: string;
+  title: string;
+  created_at?: string;
+  session_id?: string;
+  workflow_id?: string;
+  active_run_id?: string;
+  decision_id?: string;
+  triage_status?: string;
+};
+
+export type ReportInboxListResponse = { items: ReportInboxItem[] };
+
+export type ReportContentResponse = {
+  report_type: "bug" | "feature";
+  filename: string;
+  relpath: string;
+  content: string;
+};
+
+export type TriageDecisionSummary = {
+  decision_id: string;
+  report_type: "bug" | "feature";
+  report_relpath: string;
+  status: "pending" | "approved" | "deferred" | "rejected" | string;
+  created_at?: string;
+  updated_at?: string;
+  defer_until?: string;
+  missing_fields?: string[];
+  duplicates?: Array<{ kind?: string; ref?: string; score?: number; title?: string }>;
+  draft_relpath?: string;
+};
+
+export type TriageDecisionListResponse = { decisions: TriageDecisionSummary[] };
+
+export type TriageRunResponse = {
+  ok: boolean;
+  reports: number;
+  updated_decisions: number;
+  decisions_dir: string;
+  drafts_written: string[];
+};
+
+export type BacklogItemSummary = {
+  kind: "planned" | "completed" | "proposed" | "recurrent";
+  filename: string;
+  item_id: number;
+  package: string;
+  title: string;
+  summary?: string;
+  parsed?: boolean;
+};
+
+export type BacklogListResponse = { items: BacklogItemSummary[] };
+
+export type BacklogContentResponse = { kind: string; filename: string; content: string };
+
 function _join(base_url: string, path: string): string {
   const base = (base_url || "").trim().replace(/\/+$/, "");
   if (!base) return path;
@@ -476,6 +535,219 @@ export class GatewayClient {
       body: JSON.stringify(req_body),
     });
     if (!r.ok) throw new Error(`kg_query failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async list_bug_reports(): Promise<ReportInboxListResponse> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/reports/bugs"), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`list_bug_reports failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async list_feature_requests(): Promise<ReportInboxListResponse> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/reports/features"), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`list_feature_requests failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async get_bug_report_content(filename: string): Promise<ReportContentResponse> {
+    const name = String(filename || "").trim();
+    if (!name) throw new Error("get_bug_report_content: filename is required");
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/reports/bugs/${encodeURIComponent(name)}/content`), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`get_bug_report_content failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async get_feature_request_content(filename: string): Promise<ReportContentResponse> {
+    const name = String(filename || "").trim();
+    if (!name) throw new Error("get_feature_request_content: filename is required");
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/reports/features/${encodeURIComponent(name)}/content`), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`get_feature_request_content failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async triage_run(opts?: { write_drafts?: boolean; enable_llm?: boolean }): Promise<TriageRunResponse> {
+    const body: any = {};
+    if (typeof opts?.write_drafts === "boolean") body.write_drafts = Boolean(opts.write_drafts);
+    if (typeof opts?.enable_llm === "boolean") body.enable_llm = Boolean(opts.enable_llm);
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/triage/run"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`triage_run failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async list_triage_decisions(opts?: { status?: string; limit?: number }): Promise<TriageDecisionListResponse> {
+    const qs = new URLSearchParams();
+    const status = String(opts?.status || "").trim();
+    if (status) qs.set("status", status);
+    const limit = typeof opts?.limit === "number" && Number.isFinite(opts.limit) ? Number(opts.limit) : 200;
+    qs.set("limit", String(limit));
+    const url = _join(this._cfg.base_url, `/api/gateway/triage/decisions?${qs.toString()}`);
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`list_triage_decisions failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async apply_triage_decision(
+    decision_id: string,
+    args: { action: "approve" | "reject" | "defer"; defer_days?: number | null }
+  ): Promise<TriageDecisionSummary> {
+    const did = String(decision_id || "").trim();
+    if (!did) throw new Error("apply_triage_decision: decision_id is required");
+    const action = String(args?.action || "").trim();
+    if (!action) throw new Error("apply_triage_decision: action is required");
+    const body: any = { action };
+    if (action === "defer") {
+      const d = args?.defer_days;
+      if (typeof d === "number" && Number.isFinite(d) && d > 0) body.defer_days = Number(d);
+    }
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/triage/decisions/${encodeURIComponent(did)}/apply`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`apply_triage_decision failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_list(kind: "planned" | "completed" | "proposed" | "recurrent"): Promise<BacklogListResponse> {
+    const k = String(kind || "").trim();
+    if (!k) throw new Error("backlog_list: kind is required");
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/backlog/${encodeURIComponent(k)}`), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`backlog_list failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_content(kind: "planned" | "completed" | "proposed" | "recurrent", filename: string): Promise<BacklogContentResponse> {
+    const k = String(kind || "").trim();
+    const name = String(filename || "").trim();
+    if (!k) throw new Error("backlog_content: kind is required");
+    if (!name) throw new Error("backlog_content: filename is required");
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/backlog/${encodeURIComponent(k)}/${encodeURIComponent(name)}/content`), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`backlog_content failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async bug_report_create(req: {
+    session_id: string;
+    description: string;
+    active_run_id?: string | null;
+    workflow_id?: string | null;
+    client?: string | null;
+    client_version?: string | null;
+    user_agent?: string | null;
+    url?: string | null;
+    provider?: string | null;
+    model?: string | null;
+    template?: string | null;
+    context?: any;
+  }): Promise<any> {
+    const sid = String(req?.session_id || "").trim();
+    if (!sid) throw new Error("bug_report_create: session_id is required");
+    const description = String(req?.description || "").trim();
+    if (!description) throw new Error("bug_report_create: description is required");
+
+    const body: any = { session_id: sid, description };
+
+    const active_run_id = String(req?.active_run_id || "").trim();
+    if (active_run_id) body.active_run_id = active_run_id;
+    const workflow_id = String(req?.workflow_id || "").trim();
+    if (workflow_id) body.workflow_id = workflow_id;
+
+    const client = String(req?.client || "").trim();
+    if (client) body.client = client;
+    const client_version = String(req?.client_version || "").trim();
+    if (client_version) body.client_version = client_version;
+    const user_agent = String(req?.user_agent || "").trim();
+    if (user_agent) body.user_agent = user_agent;
+    const url = String(req?.url || "").trim();
+    if (url) body.url = url;
+
+    const provider = String(req?.provider || "").trim();
+    if (provider) body.provider = provider;
+    const model = String(req?.model || "").trim();
+    if (model) body.model = model;
+    const template = String(req?.template || "").trim();
+    if (template) body.template = template;
+
+    const context = req?.context;
+    if (context && typeof context === "object") body.context = context;
+
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/bugs/report"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`bug_report_create failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async feature_report_create(req: {
+    session_id: string;
+    description: string;
+    active_run_id?: string | null;
+    workflow_id?: string | null;
+    client?: string | null;
+    client_version?: string | null;
+    user_agent?: string | null;
+    url?: string | null;
+    provider?: string | null;
+    model?: string | null;
+    template?: string | null;
+    context?: any;
+  }): Promise<any> {
+    const sid = String(req?.session_id || "").trim();
+    if (!sid) throw new Error("feature_report_create: session_id is required");
+    const description = String(req?.description || "").trim();
+    if (!description) throw new Error("feature_report_create: description is required");
+
+    const body: any = { session_id: sid, description };
+
+    const active_run_id = String(req?.active_run_id || "").trim();
+    if (active_run_id) body.active_run_id = active_run_id;
+    const workflow_id = String(req?.workflow_id || "").trim();
+    if (workflow_id) body.workflow_id = workflow_id;
+
+    const client = String(req?.client || "").trim();
+    if (client) body.client = client;
+    const client_version = String(req?.client_version || "").trim();
+    if (client_version) body.client_version = client_version;
+    const user_agent = String(req?.user_agent || "").trim();
+    if (user_agent) body.user_agent = user_agent;
+    const url = String(req?.url || "").trim();
+    if (url) body.url = url;
+
+    const provider = String(req?.provider || "").trim();
+    if (provider) body.provider = provider;
+    const model = String(req?.model || "").trim();
+    if (model) body.model = model;
+    const template = String(req?.template || "").trim();
+    if (template) body.template = template;
+
+    const context = req?.context;
+    if (context && typeof context === "object") body.context = context;
+
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/features/report"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`feature_report_create failed: ${await _read_error(r)}`);
     return await r.json();
   }
 

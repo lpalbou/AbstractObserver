@@ -11,9 +11,11 @@ import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_rec
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
 import { FlowGraph } from "./flow_graph";
 import { JsonViewer } from "./json_viewer";
+import { BacklogBrowserPage } from "./backlog_browser";
 import { MindmapPanel } from "./mindmap_panel";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
+import { ReportInboxPage } from "./report_inbox";
 import { RunPicker, type RunSummary } from "./run_picker";
 
 type Settings = {
@@ -479,7 +481,7 @@ function getOrCreateStableSessionId(): string {
 }
 
 export function App(): React.ReactElement {
-  const [page, set_page] = useState<"launch" | "observe" | "mindmap" | "settings">("observe");
+  const [page, set_page] = useState<"observe" | "launch" | "mindmap" | "backlog" | "inbox" | "settings">("observe");
 
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
@@ -3278,14 +3280,20 @@ export function App(): React.ReactElement {
           <span>AbstractObserver</span>
         </div>
         <div className="app_nav">
-          <button className={`nav_tab ${page === "launch" ? "active" : ""}`} onClick={() => set_page("launch")}>
-            Launch
-          </button>
           <button className={`nav_tab ${page === "observe" ? "active" : ""}`} onClick={() => set_page("observe")}>
             Observe
           </button>
+          <button className={`nav_tab ${page === "launch" ? "active" : ""}`} onClick={() => set_page("launch")}>
+            Launch
+          </button>
           <button className={`nav_tab ${page === "mindmap" ? "active" : ""}`} onClick={() => set_page("mindmap")}>
             Mindmap
+          </button>
+          <button className={`nav_tab ${page === "backlog" ? "active" : ""}`} onClick={() => set_page("backlog")}>
+            Backlog
+          </button>
+          <button className={`nav_tab ${page === "inbox" ? "active" : ""}`} onClick={() => set_page("inbox")}>
+            Inbox
           </button>
           <button className={`nav_tab ${page === "settings" ? "active" : ""}`} onClick={() => set_page("settings")}>
             Settings
@@ -4128,6 +4136,18 @@ export function App(): React.ReactElement {
               </div>
             </div>
           </div>
+        ) : null}
+
+        {page === "backlog" ? <BacklogBrowserPage gateway={gateway} gateway_connected={gateway_connected} /> : null}
+
+        {page === "inbox" ? (
+          <ReportInboxPage
+            gateway={gateway}
+            gateway_connected={gateway_connected}
+            default_session_id={session_id_for_run || run_id || start_session_id}
+            default_active_run_id={run_id}
+            default_workflow_id={(run_state as any)?.workflow_id ?? selected_run_summary?.workflow_id ?? null}
+          />
         ) : null}
 
         {page === "mindmap" ? (
