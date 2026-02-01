@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 
 import "reactflow/dist/style.css";
 
+import "@abstractuic/ui-kit/theme.css";
+
 import { App } from "./ui/app";
 import "./ui/styles.css";
 

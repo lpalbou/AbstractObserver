@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractuic/monitor-flow";
 import { ChatMessageContent, Markdown, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
+import { applyTheme, THEMES } from "@abstractuic/ui-kit";
 import { registerMonitorGpuWidget } from "@abstractutils/monitor-gpu";
 
 import { GatewayClient } from "../lib/gateway_client";
@@ -352,31 +353,6 @@ function save_settings(s: Settings): void {
   localStorage.setItem("abstractobserver_settings", JSON.stringify(s));
 }
 
-const THEMES: Array<{ id: string; label: string }> = [
-  { id: "dark", label: "Dark (Abstract)" },
-  { id: "light", label: "Light" },
-  { id: "nord", label: "Nord" },
-  { id: "dracula", label: "Dracula" },
-  { id: "gruvbox", label: "Gruvbox" },
-  { id: "monokai", label: "Monokai" },
-  { id: "solarized-dark", label: "Solarized Dark" },
-  { id: "solarized-light", label: "Solarized Light" },
-  { id: "tokyo-night", label: "Tokyo Night" },
-  { id: "catppuccin-mocha", label: "Catppuccin Mocha" },
-];
-
-function apply_theme(theme_id: string): void {
-  try {
-    const root = document.documentElement;
-    const current = new Set(Array.from(root.classList).filter((c) => c.startsWith("theme-")));
-    for (const c of current) root.classList.remove(c);
-    const id = String(theme_id || "").trim() || "dark";
-    root.classList.add(`theme-${id}`);
-  } catch {
-    // ignore
-  }
-}
-
 function format_step_summary(rec: StepRecord): string {
   const node = String(rec?.node_id || "");
   const st = String(rec?.status || "");
@@ -713,7 +689,7 @@ export function App(): React.ReactElement {
   }, [settings]);
 
   useEffect(() => {
-    apply_theme(settings.theme);
+    applyTheme(settings.theme);
   }, [settings.theme]);
 
   useEffect(() => {

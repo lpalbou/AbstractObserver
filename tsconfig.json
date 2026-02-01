@@ -22,6 +22,8 @@
       "@abstractuic/monitor-flow/*": ["../abstractuic/monitor-flow/src/*"],
       "@abstractuic/panel-chat": ["../abstractuic/panel-chat/src/index.ts"],
       "@abstractuic/panel-chat/*": ["../abstractuic/panel-chat/src/*"],
+      "@abstractuic/ui-kit": ["../abstractuic/ui-kit/src/index.ts"],
+      "@abstractuic/ui-kit/*": ["../abstractuic/ui-kit/src/*"],
       "@abstractutils/monitor-gpu": ["../abstractuic/monitor-gpu/src/index.d.ts"],
       "reactflow": ["./node_modules/reactflow/dist/esm/index.d.ts"],
       "reactflow/*": ["./node_modules/reactflow/*"],

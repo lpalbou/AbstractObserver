@@ -1,7 +1,5 @@
 /* AbstractObserver - Visual style aligned with AbstractFlow */
 
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap');
-
 /* Reset (match AbstractFlow) */
 *,
 *::before,
@@ -9,196 +7,6 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-}
-
-/* Variables (match AbstractFlow names + keep compatibility aliases) */
-:root {
-  color-scheme: dark;
-
-  /* AbstractFlow tokens */
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-tertiary: #0f3460;
-  --text-primary: #eee;
-  --text-secondary: #aaa;
-  --text-muted: #666;
-  --accent: #e94560;
-  --success: #27ae60;
-  --warning: #f39c12;
-  --error: #e74c3c;
-
-  /* Small UI surfaces (overridable by themes) */
-  --ui-overlay-bg: rgba(0, 0, 0, 0.18);
-  --ui-overlay-bg-hover: rgba(255, 255, 255, 0.08);
-  --ui-overlay-border: rgba(255, 255, 255, 0.14);
-  --ui-pill-bg: rgba(0, 0, 0, 0.22);
-  --ui-pill-border: rgba(255, 255, 255, 0.12);
-
-  --header-height: 48px;
-  --footer-height: 32px;
-  --sidebar-width: 360px;
-
-  --font-mono: 'Fira Code', 'Consolas', monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-
-  /* Compatibility aliases used by existing Observer CSS */
-  --bg: var(--bg-primary);
-  --bg-surface: var(--bg-secondary);
-  --bg-elevated: var(--bg-tertiary);
-  --bg-card: rgba(22, 33, 62, 0.88);
-  --panel: var(--bg-secondary);
-  --panel2: var(--bg-tertiary);
-  --text: var(--text-primary);
-  --muted: var(--text-secondary);
-  --danger: var(--error);
-  --ok: var(--success);
-
-  /* Observer reuses `--border` widely; make it feel like AbstractFlow (uses --bg-tertiary as the main stroke). */
-  --border: var(--bg-tertiary);
-  --border-default: rgba(255, 255, 255, 0.12);
-  --border-accent: rgba(233, 69, 96, 0.55);
-
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-}
-
-:root.theme-light,
-:root.theme-solarized-light {
-  color-scheme: light;
-}
-
-:root.theme-light {
-  --bg-primary: #f7f7fb;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #e6e8f0;
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
-  --accent: #e94560;
-  --success: #16a34a;
-  --warning: #d97706;
-  --error: #dc2626;
-  --bg-card: rgba(255, 255, 255, 0.9);
-  --border-default: rgba(15, 23, 42, 0.12);
-  --border-accent: rgba(233, 69, 96, 0.45);
-  --ui-overlay-bg: rgba(15, 23, 42, 0.04);
-  --ui-overlay-bg-hover: rgba(15, 23, 42, 0.06);
-  --ui-overlay-border: rgba(15, 23, 42, 0.12);
-  --ui-pill-bg: rgba(15, 23, 42, 0.04);
-  --ui-pill-border: rgba(15, 23, 42, 0.12);
-}
-
-:root.theme-nord {
-  --bg-primary: #2e3440;
-  --bg-secondary: #3b4252;
-  --bg-tertiary: #434c5e;
-  --text-primary: #eceff4;
-  --text-secondary: #d8dee9;
-  --text-muted: #81a1c1;
-  --accent: #88c0d0;
-  --success: #a3be8c;
-  --warning: #ebcb8b;
-  --error: #bf616a;
-}
-
-:root.theme-dracula {
-  --bg-primary: #282a36;
-  --bg-secondary: #343746;
-  --bg-tertiary: #44475a;
-  --text-primary: #f8f8f2;
-  --text-secondary: #d4d4de;
-  --text-muted: #6272a4;
-  --accent: #ff79c6;
-  --success: #50fa7b;
-  --warning: #f1fa8c;
-  --error: #ff5555;
-}
-
-:root.theme-gruvbox {
-  --bg-primary: #282828;
-  --bg-secondary: #3c3836;
-  --bg-tertiary: #504945;
-  --text-primary: #ebdbb2;
-  --text-secondary: #d5c4a1;
-  --text-muted: #928374;
-  --accent: #fe8019;
-  --success: #b8bb26;
-  --warning: #fabd2f;
-  --error: #fb4934;
-}
-
-:root.theme-monokai {
-  --bg-primary: #272822;
-  --bg-secondary: #2d2e27;
-  --bg-tertiary: #3e3d32;
-  --text-primary: #f8f8f2;
-  --text-secondary: #e2e2dc;
-  --text-muted: #75715e;
-  --accent: #66d9ef;
-  --success: #a6e22e;
-  --warning: #e6db74;
-  --error: #f92672;
-}
-
-:root.theme-solarized-dark {
-  --bg-primary: #002b36;
-  --bg-secondary: #073642;
-  --bg-tertiary: #0b4b5a;
-  --text-primary: #eee8d5;
-  --text-secondary: #93a1a1;
-  --text-muted: #657b83;
-  --accent: #268bd2;
-  --success: #859900;
-  --warning: #b58900;
-  --error: #dc322f;
-}
-
-:root.theme-solarized-light {
-  --bg-primary: #fdf6e3;
-  --bg-secondary: #eee8d5;
-  --bg-tertiary: #e3ddc9;
-  --text-primary: #073642;
-  --text-secondary: #586e75;
-  --text-muted: #657b83;
-  --accent: #268bd2;
-  --success: #859900;
-  --warning: #b58900;
-  --error: #dc322f;
-  --bg-card: rgba(255, 255, 255, 0.88);
-  --border-default: rgba(7, 54, 66, 0.18);
-  --border-accent: rgba(38, 139, 210, 0.35);
-  --ui-overlay-bg: rgba(7, 54, 66, 0.04);
-  --ui-overlay-bg-hover: rgba(7, 54, 66, 0.06);
-  --ui-overlay-border: rgba(7, 54, 66, 0.14);
-  --ui-pill-bg: rgba(7, 54, 66, 0.04);
-  --ui-pill-border: rgba(7, 54, 66, 0.14);
-}
-
-:root.theme-tokyo-night {
-  --bg-primary: #1a1b26;
-  --bg-secondary: #24283b;
-  --bg-tertiary: #414868;
-  --text-primary: #c0caf5;
-  --text-secondary: #a9b1d6;
-  --text-muted: #565f89;
-  --accent: #7aa2f7;
-  --success: #9ece6a;
-  --warning: #e0af68;
-  --error: #f7768e;
-}
-
-:root.theme-catppuccin-mocha {
-  --bg-primary: #1e1e2e;
-  --bg-secondary: #181825;
-  --bg-tertiary: #313244;
-  --text-primary: #cdd6f4;
-  --text-secondary: #bac2de;
-  --text-muted: #6c7086;
-  --accent: #cba6f7;
-  --success: #a6e3a1;
-  --warning: #f9e2af;
-  --error: #f38ba8;
 }
 
 html,
@@ -516,8 +324,8 @@ button.primary:hover:not(:disabled) {
   appearance: none;
   text-align: left;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid var(--ui-border-1, rgba(255, 255, 255, 0.10));
+  background: var(--ui-surface-1, rgba(0, 0, 0, 0.16));
   padding: 10px;
   cursor: pointer;
   transition:
@@ -527,13 +335,13 @@ button.primary:hover:not(:disabled) {
 }
 
 .inbox_item:hover {
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--ui-border-2, rgba(255, 255, 255, 0.18));
+  background: var(--ui-surface-2, rgba(255, 255, 255, 0.06));
 }
 
 .inbox_item.active {
-  border-color: rgba(96, 165, 250, 0.32);
-  background: rgba(96, 165, 250, 0.08);
+  border-color: var(--info-border, rgba(96, 165, 250, 0.32));
+  background: var(--info-subtle, rgba(96, 165, 250, 0.12));
 }
 
 .inbox_item_title {
@@ -541,8 +349,22 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.item_title_text {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  letter-spacing: 0.1px;
+}
+
+.item_summary_text {
+  margin-top: 6px;
   font-size: 12px;
-  line-height: 1.25;
+  line-height: 1.35;
+  color: var(--text-secondary);
 }
 
 .inbox_item_meta {
@@ -603,9 +425,9 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   border-radius: 999px;
   padding: 2px 8px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(148, 163, 184, 0.12);
-  color: rgba(226, 232, 240, 0.92);
+  border: 1px solid var(--muted-border, rgba(148, 163, 184, 0.22));
+  background: var(--ui-chip-bg, rgba(148, 163, 184, 0.10));
+  color: var(--ui-chip-text, rgba(226, 232, 240, 0.92));
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.2px;
@@ -614,31 +436,31 @@ button.primary:hover:not(:disabled) {
 }
 
 .pill.pending {
-  border-color: rgba(245, 158, 11, 0.35);
-  background: rgba(245, 158, 11, 0.12);
-  color: rgba(245, 158, 11, 0.96);
+  border-color: var(--warning-border, rgba(245, 158, 11, 0.35));
+  background: var(--warning-subtle, rgba(245, 158, 11, 0.12));
+  color: var(--warning, rgba(245, 158, 11, 0.96));
 }
 
 .pill.approved {
-  border-color: rgba(34, 197, 94, 0.35);
-  background: rgba(34, 197, 94, 0.12);
-  color: rgba(34, 197, 94, 0.96);
+  border-color: var(--success-border, rgba(34, 197, 94, 0.35));
+  background: var(--success-subtle, rgba(34, 197, 94, 0.12));
+  color: var(--success, rgba(34, 197, 94, 0.96));
 }
 
 .pill.rejected {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.12);
-  color: rgba(239, 68, 68, 0.96);
+  border-color: var(--error-border, rgba(239, 68, 68, 0.35));
+  background: var(--error-subtle, rgba(239, 68, 68, 0.12));
+  color: var(--error, rgba(239, 68, 68, 0.96));
 }
 
 .pill.deferred {
-  border-color: rgba(96, 165, 250, 0.35);
-  background: rgba(96, 165, 250, 0.12);
-  color: rgba(96, 165, 250, 0.96);
+  border-color: var(--info-border, rgba(96, 165, 250, 0.35));
+  background: var(--info-subtle, rgba(96, 165, 250, 0.12));
+  color: var(--info, rgba(96, 165, 250, 0.96));
 }
 
 .pill.unparsed {
-  border-color: rgba(148, 163, 184, 0.28);
+  border-color: var(--muted-border, rgba(148, 163, 184, 0.28));
   background: rgba(148, 163, 184, 0.10);
   color: rgba(148, 163, 184, 0.95);
 }
@@ -750,8 +572,16 @@ button.primary:hover:not(:disabled) {
 }
 
 .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ui-chip-border, var(--border-default));
+  background: var(--ui-chip-bg, rgba(0, 0, 0, 0.22));
+  color: var(--ui-chip-text, var(--text-secondary));
   font-size: 10px;
-  color: var(--muted);
+  font-weight: 600;
   font-family: var(--font-mono);
 }
 
@@ -1000,9 +830,9 @@ button.primary:hover:not(:disabled) {
   gap: 3px;
   padding: 2px 7px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-  color: var(--text-primary);
+  border: 1px solid var(--ui-chip-border, var(--border-default));
+  background: var(--ui-chip-bg, rgba(0, 0, 0, 0.22));
+  color: var(--ui-chip-text, var(--text-primary));
   font-size: 10px;
   font-weight: 600;
 }
@@ -1012,27 +842,27 @@ button.primary:hover:not(:disabled) {
 }
 
 .chip.danger {
-  border-color: transparent;
-  background: var(--danger);
-  color: #fff;
+  border-color: var(--error-border, rgba(239, 68, 68, 0.35));
+  background: var(--error-subtle, rgba(239, 68, 68, 0.12));
+  color: var(--error);
 }
 
 .chip.ok {
-  border-color: transparent;
-  background: var(--ok);
-  color: #fff;
+  border-color: var(--success-border, rgba(34, 197, 94, 0.35));
+  background: var(--success-subtle, rgba(34, 197, 94, 0.12));
+  color: var(--success);
 }
 
 .chip.warn {
-  border-color: transparent;
-  background: var(--warning);
-  color: #000;
+  border-color: var(--warning-border, rgba(245, 158, 11, 0.35));
+  background: var(--warning-subtle, rgba(245, 158, 11, 0.12));
+  color: var(--warning);
 }
 
 .chip.info {
-  border-color: transparent;
-  background: var(--accent);
-  color: var(--text-primary);
+  border-color: var(--info-border, rgba(96, 165, 250, 0.35));
+  background: var(--info-subtle, rgba(96, 165, 250, 0.12));
+  color: var(--info);
 }
 
 .chip.scheduled {

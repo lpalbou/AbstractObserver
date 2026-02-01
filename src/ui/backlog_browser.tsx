@@ -1220,15 +1220,16 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                   filtered_exec_requests.map((r) => {
                     const active = exec_selected?.request_id === r.request_id;
                     const st = String(r.status || "").trim().toLowerCase();
-                    const bg =
-                      st === "running"
-                        ? "rgba(34, 197, 94, 0.18)"
-                        : st === "queued"
-                          ? "rgba(234, 179, 8, 0.16)"
-                          : st === "failed"
-                            ? "rgba(239, 68, 68, 0.18)"
-                            : "rgba(148, 163, 184, 0.12)";
-                    const fg = st === "failed" ? "rgba(239, 68, 68, 0.95)" : "rgba(226, 232, 240, 0.95)";
+                    const status_chip =
+                      st === "completed"
+                        ? "ok"
+                        : st === "failed"
+                          ? "danger"
+                          : st === "running"
+                            ? "info"
+                            : st === "queued"
+                              ? "warn"
+                              : "muted";
                     return (
                       <button
                         key={`exec:${r.request_id}`}
@@ -1236,10 +1237,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                         onClick={() => void load_exec_request(r)}
                       >
                         <div className="inbox_item_title">
-                          <span className="pill" style={{ background: bg, color: fg, borderColor: "rgba(255,255,255,0.08)" }}>
-                            {st || "unknown"}
-                          </span>
-                          <span className="mono">{short_id(r.backlog_filename || r.backlog_relpath || "request", 56)}</span>
+                          <span className={`chip ${status_chip} mono`}>{st || "unknown"}</span>
+                          <span className="item_title_text">{short_id(r.backlog_filename || r.backlog_relpath || "request", 56)}</span>
                         </div>
                         <div className="inbox_item_meta mono muted">{short_id(r.request_id, 80)}</div>
                         {r.error ? <div className="inbox_item_meta mono" style={{ color: "rgba(239, 68, 68, 0.9)" }}>{short_id(r.error, 180)}</div> : null}
@@ -1259,12 +1258,12 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     <button key={`${kind}:${it.filename}`} className={`inbox_item ${active ? "active" : ""}`} onClick={() => void load_item(it)}>
                       <div className="inbox_item_title">
                         {!parsed ? <span className="pill unparsed">unparsed</span> : null}
-                        {it.item_id ? <span className="mono">#{it.item_id}</span> : null}
-                        {it.package ? <span className="mono muted">{it.package}</span> : null}
-                        <span className="mono">{short_id(it.title || it.filename, 56)}</span>
+                        {it.item_id ? <span className="chip info mono">#{it.item_id}</span> : null}
+                        {it.package ? <span className="chip muted mono">{it.package}</span> : null}
+                        <span className="item_title_text">{short_id(it.title || it.filename, 56)}</span>
                       </div>
-                      {it.summary ? <div className="inbox_item_meta mono muted">{short_id(it.summary, 160)}</div> : null}
-                      <div className="inbox_item_meta mono">{it.filename}</div>
+                      {it.summary ? <div className="item_summary_text">{short_id(it.summary, 220)}</div> : null}
+                      <div className="inbox_item_meta mono muted">{it.filename}</div>
                     </button>
                   );
                 })
