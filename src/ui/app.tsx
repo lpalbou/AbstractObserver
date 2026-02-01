@@ -23,6 +23,8 @@ type Settings = {
   auth_token: string;
   worker_url: string;
   worker_token: string;
+  theme: string;
+  auto_connect_gateway: boolean;
 };
 
 type UiLogItem = {
@@ -338,14 +340,41 @@ function load_settings(): Settings {
       auth_token: String(parsed?.auth_token || ""),
       worker_url: String(parsed?.worker_url || ""),
       worker_token: String(parsed?.worker_token || ""),
+      theme: String(parsed?.theme || "dark"),
+      auto_connect_gateway: parsed?.auto_connect_gateway === false ? false : true,
     };
   } catch {
-    return { gateway_url: "", auth_token: "", worker_url: "", worker_token: "" };
+    return { gateway_url: "", auth_token: "", worker_url: "", worker_token: "", theme: "dark", auto_connect_gateway: true };
   }
 }
 
 function save_settings(s: Settings): void {
   localStorage.setItem("abstractobserver_settings", JSON.stringify(s));
+}
+
+const THEMES: Array<{ id: string; label: string }> = [
+  { id: "dark", label: "Dark (Abstract)" },
+  { id: "light", label: "Light" },
+  { id: "nord", label: "Nord" },
+  { id: "dracula", label: "Dracula" },
+  { id: "gruvbox", label: "Gruvbox" },
+  { id: "monokai", label: "Monokai" },
+  { id: "solarized-dark", label: "Solarized Dark" },
+  { id: "solarized-light", label: "Solarized Light" },
+  { id: "tokyo-night", label: "Tokyo Night" },
+  { id: "catppuccin-mocha", label: "Catppuccin Mocha" },
+];
+
+function apply_theme(theme_id: string): void {
+  try {
+    const root = document.documentElement;
+    const current = new Set(Array.from(root.classList).filter((c) => c.startsWith("theme-")));
+    for (const c of current) root.classList.remove(c);
+    const id = String(theme_id || "").trim() || "dark";
+    root.classList.add(`theme-${id}`);
+  } catch {
+    // ignore
+  }
 }
 
 function format_step_summary(rec: StepRecord): string {
@@ -684,6 +713,10 @@ export function App(): React.ReactElement {
   }, [settings]);
 
   useEffect(() => {
+    apply_theme(settings.theme);
+  }, [settings.theme]);
+
+  useEffect(() => {
     return () => {
       if (abort_ref.current) abort_ref.current.abort();
       if (child_abort_ref.current) child_abort_ref.current.abort();
@@ -693,6 +726,13 @@ export function App(): React.ReactElement {
       if (dismiss_timer_ref.current) window.clearTimeout(dismiss_timer_ref.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!settings.auto_connect_gateway) return;
+    if (!settings.gateway_url.trim() && typeof window !== "undefined" && !window.location?.origin) return;
+    void on_discover_gateway();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.auto_connect_gateway]);
 
   const input_data_obj: Record<string, any> | null = useMemo(() => {
     const raw = input_data_text.trim();
@@ -3299,15 +3339,18 @@ export function App(): React.ReactElement {
             Settings
           </button>
         </div>
-        <div className="header_spacer" />
         <div className="status_pills">
           <span className={`status_pill ${gateway_connected ? "ok" : discovery_loading ? "warn" : "muted"}`}>
             gateway {gateway_connected ? "ok" : discovery_loading ? "…" : "off"}
           </span>
-          <span className={`status_pill ${connected ? "ok" : connecting ? "warn" : "muted"}`}>
-            run {connected ? "ok" : connecting ? "…" : "off"}
-          </span>
-          <span className="status_pill muted">cursor {cursor}</span>
+          {page === "observe" ? (
+            <>
+              <span className={`status_pill ${connected ? "ok" : connecting ? "warn" : "muted"}`}>
+                run {connected ? "ok" : connecting ? "…" : "off"}
+              </span>
+              <span className="status_pill muted">cursor {cursor}</span>
+            </>
+          ) : null}
           {monitor_gpu_enabled ? (
             <monitor-gpu
               ref={monitor_gpu_ref as any}
@@ -3341,6 +3384,21 @@ export function App(): React.ReactElement {
                   <h1>Settings</h1>
                 </div>
 
+                <div className="section_title">Appearance</div>
+                <div className="field">
+                  <label>Theme</label>
+                  <select value={settings.theme} onChange={(e) => set_settings((s) => ({ ...s, theme: e.target.value }))}>
+                    {THEMES.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                    Stored locally in this browser (no server round-trip).
+                  </div>
+                </div>
+
                 <div className="section_title">Gateway</div>
                 <div className="field">
                   <label>Gateway URL (blank = same origin / dev proxy)</label>
@@ -3359,6 +3417,16 @@ export function App(): React.ReactElement {
                       {discovery_error}
                     </div>
                   ) : null}
+                </div>
+                <div className="field">
+                  <label>Auto-connect to gateway on load</label>
+                  <select
+                    value={settings.auto_connect_gateway ? "on" : "off"}
+                    onChange={(e) => set_settings((s) => ({ ...s, auto_connect_gateway: e.target.value === "on" }))}
+                  >
+                    <option value="on">On</option>
+                    <option value="off">Off</option>
+                  </select>
                 </div>
                 <div className="field">
                   <label>Gateway token (Authorization: Bearer …)</label>

@@ -27,6 +27,13 @@
   --warning: #f39c12;
   --error: #e74c3c;
 
+  /* Small UI surfaces (overridable by themes) */
+  --ui-overlay-bg: rgba(0, 0, 0, 0.18);
+  --ui-overlay-bg-hover: rgba(255, 255, 255, 0.08);
+  --ui-overlay-border: rgba(255, 255, 255, 0.14);
+  --ui-pill-bg: rgba(0, 0, 0, 0.22);
+  --ui-pill-border: rgba(255, 255, 255, 0.12);
+
   --header-height: 48px;
   --footer-height: 32px;
   --sidebar-width: 360px;
@@ -54,6 +61,144 @@
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 10px;
+}
+
+:root.theme-light,
+:root.theme-solarized-light {
+  color-scheme: light;
+}
+
+:root.theme-light {
+  --bg-primary: #f7f7fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e6e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --accent: #e94560;
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+  --bg-card: rgba(255, 255, 255, 0.9);
+  --border-default: rgba(15, 23, 42, 0.12);
+  --border-accent: rgba(233, 69, 96, 0.45);
+  --ui-overlay-bg: rgba(15, 23, 42, 0.04);
+  --ui-overlay-bg-hover: rgba(15, 23, 42, 0.06);
+  --ui-overlay-border: rgba(15, 23, 42, 0.12);
+  --ui-pill-bg: rgba(15, 23, 42, 0.04);
+  --ui-pill-border: rgba(15, 23, 42, 0.12);
+}
+
+:root.theme-nord {
+  --bg-primary: #2e3440;
+  --bg-secondary: #3b4252;
+  --bg-tertiary: #434c5e;
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --text-muted: #81a1c1;
+  --accent: #88c0d0;
+  --success: #a3be8c;
+  --warning: #ebcb8b;
+  --error: #bf616a;
+}
+
+:root.theme-dracula {
+  --bg-primary: #282a36;
+  --bg-secondary: #343746;
+  --bg-tertiary: #44475a;
+  --text-primary: #f8f8f2;
+  --text-secondary: #d4d4de;
+  --text-muted: #6272a4;
+  --accent: #ff79c6;
+  --success: #50fa7b;
+  --warning: #f1fa8c;
+  --error: #ff5555;
+}
+
+:root.theme-gruvbox {
+  --bg-primary: #282828;
+  --bg-secondary: #3c3836;
+  --bg-tertiary: #504945;
+  --text-primary: #ebdbb2;
+  --text-secondary: #d5c4a1;
+  --text-muted: #928374;
+  --accent: #fe8019;
+  --success: #b8bb26;
+  --warning: #fabd2f;
+  --error: #fb4934;
+}
+
+:root.theme-monokai {
+  --bg-primary: #272822;
+  --bg-secondary: #2d2e27;
+  --bg-tertiary: #3e3d32;
+  --text-primary: #f8f8f2;
+  --text-secondary: #e2e2dc;
+  --text-muted: #75715e;
+  --accent: #66d9ef;
+  --success: #a6e22e;
+  --warning: #e6db74;
+  --error: #f92672;
+}
+
+:root.theme-solarized-dark {
+  --bg-primary: #002b36;
+  --bg-secondary: #073642;
+  --bg-tertiary: #0b4b5a;
+  --text-primary: #eee8d5;
+  --text-secondary: #93a1a1;
+  --text-muted: #657b83;
+  --accent: #268bd2;
+  --success: #859900;
+  --warning: #b58900;
+  --error: #dc322f;
+}
+
+:root.theme-solarized-light {
+  --bg-primary: #fdf6e3;
+  --bg-secondary: #eee8d5;
+  --bg-tertiary: #e3ddc9;
+  --text-primary: #073642;
+  --text-secondary: #586e75;
+  --text-muted: #657b83;
+  --accent: #268bd2;
+  --success: #859900;
+  --warning: #b58900;
+  --error: #dc322f;
+  --bg-card: rgba(255, 255, 255, 0.88);
+  --border-default: rgba(7, 54, 66, 0.18);
+  --border-accent: rgba(38, 139, 210, 0.35);
+  --ui-overlay-bg: rgba(7, 54, 66, 0.04);
+  --ui-overlay-bg-hover: rgba(7, 54, 66, 0.06);
+  --ui-overlay-border: rgba(7, 54, 66, 0.14);
+  --ui-pill-bg: rgba(7, 54, 66, 0.04);
+  --ui-pill-border: rgba(7, 54, 66, 0.14);
+}
+
+:root.theme-tokyo-night {
+  --bg-primary: #1a1b26;
+  --bg-secondary: #24283b;
+  --bg-tertiary: #414868;
+  --text-primary: #c0caf5;
+  --text-secondary: #a9b1d6;
+  --text-muted: #565f89;
+  --accent: #7aa2f7;
+  --success: #9ece6a;
+  --warning: #e0af68;
+  --error: #f7768e;
+}
+
+:root.theme-catppuccin-mocha {
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #181825;
+  --bg-tertiary: #313244;
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #6c7086;
+  --accent: #cba6f7;
+  --success: #a6e3a1;
+  --warning: #f9e2af;
+  --error: #f38ba8;
 }
 
 html,
@@ -182,13 +327,15 @@ button.primary:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  justify-content: center;
+  min-width: 0;
 }
 
 .nav_tab {
   appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--ui-overlay-border);
+  background: var(--ui-overlay-bg);
   color: var(--text-secondary);
   border-radius: 999px;
   padding: 6px 10px;
@@ -202,7 +349,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .nav_tab:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ui-overlay-bg-hover);
   color: var(--text-primary);
 }
 
@@ -245,8 +392,8 @@ button.primary:hover:not(:disabled) {
   gap: 6px;
   padding: 5px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--ui-pill-border);
+  background: var(--ui-pill-bg);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1;

@@ -52,7 +52,7 @@ export type TriageRunResponse = {
 };
 
 export type BacklogItemSummary = {
-  kind: "planned" | "completed" | "proposed" | "recurrent";
+  kind: "planned" | "completed" | "proposed" | "recurrent" | "deprecated" | "trash";
   filename: string;
   item_id: number;
   package: string;
@@ -64,6 +64,66 @@ export type BacklogItemSummary = {
 export type BacklogListResponse = { items: BacklogItemSummary[] };
 
 export type BacklogContentResponse = { kind: string; filename: string; content: string };
+
+export type BacklogTemplateResponse = { ok: boolean; relpath: string; sha256: string; content: string };
+
+export type BacklogMoveResponse = {
+  ok: boolean;
+  from_kind: string;
+  to_kind: string;
+  filename: string;
+  from_relpath: string;
+  to_relpath: string;
+};
+
+export type BacklogUpdateResponse = { ok: boolean; kind: string; filename: string; sha256: string; bytes_written: number };
+
+export type BacklogCreateResponse = { ok: boolean; kind: string; filename: string; relpath: string; item_id: number; sha256: string };
+
+export type BacklogExecuteResponse = { ok: boolean; request_id: string; request_relpath: string; prompt: string };
+
+export type BacklogAssistResponse = { ok: boolean; reply: string; draft_markdown: string };
+
+export type BacklogExecConfigResponse = {
+  ok: boolean;
+  runner_enabled: boolean;
+  runner_alive?: boolean;
+  runner_error?: string | null;
+  can_execute: boolean;
+  executor: string;
+  notify?: boolean;
+  codex_bin?: string | null;
+  codex_model?: string | null;
+  codex_available?: boolean | null;
+};
+
+export type BacklogExecRequestSummary = {
+  request_id: string;
+  status: string;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  backlog_relpath?: string | null;
+  backlog_kind?: string | null;
+  backlog_filename?: string | null;
+  target_agent?: string | null;
+  executor_type?: string | null;
+  ok?: boolean | null;
+  exit_code?: number | null;
+  error?: string | null;
+  run_dir_relpath?: string | null;
+  last_message?: string | null;
+};
+
+export type BacklogExecRequestListResponse = { ok: boolean; requests: BacklogExecRequestSummary[] };
+
+export type BacklogExecRequestDetailResponse = { ok: boolean; request_id: string; payload: any };
+
+export type BacklogExecLogTailResponse = { ok: boolean; request_id: string; name: string; bytes: number; truncated: boolean; content: string };
+
+export type BacklogAttachmentStored = { filename: string; relpath: string; bytes: number; sha256: string };
+
+export type BacklogAttachmentUploadResponse = { ok: boolean; kind: string; filename: string; item_id: number; stored: BacklogAttachmentStored };
 
 function _join(base_url: string, path: string): string {
   const base = (base_url || "").trim().replace(/\/+$/, "");
@@ -621,7 +681,7 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async backlog_list(kind: "planned" | "completed" | "proposed" | "recurrent"): Promise<BacklogListResponse> {
+  async backlog_list(kind: "planned" | "completed" | "proposed" | "recurrent" | "deprecated" | "trash"): Promise<BacklogListResponse> {
     const k = String(kind || "").trim();
     if (!k) throw new Error("backlog_list: kind is required");
     const r = await fetch(_join(this._cfg.base_url, `/api/gateway/backlog/${encodeURIComponent(k)}`), {
@@ -631,7 +691,10 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async backlog_content(kind: "planned" | "completed" | "proposed" | "recurrent", filename: string): Promise<BacklogContentResponse> {
+  async backlog_content(
+    kind: "planned" | "completed" | "proposed" | "recurrent" | "deprecated" | "trash",
+    filename: string
+  ): Promise<BacklogContentResponse> {
     const k = String(kind || "").trim();
     const name = String(filename || "").trim();
     if (!k) throw new Error("backlog_content: kind is required");
@@ -640,6 +703,185 @@ export class GatewayClient {
       headers: { ..._auth_headers(this._cfg.auth_token) },
     });
     if (!r.ok) throw new Error(`backlog_content failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_template(): Promise<BacklogTemplateResponse> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/template"), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`backlog_template failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_move(args: { from_kind: string; to_kind: string; filename: string }): Promise<BacklogMoveResponse> {
+    const from_kind = String(args?.from_kind || "").trim();
+    const to_kind = String(args?.to_kind || "").trim();
+    const filename = String(args?.filename || "").trim();
+    if (!from_kind) throw new Error("backlog_move: from_kind is required");
+    if (!to_kind) throw new Error("backlog_move: to_kind is required");
+    if (!filename) throw new Error("backlog_move: filename is required");
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/move"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify({ from_kind, to_kind, filename }),
+    });
+    if (!r.ok) throw new Error(`backlog_move failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_update(args: { kind: string; filename: string; content: string; expected_sha256?: string | null }): Promise<BacklogUpdateResponse> {
+    const kind = String(args?.kind || "").trim();
+    const filename = String(args?.filename || "").trim();
+    if (!kind) throw new Error("backlog_update: kind is required");
+    if (!filename) throw new Error("backlog_update: filename is required");
+    const content = String(args?.content ?? "");
+    const body: any = { content };
+    const expected_sha256 = String(args?.expected_sha256 || "").trim();
+    if (expected_sha256) body.expected_sha256 = expected_sha256;
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/backlog/${encodeURIComponent(kind)}/${encodeURIComponent(filename)}/update`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_update failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_create(args: {
+    kind: string;
+    package: string;
+    title: string;
+    summary?: string | null;
+    content?: string | null;
+  }): Promise<BacklogCreateResponse> {
+    const kind = String(args?.kind || "").trim();
+    const pkg = String(args?.package || "").trim();
+    const title = String(args?.title || "").trim();
+    if (!kind) throw new Error("backlog_create: kind is required");
+    if (!pkg) throw new Error("backlog_create: package is required");
+    if (!title) throw new Error("backlog_create: title is required");
+    const body: any = { kind, package: pkg, title };
+    const summary = String(args?.summary || "").trim();
+    if (summary) body.summary = summary;
+    const content = args?.content == null ? "" : String(args?.content ?? "");
+    if (content.trim()) body.content = content;
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/create"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_create failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_execute(args: { kind: string; filename: string }): Promise<BacklogExecuteResponse> {
+    const kind = String(args?.kind || "").trim();
+    const filename = String(args?.filename || "").trim();
+    if (!kind) throw new Error("backlog_execute: kind is required");
+    if (!filename) throw new Error("backlog_execute: filename is required");
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/backlog/${encodeURIComponent(kind)}/${encodeURIComponent(filename)}/execute`), {
+      method: "POST",
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`backlog_execute failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_exec_config(): Promise<BacklogExecConfigResponse> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/exec/config"), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`backlog_exec_config failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_exec_requests(opts?: { status?: string; limit?: number }): Promise<BacklogExecRequestListResponse> {
+    const qs = new URLSearchParams();
+    const status = String(opts?.status || "").trim();
+    if (status) qs.set("status", status);
+    const limit = typeof opts?.limit === "number" && Number.isFinite(opts.limit) ? Number(opts.limit) : 200;
+    qs.set("limit", String(limit));
+    const url = _join(this._cfg.base_url, `/api/gateway/backlog/exec/requests?${qs.toString()}`);
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`backlog_exec_requests failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_exec_request(request_id: string, opts?: { include_prompt?: boolean }): Promise<BacklogExecRequestDetailResponse> {
+    const rid = String(request_id || "").trim();
+    if (!rid) throw new Error("backlog_exec_request: request_id is required");
+    const qs = new URLSearchParams();
+    if (opts?.include_prompt === true) qs.set("include_prompt", "true");
+    const url = _join(this._cfg.base_url, `/api/gateway/backlog/exec/requests/${encodeURIComponent(rid)}?${qs.toString()}`);
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`backlog_exec_request failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_exec_log_tail(args: { request_id: string; name?: string; max_bytes?: number }): Promise<BacklogExecLogTailResponse> {
+    const rid = String(args?.request_id || "").trim();
+    if (!rid) throw new Error("backlog_exec_log_tail: request_id is required");
+    const qs = new URLSearchParams();
+    const name = String(args?.name || "").trim();
+    if (name) qs.set("name", name);
+    const max_bytes = typeof args?.max_bytes === "number" && Number.isFinite(args.max_bytes) ? Number(args.max_bytes) : 0;
+    if (max_bytes > 0) qs.set("max_bytes", String(Math.floor(max_bytes)));
+    const url = _join(this._cfg.base_url, `/api/gateway/backlog/exec/requests/${encodeURIComponent(rid)}/logs/tail?${qs.toString()}`);
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`backlog_exec_log_tail failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_upload_attachment(args: { kind: string; filename: string; file: File; overwrite?: boolean }): Promise<BacklogAttachmentUploadResponse> {
+    const kind = String(args?.kind || "").trim();
+    const filename = String(args?.filename || "").trim();
+    const file = args?.file;
+    if (!kind) throw new Error("backlog_upload_attachment: kind is required");
+    if (!filename) throw new Error("backlog_upload_attachment: filename is required");
+    if (!file) throw new Error("backlog_upload_attachment: file is required");
+    const overwrite = args?.overwrite === true;
+    const fd = new FormData();
+    fd.set("overwrite", overwrite ? "true" : "false");
+    fd.set("file", file, file.name || "attachment");
+    const r = await fetch(
+      _join(this._cfg.base_url, `/api/gateway/backlog/${encodeURIComponent(kind)}/${encodeURIComponent(filename)}/attachments/upload`),
+      {
+        method: "POST",
+        headers: { ..._auth_headers(this._cfg.auth_token) },
+        body: fd,
+      }
+    );
+    if (!r.ok) throw new Error(`backlog_upload_attachment failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_assist(args: {
+    kind: string;
+    package: string;
+    title: string;
+    summary?: string | null;
+    draft_markdown?: string | null;
+    messages: Array<{ role: string; content: string }>;
+  }): Promise<BacklogAssistResponse> {
+    const kind = String(args?.kind || "").trim();
+    const pkg = String(args?.package || "").trim();
+    const title = String(args?.title || "").trim();
+    if (!kind) throw new Error("backlog_assist: kind is required");
+    if (!pkg) throw new Error("backlog_assist: package is required");
+    if (!title) throw new Error("backlog_assist: title is required");
+    const messages = Array.isArray(args?.messages) ? args.messages : [];
+    const body: any = { kind, package: pkg, title, messages };
+    const summary = String(args?.summary || "").trim();
+    if (summary) body.summary = summary;
+    const draft_markdown = args?.draft_markdown == null ? "" : String(args.draft_markdown ?? "");
+    if (draft_markdown.trim()) body.draft_markdown = draft_markdown;
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/assist"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_assist failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
