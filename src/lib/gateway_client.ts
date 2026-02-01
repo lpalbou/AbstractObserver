@@ -57,6 +57,7 @@ export type BacklogItemSummary = {
   item_id: number;
   package: string;
   title: string;
+  task_type?: "bug" | "feature" | "task" | string;
   summary?: string;
   parsed?: boolean;
 };
@@ -83,6 +84,10 @@ export type BacklogCreateResponse = { ok: boolean; kind: string; filename: strin
 export type BacklogExecuteResponse = { ok: boolean; request_id: string; request_relpath: string; prompt: string };
 
 export type BacklogAssistResponse = { ok: boolean; reply: string; draft_markdown: string };
+
+export type BacklogMaintainResponse = { ok: boolean; reply: string; draft_markdown: string };
+
+export type BacklogAdvisorResponse = { ok: boolean; reply: string };
 
 export type BacklogExecConfigResponse = {
   ok: boolean;
@@ -350,11 +355,11 @@ export class GatewayClient {
   ): Promise<{ ok: boolean; run_id: string; provider: string; model: string; generated_at: string; summary: string }> {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("generate_run_summary: run_id is required");
-    const body: any = {
-      provider: String(opts?.provider || "lmstudio"),
-      model: String(opts?.model || "qwen/qwen3-next-80b"),
-      include_subruns: opts?.include_subruns !== false,
-    };
+    const body: any = { include_subruns: opts?.include_subruns !== false };
+    const provider = typeof opts?.provider === "string" ? String(opts.provider).trim() : "";
+    if (provider) body.provider = provider;
+    const model = typeof opts?.model === "string" ? String(opts.model).trim() : "";
+    if (model) body.model = model;
     const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/summary`), {
       method: "POST",
       headers: {
@@ -374,12 +379,14 @@ export class GatewayClient {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("run_chat: run_id is required");
     const body: any = {
-      provider: String(opts?.provider || "lmstudio"),
-      model: String(opts?.model || "qwen/qwen3-next-80b"),
       include_subruns: opts?.include_subruns !== false,
       messages: Array.isArray(opts?.messages) ? opts.messages : [],
       persist: Boolean(opts?.persist),
     };
+    const provider = typeof opts?.provider === "string" ? String(opts.provider).trim() : "";
+    if (provider) body.provider = provider;
+    const model = typeof opts?.model === "string" ? String(opts.model).trim() : "";
+    if (model) body.model = model;
     const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/chat`), {
       method: "POST",
       headers: {
@@ -389,6 +396,50 @@ export class GatewayClient {
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(`run_chat failed: ${r.status}`);
+    return await r.json();
+  }
+
+  async save_chat_thread(
+    run_id: string,
+    opts: {
+      provider?: string;
+      model?: string;
+      include_subruns?: boolean;
+      title?: string;
+      messages: Array<{ role: string; content: string; ts?: string }>;
+    }
+  ): Promise<{
+    ok: boolean;
+    run_id: string;
+    workflow_id: string;
+    thread_id: string;
+    created_at: string;
+    duplicate: boolean;
+    title?: string | null;
+    message_count: number;
+    chat_artifact: { $artifact: string };
+  }> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("save_chat_thread: run_id is required");
+    const body: any = {
+      include_subruns: opts?.include_subruns !== false,
+      messages: Array.isArray(opts?.messages) ? opts.messages : [],
+    };
+    const provider = typeof opts?.provider === "string" ? String(opts.provider).trim() : "";
+    if (provider) body.provider = provider;
+    const model = typeof opts?.model === "string" ? String(opts.model).trim() : "";
+    if (model) body.model = model;
+    const title = typeof opts?.title === "string" ? String(opts.title).trim() : "";
+    if (title) body.title = title;
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/chat_threads`), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`save_chat_thread failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
@@ -752,6 +803,7 @@ export class GatewayClient {
     kind: string;
     package: string;
     title: string;
+    task_type?: string | null;
     summary?: string | null;
     content?: string | null;
   }): Promise<BacklogCreateResponse> {
@@ -762,6 +814,8 @@ export class GatewayClient {
     if (!pkg) throw new Error("backlog_create: package is required");
     if (!title) throw new Error("backlog_create: title is required");
     const body: any = { kind, package: pkg, title };
+    const task_type = String(args?.task_type || "").trim();
+    if (task_type) body.task_type = task_type;
     const summary = String(args?.summary || "").trim();
     if (summary) body.summary = summary;
     const content = args?.content == null ? "" : String(args?.content ?? "");
@@ -863,6 +917,8 @@ export class GatewayClient {
     summary?: string | null;
     draft_markdown?: string | null;
     messages: Array<{ role: string; content: string }>;
+    provider?: string | null;
+    model?: string | null;
   }): Promise<BacklogAssistResponse> {
     const kind = String(args?.kind || "").trim();
     const pkg = String(args?.package || "").trim();
@@ -876,12 +932,81 @@ export class GatewayClient {
     if (summary) body.summary = summary;
     const draft_markdown = args?.draft_markdown == null ? "" : String(args.draft_markdown ?? "");
     if (draft_markdown.trim()) body.draft_markdown = draft_markdown;
+    const provider = String(args?.provider || "").trim();
+    if (provider) body.provider = provider;
+    const model = String(args?.model || "").trim();
+    if (model) body.model = model;
     const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/assist"), {
       method: "POST",
       headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
       body: JSON.stringify(body),
     });
     if (!r.ok) throw new Error(`backlog_assist failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_maintain(args: {
+    kind: string;
+    filename: string;
+    package: string;
+    title: string;
+    summary?: string | null;
+    draft_markdown?: string | null;
+    messages: Array<{ role: string; content: string }>;
+    provider?: string | null;
+    model?: string | null;
+  }): Promise<BacklogMaintainResponse> {
+    const kind = String(args?.kind || "").trim();
+    const filename = String(args?.filename || "").trim();
+    const pkg = String(args?.package || "").trim();
+    const title = String(args?.title || "").trim();
+    if (!kind) throw new Error("backlog_maintain: kind is required");
+    if (!filename) throw new Error("backlog_maintain: filename is required");
+    if (!pkg) throw new Error("backlog_maintain: package is required");
+    if (!title) throw new Error("backlog_maintain: title is required");
+    const messages = Array.isArray(args?.messages) ? args.messages : [];
+    const body: any = { kind, filename, package: pkg, title, messages };
+    const summary = String(args?.summary || "").trim();
+    if (summary) body.summary = summary;
+    const draft_markdown = args?.draft_markdown == null ? "" : String(args.draft_markdown ?? "");
+    if (draft_markdown.trim()) body.draft_markdown = draft_markdown;
+    const provider = String(args?.provider || "").trim();
+    if (provider) body.provider = provider;
+    const model = String(args?.model || "").trim();
+    if (model) body.model = model;
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/maintain"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_maintain failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_advisor(args: {
+    messages: Array<{ role: string; content: string }>;
+    provider?: string | null;
+    model?: string | null;
+    focus_kind?: string | null;
+    focus_type?: string | null;
+  }): Promise<BacklogAdvisorResponse> {
+    const messages = Array.isArray(args?.messages) ? args.messages : [];
+    const body: any = { messages };
+    const provider = String(args?.provider || "").trim();
+    if (provider) body.provider = provider;
+    const model = String(args?.model || "").trim();
+    if (model) body.model = model;
+    const focus_kind = String(args?.focus_kind || "").trim();
+    if (focus_kind) body.focus_kind = focus_kind;
+    const focus_type = String(args?.focus_type || "").trim();
+    if (focus_type) body.focus_type = focus_type;
+
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/advisor"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_advisor failed: ${await _read_error(r)}`);
     return await r.json();
   }
 

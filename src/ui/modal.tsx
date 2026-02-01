@@ -29,7 +29,7 @@ export function Modal({ open, title, children, actions, onClose }: ModalProps): 
     >
       <div className="modal_panel">
         <div className="modal_header">
-          <div className="modal_title mono">{title}</div>
+          <div className="modal_title">{title}</div>
           <button className="btn" onClick={onClose}>
             Close
           </button>
@@ -40,4 +40,3 @@ export function Modal({ open, title, children, actions, onClose }: ModalProps): 
     </div>
   );
 }
-

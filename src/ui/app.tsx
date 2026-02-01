@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractuic/monitor-flow";
-import { ChatMessageContent, Markdown, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
-import { applyTheme, THEMES } from "@abstractuic/ui-kit";
+import { ChatComposer, ChatMessageContent, Markdown, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
+import { AfSelect, ProviderModelSelect, ThemeSelect, applyTheme, type AfSelectOption, type ProviderOption } from "@abstractuic/ui-kit";
 import { registerMonitorGpuWidget } from "@abstractutils/monitor-gpu";
 
 import { GatewayClient } from "../lib/gateway_client";
@@ -26,6 +26,8 @@ type Settings = {
   worker_token: string;
   theme: string;
   auto_connect_gateway: boolean;
+  maintenance_ai_provider: string;
+  maintenance_ai_model: string;
 };
 
 type UiLogItem = {
@@ -343,9 +345,20 @@ function load_settings(): Settings {
       worker_token: String(parsed?.worker_token || ""),
       theme: String(parsed?.theme || "dark"),
       auto_connect_gateway: parsed?.auto_connect_gateway === false ? false : true,
+      maintenance_ai_provider: String(parsed?.maintenance_ai_provider || ""),
+      maintenance_ai_model: String(parsed?.maintenance_ai_model || ""),
     };
   } catch {
-    return { gateway_url: "", auth_token: "", worker_url: "", worker_token: "", theme: "dark", auto_connect_gateway: true };
+    return {
+      gateway_url: "",
+      auth_token: "",
+      worker_url: "",
+      worker_token: "",
+      theme: "dark",
+      auto_connect_gateway: true,
+      maintenance_ai_provider: "",
+      maintenance_ai_model: "",
+    };
   }
 }
 
@@ -564,18 +577,61 @@ export function App(): React.ReactElement {
   const dismiss_timer_ref = useRef<number | null>(null);
   const [dismissed_wait_key, set_dismissed_wait_key] = useState<string>("");
 
-  const [chat_provider, set_chat_provider] = useState<string>("lmstudio");
-  const [chat_model, set_chat_model] = useState<string>("qwen/qwen3-next-80b");
-  const [chat_persist, set_chat_persist] = useState<boolean>(false);
   const [chat_input, set_chat_input] = useState<string>("");
   const [chat_error, set_chat_error] = useState<string>("");
   const [chat_sending, set_chat_sending] = useState<boolean>(false);
   const [chat_export_state, set_chat_export_state] = useState<"idle" | "copied" | "failed">("idle");
-  const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string; persisted?: boolean }>>(
-    []
-  );
-  const chat_seen_persist_ids_ref = useRef<Set<string>>(new Set());
+  const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string }>>([]);
   const chat_bottom_ref = useRef<HTMLDivElement | null>(null);
+  const [chat_thread_saving, set_chat_thread_saving] = useState(false);
+  const [chat_thread_save_error, set_chat_thread_save_error] = useState<string>("");
+  const [chat_thread_last_saved_at, set_chat_thread_last_saved_at] = useState<string>("");
+  const [chat_thread_last_saved_fingerprint, set_chat_thread_last_saved_fingerprint] = useState<string>("");
+
+  const [saved_chat_threads, set_saved_chat_threads] = useState<
+    Array<{
+      thread_id: string;
+      created_at: string;
+      title: string;
+      run_id: string;
+      workflow_id: string;
+      message_count: number | null;
+      provider: string;
+      model: string;
+      artifact_id: string;
+    }>
+  >([]);
+  const [saved_chat_threads_loading, set_saved_chat_threads_loading] = useState(false);
+  const [saved_chat_threads_error, set_saved_chat_threads_error] = useState<string>("");
+  const [saved_chat_thread_selected, set_saved_chat_thread_selected] = useState<string>("");
+  const [saved_chat_thread_loading, set_saved_chat_thread_loading] = useState(false);
+  const [saved_chat_thread_load_error, set_saved_chat_thread_load_error] = useState<string>("");
+
+  const chat_fingerprint = useMemo(() => {
+    if (!chat_messages.length) return "";
+    try {
+      return JSON.stringify(chat_messages.map((m) => ({ role: m.role, content: m.content, ts: m.ts })));
+    } catch {
+      return "1";
+    }
+  }, [chat_messages]);
+
+  const chat_has_unsaved_changes = useMemo(() => {
+    if (!chat_messages.length) return false;
+    if (!chat_thread_last_saved_fingerprint) return true;
+    return chat_fingerprint !== chat_thread_last_saved_fingerprint;
+  }, [chat_fingerprint, chat_messages.length, chat_thread_last_saved_fingerprint]);
+
+  const saved_chat_thread_options: AfSelectOption[] = useMemo(() => {
+    return saved_chat_threads.map((t) => {
+      const title = String(t.title || "").trim() || `Chat ${String(t.thread_id || "").slice(0, 8)}`;
+      const created = String(t.created_at || "").trim();
+      const created_label = created ? created.replace("T", " ").slice(0, 19) : "";
+      const run_short = String(t.run_id || "").trim() ? String(t.run_id).slice(0, 8) : "";
+      const label = [title, created_label && `(${created_label})`, run_short && `run ${run_short}`].filter(Boolean).join(" • ");
+      return { value: String(t.thread_id || ""), label };
+    });
+  }, [saved_chat_threads]);
 
   useEffect(() => {
     if (!monitor_gpu_enabled) return;
@@ -794,6 +850,17 @@ export function App(): React.ReactElement {
     return Array.from(out).sort();
   }, [discovered_providers]);
 
+  const discovered_provider_options = useMemo((): ProviderOption[] => {
+    const out: ProviderOption[] = [];
+    for (const p of Array.isArray(discovered_providers) ? discovered_providers : []) {
+      const name = String((p as any)?.name || "").trim();
+      if (!name) continue;
+      const display_name = String((p as any)?.display_name || "").trim();
+      out.push({ name, display_name: display_name || undefined });
+    }
+    return out;
+  }, [discovered_providers]);
+
   const available_tool_names = useMemo(() => {
     const out = new Set<string>();
     for (const s of discovered_tool_specs || []) {
@@ -804,56 +871,19 @@ export function App(): React.ReactElement {
     return Array.from(out).sort();
   }, [discovered_tool_specs]);
 
-  const chat_models_for_provider = useMemo(() => {
-    const prov = chat_provider.trim();
+  const maintenance_models_for_provider = useMemo(() => {
+    const prov = settings.maintenance_ai_provider.trim();
     if (!prov) return { models: [] as string[], error: "" };
     const found = discovered_models_by_provider[prov];
     if (!found) return { models: [] as string[], error: "" };
     const models = Array.isArray(found.models) ? found.models : [];
     return { models: models.map((x) => String(x || "").trim()).filter(Boolean), error: String((found as any).error || "") };
-  }, [discovered_models_by_provider, chat_provider]);
+  }, [discovered_models_by_provider, settings.maintenance_ai_provider]);
 
-  useEffect(() => {
-    const prov = chat_provider.trim();
-    if (!prov) return;
-    if (discovered_models_by_provider[prov]) return;
-    if (models_fetch_inflight_ref.current[prov]) return;
-    models_fetch_inflight_ref.current[prov] = true;
-    let stopped = false;
-    const run = async () => {
-      try {
-        const res = await gateway.discovery_provider_models(prov);
-        if (stopped) return;
-        const models = Array.isArray(res?.models) ? res.models : [];
-        const err = typeof res?.error === "string" ? String(res.error) : "";
-        set_discovered_models_by_provider((prev) => ({ ...prev, [prov]: { models, error: err || undefined } }));
-      } catch (e: any) {
-        if (stopped) return;
-        set_discovered_models_by_provider((prev) => ({ ...prev, [prov]: { models: [], error: String(e?.message || e || "Failed to load models") } }));
-      } finally {
-        delete models_fetch_inflight_ref.current[prov];
-      }
-    };
-    run();
-    return () => {
-      stopped = true;
-    };
-  }, [chat_provider, discovered_models_by_provider, gateway]);
-
-  useEffect(() => {
-    if (!available_providers.length) return;
-    const cur = chat_provider.trim();
-    if (cur && available_providers.includes(cur)) return;
-    set_chat_provider(available_providers[0]);
-  }, [available_providers, chat_provider]);
-
-  useEffect(() => {
-    const models = chat_models_for_provider.models;
-    if (!models.length) return;
-    const cur = chat_model.trim();
-    if (cur && models.includes(cur)) return;
-    set_chat_model(models[0]);
-  }, [chat_models_for_provider, chat_model]);
+  const maintenance_provider_selected = settings.maintenance_ai_provider.trim();
+  const maintenance_models_loading = Boolean(
+    maintenance_provider_selected && gateway_connected && !Object.prototype.hasOwnProperty.call(discovered_models_by_provider, maintenance_provider_selected)
+  );
 
   useEffect(() => {
     const prov = provider_value.trim();
@@ -881,6 +911,37 @@ export function App(): React.ReactElement {
       stopped = true;
     };
   }, [provider_value, discovered_models_by_provider, gateway]);
+
+  useEffect(() => {
+    const prov = settings.maintenance_ai_provider.trim();
+    if (!prov) return;
+    if (!gateway_connected) return;
+    if (discovered_models_by_provider[prov]) return;
+    if (models_fetch_inflight_ref.current[prov]) return;
+    models_fetch_inflight_ref.current[prov] = true;
+    let stopped = false;
+    const run = async () => {
+      try {
+        const res = await gateway.discovery_provider_models(prov);
+        if (stopped) return;
+        const models = Array.isArray(res?.models) ? res.models : [];
+        const err = typeof res?.error === "string" ? String(res.error) : "";
+        set_discovered_models_by_provider((prev) => ({ ...prev, [prov]: { models, error: err || undefined } }));
+      } catch (e: any) {
+        if (stopped) return;
+        set_discovered_models_by_provider((prev) => ({
+          ...prev,
+          [prov]: { models: [], error: String(e?.message || e || "Failed to load models") },
+        }));
+      } finally {
+        delete models_fetch_inflight_ref.current[prov];
+      }
+    };
+    run();
+    return () => {
+      stopped = true;
+    };
+  }, [settings.maintenance_ai_provider, discovered_models_by_provider, gateway, gateway_connected]);
 
   function update_input_data_field(key: string, value: any): void {
     const k = String(key || "").trim();
@@ -2087,62 +2148,52 @@ export function App(): React.ReactElement {
     set_summary_generating(false);
     set_summary_error("");
 
-    chat_seen_persist_ids_ref.current = new Set();
     set_chat_messages([]);
     set_chat_input("");
     set_chat_error("");
-    set_chat_sending(false);
-  }
+	    set_chat_sending(false);
+	    set_chat_thread_saving(false);
+	    set_chat_thread_save_error("");
+	    set_chat_thread_last_saved_at("");
+	    set_chat_thread_last_saved_fingerprint("");
+	    set_saved_chat_threads([]);
+	    set_saved_chat_threads_loading(false);
+	    set_saved_chat_threads_error("");
+	    set_saved_chat_thread_selected("");
+	    set_saved_chat_thread_loading(false);
+	    set_saved_chat_thread_load_error("");
+	  }
 
   useEffect(() => {
-    chat_seen_persist_ids_ref.current = new Set();
     set_chat_messages([]);
     set_chat_input("");
     set_chat_error("");
-    set_chat_sending(false);
-  }, [run_id]);
-
-  useEffect(() => {
-    if (!run_id.trim()) return;
-    const seen = chat_seen_persist_ids_ref.current;
-    const additions: Array<{ id: string; role: "user" | "assistant"; content: string; ts: string; persisted?: boolean }> = [];
-
-    for (const item of records) {
-      const rec = item?.record as any;
-      const eff = rec?.effect;
-      if (!eff || typeof eff !== "object") continue;
-      if (String(eff.type || "") !== "emit_event") continue;
-      const p = eff.payload;
-      if (!p || typeof p !== "object") continue;
-      if (String(p.name || "") !== "abstract.chat") continue;
-      const pay = p.payload;
-      if (!pay || typeof pay !== "object") continue;
-      const generated_at = typeof pay.generated_at === "string" ? String(pay.generated_at) : "";
-      const key = generated_at ? `observer:chat:${generated_at}` : String(rec.idempotency_key || rec.step_id || "");
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-
-      const question = typeof pay.question === "string" ? String(pay.question) : "";
-      const answer = typeof pay.answer === "string" ? String(pay.answer) : "";
-      const ts = generated_at || String(rec.ended_at || rec.started_at || now_iso());
-      if (question.trim()) {
-        additions.push({ id: `${key}:q`, role: "user", content: question.trim(), ts, persisted: true });
-      }
-      if (answer.trim()) {
-        additions.push({ id: `${key}:a`, role: "assistant", content: answer.trim(), ts, persisted: true });
-      }
-    }
-
-    if (!additions.length) return;
-    additions.sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")));
-    set_chat_messages((prev) => [...prev, ...additions]);
-  }, [records, run_id]);
+	    set_chat_sending(false);
+	    set_chat_thread_saving(false);
+	    set_chat_thread_save_error("");
+	    set_chat_thread_last_saved_at("");
+	    set_chat_thread_last_saved_fingerprint("");
+	    set_saved_chat_threads([]);
+	    set_saved_chat_threads_loading(false);
+	    set_saved_chat_threads_error("");
+	    set_saved_chat_thread_selected("");
+	    set_saved_chat_thread_loading(false);
+	    set_saved_chat_thread_load_error("");
+	  }, [run_id]);
 
   useEffect(() => {
     if (right_tab !== "chat") return;
     if (!chat_bottom_ref.current) return;
     chat_bottom_ref.current.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [chat_messages, right_tab]);
+
+  useEffect(() => {
+    if (right_tab !== "chat") return;
+    if (!run_id.trim()) return;
+    if (!gateway_connected) return;
+    void refresh_saved_chat_threads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [right_tab, run_id, gateway_connected, run_state?.workflow_id]);
 
   async function submit_run_control(type: "pause" | "resume" | "cancel", opts?: { reason?: string }): Promise<string | null> {
     const rid = run_id.trim();
@@ -2289,7 +2340,9 @@ export function App(): React.ReactElement {
     set_summary_error("");
     set_summary_generating(true);
     try {
-      await gateway.generate_run_summary(rid, { provider: "lmstudio", model: "qwen/qwen3-next-80b", include_subruns: true });
+      const provider = settings.maintenance_ai_provider.trim();
+      const model = settings.maintenance_ai_model.trim();
+      await gateway.generate_run_summary(rid, { provider: provider || undefined, model: model || undefined, include_subruns: true });
       push_log({ ts: now_iso(), kind: "info", title: "Summary generation requested", preview: clamp_preview(`run ${rid}`) });
     } catch (e: any) {
       set_summary_error(String(e?.message || e || "Failed to generate summary"));
@@ -2314,27 +2367,27 @@ export function App(): React.ReactElement {
 
     set_chat_error("");
     set_chat_sending(true);
-    const user_msg = { id: `local:${random_id()}`, role: "user" as const, content: q, ts: now_iso(), persisted: chat_persist };
+    const user_id = `local:${random_id()}`;
+    const user_msg = { id: user_id, role: "user" as const, content: q, ts: now_iso() };
     set_chat_messages((prev) => [...prev, user_msg]);
     set_chat_input("");
 
     try {
       const history = [...chat_messages, user_msg].slice(-20).map((m) => ({ role: m.role, content: m.content }));
-      const provider = chat_provider.trim() || "lmstudio";
-      const model = chat_model.trim() || "qwen/qwen3-next-80b";
-      const res = await gateway.run_chat(rid, { provider, model, include_subruns: true, messages: history, persist: chat_persist });
+      const provider = settings.maintenance_ai_provider.trim();
+      const model = settings.maintenance_ai_model.trim();
+      const res = await gateway.run_chat(rid, {
+        provider: provider || undefined,
+        model: model || undefined,
+        include_subruns: true,
+        messages: history,
+      });
       const answer = String(res?.answer || "").trim() || "(empty response)";
       const ts = String(res?.generated_at || "").trim() || now_iso();
 
-      if (chat_persist) {
-        const key = ts ? `observer:chat:${ts}` : "";
-        if (key) chat_seen_persist_ids_ref.current.add(key);
-      }
-
-      set_chat_messages((prev) => [
-        ...prev,
-        { id: `local:${random_id()}`, role: "assistant" as const, content: answer, ts, persisted: chat_persist },
-      ]);
+      set_chat_messages((prev) => {
+        return [...prev, { id: `local:${random_id()}`, role: "assistant" as const, content: answer, ts }];
+      });
     } catch (e: any) {
       set_chat_error(String(e?.message || e || "Chat failed"));
       set_chat_messages((prev) => [
@@ -2367,6 +2420,212 @@ export function App(): React.ReactElement {
       set_chat_export_state(ok ? "copied" : "failed");
       window.setTimeout(() => set_chat_export_state("idle"), 900);
     })();
+  }
+
+  async function refresh_saved_chat_threads(): Promise<void> {
+    const wid = typeof run_state?.workflow_id === "string" ? String(run_state.workflow_id).trim() : "";
+    if (!wid) {
+      set_saved_chat_threads([]);
+      return;
+    }
+    if (!gateway_connected) return;
+    if (saved_chat_threads_loading) return;
+
+    set_saved_chat_threads_error("");
+    set_saved_chat_threads_loading(true);
+    try {
+      const runs_res = await gateway.list_runs({ limit: 200, workflow_id: wid, root_only: true });
+      const items = Array.isArray(runs_res?.items) ? runs_res.items : [];
+      const runs: Array<{ run_id: string; ledger_len: number }> = [];
+      for (const it of items) {
+        const rid = typeof it?.run_id === "string" ? String(it.run_id).trim() : "";
+        if (!rid) continue;
+        const ll = typeof it?.ledger_len === "number" ? Number(it.ledger_len) : 0;
+        runs.push({ run_id: rid, ledger_len: Number.isFinite(ll) ? ll : 0 });
+      }
+      if (!runs.length) {
+        set_saved_chat_threads([]);
+        return;
+      }
+
+      const per_run_limit = 400;
+      const batch_runs = runs.map((r) => ({ run_id: r.run_id, after: Math.max(0, (r.ledger_len || 0) - per_run_limit) }));
+      const batch = await gateway.get_ledger_batch({ runs: batch_runs, limit: per_run_limit });
+      const out: Array<{
+        thread_id: string;
+        created_at: string;
+        title: string;
+        run_id: string;
+        workflow_id: string;
+        message_count: number | null;
+        provider: string;
+        model: string;
+        artifact_id: string;
+      }> = [];
+      const seen = new Set<string>();
+
+      for (const r of runs) {
+        const page = batch?.runs && typeof batch.runs === "object" ? (batch.runs as any)[r.run_id] : null;
+        const ledger_items = Array.isArray(page?.items) ? page.items : [];
+        for (const rec of ledger_items) {
+          const eff = (rec as any)?.effect;
+          if (!eff || typeof eff !== "object") continue;
+          if (String((eff as any).type || "") !== "emit_event") continue;
+          const p = (eff as any).payload;
+          if (!p || typeof p !== "object") continue;
+          if (String((p as any).name || "") !== "abstract.chat.thread") continue;
+          const pay = (p as any).payload;
+          if (!pay || typeof pay !== "object") continue;
+
+          const thread_id = typeof (pay as any).thread_id === "string" ? String((pay as any).thread_id).trim() : "";
+          if (!thread_id || seen.has(thread_id)) continue;
+          seen.add(thread_id);
+          const created_at = typeof (pay as any).created_at === "string" ? String((pay as any).created_at) : "";
+          const title = typeof (pay as any).title === "string" ? String((pay as any).title) : "";
+          const workflow_id = typeof (pay as any).workflow_id === "string" ? String((pay as any).workflow_id) : wid;
+          const run_id2 = typeof (pay as any).run_id === "string" ? String((pay as any).run_id) : r.run_id;
+          const provider = typeof (pay as any).provider === "string" ? String((pay as any).provider) : "";
+          const model = typeof (pay as any).model === "string" ? String((pay as any).model) : "";
+          const mc = typeof (pay as any).message_count === "number" ? Number((pay as any).message_count) : null;
+          const art = (pay as any).chat_artifact;
+          const artifact_id = art && typeof art === "object" && typeof art.$artifact === "string" ? String(art.$artifact) : "";
+          if (!artifact_id) continue;
+
+          out.push({
+            thread_id,
+            created_at,
+            title: title || `Chat ${thread_id.slice(0, 8)}`,
+            run_id: run_id2,
+            workflow_id,
+            message_count: mc,
+            provider,
+            model,
+            artifact_id,
+          });
+        }
+      }
+
+      out.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+      set_saved_chat_threads(out);
+    } catch (e: any) {
+      set_saved_chat_threads_error(String(e?.message || e || "Failed to load saved discussions"));
+    } finally {
+      set_saved_chat_threads_loading(false);
+    }
+  }
+
+  async function save_current_chat_thread(): Promise<void> {
+    const rid = run_id.trim();
+    if (!rid) {
+      set_chat_thread_save_error("Select a run first.");
+      return;
+    }
+    if (!gateway_connected) {
+      set_chat_thread_save_error("Connect to the gateway first.");
+      return;
+    }
+    if (!chat_messages.length) return;
+    if (chat_thread_saving) return;
+
+    set_chat_thread_save_error("");
+    set_chat_thread_saving(true);
+    try {
+      const provider = settings.maintenance_ai_provider.trim();
+      const model = settings.maintenance_ai_model.trim();
+      const res = await gateway.save_chat_thread(rid, {
+        provider: provider || undefined,
+        model: model || undefined,
+        include_subruns: true,
+        messages: chat_messages.map((m) => ({ role: m.role, content: m.content, ts: m.ts })),
+      });
+      const ts = typeof res?.created_at === "string" ? String(res.created_at) : now_iso();
+      set_chat_thread_last_saved_at(ts);
+      try {
+        const fingerprint = JSON.stringify(chat_messages.map((m) => ({ role: m.role, content: m.content, ts: m.ts })));
+        set_chat_thread_last_saved_fingerprint(fingerprint);
+      } catch {
+        set_chat_thread_last_saved_fingerprint("1");
+      }
+      if (typeof res?.thread_id === "string" && String(res.thread_id).trim()) {
+        set_saved_chat_thread_selected(String(res.thread_id).trim());
+      }
+      const dup = Boolean((res as any)?.duplicate);
+      set_status(dup ? "Already saved" : "Saved discussion", 2);
+      await refresh_saved_chat_threads();
+    } catch (e: any) {
+      set_chat_thread_save_error(String(e?.message || e || "Failed to save discussion"));
+    } finally {
+      set_chat_thread_saving(false);
+    }
+  }
+
+  async function load_selected_chat_thread(): Promise<void> {
+    const tid = String(saved_chat_thread_selected || "").trim();
+    if (!tid) return;
+    const thread = saved_chat_threads.find((t) => String(t.thread_id || "").trim() === tid) || null;
+    if (!thread) {
+      set_saved_chat_thread_load_error("Saved discussion not found (refresh list).");
+      return;
+    }
+    if (!gateway_connected) {
+      set_saved_chat_thread_load_error("Connect to the gateway first.");
+      return;
+    }
+    if (saved_chat_thread_loading) return;
+
+    // Avoid silently discarding local edits.
+    const has_local = chat_messages.length > 0;
+    const has_unsaved = (() => {
+      if (!has_local) return false;
+      if (!chat_thread_last_saved_fingerprint) return true;
+      try {
+        const fp = JSON.stringify(chat_messages.map((m) => ({ role: m.role, content: m.content, ts: m.ts })));
+        return fp !== chat_thread_last_saved_fingerprint;
+      } catch {
+        return true;
+      }
+    })();
+    if (has_local && has_unsaved) {
+      const ok = window.confirm("Replace the current chat with the selected saved discussion? Unsaved changes will be lost.");
+      if (!ok) return;
+    }
+
+    set_saved_chat_thread_load_error("");
+    set_saved_chat_thread_loading(true);
+    try {
+      const blob = await gateway.download_run_artifact_content(thread.run_id, thread.artifact_id);
+      const raw = await blob.text();
+      const doc = JSON.parse(raw);
+      const msgs0 = Array.isArray(doc?.messages) ? doc.messages : [];
+      const created_at = typeof doc?.created_at === "string" ? String(doc.created_at) : String(thread.created_at || "");
+      const msgs: Array<{ id: string; role: "user" | "assistant"; content: string; ts: string }> = [];
+      for (let i = 0; i < msgs0.length; i++) {
+        const m = msgs0[i];
+        if (!m || typeof m !== "object") continue;
+        const role = String((m as any).role || "").trim() === "assistant" ? "assistant" : "user";
+        const content = typeof (m as any).content === "string" ? String((m as any).content) : "";
+        if (!content.trim()) continue;
+        const ts = typeof (m as any).ts === "string" ? String((m as any).ts) : created_at || now_iso();
+        msgs.push({ id: `thread:${tid}:${i}`, role, content: content.trim(), ts });
+      }
+
+      set_chat_messages(msgs);
+      set_chat_input("");
+      set_chat_error("");
+      set_chat_thread_save_error("");
+      set_chat_thread_last_saved_at(created_at || "");
+      try {
+        const fp = JSON.stringify(msgs.map((m) => ({ role: m.role, content: m.content, ts: m.ts })));
+        set_chat_thread_last_saved_fingerprint(fp);
+      } catch {
+        set_chat_thread_last_saved_fingerprint("1");
+      }
+      set_status("Loaded discussion", 2);
+    } catch (e: any) {
+      set_saved_chat_thread_load_error(String(e?.message || e || "Failed to load saved discussion"));
+    } finally {
+      set_saved_chat_thread_loading(false);
+    }
   }
 
   async function resume_wait(payload_obj: any): Promise<void> {
@@ -3363,13 +3622,7 @@ export function App(): React.ReactElement {
                 <div className="section_title">Appearance</div>
                 <div className="field">
                   <label>Theme</label>
-                  <select value={settings.theme} onChange={(e) => set_settings((s) => ({ ...s, theme: e.target.value }))}>
-                    {THEMES.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
+                  <ThemeSelect value={settings.theme} onChange={(id) => set_settings((s) => ({ ...s, theme: id }))} />
                   <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
                     Stored locally in this browser (no server round-trip).
                   </div>
@@ -3412,6 +3665,37 @@ export function App(): React.ReactElement {
                     onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value }))}
                     placeholder="(optional for localhost dev)"
                   />
+                </div>
+
+                <div className="section_title">Maintenance AI</div>
+                <ProviderModelSelect
+                  className="field"
+                  providerLabel="Provider (blank = gateway default)"
+                  modelLabel="Model (blank = gateway default)"
+                  providerPlaceholder="lmstudio"
+                  modelPlaceholder="qwen/qwen3-next-80b"
+                  provider={settings.maintenance_ai_provider}
+                  model={settings.maintenance_ai_model}
+                  providers={discovered_provider_options}
+                  models={maintenance_models_for_provider.models}
+                  loadingProviders={discovery_loading}
+                  loadingModels={maintenance_models_loading}
+                  modelError={maintenance_provider_selected ? maintenance_models_for_provider.error : ""}
+                  allowCustomProvider
+                  allowCustomModel
+                  allowGatewayDefault
+                  gatewayDefaultLabel="(gateway default)"
+                  selectClassName="mono"
+                  onChange={(next) =>
+                    set_settings((s) => ({
+                      ...s,
+                      maintenance_ai_provider: next.provider,
+                      maintenance_ai_model: next.model,
+                    }))
+                  }
+                />
+                <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                  Used for backlog AI assist and in-editor maintenance chat. Defaults follow `ABSTRACTGATEWAY_PROVIDER` / `ABSTRACTGATEWAY_MODEL`.
                 </div>
 
                 <div className="section_divider" />
@@ -4182,7 +4466,14 @@ export function App(): React.ReactElement {
           </div>
         ) : null}
 
-        {page === "backlog" ? <BacklogBrowserPage gateway={gateway} gateway_connected={gateway_connected} /> : null}
+        {page === "backlog" ? (
+          <BacklogBrowserPage
+            gateway={gateway}
+            gateway_connected={gateway_connected}
+            maintenance_ai_provider={settings.maintenance_ai_provider}
+            maintenance_ai_model={settings.maintenance_ai_model}
+          />
+        ) : null}
 
         {page === "inbox" ? (
           <ReportInboxPage
@@ -4919,72 +5210,75 @@ export function App(): React.ReactElement {
 
                 {right_tab === "chat" ? (
                   <div className="log log_scroll" style={{ marginTop: "6px" }}>
-                    <div className="row" style={{ marginBottom: "6px" }}>
-                      <div className="col">
-                        <div className="field" style={{ margin: 0 }}>
-                          <label>Provider</label>
-                          {available_providers.length ? (
-                            <select
-                              className="mono"
-                              value={chat_provider}
-                              onChange={(e) => set_chat_provider(String(e.target.value || "").trim())}
-                              disabled={!gateway_connected}
-                            >
-                              <option value="">(select)</option>
-                              {available_providers.map((p) => (
-                                <option key={p} value={p}>
-                                  {p}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              className="mono"
-                              value={chat_provider}
-                              onChange={(e) => set_chat_provider(e.target.value)}
-                              placeholder="lmstudio / ollama / openai / ..."
-                              disabled={!gateway_connected}
-                            />
-                          )}
-                        </div>
-                      </div>
-                      <div className="col">
-                        <div className="field" style={{ margin: 0 }}>
-                          <label>Model</label>
-                          {chat_provider.trim() && chat_models_for_provider.models.length ? (
-                            <select
-                              className="mono"
-                              value={chat_model}
-                              onChange={(e) => set_chat_model(String(e.target.value || "").trim())}
-                              disabled={!gateway_connected || !chat_provider.trim()}
-                            >
-                              <option value="">(select)</option>
-                              {chat_models_for_provider.models.map((m) => (
-                                <option key={m} value={m}>
-                                  {m}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              className="mono"
-                              value={chat_model}
-                              onChange={(e) => set_chat_model(e.target.value)}
-                              placeholder={chat_provider.trim() ? "(loading models…)" : "select provider first"}
-                              disabled={!gateway_connected || !chat_provider.trim()}
-                            />
-                          )}
-                        </div>
-                      </div>
+                    <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
+                      Using Maintenance AI from Settings: {settings.maintenance_ai_provider.trim() || "(gateway default)"} /{" "}
+                      {settings.maintenance_ai_model.trim() || "(gateway default)"}
                     </div>
 
                     <div className="field" style={{ marginTop: "10px" }}>
-                      <label className="mono" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                        <input type="checkbox" checked={chat_persist} onChange={(e) => set_chat_persist(Boolean(e.target.checked))} />
-                        Save this chat to the run ledger
-                      </label>
-                      <div className="chat_hint">Read-only. No tools. Grounded in the parent run + subflows ledger.</div>
-                      <div className="actions" style={{ justifyContent: "flex-end", marginTop: "8px" }}>
+                      <label>Saved discussions</label>
+                      <div className="actions" style={{ justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", marginTop: 0 }}>
+                        <div style={{ flex: 1, minWidth: 260 }}>
+                          <AfSelect
+                            value={saved_chat_thread_selected}
+                            options={saved_chat_thread_options}
+                            placeholder={saved_chat_threads_loading ? "Loading…" : saved_chat_thread_options.length ? "Select a saved discussion…" : "(none saved)"}
+                            disabled={!run_id.trim() || !gateway_connected || !saved_chat_thread_options.length}
+                            loading={saved_chat_threads_loading}
+                            searchable
+                            clearable
+                            onChange={(v) => {
+                              set_saved_chat_thread_selected(v);
+                              set_saved_chat_thread_load_error("");
+                            }}
+                          />
+                        </div>
+
+                        <div className="actions" style={{ justifyContent: "flex-end", marginTop: 0 }}>
+                          <button
+                            className="btn"
+                            type="button"
+                            disabled={!saved_chat_thread_selected.trim() || !gateway_connected || saved_chat_thread_loading}
+                            onClick={() => void load_selected_chat_thread()}
+                          >
+                            {saved_chat_thread_loading ? "Loading…" : "Load"}
+                          </button>
+                          <button
+                            className="btn"
+                            type="button"
+                            disabled={!chat_messages.length || chat_sending || chat_thread_saving || saved_chat_thread_loading}
+                            onClick={() => {
+                              set_chat_messages([]);
+                              set_chat_input("");
+                              set_chat_error("");
+                              set_chat_thread_save_error("");
+                              set_chat_thread_last_saved_at("");
+                              set_chat_thread_last_saved_fingerprint("");
+                            }}
+                          >
+                            Clear
+                          </button>
+                          <button
+                            className="btn"
+                            type="button"
+                            onClick={() => void refresh_saved_chat_threads()}
+                            disabled={!run_id.trim() || !gateway_connected || saved_chat_threads_loading}
+                          >
+                            {saved_chat_threads_loading ? "Refreshing…" : "Refresh"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="actions" style={{ justifyContent: "flex-end", marginTop: "8px", flexWrap: "wrap" }}>
+                        <button
+                          className="btn"
+                          type="button"
+                          disabled={!chat_messages.length || !run_id.trim() || !gateway_connected || chat_thread_saving || !chat_has_unsaved_changes}
+                          onClick={() => void save_current_chat_thread()}
+                          title={!chat_has_unsaved_changes ? "No changes since last save" : ""}
+                        >
+                          {chat_thread_saving ? "Saving…" : !chat_has_unsaved_changes && chat_thread_last_saved_at ? "Saved" : "Save discussion"}
+                        </button>
                         <button className="btn" type="button" disabled={!chat_messages.length} onClick={() => export_chat_markdown("download")}>
                           Export Markdown
                         </button>
@@ -4996,6 +5290,24 @@ export function App(): React.ReactElement {
                               : "Copy Markdown"}
                         </button>
                       </div>
+
+                      <div className="chat_hint">Read-only. No tools. Grounded in the parent run + subflows ledger.</div>
+                      {chat_thread_last_saved_at ? <div className="chat_hint">Last saved: {format_time_ago(chat_thread_last_saved_at)}</div> : null}
+                      {chat_thread_save_error ? (
+                        <div className="chat_hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                          {chat_thread_save_error}
+                        </div>
+                      ) : null}
+                      {saved_chat_thread_load_error ? (
+                        <div className="chat_hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                          {saved_chat_thread_load_error}
+                        </div>
+                      ) : null}
+                      {saved_chat_threads_error ? (
+                        <div className="chat_hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                          {saved_chat_threads_error}
+                        </div>
+                      ) : null}
                     </div>
 
                     {chat_error ? (
@@ -5017,7 +5329,6 @@ export function App(): React.ReactElement {
                               <span className="mono muted" title={m.ts}>
                                 {format_time_ago(m.ts)}
                               </span>
-                              {m.persisted ? <span className="chip muted mono">saved</span> : null}
                             </div>
                             <div className="chat_text">
                               <ChatMessageContent text={m.content} />
@@ -5029,33 +5340,18 @@ export function App(): React.ReactElement {
                     </div>
 
                     <div className="chat_composer" style={{ marginTop: "10px" }}>
-                      <div className="field" style={{ margin: 0 }}>
-                        <label>Message</label>
-                        <textarea
-                          className="mono"
-                          value={chat_input}
-                          onChange={(e) => set_chat_input(e.target.value)}
-                          rows={3}
-                          placeholder="Ask about this run…"
-                          disabled={!run_id.trim() || chat_sending || !gateway_connected}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                              e.preventDefault();
-                              void send_chat_message();
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="actions" style={{ justifyContent: "flex-end" }}>
-                        <button
-                          className="btn primary"
-                          onClick={() => void send_chat_message()}
-                          disabled={!run_id.trim() || !chat_input.trim() || chat_sending || !gateway_connected}
-                        >
-                          {chat_sending ? "Thinking…" : "Send"}
-                        </button>
-                      </div>
+                      <ChatComposer
+                        value={chat_input}
+                        onChange={set_chat_input}
+                        onSubmit={() => void send_chat_message()}
+                        placeholder="Ask about this run…"
+                        disabled={!run_id.trim() || !gateway_connected || chat_sending}
+                        busy={chat_sending}
+                        rows={3}
+                        sendButtonClassName="btn primary"
+                      />
                     </div>
+
                   </div>
                 ) : null}
 

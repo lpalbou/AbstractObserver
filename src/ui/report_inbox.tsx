@@ -293,7 +293,6 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
         <div className="card">
           <div className="title">
             <h1>Inbox</h1>
-            <span className="badge">{can_use_gateway ? "gateway connected" : "connect gateway in Settings"}</span>
           </div>
           <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
             <div className="tab_bar" style={{ paddingBottom: 0, borderBottom: "none" }}>

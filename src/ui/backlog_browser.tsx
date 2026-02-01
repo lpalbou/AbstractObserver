@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import { ChatMessageContent, Markdown, copyText, type PanelChatMessage } from "@abstractuic/panel-chat";
+import { ChatComposer, ChatMessageContent, Markdown, copyText, type PanelChatMessage } from "@abstractuic/panel-chat";
 
 import type {
   BacklogExecConfigResponse,
@@ -15,9 +15,33 @@ import { Modal } from "./modal";
 
 type BacklogTab = "processing" | "planned" | "proposed" | "recurrent" | "completed" | "failed" | "deprecated" | "trash";
 type BacklogFileKind = "planned" | "proposed" | "recurrent" | "completed" | "deprecated" | "trash";
+type BacklogTaskType = "bug" | "feature" | "task";
+type BacklogTaskTypeFilter = "all" | BacklogTaskType;
 
 function is_backlog_file_kind(tab: BacklogTab): tab is BacklogFileKind {
   return tab !== "processing" && tab !== "failed";
+}
+
+function normalize_task_type(value: any): BacklogTaskType {
+  const t = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (t === "bug" || t === "feature" || t === "task") return t;
+  return "task";
+}
+
+function task_type_tag(tt: BacklogTaskType): string {
+  return tt.toUpperCase();
+}
+
+function task_type_chip(tt: BacklogTaskType): string {
+  return tt === "bug" ? "danger" : tt === "feature" ? "ok" : "task";
+}
+
+function strip_title_type_prefix(title: string): string {
+  const s = String(title || "").trim();
+  const out = s.replace(/^\[(bug|feature|task)\]\s*/i, "").trim();
+  return out || s;
 }
 
 function short_id(value: string, keep: number): string {
@@ -29,6 +53,15 @@ function short_id(value: string, keep: number): string {
 function is_parsed(item: BacklogItemSummary): boolean {
   if (typeof (item as any)?.parsed === "boolean") return Boolean((item as any).parsed);
   return typeof item.item_id === "number" && item.item_id > 0;
+}
+
+function infer_backlog_package(item: BacklogItemSummary | null): string {
+  const p = String(item?.package || "").trim();
+  if (p) return p;
+  const fn = String(item?.filename || "").trim();
+  const parts = fn.split("-");
+  if (parts.length >= 2) return String(parts[1] || "").trim();
+  return "";
 }
 
 function format_created_at(d: Date = new Date()): string {
@@ -61,6 +94,23 @@ function first_line_snippet(text: string, max_len: number): string {
 function _is_near_bottom(el: HTMLElement, threshold_px: number): boolean {
   const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
   return remaining <= threshold_px;
+}
+
+function _summary_preview_markdown(text: string): string {
+  const raw = String(text || "").replace(/\r/g, "").trim();
+  if (!raw) return "";
+  const lines = raw.split("\n");
+  const out: string[] = [];
+  for (const line of lines) {
+    const s = String(line || "");
+    if (!s.trim()) {
+      if (out.length) break;
+      continue;
+    }
+    out.push(s);
+    if (out.length >= 6) break;
+  }
+  return out.join("\n").trim();
 }
 
 function _parse_iso_ms(ts: any): number | null {
@@ -99,13 +149,14 @@ async function sha256_hex(text: string): Promise<string> {
 
 function render_backlog_template_draft(
   template_md: string,
-  opts: { package_name: string; title: string; summary: string; created_at: string }
+  opts: { package_name: string; title: string; summary: string; created_at: string; task_type: BacklogTaskType }
 ): string {
   const pkg = String(opts.package_name || "").trim() || "{Package}";
-  const title = String(opts.title || "").trim() || "{Title}";
+  const title = strip_title_type_prefix(String(opts.title || "").trim() || "{Title}");
   const summary = String(opts.summary || "").trim();
+  const tt = normalize_task_type(opts.task_type);
 
-  const header = `# {ID}-${pkg}: ${title}`.trim();
+  const header = `# {ID}-${pkg}: [${task_type_tag(tt)}] ${title}`.trim();
   let out = String(template_md || "");
   out = out.split("{Package}").join(pkg).split("{Title}").join(title);
 
@@ -142,6 +193,39 @@ function render_backlog_template_draft(
     lines.splice(insert_at, 0, created_line, "");
   }
 
+  // Ensure Type line.
+  const type_line = `> Type: ${tt}`.trim();
+  let found_type = false;
+  for (let i = 0; i < Math.min(lines.length, 60); i += 1) {
+    const raw = String(lines[i] || "");
+    if (raw.trim().toLowerCase().startsWith("> type:")) {
+      lines[i] = type_line;
+      found_type = true;
+      break;
+    }
+  }
+  if (!found_type) {
+    let created_idx = -1;
+    for (let i = 0; i < Math.min(lines.length, 60); i += 1) {
+      const raw = String(lines[i] || "");
+      if (raw.trim().toLowerCase().startsWith("> created:")) {
+        created_idx = i;
+        break;
+      }
+    }
+    if (created_idx >= 0) {
+      const insert_at = created_idx + 1;
+      if (insert_at < lines.length && !String(lines[insert_at] || "").trim()) {
+        lines.splice(insert_at, 0, type_line);
+      } else {
+        lines.splice(insert_at, 0, type_line, "");
+      }
+    } else {
+      const insert_at = lines.length > 1 && !String(lines[1] || "").trim() ? 2 : 1;
+      lines.splice(insert_at, 0, type_line, "");
+    }
+  }
+
   if (summary) {
     for (let i = 0; i < lines.length; i += 1) {
       if (String(lines[i] || "").trim().toLowerCase() === "## summary") {
@@ -173,6 +257,7 @@ function _lines_list(text: string): string[] {
 function generate_backlog_draft_from_guided(opts: {
   package_name: string;
   title: string;
+  task_type: BacklogTaskType;
   summary: string;
   diagram: string;
   context: string;
@@ -188,15 +273,17 @@ function generate_backlog_draft_from_guided(opts: {
   attachments: string[];
 }): string {
   const pkg = String(opts.package_name || "").trim() || "{Package}";
-  const title = String(opts.title || "").trim() || "{Title}";
+  const title = strip_title_type_prefix(String(opts.title || "").trim() || "{Title}");
+  const tt = normalize_task_type(opts.task_type);
   const created = String(opts.created_at || "").trim() || format_created_at();
   const diagram = String(opts.diagram || "").trim();
   const context = String(opts.context || "").trim();
 
   const md: string[] = [];
-  md.push(`# {ID}-${pkg}: ${title}`);
+  md.push(`# {ID}-${pkg}: [${task_type_tag(tt)}] ${title}`);
   md.push("");
   md.push(`> Created: ${created}`);
+  md.push(`> Type: ${tt}`);
   md.push("");
   md.push("## Summary");
   md.push(opts.summary.trim() || "One paragraph describing what this task accomplishes (user value + outcome).");
@@ -327,11 +414,15 @@ function insert_attachment_links(md: string, relpaths: string[]): string {
 export type BacklogBrowserPageProps = {
   gateway: GatewayClient;
   gateway_connected: boolean;
+  maintenance_ai_provider?: string;
+  maintenance_ai_model?: string;
 };
 
 export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactElement {
   const gateway = props.gateway;
   const can_use_gateway = props.gateway_connected;
+  const maint_provider = String(props.maintenance_ai_provider || "").trim();
+  const maint_model = String(props.maintenance_ai_model || "").trim();
 
   const [kind, set_kind] = useState<BacklogTab>("planned");
   const [items, set_items] = useState<BacklogItemSummary[]>([]);
@@ -339,6 +430,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [error, set_error] = useState("");
 
   const [query, set_query] = useState("");
+  const [type_filter, set_type_filter] = useState<BacklogTaskTypeFilter>("all");
 
   const [selected, set_selected] = useState<BacklogItemSummary | null>(null);
   const [content, set_content] = useState("");
@@ -353,6 +445,23 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [edit_text, set_edit_text] = useState("");
   const [edit_loading, set_edit_loading] = useState(false);
   const [edit_error, set_edit_error] = useState("");
+
+  const [maint_messages, set_maint_messages] = useState<PanelChatMessage[]>([]);
+  const [maint_input, set_maint_input] = useState("");
+  const [maint_loading, set_maint_loading] = useState(false);
+  const [maint_error, set_maint_error] = useState("");
+
+  const [advisor_open, set_advisor_open] = useState(false);
+  const [advisor_messages, set_advisor_messages] = useState<PanelChatMessage[]>([]);
+  const [advisor_input, set_advisor_input] = useState("");
+  const [advisor_loading, set_advisor_loading] = useState(false);
+  const [advisor_error, set_advisor_error] = useState("");
+  const advisor_input_ref = useRef<HTMLTextAreaElement | null>(null);
+
+  const edit_attach_input_ref = useRef<HTMLInputElement | null>(null);
+  const [edit_attachments_uploading, set_edit_attachments_uploading] = useState(false);
+  const [edit_attachments_error, set_edit_attachments_error] = useState("");
+  const [edit_recent_attachments, set_edit_recent_attachments] = useState<string[]>([]);
 
   const [execute_confirm_open, set_execute_confirm_open] = useState(false);
   const [execute_target, set_execute_target] = useState<{ kind: BacklogFileKind; filename: string; title: string } | null>(null);
@@ -386,6 +495,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [template_error, set_template_error] = useState("");
 
   const [new_kind, set_new_kind] = useState<"planned" | "proposed" | "recurrent">("proposed");
+  const [new_task_type, set_new_task_type] = useState<BacklogTaskType>("feature");
   const [new_package, set_new_package] = useState("framework");
   const [new_title, set_new_title] = useState("");
   const [new_summary, set_new_summary] = useState("");
@@ -413,6 +523,17 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [assist_loading, set_assist_loading] = useState(false);
 
   const is_exec_view = kind === "processing" || kind === "failed" || (kind === "completed" && completed_view === "runs");
+
+  useEffect(() => {
+    if (!advisor_open) return;
+    const on_keydown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") set_advisor_open(false);
+    };
+    window.addEventListener("keydown", on_keydown);
+    // Focus the input (best-effort).
+    setTimeout(() => advisor_input_ref.current?.focus(), 0);
+    return () => window.removeEventListener("keydown", on_keydown);
+  }, [advisor_open]);
 
   const parsed_exec_events = useMemo(() => {
     if (exec_log_name !== "events") return null;
@@ -683,6 +804,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         set_editing(false);
         set_edit_text("");
         set_edit_error("");
+        set_maint_messages([]);
+        set_maint_input("");
+        set_maint_loading(false);
+        set_maint_error("");
+        set_edit_attachments_uploading(false);
+        set_edit_attachments_error("");
+        set_edit_recent_attachments([]);
       }
     } else {
       if (exec_selected) {
@@ -703,6 +831,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     set_editing(false);
     set_edit_text("");
     set_edit_error("");
+    set_maint_messages([]);
+    set_maint_input("");
+    set_maint_loading(false);
+    set_maint_error("");
+    set_edit_attachments_uploading(false);
+    set_edit_attachments_error("");
+    set_edit_recent_attachments([]);
     set_action_error("");
     set_content("");
     set_content_sha("");
@@ -722,12 +857,17 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
   const filtered_items = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
-    if (!q) return items;
+    const tf = String(type_filter || "all").trim().toLowerCase();
     return items.filter((it) => {
-      const hay = `${it.item_id || ""} ${it.package || ""} ${it.title || ""} ${it.summary || ""} ${it.filename || ""}`.toLowerCase();
+      if (tf && tf !== "all") {
+        const tt = normalize_task_type(it.task_type);
+        if (tt !== tf) return false;
+      }
+      if (!q) return true;
+      const hay = `${it.item_id || ""} ${it.package || ""} ${it.title || ""} ${it.task_type || ""} ${it.summary || ""} ${it.filename || ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [items, query]);
+  }, [items, query, type_filter]);
 
   const filtered_exec_requests = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -910,6 +1050,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
   function reset_new_task(): void {
     set_new_kind("proposed");
+    set_new_task_type("feature");
     set_new_package("framework");
     set_new_title("");
     set_new_summary("");
@@ -964,6 +1105,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     const rendered = render_backlog_template_draft(template_md, {
       package_name: pkg,
       title: new_title,
+      task_type: new_task_type,
       summary: new_summary,
       created_at,
     });
@@ -981,6 +1123,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     const draft = generate_backlog_draft_from_guided({
       package_name: pkg,
       title: new_title,
+      task_type: new_task_type,
       summary: new_summary,
       diagram: guided_diagram,
       context: guided_context,
@@ -1012,6 +1155,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         kind: new_kind,
         package: pkg,
         title: new_title,
+        task_type: new_task_type,
         summary: new_summary || null,
         content: new_draft || null,
       });
@@ -1086,6 +1230,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         summary: new_summary || null,
         draft_markdown: new_draft || null,
         messages: next_msgs.map((m) => ({ role: m.role, content: m.content })),
+        provider: maint_provider || null,
+        model: maint_model || null,
       });
       const reply = String(out?.reply || "").trim();
       const draft = String(out?.draft_markdown || "").trim();
@@ -1097,6 +1243,105 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_assist_loading(false);
     }
   }
+
+  async function upload_edit_attachments(files: File[]): Promise<void> {
+    if (!selected) return;
+    if (!is_backlog_file_kind(kind)) return;
+    if (!files.length) return;
+    if (!can_use_gateway) return;
+    if (edit_attachments_uploading) return;
+    set_edit_attachments_error("");
+    set_edit_attachments_uploading(true);
+    try {
+      const uploaded: string[] = [];
+      for (const f of files) {
+        const res = await gateway.backlog_upload_attachment({ kind, filename: selected.filename, file: f, overwrite: false });
+        const relpath = String(res?.stored?.relpath || "").trim();
+        if (relpath) uploaded.push(relpath);
+      }
+      if (uploaded.length) {
+        set_edit_recent_attachments((prev) => [...uploaded, ...prev].slice(0, 12));
+        set_edit_text((prev) => insert_attachment_links(String(prev || ""), uploaded));
+      }
+    } catch (e: any) {
+      set_edit_attachments_error(String(e?.message || e || "Attachment upload failed"));
+    } finally {
+      set_edit_attachments_uploading(false);
+    }
+  }
+
+  async function send_maintain(): Promise<void> {
+    if (maint_loading) return;
+    if (!selected) return;
+    if (!is_backlog_file_kind(kind)) return;
+    if (!can_use_gateway) return;
+    const can_maintain = kind === "planned" || kind === "proposed" || kind === "recurrent" || kind === "deprecated";
+    if (!can_maintain) {
+      set_maint_error("Maintenance chat is only available for planned/proposed/recurrent/deprecated items.");
+      return;
+    }
+    set_maint_error("");
+    const msg = maint_input.trim();
+    if (!msg) return;
+    const user_msg: PanelChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
+    const next_msgs = [...maint_messages, user_msg];
+    set_maint_messages(next_msgs);
+    set_maint_input("");
+    set_maint_loading(true);
+    try {
+      const pkg = infer_backlog_package(selected);
+      if (!pkg) throw new Error("Backlog item missing package (cannot maintain)");
+      const out = await gateway.backlog_maintain({
+        kind,
+        filename: selected.filename,
+        package: pkg,
+        title: selected.title || selected.filename,
+        summary: selected.summary || null,
+        draft_markdown: edit_text || null,
+        messages: next_msgs.map((m) => ({ role: m.role, content: m.content })),
+        provider: maint_provider || null,
+        model: maint_model || null,
+      });
+      const reply = String(out?.reply || "").trim();
+      const draft = String(out?.draft_markdown || "").trim();
+      if (reply) set_maint_messages((ms) => [...ms, { id: random_id(), role: "assistant", content: reply, ts: new Date().toISOString() }]);
+      if (draft) set_edit_text(draft);
+    } catch (e: any) {
+      set_maint_error(String(e?.message || e || "Maintenance AI failed"));
+    } finally {
+      set_maint_loading(false);
+    }
+  }
+
+  async function send_advisor(): Promise<void> {
+    if (advisor_loading) return;
+    if (!can_use_gateway) return;
+    set_advisor_error("");
+    const msg = advisor_input.trim();
+    if (!msg) return;
+    const user_msg: PanelChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
+    const next_msgs = [...advisor_messages, user_msg];
+    set_advisor_messages(next_msgs);
+    set_advisor_input("");
+    set_advisor_loading(true);
+    try {
+      const out = await gateway.backlog_advisor({
+        messages: next_msgs.map((m) => ({ role: m.role, content: m.content })),
+        provider: maint_provider || null,
+        model: maint_model || null,
+        focus_kind: kind,
+        focus_type: type_filter,
+      });
+      const reply = String(out?.reply || "").trim();
+      if (reply) set_advisor_messages((ms) => [...ms, { id: random_id(), role: "assistant", content: reply, ts: new Date().toISOString() }]);
+    } catch (e: any) {
+      set_advisor_error(String(e?.message || e || "Backlog advisor failed"));
+    } finally {
+      set_advisor_loading(false);
+    }
+  }
+
+  const selected_task_type = selected && is_parsed(selected) ? normalize_task_type(selected.task_type) : null;
 
   const can_execute = Boolean(selected && kind === "planned");
   const can_elevate = Boolean(selected && kind === "proposed");
@@ -1112,7 +1357,6 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         <div className="card">
           <div className="title">
             <h1>Backlog</h1>
-            <span className="badge">{can_use_gateway ? "gateway connected" : "connect gateway in Settings"}</span>
             {can_use_gateway && exec_cfg ? (
               <span
                 className="badge"
@@ -1181,6 +1425,16 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 placeholder={is_exec_view ? "Search exec requests (id/status/backlog/error…)" : "Search backlog (id/title/package/filename…)"}
               />
             </div>
+            {!is_exec_view ? (
+              <div className="field" style={{ margin: 0, flex: "0 0 auto", minWidth: 150, paddingLeft: "10px" }}>
+                <select value={type_filter} onChange={(e) => set_type_filter(e.target.value as any)} title="Filter by type">
+                  <option value="all">all types</option>
+                  <option value="bug">bug</option>
+                  <option value="feature">feature</option>
+                  <option value="task">task</option>
+                </select>
+              </div>
+            ) : null}
             <div className="mono muted" style={{ fontSize: "12px", paddingLeft: "10px" }}>
               {is_exec_view ? `${filtered_exec_requests.length}/${exec_requests.length}` : `${filtered_items.length}/${items.length}`}
             </div>
@@ -1254,15 +1508,21 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 filtered_items.map((it) => {
                   const active = selected?.filename === it.filename;
                   const parsed = is_parsed(it);
+                  const tt = normalize_task_type(it.task_type);
                   return (
                     <button key={`${kind}:${it.filename}`} className={`inbox_item ${active ? "active" : ""}`} onClick={() => void load_item(it)}>
                       <div className="inbox_item_title">
                         {!parsed ? <span className="pill unparsed">unparsed</span> : null}
                         {it.item_id ? <span className="chip info mono">#{it.item_id}</span> : null}
+                        {parsed ? <span className={`chip ${task_type_chip(tt)} mono`}>{tt}</span> : null}
                         {it.package ? <span className="chip muted mono">{it.package}</span> : null}
                         <span className="item_title_text">{short_id(it.title || it.filename, 56)}</span>
                       </div>
-                      {it.summary ? <div className="item_summary_text">{short_id(it.summary, 220)}</div> : null}
+                      {it.summary ? (
+                        <div className="item_summary_text">
+                          <Markdown text={_summary_preview_markdown(it.summary)} className="backlog_summary_md" />
+                        </div>
+                      ) : null}
                       <div className="inbox_item_meta mono muted">{it.filename}</div>
                     </button>
                   );
@@ -1635,6 +1895,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     </span>
                     {selected.item_id ? <span className="chip mono muted">#{selected.item_id}</span> : null}
                     {selected.package ? <span className="chip mono muted">{selected.package}</span> : null}
+                    {selected_task_type ? <span className={`chip ${task_type_chip(selected_task_type)} mono`}>{selected_task_type}</span> : null}
                     {!is_parsed(selected) ? <span className="chip mono muted">unparsed</span> : null}
                     <span className="chip mono muted">{selected.filename}</span>
                   </div>
@@ -1692,6 +1953,11 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           set_editing(true);
                           set_edit_text(content);
                           set_edit_error("");
+                          set_maint_messages([]);
+                          set_maint_input("");
+                          set_maint_error("");
+                          set_edit_attachments_error("");
+                          set_edit_recent_attachments([]);
                         }}
                         disabled={content_loading || edit_loading}
                       >
@@ -1736,9 +2002,105 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     Loading…
                   </div>
                 ) : editing ? (
-                  <div className="field" style={{ marginTop: "8px" }}>
-                    <textarea value={edit_text} onChange={(e) => set_edit_text(e.target.value)} rows={24} className="mono" />
-                  </div>
+                  <>
+                    <div className="field" style={{ marginTop: "8px" }}>
+                      <textarea value={edit_text} onChange={(e) => set_edit_text(e.target.value)} rows={18} className="mono" />
+                    </div>
+
+                    <div className="backlog_edit_sticky">
+                      <div className="section_title" style={{ marginTop: 0 }}>
+                        Maintenance AI (chat)
+                      </div>
+                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                        Ask the maintainer to refine this backlog item. Provider/model can be set in Settings (blank = gateway default).
+                      </div>
+                      <div className="mono muted" style={{ fontSize: "11px", marginTop: "6px" }}>
+                        Using:{" "}
+                        <span className="mono">
+                          {maint_provider || "(gateway default)"} / {maint_model || "(gateway default)"}
+                        </span>
+                      </div>
+
+                      <div className="row" style={{ marginTop: "10px", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
+                        <input
+                          ref={edit_attach_input_ref}
+                          type="file"
+                          multiple
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files || []);
+                            if (!files.length) return;
+                            void upload_edit_attachments(files);
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => edit_attach_input_ref.current?.click()}
+                          disabled={!can_use_gateway || !selected || !is_backlog_file_kind(kind) || edit_attachments_uploading}
+                        >
+                          {edit_attachments_uploading ? "Uploading…" : "Attach files"}
+                        </button>
+                        {edit_recent_attachments.length ? (
+                          <div className="mono muted" style={{ fontSize: "11px" }}>
+                            Last attached: {edit_recent_attachments[0]}
+                          </div>
+                        ) : null}
+                      </div>
+                      {edit_attachments_error ? (
+                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                          {edit_attachments_error}
+                        </div>
+                      ) : null}
+
+                      <div className="section_divider" style={{ marginTop: "10px" }} />
+                      <div className="source_chat" style={{ maxHeight: "220px" }}>
+                        {maint_messages.length ? (
+                          maint_messages.map((m) => (
+                            <div key={m.id || `${m.role}_${m.ts}`} className={`source_msg ${m.role === "user" ? "source_user" : "source_assistant"}`}>
+                              <div className="source_msg_meta">
+                                <span className="mono">{m.role}</span>
+                                <span className="mono">{m.ts ? new Date(m.ts).toLocaleTimeString() : ""}</span>
+                              </div>
+                              <div className="source_msg_body">
+                                <ChatMessageContent text={m.content} />
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="mono muted" style={{ fontSize: "12px" }}>
+                            No messages yet.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="row" style={{ marginTop: "10px", alignItems: "center" }}>
+                        <div className="col" style={{ flex: "1 1 auto", minWidth: 240 }}>
+                          <input
+                            value={maint_input}
+                            onChange={(e) => set_maint_input(e.target.value)}
+                            placeholder="Message to maintainer (e.g. improve acceptance criteria…)"
+                          />
+                        </div>
+                        <div className="col" style={{ flex: "0 0 auto" }}>
+                          <button
+                            className="btn primary"
+                            onClick={() => void send_maintain()}
+                            disabled={!can_use_gateway || maint_loading || !maint_input.trim() || !selected || !is_backlog_file_kind(kind)}
+                          >
+                            {maint_loading ? "Thinking…" : "Send"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {maint_error ? (
+                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                          {maint_error}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
                 ) : content ? (
                   <Markdown text={content} />
                 ) : (
@@ -1892,6 +2254,16 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 <option value="proposed">proposed</option>
                 <option value="planned">planned</option>
                 <option value="recurrent">recurrent</option>
+              </select>
+            </div>
+          </div>
+          <div className="col" style={{ minWidth: 220 }}>
+            <div className="field">
+              <label>Type</label>
+              <select value={new_task_type} onChange={(e) => set_new_task_type(e.target.value as any)}>
+                <option value="feature">feature</option>
+                <option value="bug">bug</option>
+                <option value="task">task</option>
               </select>
             </div>
           </div>
@@ -2084,15 +2456,17 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           )}
         </div>
 
-        <div className="row" style={{ marginTop: "10px", alignItems: "center" }}>
-          <div className="col" style={{ flex: "1 1 auto", minWidth: 240 }}>
-            <input value={assist_input} onChange={(e) => set_assist_input(e.target.value)} placeholder="Message to AI (e.g. refine acceptance criteria…)" />
-          </div>
-          <div className="col" style={{ flex: "0 0 auto" }}>
-            <button className="btn primary" onClick={() => void send_assist()} disabled={assist_loading || !assist_input.trim() || !new_title.trim()}>
-              {assist_loading ? "Thinking…" : "Send"}
-            </button>
-          </div>
+        <div style={{ marginTop: "10px" }}>
+          <ChatComposer
+            value={assist_input}
+            onChange={set_assist_input}
+            onSubmit={() => void send_assist()}
+            placeholder="Message to AI (e.g. refine acceptance criteria…)"
+            disabled={!new_title.trim()}
+            busy={assist_loading}
+            rows={3}
+            sendButtonClassName="btn primary"
+          />
         </div>
 
         {new_error ? (
@@ -2101,6 +2475,89 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           </div>
         ) : null}
       </Modal>
+
+      <button
+        className={`advisor_toggle ${advisor_open ? "open" : ""}`}
+        onClick={() => set_advisor_open((v) => !v)}
+        title="Open backlog advisor (read-only)"
+        aria-label="Open backlog advisor"
+      >
+        <span className="advisor_toggle_label">Advisor</span>
+      </button>
+
+      {advisor_open ? (
+        <div
+          className="drawer_backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) set_advisor_open(false);
+          }}
+        >
+          <div className="drawer_panel">
+            <div className="drawer_header">
+              <div className="col" style={{ gap: 2 }}>
+                <div className="drawer_title">Backlog advisor</div>
+                <div className="mono muted" style={{ fontSize: "11px" }}>
+                  Read-only. Using: {maint_provider || "(gateway default)"} / {maint_model || "(gateway default)"}
+                </div>
+              </div>
+              <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
+                <button className="btn" onClick={() => set_advisor_messages([])} disabled={advisor_loading || !advisor_messages.length}>
+                  Clear
+                </button>
+                <button className="btn" onClick={() => set_advisor_open(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="drawer_body">
+              <div className="source_chat" style={{ maxHeight: "unset", flex: "1 1 auto", width: "100%" }}>
+                {advisor_messages.length ? (
+                  advisor_messages.map((m) => (
+                    <div key={m.id || `${m.role}_${m.ts}`} className={`source_msg ${m.role === "user" ? "source_user" : "source_assistant"}`}>
+                      <div className="source_msg_meta">
+                        <span className="mono">{m.role}</span>
+                        <span className="mono">{m.ts ? new Date(m.ts).toLocaleTimeString() : ""}</span>
+                      </div>
+                      <div className="source_msg_body">
+                        <ChatMessageContent text={m.content} />
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                    Ask about the backlog, e.g. “What are the top 5 planned items to focus on next and why?”
+                  </div>
+                )}
+              </div>
+
+              <div className="drawer_footer">
+                <ChatComposer
+                  ref={advisor_input_ref}
+                  value={advisor_input}
+                  onChange={set_advisor_input}
+                  onSubmit={() => void send_advisor()}
+                  placeholder="Message to backlog advisor…"
+                  disabled={!can_use_gateway}
+                  busy={advisor_loading}
+                  rows={3}
+                  sendButtonClassName="btn primary"
+                />
+                {advisor_error ? (
+                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                    {advisor_error}
+                  </div>
+                ) : null}
+                {!can_use_gateway ? (
+                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+                    Connect the gateway in Settings to use the advisor.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
