@@ -6,6 +6,7 @@ import {
   AfSelect,
   FontScaleSelect,
   HeaderDensitySelect,
+  Icon,
   ProviderModelSelect,
   ThemeSelect,
   applyTheme,
@@ -26,6 +27,7 @@ import { BacklogBrowserPage } from "./backlog_browser";
 import { MindmapPanel } from "./mindmap_panel";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
+import { ProcessesPage } from "./processes_page";
 import { ReportInboxPage } from "./report_inbox";
 import { RunPicker, type RunSummary } from "./run_picker";
 
@@ -40,6 +42,7 @@ type Settings = {
   auto_connect_gateway: boolean;
   maintenance_ai_provider: string;
   maintenance_ai_model: string;
+  backlog_advisor_agent: string;
 };
 
 type UiLogItem = {
@@ -361,6 +364,7 @@ function load_settings(): Settings {
       auto_connect_gateway: parsed?.auto_connect_gateway === false ? false : true,
       maintenance_ai_provider: String(parsed?.maintenance_ai_provider || ""),
       maintenance_ai_model: String(parsed?.maintenance_ai_model || ""),
+      backlog_advisor_agent: String(parsed?.backlog_advisor_agent || parsed?.backlogAdvisorAgent || ""),
     };
   } catch {
     return {
@@ -374,6 +378,7 @@ function load_settings(): Settings {
       auto_connect_gateway: true,
       maintenance_ai_provider: "",
       maintenance_ai_model: "",
+      backlog_advisor_agent: "",
     };
   }
 }
@@ -515,7 +520,7 @@ function getOrCreateStableSessionId(): string {
 }
 
 export function App(): React.ReactElement {
-  const [page, set_page] = useState<"observe" | "launch" | "mindmap" | "backlog" | "inbox" | "settings">("observe");
+  const [page, set_page] = useState<"observe" | "launch" | "mindmap" | "backlog" | "inbox" | "processes" | "settings">("observe");
 
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
@@ -3671,7 +3676,12 @@ export function App(): React.ReactElement {
               <circle cx="19" cy="13.6" r="1.2" fill="currentColor" />
             </svg>
           </span>
-          <span>AbstractObserver</span>
+          <span className="logo_name">AbstractObserver</span>
+          <span
+            className={`gateway_led ${gateway_connected ? "ok" : discovery_loading ? "warn" : "err"}`}
+            title={`Gateway: ${gateway_connected ? "connected" : discovery_loading ? "connecting" : "disconnected"}`}
+            aria-hidden="true"
+          />
         </div>
         <div className="app_nav">
           <button className={`nav_tab ${page === "observe" ? "active" : ""}`} onClick={() => set_page("observe")}>
@@ -3689,14 +3699,8 @@ export function App(): React.ReactElement {
           <button className={`nav_tab ${page === "inbox" ? "active" : ""}`} onClick={() => set_page("inbox")}>
             Inbox
           </button>
-          <button className={`nav_tab ${page === "settings" ? "active" : ""}`} onClick={() => set_page("settings")}>
-            Settings
-          </button>
         </div>
         <div className="status_pills">
-          <span className={`status_pill ${gateway_connected ? "ok" : discovery_loading ? "warn" : "muted"}`}>
-            gateway {gateway_connected ? "ok" : discovery_loading ? "…" : "off"}
-          </span>
           {page === "observe" ? (
             <>
               <span className={`status_pill ${connected ? "ok" : connecting ? "warn" : "muted"}`}>
@@ -3726,6 +3730,24 @@ export function App(): React.ReactElement {
               }
             />
           ) : null}
+          <button
+            className={`header_icon_btn ${page === "processes" ? "active" : ""}`}
+            title="Processes"
+            aria-label="Processes"
+            type="button"
+            onClick={() => set_page("processes")}
+          >
+            <Icon name="terminal" size={16} />
+          </button>
+          <button
+            className={`header_icon_btn ${page === "settings" ? "active" : ""}`}
+            title="Settings"
+            aria-label="Settings"
+            type="button"
+            onClick={() => set_page("settings")}
+          >
+            <Icon name="settings" size={16} />
+          </button>
         </div>
       </div>
 
@@ -3742,7 +3764,7 @@ export function App(): React.ReactElement {
                 <div className="field">
                   <label>Theme</label>
                   <ThemeSelect value={settings.theme} onChange={(id) => set_settings((s) => ({ ...s, theme: id }))} />
-                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                     Stored locally in this browser (no server round-trip).
                   </div>
                 </div>
@@ -3769,7 +3791,7 @@ export function App(): React.ReactElement {
                     </button>
                   </div>
                   {discovery_error ? (
-                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)" }}>
                       {discovery_error}
                     </div>
                   ) : null}
@@ -3821,8 +3843,21 @@ export function App(): React.ReactElement {
                     }))
                   }
                 />
-                <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                   Used for backlog AI assist and in-editor maintenance chat. Defaults follow `ABSTRACTGATEWAY_PROVIDER` / `ABSTRACTGATEWAY_MODEL`.
+                </div>
+
+                <div className="field" style={{ marginTop: "10px" }}>
+                  <label>Backlog advisor agent (bundle id; blank = basic-agent)</label>
+                  <input
+                    className="mono"
+                    value={settings.backlog_advisor_agent}
+                    onChange={(e) => set_settings((s) => ({ ...s, backlog_advisor_agent: String(e.target.value || "") }))}
+                    placeholder="basic-agent"
+                  />
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
+                    Used by Backlog → Advisor drawer. Must be a bundle available on the gateway (e.g. `basic-agent`, `advanced-agent`).
+                  </div>
                 </div>
 
                 <div className="section_divider" />
@@ -3850,7 +3885,7 @@ export function App(): React.ReactElement {
                       placeholder="(optional)"
                     />
                   </div>
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     Used to execute tool waits from the UI (advanced / potentially dangerous).
                   </div>
                 </details>
@@ -3937,22 +3972,22 @@ export function App(): React.ReactElement {
                     <button type="button" className="btn" onClick={() => void refresh_runs()} disabled={!gateway_connected || runs_loading || discovery_loading}>
                       {runs_loading ? "Refreshing…" : "Refresh runs"}
                     </button>
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                       Use Upload for remote installs. Reload picks up server-side edits (dev).
                     </div>
                   </div>
                   {selected_entrypoint?.description ? (
-                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                       {String(selected_entrypoint.description)}
                     </div>
                   ) : null}
                   {bundle_loading ? (
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                       Loading workflow…
                     </div>
                   ) : null}
 	                  {bundle_error ? (
-	                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+	                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)" }}>
 	                      {bundle_error}
 	                    </div>
 	                  ) : null}
@@ -3996,7 +4031,7 @@ export function App(): React.ReactElement {
                     placeholder="(optional; empty ⇒ scope=session behaves like per-run)"
                     disabled={connecting || resuming}
                   />
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     Shared across runs when the same session_id is sent to the gateway.
                   </div>
                 </div>
@@ -4019,7 +4054,7 @@ export function App(): React.ReactElement {
                   >
                     {schedule_start_mode !== "now" || schedule_repeat_mode !== "once" ? "Launch (scheduled)" : "Launch now"}
                   </button>
-                  <div className="mono muted" style={{ fontSize: "12px", alignSelf: "center" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", alignSelf: "center" }}>
                     {schedule_start_mode !== "now" || schedule_repeat_mode !== "once"
                       ? "Uses the schedule settings below."
                       : "Starts immediately (no schedule)."}
@@ -4042,7 +4077,7 @@ export function App(): React.ReactElement {
                   </summary>
 
                   {!bundle_id.trim() || !flow_id.trim() ? (
-                    <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                       Select a workflow above to configure inputs.
                     </div>
                   ) : input_data_obj === null ? (
@@ -4084,7 +4119,7 @@ export function App(): React.ReactElement {
                                 onChange={(next) => update_input_data_field(pid, next)}
                               />
                               {hint ? (
-                                <div className="mono muted" style={{ fontSize: "12px" }}>
+                                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                                   {hint}
                                 </div>
                               ) : null}
@@ -4250,11 +4285,11 @@ export function App(): React.ReactElement {
                                 disabled={disabled}
                               />
                               {err ? (
-                                <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+                                <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)" }}>
                                   {err}
                                 </div>
                               ) : hint ? (
-                                <div className="mono muted" style={{ fontSize: "12px" }}>
+                                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                                   {hint}
                                 </div>
                               ) : null}
@@ -4286,14 +4321,14 @@ export function App(): React.ReactElement {
                               />
                             )}
                             {hint ? (
-                              <div className="mono muted" style={{ fontSize: "12px" }}>
+                              <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                                 {hint}
                               </div>
                             ) : null}
                           </div>
                         );
                       })}
-                      <div className="mono muted" style={{ fontSize: "12px", marginTop: "10px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
                         Advanced JSON below is the source of truth for full `input_data`.
                       </div>
                     </div>
@@ -4369,7 +4404,7 @@ export function App(): React.ReactElement {
                         placeholder="(leave blank to auto-generate a per-run workspace on the gateway)"
                         disabled={connecting || resuming}
                       />
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                         Relative tool paths resolve under this directory.
                       </div>
                     </div>
@@ -4384,7 +4419,7 @@ export function App(): React.ReactElement {
                         <option value="workspace_only">workspace_only (restrict absolute paths to workspace_root)</option>
                         <option value="all_except_ignored">all_except_ignored (allow absolute paths outside workspace_root)</option>
                       </select>
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                         This only affects absolute paths; relative paths still stay under workspace_root.
                       </div>
                     </div>
@@ -4398,7 +4433,7 @@ export function App(): React.ReactElement {
                         rows={5}
                         disabled={connecting || resuming}
                       />
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                         One path per line. Relative entries are resolved under workspace_root.
                       </div>
 	                    </div>
@@ -4493,7 +4528,7 @@ export function App(): React.ReactElement {
                         ) : null}
                       </div>
                       {schedule_start_mode === "at" ? (
-                        <div className="mono muted" style={{ fontSize: "12px" }}>
+                        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                           Uses your device time; the gateway stores UTC.
                         </div>
                       ) : null}
@@ -4537,7 +4572,7 @@ export function App(): React.ReactElement {
                           </div>
                         </div>
                         {schedule_every_unit === "months" || schedule_every_unit === "weeks" ? (
-                          <div className="mono muted" style={{ fontSize: "12px" }}>
+                          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                             Note: weeks/months are implemented as fixed day intervals (calendar-aware scheduling is planned).
                           </div>
                         ) : null}
@@ -4579,12 +4614,12 @@ export function App(): React.ReactElement {
                         <input type="checkbox" checked={schedule_share_context} onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))} />
                         Share context over time/calls
                       </label>
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                         When disabled, each execution runs in its own session (isolated memory).
                       </div>
                     </div>
 
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                       Tip: set cadence to Once + now for an immediate launch.
                     </div>
                   </details>
@@ -4599,6 +4634,7 @@ export function App(): React.ReactElement {
             gateway_connected={gateway_connected}
             maintenance_ai_provider={settings.maintenance_ai_provider}
             maintenance_ai_model={settings.maintenance_ai_model}
+            backlog_advisor_agent={settings.backlog_advisor_agent}
           />
         ) : null}
 
@@ -4611,6 +4647,8 @@ export function App(): React.ReactElement {
             default_workflow_id={(run_state as any)?.workflow_id ?? selected_run_summary?.workflow_id ?? null}
           />
         ) : null}
+
+        {page === "processes" ? <ProcessesPage gateway={gateway} gateway_connected={gateway_connected} /> : null}
 
         {page === "mindmap" ? (
           <div className="page mindmap_page">
@@ -4738,7 +4776,7 @@ export function App(): React.ReactElement {
                       ) : null}
                     </div>
                     {wait_reason === "until" && wait_until ? (
-                      <div className="mono muted" style={{ marginTop: "10px", fontSize: "12px" }}>
+                      <div className="mono muted" style={{ marginTop: "10px", fontSize: "var(--font-size-sm)" }}>
                         {(() => {
                           const ms = parse_iso_ms(wait_until);
                           const at = ms !== null ? new Date(ms).toLocaleString() : wait_until;
@@ -4799,7 +4837,7 @@ export function App(): React.ReactElement {
                     </div>
                     {limits_pct !== null ? (
                       <div className="body" style={{ marginTop: "10px" }}>
-                        <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
+                        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "6px" }}>
                           Context budget
                         </div>
                         <div className="mono" style={{ marginBottom: "6px" }}>
@@ -4823,7 +4861,7 @@ export function App(): React.ReactElement {
                           />
                         </div>
                         {is_scheduled_recurrent ? (
-                          <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                             Auto-compaction triggers at ~90% for recurrent schedules.
                           </div>
                         ) : null}
@@ -4951,7 +4989,7 @@ export function App(): React.ReactElement {
                         </button>
                       ) : (
                         <div className="field_inline" style={{ alignItems: "center", flexWrap: "wrap" }}>
-                          <span className="mono muted" style={{ fontSize: "12px" }}>
+                          <span className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                             Run
                           </span>
                           <select
@@ -5063,7 +5101,7 @@ export function App(): React.ReactElement {
                           ))}
                         </select>
                       ) : null}
-                      <span className="mono muted" style={{ fontSize: "12px" }}>
+                      <span className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                         {scheduled_workflow_id.trim() ? scheduled_workflow_id.trim() : graph_flow_id ? `flow ${graph_flow_id}` : ""}
                       </span>
                     </div>
@@ -5139,7 +5177,7 @@ export function App(): React.ReactElement {
                       <div className="body" style={{ whiteSpace: "pre-wrap" }}>
                         {digest?.latest_summary ? (
                           <>
-                            <div className="mono muted" style={{ fontSize: "12px", marginBottom: "8px" }}>
+                            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
                               {digest.latest_summary.generated_at || digest.latest_summary.ts || ""} •{" "}
                               {digest.latest_summary.provider || "provider?"} • {digest.latest_summary.model || "model?"}
                             </div>
@@ -5155,7 +5193,7 @@ export function App(): React.ReactElement {
                         </button>
                       </div>
                       {summary_error ? (
-                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                           {summary_error}
                         </div>
                       ) : null}
@@ -5228,7 +5266,7 @@ export function App(): React.ReactElement {
                           session {short_id(session_id_for_run, 18)}
                         </span>
                       ) : (
-                        <span className="mono muted" style={{ fontSize: "12px" }}>
+                        <span className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                           No session id (pick a run)
                         </span>
                       )}
@@ -5327,12 +5365,12 @@ export function App(): React.ReactElement {
                         }
                       >
                         {attachment_preview_loading ? (
-                          <div className="mono muted" style={{ fontSize: "12px", marginBottom: "8px" }}>
+                          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
                             Loading…
                           </div>
                         ) : null}
                         {attachment_preview_error ? (
-                          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginBottom: "8px" }}>
+                          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
                             {attachment_preview_error}
                           </div>
                         ) : null}
@@ -5346,7 +5384,7 @@ export function App(): React.ReactElement {
 
                 {right_tab === "chat" ? (
                   <div className="log log_scroll" style={{ marginTop: "6px" }}>
-                    <div className="mono muted" style={{ fontSize: "12px", marginBottom: "6px" }}>
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "6px" }}>
                       Using Maintenance AI from Settings: {settings.maintenance_ai_provider.trim() || "(gateway default)"} /{" "}
                       {settings.maintenance_ai_model.trim() || "(gateway default)"}
                     </div>
@@ -5559,7 +5597,7 @@ export function App(): React.ReactElement {
                 placeholder="20m / 1h / 0.5s / 250ms"
                 disabled={connecting || schedule_edit_submitting}
               />
-              <div className="mono muted" style={{ fontSize: "12px" }}>
+              <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                 Accepted units: <span className="mono">ms</span>, <span className="mono">s</span>, <span className="mono">m</span>,{" "}
                 <span className="mono">h</span>, <span className="mono">d</span>. This updates the existing scheduled run in place (no context loss).
               </div>

@@ -32,6 +32,15 @@ The UI treats the **ledger as the source of truth**:
 - it replays before streaming (replay-first)
 - UI status is derived from durable `emit_event` records (e.g. `abstract.status`)
 
+### Optional: Process manager (dev-only)
+When `ABSTRACTGATEWAY_ENABLE_PROCESS_MANAGER=1` is enabled on the gateway host, AbstractObserver can also use:
+- `GET /api/gateway/processes` (list managed processes)
+- `POST /api/gateway/processes/{id}/start|stop|restart` (control)
+- `POST /api/gateway/processes/gateway/redeploy` (run build + restart gateway; best-effort)
+- `GET /api/gateway/processes/{id}/logs/tail` (tail process logs)
+
+This is a **high-trust** feature intended for private dev machines.
+
 ### Optional: Remote Tool Worker (advanced)
 For deployments where tool execution is delegated to a client-controlled environment, AbstractObserver can be configured with an **MCP HTTP tool worker** endpoint.
 
@@ -52,4 +61,3 @@ It is designed to work even when:
 - Framework overview: `docs/architecture.md`
 - Gateway architecture: `abstractgateway/docs/architecture.md`
 - Runtime architecture: `abstractruntime/docs/architecture.md`
-

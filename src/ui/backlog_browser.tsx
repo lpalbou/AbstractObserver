@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { ChatComposer, ChatThread, Markdown, copyText, type ChatMessage } from "@abstractuic/panel-chat";
+import { Icon as UiIcon } from "@abstractuic/ui-kit";
 
 import type {
   BacklogExecConfigResponse,
@@ -19,6 +20,7 @@ import {
 } from "./exec_event";
 import { MultiSelect } from "./multi_select";
 import { Modal } from "./modal";
+import { Icon } from "@abstractuic/ui-kit";
 
 type BacklogTab = "processing" | "planned" | "proposed" | "recurrent" | "completed" | "failed" | "deprecated" | "trash";
 type BacklogFileKind = "planned" | "proposed" | "recurrent" | "completed" | "deprecated" | "trash";
@@ -438,6 +440,7 @@ export type BacklogBrowserPageProps = {
   gateway_connected: boolean;
   maintenance_ai_provider?: string;
   maintenance_ai_model?: string;
+  backlog_advisor_agent?: string;
 };
 
 export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactElement {
@@ -445,6 +448,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const can_use_gateway = props.gateway_connected;
   const maint_provider = String(props.maintenance_ai_provider || "").trim();
   const maint_model = String(props.maintenance_ai_model || "").trim();
+  const advisor_agent = String(props.backlog_advisor_agent || "").trim();
 
   const [kind, set_kind] = useState<BacklogTab>("planned");
   const is_compact_layout = use_media_query("(max-width: 900px)");
@@ -452,6 +456,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [items, set_items] = useState<BacklogItemSummary[]>([]);
   const [loading, set_loading] = useState(false);
   const [error, set_error] = useState("");
+  const [planned_hidden_filenames, set_planned_hidden_filenames] = useState<string[]>([]);
 
   const [query, set_query] = useState("");
   const [type_filter, set_type_filter] = useState<BacklogTaskTypeFilter>("all");
@@ -480,7 +485,20 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [advisor_input, set_advisor_input] = useState("");
   const [advisor_loading, set_advisor_loading] = useState(false);
   const [advisor_error, set_advisor_error] = useState("");
+  const [advisor_show_tools, set_advisor_show_tools] = useState(false);
+  const [advisor_recent_attachments, set_advisor_recent_attachments] = useState<string[]>([]);
   const advisor_input_ref = useRef<HTMLTextAreaElement | null>(null);
+  const advisor_attach_input_ref = useRef<HTMLInputElement | null>(null);
+
+  const advisor_tts_supported = typeof window !== "undefined" && typeof (window as any).speechSynthesis === "object";
+  const advisor_stt_ctor: any =
+    typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null;
+  const advisor_stt_supported = typeof advisor_stt_ctor === "function";
+  const advisor_stt_ref = useRef<any>(null);
+  const [advisor_stt_listening, set_advisor_stt_listening] = useState(false);
+
+  const advisor_tts_state_ref = useRef<{ key: string; status: "playing" | "paused" } | null>(null);
+  const [advisor_tts_tick, set_advisor_tts_tick] = useState(0);
 
   const edit_attach_input_ref = useRef<HTMLInputElement | null>(null);
   const [edit_attachments_uploading, set_edit_attachments_uploading] = useState(false);
@@ -693,7 +711,30 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   async function refresh_backlog_list(target_kind?: BacklogFileKind): Promise<BacklogItemSummary[]> {
     const k = (target_kind || (is_backlog_file_kind(kind) ? kind : "planned")) as any;
     const res = (await gateway.backlog_list(k)) as BacklogListResponse;
-    const next = Array.isArray(res?.items) ? res.items : [];
+    let next = Array.isArray(res?.items) ? res.items : [];
+    if (k === "planned") {
+      try {
+        const active = await gateway.backlog_exec_active_items({ status: "queued,running", limit: 1200 });
+        const active_items = Array.isArray((active as any)?.items) ? ((active as any).items as any[]) : [];
+        const processing = new Set(
+          active_items
+            .filter((it) => String(it?.kind || "").trim() === "planned")
+            .map((it) => String(it?.filename || "").trim())
+            .filter(Boolean)
+        );
+        const hidden = Array.from(processing);
+        hidden.sort();
+        set_planned_hidden_filenames(hidden);
+        if (processing.size) {
+          next = next.filter((it) => !processing.has(String(it.filename || "").trim()));
+        }
+      } catch {
+        set_planned_hidden_filenames([]);
+      }
+    } else {
+      set_planned_hidden_filenames([]);
+    }
+
     set_items(next);
     if (selected && target_kind === undefined && !next.some((it) => it.filename === selected.filename)) {
       set_selected(null);
@@ -1647,10 +1688,25 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         messages: next_msgs.map((m) => ({ role: m.role, content: m.content })),
         provider: maint_provider || null,
         model: maint_model || null,
+        agent: advisor_agent || null,
+        include_trace: advisor_show_tools,
         focus_kind: kind,
         focus_type: type_filter,
       });
+      const tool_trace = advisor_show_tools && Array.isArray((out as any)?.tool_trace) ? ((out as any).tool_trace as any[]) : [];
+      const run_id = String((out as any)?.run_id || "").trim();
       const reply = String(out?.reply || "").trim();
+      if (advisor_show_tools && tool_trace.length) {
+        const trace_msg: ChatMessage = {
+          id: random_id(),
+          role: "system",
+          title: "Tool execution",
+          level: "info",
+          ts: new Date().toISOString(),
+          content: JSON.stringify({ run_id: run_id || null, tool_trace }, null, 2),
+        };
+        set_advisor_messages((ms) => [...ms, trace_msg]);
+      }
       if (reply) set_advisor_messages((ms) => [...ms, { id: random_id(), role: "assistant", content: reply, ts: new Date().toISOString() }]);
     } catch (e: any) {
       set_advisor_error(String(e?.message || e || "Backlog advisor failed"));
@@ -1658,6 +1714,201 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_advisor_loading(false);
     }
   }
+
+  async function attach_advisor_files(files: File[]): Promise<void> {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+
+    const chunks: string[] = [];
+    const picked: string[] = [];
+    const max_files = 6;
+    const max_chars_per_file = 20_000;
+    for (const f of list.slice(0, max_files)) {
+      const name = String(f?.name || "").trim() || "attachment";
+      picked.push(name);
+      try {
+        const raw = await f.text();
+        const text = raw.length > max_chars_per_file ? `${raw.slice(0, max_chars_per_file)}\n…(truncated)…\n` : raw;
+        chunks.push(`[attached file: ${name}]\n\n\`\`\`\n${text}\n\`\`\``);
+      } catch {
+        chunks.push(`[attached file: ${name}] (unreadable in browser)`);
+      }
+    }
+
+    set_advisor_recent_attachments((prev) => [...picked, ...prev].slice(0, 12));
+    set_advisor_input((prev) => {
+      const base = String(prev || "").trim();
+      const addition = chunks.join("\n\n");
+      return base ? `${base}\n\n${addition}` : addition;
+    });
+
+    try {
+      advisor_input_ref.current?.focus();
+    } catch {
+      // ignore
+    }
+  }
+
+  function toggle_advisor_tts(m: ChatMessage): void {
+    if (!advisor_tts_supported) {
+      set_advisor_error("TTS is not supported in this browser.");
+      return;
+    }
+    const synth: SpeechSynthesis | null = (window as any).speechSynthesis || null;
+    if (!synth) {
+      set_advisor_error("TTS is not supported in this browser.");
+      return;
+    }
+    const key = String(m.id || m.ts || "").trim();
+    const text = String(m.content || "").trim();
+    if (!key || !text) return;
+
+    const cur = advisor_tts_state_ref.current;
+    if (cur && cur.key === key) {
+      if (cur.status === "playing") {
+        try {
+          synth.pause();
+          advisor_tts_state_ref.current = { key, status: "paused" };
+          set_advisor_tts_tick((x) => x + 1);
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      if (cur.status === "paused") {
+        try {
+          synth.resume();
+          advisor_tts_state_ref.current = { key, status: "playing" };
+          set_advisor_tts_tick((x) => x + 1);
+        } catch {
+          // ignore
+        }
+        return;
+      }
+    }
+
+    try {
+      synth.cancel();
+    } catch {
+      // ignore
+    }
+
+    const ut = new SpeechSynthesisUtterance(text);
+    ut.onend = () => {
+      advisor_tts_state_ref.current = null;
+      set_advisor_tts_tick((x) => x + 1);
+    };
+    ut.onerror = () => {
+      advisor_tts_state_ref.current = null;
+      set_advisor_tts_tick((x) => x + 1);
+    };
+
+    advisor_tts_state_ref.current = { key, status: "playing" };
+    set_advisor_tts_tick((x) => x + 1);
+    try {
+      synth.speak(ut);
+    } catch (e: any) {
+      advisor_tts_state_ref.current = null;
+      set_advisor_tts_tick((x) => x + 1);
+      set_advisor_error(String(e?.message || e || "TTS failed"));
+    }
+  }
+
+  function advisor_tts_state_for(m: ChatMessage): "idle" | "loading" | "playing" | "paused" {
+    void advisor_tts_tick;
+    const key = String(m.id || m.ts || "").trim();
+    const cur = advisor_tts_state_ref.current;
+    if (!cur || !key || cur.key !== key) return "idle";
+    return cur.status === "paused" ? "paused" : "playing";
+  }
+
+  function toggle_advisor_stt(): void {
+    if (!advisor_stt_supported) {
+      set_advisor_error("Voice input is not supported in this browser.");
+      return;
+    }
+    const rec = advisor_stt_ref.current;
+    if (advisor_stt_listening && rec) {
+      try {
+        rec.stop();
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    try {
+      set_advisor_error("");
+      const R = advisor_stt_ctor;
+      const r = new R();
+      advisor_stt_ref.current = r;
+      r.continuous = false;
+      r.interimResults = false;
+      r.lang = "en-US";
+      r.onresult = (ev: any) => {
+        try {
+          let t = "";
+          const results = ev?.results;
+          const start = typeof ev?.resultIndex === "number" ? ev.resultIndex : 0;
+          if (results && typeof results.length === "number") {
+            for (let i = start; i < results.length; i += 1) {
+              const alt = results[i]?.[0];
+              const part = String(alt?.transcript || "").trim();
+              if (part) t = t ? `${t} ${part}` : part;
+            }
+          }
+          if (t) set_advisor_input((prev) => (String(prev || "").trim() ? `${String(prev).trim()} ${t}` : t));
+        } catch {
+          // ignore
+        }
+      };
+      r.onerror = (ev: any) => {
+        const msg = String(ev?.error || ev?.message || "").trim();
+        if (msg) set_advisor_error(`Voice input error: ${msg}`);
+      };
+      r.onend = () => {
+        advisor_stt_ref.current = null;
+        set_advisor_stt_listening(false);
+      };
+      set_advisor_stt_listening(true);
+      r.start();
+    } catch (e: any) {
+      advisor_stt_ref.current = null;
+      set_advisor_stt_listening(false);
+      set_advisor_error(String(e?.message || e || "Voice input failed"));
+    }
+  }
+
+  function stop_advisor_stt(): void {
+    try {
+      advisor_stt_ref.current?.stop?.();
+    } catch {
+      // ignore
+    }
+    advisor_stt_ref.current = null;
+    set_advisor_stt_listening(false);
+  }
+
+  function stop_advisor_tts(): void {
+    if (!advisor_tts_supported) return;
+    try {
+      (window as any).speechSynthesis?.cancel?.();
+    } catch {
+      // ignore
+    }
+    advisor_tts_state_ref.current = null;
+    set_advisor_tts_tick((x) => x + 1);
+  }
+
+  useEffect(() => {
+    return () => {
+      try {
+        advisor_stt_ref.current?.stop?.();
+      } catch {
+      // ignore
+      }
+    };
+  }, []);
 
   const selected_task_type = selected && is_parsed(selected) ? normalize_task_type(selected.task_type) : null;
 
@@ -1719,55 +1970,122 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
               </button>
             </div>
             <div className="row backlog_toolbar_actions" style={{ gap: "8px", justifyContent: "flex-end" }}>
-              {kind === "completed" ? (
-                <div className="row" style={{ gap: "6px" }}>
-                  <button className={`btn ${completed_view === "tasks" ? "primary" : ""}`} onClick={() => set_completed_view("tasks")}>
-                    Tasks
-                  </button>
-                  <button className={`btn ${completed_view === "runs" ? "primary" : ""}`} onClick={() => set_completed_view("runs")}>
-                    Runs
-                  </button>
-                </div>
-              ) : null}
-              <button className="btn" onClick={() => set_new_task_open(true)} disabled={!can_use_gateway}>
-                New task
+              <button
+                className="btn btn_icon"
+                onClick={() => set_new_task_open(true)}
+                disabled={!can_use_gateway}
+                title="New task"
+                aria-label="New task"
+              >
+                <Icon name="plus" size={16} />
+                <span className="btn_label">New</span>
               </button>
-              <button className="btn" onClick={() => void refresh()} disabled={!can_use_gateway || (is_exec_view ? exec_loading : loading)}>
-                {is_exec_view ? (exec_loading ? "Refreshing…" : "Refresh") : loading ? "Refreshing…" : "Refresh"}
+              <button
+                className={`btn btn_icon ${(is_exec_view ? exec_loading : loading) ? "is_loading" : ""}`}
+                onClick={() => void refresh()}
+                disabled={!can_use_gateway || (is_exec_view ? exec_loading : loading)}
+                title="Refresh"
+                aria-label="Refresh"
+              >
+                <Icon name="refresh" size={16} />
+                <span className="btn_label">{is_exec_view ? (exec_loading ? "Refreshing" : "Refresh") : loading ? "Refreshing" : "Refresh"}</span>
               </button>
             </div>
           </div>
 
-          <div className="row backlog_filters" style={{ marginTop: "10px", alignItems: "center", justifyContent: "space-between" }}>
-            <div className="field backlog_search_field">
-              <input
-                value={query}
-                onChange={(e) => set_query(e.target.value)}
-                placeholder={is_exec_view ? "Search exec requests (id/status/backlog/error…)" : "Search backlog (id/title/package/filename…)"}
-              />
-            </div>
-            {!is_exec_view ? (
-              <div className="field backlog_type_filter_field">
-                <select value={type_filter} onChange={(e) => set_type_filter(e.target.value as any)} title="Filter by type">
-                  <option value="all">all types</option>
-                  <option value="bug">bug</option>
-                  <option value="feature">feature</option>
-                  <option value="task">task</option>
-                </select>
-              </div>
-            ) : null}
-            <div className="mono muted backlog_count" style={{ fontSize: "12px" }}>
-              {is_exec_view ? `${filtered_exec_requests.length}/${exec_requests.length}` : `${filtered_items.length}/${items.length}`}
-            </div>
+          <div
+            className={`row backlog_filters ${kind === "completed" ? "backlog_filters_completed" : ""}`}
+            style={{
+              marginTop: "10px",
+              alignItems: kind === "completed" ? "flex-start" : "center",
+              justifyContent: "space-between",
+            }}
+          >
+            {kind === "completed" ? (
+              <>
+                <div className="backlog_filters_left">
+                  <div className="field backlog_search_field">
+                    <input
+                      value={query}
+                      onChange={(e) => set_query(e.target.value)}
+                      placeholder={is_exec_view ? "Search exec requests (id/status/backlog/error…)" : "Search backlog (id/title/package/filename…)"}
+                    />
+                  </div>
+                </div>
+
+                <div className="backlog_filters_right">
+                  <div className="tab_bar backlog_completed_view_tabs" style={{ paddingBottom: 0, borderBottom: "none" }}>
+                    <button className={`tab ${completed_view === "tasks" ? "active" : ""}`} onClick={() => set_completed_view("tasks")}>
+                      Tasks
+                    </button>
+                    <button className={`tab ${completed_view === "runs" ? "active" : ""}`} onClick={() => set_completed_view("runs")}>
+                      Runs
+                    </button>
+                  </div>
+                  <div className="backlog_completed_meta_row">
+                    {!is_exec_view ? (
+                      <div className="field backlog_type_filter_field">
+                        <select value={type_filter} onChange={(e) => set_type_filter(e.target.value as any)} title="Filter by type">
+                          <option value="all">all</option>
+                          <option value="task">task</option>
+                          <option value="bug">bug</option>
+                          <option value="feature">feature</option>
+                        </select>
+                      </div>
+                    ) : null}
+                    <div className="mono muted backlog_count" style={{ fontSize: "var(--font-size-sm)" }}>
+                      {is_exec_view ? `${filtered_exec_requests.length}/${exec_requests.length}` : `${filtered_items.length}/${items.length}`}
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="field backlog_search_field">
+                  <input
+                    value={query}
+                    onChange={(e) => set_query(e.target.value)}
+                    placeholder={is_exec_view ? "Search exec requests (id/status/backlog/error…)" : "Search backlog (id/title/package/filename…)"}
+                  />
+                </div>
+                {!is_exec_view ? (
+                  <div className="field backlog_type_filter_field">
+                    <select value={type_filter} onChange={(e) => set_type_filter(e.target.value as any)} title="Filter by type">
+                      <option value="all">all</option>
+                      <option value="task">task</option>
+                      <option value="bug">bug</option>
+                      <option value="feature">feature</option>
+                    </select>
+                  </div>
+                ) : null}
+                <div className="mono muted backlog_count" style={{ fontSize: "var(--font-size-sm)" }}>
+                  {is_exec_view ? `${filtered_exec_requests.length}/${exec_requests.length}` : `${filtered_items.length}/${items.length}`}
+                </div>
+              </>
+            )}
           </div>
+
+          {!is_exec_view && kind === "planned" && planned_hidden_filenames.length ? (
+            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+              {planned_hidden_filenames.length} planned item{planned_hidden_filenames.length === 1 ? "" : "s"} hidden while queued/running.{" "}
+              <button
+                className="btn"
+                style={{ padding: "4px 10px", marginLeft: "6px" }}
+                onClick={() => set_kind("processing")}
+                disabled={!can_use_gateway}
+              >
+                View processing
+              </button>
+            </div>
+          ) : null}
 
           {!is_exec_view && kind === "planned" ? (
             <details style={{ marginTop: "10px" }}>
-              <summary className="mono muted" style={{ cursor: "pointer", fontSize: "12px" }}>
+              <summary className="mono muted" style={{ cursor: "pointer", fontSize: "var(--font-size-sm)" }}>
                 Batch actions (shared context)
               </summary>
               <div style={{ marginTop: "10px" }}>
-                <div className="mono muted" style={{ fontSize: "12px" }}>
+                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                   Select multiple planned backlog items to either execute them sequentially in a single exec worker (one Codex run) or merge them into a
                   master backlog item.
                 </div>
@@ -1817,22 +2135,22 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           ) : null}
 
           {!is_exec_view && error ? (
-            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "12px" }}>
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
               {error}
             </div>
           ) : null}
           {is_exec_view && exec_error ? (
-            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "12px" }}>
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
               {exec_error}
             </div>
           ) : null}
           {!is_exec_view && !error && !loading && !items.length ? (
-            <div className="mono muted" style={{ marginTop: "8px", fontSize: "12px" }}>
+            <div className="mono muted" style={{ marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
               No items (or backlog browsing not configured on this gateway).
             </div>
           ) : null}
           {is_exec_view && !exec_error && !exec_loading && !exec_requests.length ? (
-            <div className="mono muted" style={{ marginTop: "8px", fontSize: "12px" }}>
+            <div className="mono muted" style={{ marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
               No exec requests found.
             </div>
           ) : null}
@@ -1844,7 +2162,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
               <div className="inbox_list">
                 {is_exec_view ? (
                   !filtered_exec_requests.length ? (
-                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                       No requests.
                     </div>
                   ) : (
@@ -1882,7 +2200,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     })
                   )
                 ) : !filtered_items.length ? (
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     No items.
                   </div>
                 ) : (
@@ -1960,32 +2278,32 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     </div>
                   </div>
 
-                  <div className="inbox_detail_meta mono muted" style={{ fontSize: "12px" }}>
+                  <div className="inbox_detail_meta mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     {exec_selected.created_at ? `created ${new Date(exec_selected.created_at).toLocaleString()}` : ""}
                     {exec_selected.started_at ? ` • started ${new Date(exec_selected.started_at).toLocaleString()}` : ""}
                     {exec_selected.finished_at ? ` • finished ${new Date(exec_selected.finished_at).toLocaleString()}` : ""}
                   </div>
 
                   {exec_selected.error ? (
-                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                       {exec_selected.error}
                     </div>
                   ) : null}
                   {exec_detail_error ? (
-                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                       {exec_detail_error}
                     </div>
                   ) : null}
 
                   <div style={{ marginTop: "12px" }}>
                     {exec_detail_loading ? (
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                         Loading…
                       </div>
                     ) : (
                       <>
                         <div className="section_title">Execution</div>
-                        <div className="mono" style={{ fontSize: "12px" }}>
+                        <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
                           <div>
                             <span className="mono muted">status:</span> {exec_selected.status || "unknown"}
                           </div>
@@ -2059,7 +2377,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                             <>
                               <div className="section_divider" />
                               <div className="section_title">Backlog queue</div>
-                              <div className="mono" style={{ fontSize: "12px" }}>
+                              <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
                                 {rels.map((rel) => (
                                   <div key={`bq:${rel}`}>{rel}</div>
                                 ))}
@@ -2072,7 +2390,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           <>
                             <div className="section_divider" />
                             <div className="section_title">Last message</div>
-                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "8px" }}>
+                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                               {exec_selected.last_message}
                             </pre>
                           </>
@@ -2103,12 +2421,12 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           </div>
                         </div>
                         {exec_log_error ? (
-                          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                             {exec_log_error}
                           </div>
                         ) : null}
                         {!exec_log_error && exec_log_truncated ? (
-                          <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                             (tail truncated)
                           </div>
                         ) : null}
@@ -2122,7 +2440,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                               }}
                             >
                               {parsed_exec_events.events.length === 0 ? (
-                                <div className="mono muted" style={{ fontSize: "12px" }}>
+                                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                                   (no events yet)
                                 </div>
                               ) : (
@@ -2161,29 +2479,29 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                       </summary>
                                       <div className="exec_event_body">
                                         <div className="row exec_event_meta">
-                                          <span className="mono muted" style={{ fontSize: "11px" }}>
+                                          <span className="mono muted" style={{ fontSize: "var(--font-size-xs)" }}>
                                             {ev.type}
                                           </span>
                                           {item_id ? (
-                                            <span className="mono muted" style={{ fontSize: "11px" }}>
+                                            <span className="mono muted" style={{ fontSize: "var(--font-size-xs)" }}>
                                               {item_id}
                                             </span>
                                           ) : null}
                                           {thread_id ? (
-                                            <span className="mono muted" style={{ fontSize: "11px" }}>
+                                            <span className="mono muted" style={{ fontSize: "var(--font-size-xs)" }}>
                                               thread {short_id(thread_id, 18)}
                                             </span>
                                           ) : null}
                                         </div>
 
                                         {msg ? (
-                                          <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "8px" }}>
+                                          <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                                             {msg}
                                           </pre>
                                         ) : null}
 
                                         {todo_items && todo_items.length > 0 ? (
-                                          <div className="mono" style={{ fontSize: "12px", marginTop: "8px" }}>
+                                          <div className="mono" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                                             {todo_items.map((t: any, i: number) => (
                                               <div key={`${ev.idx}-todo-${i}`}>
                                                 {(t && t.completed) === true ? "✓" : "○"} {String(t?.text || "").trim()}
@@ -2194,10 +2512,10 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
                                         {cmd ? (
                                           <div style={{ marginTop: "8px" }}>
-                                            <div className="mono muted" style={{ fontSize: "11px" }}>
+                                            <div className="mono muted" style={{ fontSize: "var(--font-size-xs)" }}>
                                               command_execution {status ? `(${status})` : ""} {exit_code ? `exit=${exit_code}` : ""}
                                             </div>
-                                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "6px" }}>
+                                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                                               {short_cmd}
                                             </pre>
                                           </div>
@@ -2205,10 +2523,10 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
                                         {out ? (
                                           <details style={{ marginTop: "8px" }}>
-                                            <summary className="mono muted" style={{ fontSize: "12px", cursor: "pointer" }}>
+                                            <summary className="mono muted" style={{ fontSize: "var(--font-size-sm)", cursor: "pointer" }}>
                                               output ({out.length.toLocaleString()} chars)
                                             </summary>
-                                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "8px" }}>
+                                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                                               {out}
                                             </pre>
                                           </details>
@@ -2226,13 +2544,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                               )}
                             </div>
                             <details style={{ marginTop: "8px" }}>
-                              <summary className="mono muted" style={{ fontSize: "12px", cursor: "pointer" }}>
+                              <summary className="mono muted" style={{ fontSize: "var(--font-size-sm)", cursor: "pointer" }}>
                                 Raw JSONL
                                 {parsed_exec_events.bad ? ` (${parsed_exec_events.bad} unparsable line(s))` : ""}
                               </summary>
                               <pre
                                 className="mono"
-                                style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "8px", maxHeight: "240px", overflow: "auto" }}
+                                style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)", marginTop: "8px", maxHeight: "240px", overflow: "auto" }}
                               >
                                 {parsed_exec_events.raw || ""}
                               </pre>
@@ -2246,7 +2564,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                               exec_log_follow_ref.current = _is_near_bottom(e.currentTarget, 12);
                             }}
                           >
-                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px" }}>
+                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)" }}>
                               {exec_log_text || "(no logs yet)"}
                             </pre>
                           </div>
@@ -2256,7 +2574,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           <>
                             <div className="section_divider" />
                             <div className="section_title">Logs</div>
-                            <div className="mono" style={{ fontSize: "12px" }}>
+                            <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
                               {exec_detail.result.logs.events_relpath ? (
                                 <div>
                                   <span className="mono muted">events:</span> {exec_detail.result.logs.events_relpath}
@@ -2280,7 +2598,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                   </div>
                 </div>
               ) : (
-                <div className="mono muted" style={{ fontSize: "12px" }}>
+                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                   Select an exec request.
                 </div>
               )
@@ -2295,7 +2613,19 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     {selected.package ? <span className="chip mono muted">{selected.package}</span> : null}
                     {selected_task_type ? <span className={`chip ${task_type_chip(selected_task_type)} mono`}>{selected_task_type}</span> : null}
                     {!is_parsed(selected) ? <span className="chip mono muted">unparsed</span> : null}
-                    <span className="chip mono muted">{selected.filename}</span>
+                    <span className="chip mono muted backlog_path_chip">
+                      <span className="mono">{selected.filename}</span>
+                      <button
+                        className="chip_icon_btn"
+                        type="button"
+                        onClick={() => copyText(`docs/backlog/${String(kind)}/${selected.filename}`)}
+                        aria-label="Copy path"
+                        title="Copy path"
+                        disabled={action_loading}
+                      >
+                        <Icon name="copy" size={14} />
+                      </button>
+                    </span>
                   </div>
                   <div className="inbox_detail_actions">
                     {is_compact_layout ? (
@@ -2303,9 +2633,6 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                         Back
                       </button>
                     ) : null}
-                    <button className="btn" onClick={() => copyText(`docs/backlog/${String(kind)}/${selected.filename}`)} disabled={action_loading}>
-                      Copy path
-                    </button>
                     {kind === "completed" && completed_view === "tasks" ? (
                       <button
                         className="btn"
@@ -2354,13 +2681,20 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                       </button>
                     ) : null}
                     {can_trash ? (
-                      <button className="btn" onClick={() => void move_selected("trash")} disabled={action_loading}>
-                        Trash
+                      <button
+                        className="btn btn_icon"
+                        onClick={() => void move_selected("trash")}
+                        disabled={action_loading}
+                        aria-label="Trash"
+                        title="Trash"
+                      >
+                        <Icon name="trash" size={16} />
+                        {is_compact_layout ? null : "Trash"}
                       </button>
                     ) : null}
                     {!editing ? (
                       <button
-                        className="btn"
+                        className="btn btn_icon"
                         onClick={() => {
                           set_editing(true);
                           set_edit_text(content);
@@ -2372,8 +2706,11 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           set_edit_recent_attachments([]);
                         }}
                         disabled={content_loading || edit_loading}
+                        aria-label="Edit"
+                        title="Edit"
                       >
-                        Edit
+                        <Icon name="edit" size={16} />
+                        {is_compact_layout ? null : "Edit"}
                       </button>
                     ) : (
                       <>
@@ -2388,29 +2725,29 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                   </div>
                 </div>
 
-                <div className="inbox_detail_meta mono muted" style={{ fontSize: "12px" }}>
+                <div className="inbox_detail_meta mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                   {String(kind)}
                   {content_sha ? ` • sha ${short_id(content_sha, 10)}` : ""}
                 </div>
 
                 {action_error ? (
-                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                     {action_error}
                   </div>
                 ) : null}
                 {edit_error ? (
-                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                     {edit_error}
                   </div>
                 ) : null}
                 {content_error ? (
-                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                     {content_error}
                   </div>
                 ) : null}
 
                 {content_loading ? (
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     Loading…
                   </div>
                 ) : editing ? (
@@ -2423,10 +2760,10 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                       <div className="section_title" style={{ marginTop: 0 }}>
                         Maintenance AI (chat)
                       </div>
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                         Ask the maintainer to refine this backlog item. Provider/model can be set in Settings (blank = gateway default).
                       </div>
-                      <div className="mono muted" style={{ fontSize: "11px", marginTop: "6px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-xs)", marginTop: "6px" }}>
                         Using:{" "}
                         <span className="mono">
                           {maint_provider || "(gateway default)"} / {maint_model || "(gateway default)"}
@@ -2455,13 +2792,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           {edit_attachments_uploading ? "Uploading…" : "Attach files"}
                         </button>
                         {edit_recent_attachments.length ? (
-                          <div className="mono muted" style={{ fontSize: "11px" }}>
+                          <div className="mono muted" style={{ fontSize: "var(--font-size-xs)" }}>
                             Last attached: {edit_recent_attachments[0]}
                           </div>
                         ) : null}
                       </div>
                       {edit_attachments_error ? (
-                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                           {edit_attachments_error}
                         </div>
                       ) : null}
@@ -2471,7 +2808,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                         messages={maint_messages}
                         className="backlog_chat_thread_small"
                         empty={
-                          <div className="mono muted" style={{ fontSize: "12px" }}>
+                          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                             No messages yet.
                           </div>
                         }
@@ -2491,7 +2828,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                       </div>
 
                       {maint_error ? (
-                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                           {maint_error}
                         </div>
                       ) : null}
@@ -2500,13 +2837,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 ) : content ? (
                   <Markdown text={content} />
                 ) : (
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     No content loaded.
                   </div>
                 )}
               </div>
             ) : (
-              <div className="mono muted" style={{ fontSize: "12px" }}>
+              <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                 Select a backlog item.
               </div>
             )}
@@ -2544,20 +2881,20 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           </>
         }
       >
-        <div className="mono" style={{ fontSize: "12px" }}>
+        <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
           Target:{" "}
           <span className="mono" style={{ fontWeight: 700 }}>
             {execute_target ? execute_target.title : "(unknown)"}
           </span>
         </div>
         {exec_cfg_loading ? (
-          <div className="mono muted" style={{ fontSize: "12px", marginTop: "10px" }}>
+          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             Checking worker…
           </div>
         ) : null}
         {!exec_cfg_loading && exec_cfg?.can_execute !== true ? (
           <div style={{ marginTop: "10px" }}>
-            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)" }}>
               {exec_cfg?.runner_enabled !== true
                 ? "Backlog exec runner is disabled on this gateway."
                 : exec_cfg?.runner_alive === false
@@ -2567,18 +2904,18 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     : "Backlog exec is not available on this gateway."}
             </div>
             {exec_cfg?.runner_error ? (
-              <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+              <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                 {exec_cfg.runner_error}
               </div>
             ) : null}
             <details style={{ marginTop: "8px" }}>
-              <summary className="mono muted" style={{ fontSize: "12px", cursor: "pointer" }}>
+              <summary className="mono muted" style={{ fontSize: "var(--font-size-sm)", cursor: "pointer" }}>
                 Setup
               </summary>
-              <div className="mono" style={{ fontSize: "12px", marginTop: "8px" }}>
+              <div className="mono" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                 <div>Docs: `docs/backlog/README.md`</div>
                 <div style={{ marginTop: "6px" }}>Required env (example):</div>
-                <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "6px" }}>
+                <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                   {[
                     "ABSTRACTGATEWAY_BACKLOG_EXEC_RUNNER=1",
                     "ABSTRACTGATEWAY_BACKLOG_EXECUTOR=codex_cli",
@@ -2607,12 +2944,12 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           </div>
         ) : null}
         {exec_cfg_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             {exec_cfg_error}
           </div>
         ) : null}
         {action_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             {action_error}
           </div>
         ) : null}
@@ -2647,17 +2984,17 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           </>
         }
       >
-        <div className="mono" style={{ fontSize: "12px" }}>
+        <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
           Items:{" "}
           <span className="mono" style={{ fontWeight: 700 }}>
             {batch_selected_items.length}
           </span>
         </div>
-        <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
           This queues a single exec request whose prompt includes all selected backlog items (in order), so the agent keeps a shared growing context.
         </div>
         {batch_selected_items.length ? (
-          <div className="mono" style={{ fontSize: "12px", marginTop: "10px" }}>
+          <div className="mono" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             {batch_selected_items.map((it) => (
               <div key={`batchitem:${it.filename}`}>- docs/backlog/planned/{it.filename}</div>
             ))}
@@ -2665,13 +3002,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         ) : null}
 
         {exec_cfg_loading ? (
-          <div className="mono muted" style={{ fontSize: "12px", marginTop: "10px" }}>
+          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             Checking worker…
           </div>
         ) : null}
         {!exec_cfg_loading && exec_cfg?.can_execute !== true ? (
           <div style={{ marginTop: "10px" }}>
-            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)" }}>
               {exec_cfg?.runner_enabled !== true
                 ? "Backlog exec runner is disabled on this gateway."
                 : exec_cfg?.runner_alive === false
@@ -2681,19 +3018,19 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     : "Backlog exec is not available on this gateway."}
             </div>
             {exec_cfg?.runner_error ? (
-              <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+              <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                 {exec_cfg.runner_error}
               </div>
             ) : null}
           </div>
         ) : null}
         {exec_cfg_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             {exec_cfg_error}
           </div>
         ) : null}
         {batch_execute_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             {batch_execute_error}
           </div>
         ) : null}
@@ -2757,10 +3094,10 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
         {batch_selected_items.length ? (
           <div style={{ marginTop: "10px" }}>
-            <div className="mono muted" style={{ fontSize: "12px" }}>
+            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
               Referenced backlog items:
             </div>
-            <div className="mono" style={{ fontSize: "12px", marginTop: "6px" }}>
+            <div className="mono" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
               {batch_selected_items.map((it) => (
                 <div key={`mergeitem:${it.filename}`}>- docs/backlog/planned/{it.filename}</div>
               ))}
@@ -2769,7 +3106,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         ) : null}
 
         {merge_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             {merge_error}
           </div>
         ) : null}
@@ -2879,12 +3216,12 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           </div>
 
           {exec_full_error ? (
-            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
               {exec_full_error}
             </div>
           ) : null}
           {!exec_full_error && exec_full_truncated ? (
-            <div className="mono muted" style={{ fontSize: "12px", marginTop: "10px" }}>
+            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
               Showing only the tail of this log.
             </div>
           ) : null}
@@ -2904,7 +3241,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 background: "rgba(0, 0, 0, 0.18)",
                 color: "var(--text)",
                 padding: "12px",
-                fontSize: "12px",
+                fontSize: "var(--font-size-sm)",
                 lineHeight: "16px",
               }}
             />
@@ -2977,7 +3314,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
         <div className="section_divider" />
         <div className="section_title">Guided fields (optional)</div>
-        <div className="mono muted" style={{ fontSize: "12px" }}>
+        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
           Use this to generate a structured draft without editing markdown directly. One item per line for list fields.
         </div>
         <div style={{ marginTop: "8px" }}>
@@ -3047,7 +3384,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
         <div className="section_divider" />
         <div className="section_title">Attachments (optional)</div>
-        <div className="mono muted" style={{ fontSize: "12px" }}>
+        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
           Upload screenshots/diagrams to `docs/backlog/assets/&lt;id&gt;/` and link them under `## Related` after the task is created.
         </div>
         <div className="field" style={{ marginTop: "8px" }}>
@@ -3063,7 +3400,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           />
         </div>
         {new_attachments.length ? (
-          <div className="mono" style={{ fontSize: "12px", marginTop: "6px" }}>
+          <div className="mono" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
             {new_attachments.map((f, idx) => (
               <div key={`${f.name}_${f.size}_${idx}`} className="row" style={{ alignItems: "center", justifyContent: "space-between", marginTop: "4px" }}>
                 <span className="mono muted" style={{ paddingRight: "10px" }}>
@@ -3077,28 +3414,28 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           </div>
         ) : null}
         {attachments_uploading ? (
-          <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
             Uploading attachments…
           </div>
         ) : null}
         {attachments_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
             {attachments_error}
           </div>
         ) : null}
 
         <div className="section_divider" />
         <div className="section_title">Draft (Markdown)</div>
-        <div className="mono muted" style={{ fontSize: "12px" }}>
+        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
           Prefilled from `docs/backlog/template.md` (editable). AI assist can also refine the draft.
         </div>
         {template_loading ? (
-          <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
             Loading template…
           </div>
         ) : null}
         {template_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
             {template_error}
           </div>
         ) : null}
@@ -3123,7 +3460,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
         <div className="section_divider" />
         <div className="section_title">AI Assist (chat)</div>
-        <div className="mono muted" style={{ fontSize: "12px" }}>
+        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
           Use this to iteratively refine a backlog draft; assistant replies can also update the draft markdown.
         </div>
 
@@ -3131,7 +3468,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           messages={assist_messages}
           className="backlog_chat_thread_small"
           empty={
-            <div className="mono muted" style={{ fontSize: "12px" }}>
+            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
               No messages yet.
             </div>
           }
@@ -3151,7 +3488,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         </div>
 
         {new_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
             {new_error}
           </div>
         ) : null}
@@ -3159,7 +3496,16 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
       <button
         className={`advisor_toggle ${advisor_open ? "open" : ""}`}
-        onClick={() => set_advisor_open((v) => !v)}
+        onClick={() => {
+          set_advisor_open((v) => {
+            const next = !v;
+            if (!next) {
+              stop_advisor_stt();
+              stop_advisor_tts();
+            }
+            return next;
+          });
+        }}
         title="Open backlog advisor (read-only)"
         aria-label="Open backlog advisor"
       >
@@ -3170,22 +3516,43 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         <div
           className="drawer_backdrop"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) set_advisor_open(false);
+            if (e.target === e.currentTarget) {
+              stop_advisor_stt();
+              stop_advisor_tts();
+              set_advisor_open(false);
+            }
           }}
         >
           <div className="drawer_panel">
             <div className="drawer_header">
               <div className="col" style={{ gap: 2 }}>
                 <div className="drawer_title">Backlog advisor</div>
-                <div className="mono muted" style={{ fontSize: "11px" }}>
-                  Read-only. Using: {maint_provider || "(gateway default)"} / {maint_model || "(gateway default)"}
+                <div className="mono muted" style={{ fontSize: "var(--font-size-xs)" }}>
+                  Read-only. Agent: {advisor_agent || "basic-agent"} • Using: {maint_provider || "(gateway default)"} / {maint_model || "(gateway default)"}
                 </div>
               </div>
               <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
+                <button
+                  className={`btn btn_icon ${advisor_show_tools ? "primary" : ""}`}
+                  onClick={() => set_advisor_show_tools((v) => !v)}
+                  disabled={advisor_loading}
+                  title={advisor_show_tools ? "Hide tool execution" : "Show tool execution"}
+                  aria-label={advisor_show_tools ? "Hide tool execution" : "Show tool execution"}
+                >
+                  <Icon name="terminal" size={16} />
+                  {is_compact_layout ? null : advisor_show_tools ? "Tools on" : "Tools"}
+                </button>
                 <button className="btn" onClick={() => set_advisor_messages([])} disabled={advisor_loading || !advisor_messages.length}>
                   Clear
                 </button>
-                <button className="btn" onClick={() => set_advisor_open(false)}>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    stop_advisor_stt();
+                    stop_advisor_tts();
+                    set_advisor_open(false);
+                  }}
+                >
                   Close
                 </button>
               </div>
@@ -3195,14 +3562,35 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
               <ChatThread
                 messages={advisor_messages}
                 className="drawer_chat_thread"
+                messageProps={
+                  advisor_tts_supported
+                    ? {
+                        onSpeakToggle: toggle_advisor_tts,
+                        getSpeakState: advisor_tts_state_for,
+                        jsonCollapseAfterDepth: 4,
+                      }
+                    : { jsonCollapseAfterDepth: 4 }
+                }
                 empty={
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     Ask about the backlog, e.g. “What are the top 5 planned items to focus on next and why?”
                   </div>
                 }
               />
 
               <div className="drawer_footer">
+                <input
+                  ref={advisor_attach_input_ref}
+                  type="file"
+                  multiple
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const files = Array.from(e.currentTarget.files || []);
+                    e.currentTarget.value = "";
+                    if (!files.length) return;
+                    void attach_advisor_files(files);
+                  }}
+                />
                 <ChatComposer
                   ref={advisor_input_ref}
                   value={advisor_input}
@@ -3213,14 +3601,51 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                   busy={advisor_loading}
                   rows={3}
                   sendButtonClassName="btn primary"
+                  actions={
+                    <>
+                      <button
+                        className={`btn btn_icon ${advisor_stt_listening ? "danger" : ""}`}
+                        type="button"
+                        onClick={() => toggle_advisor_stt()}
+                        disabled={advisor_loading || !advisor_stt_supported}
+                        title={
+                          !advisor_stt_supported
+                            ? "Voice input is not supported in this browser"
+                            : advisor_stt_listening
+                              ? "Stop voice input"
+                              : "Voice input (STT)"
+                        }
+                        aria-label="Voice input"
+                      >
+                        <UiIcon name="mic" size={16} />
+                        {is_compact_layout ? null : advisor_stt_listening ? "Listening…" : "Voice"}
+                      </button>
+                      <button
+                        className="btn btn_icon"
+                        type="button"
+                        onClick={() => advisor_attach_input_ref.current?.click()}
+                        disabled={advisor_loading}
+                        title="Attach a local file to your message"
+                        aria-label="Attach file"
+                      >
+                        <UiIcon name="paperclip" size={16} />
+                        {is_compact_layout ? null : "Attach"}
+                      </button>
+                    </>
+                  }
                 />
+                {advisor_recent_attachments.length ? (
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
+                    Last attached: {advisor_recent_attachments[0]}
+                  </div>
+                ) : null}
                 {advisor_error ? (
-                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                     {advisor_error}
                   </div>
                 ) : null}
                 {!can_use_gateway ? (
-                  <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                     Connect the gateway in Settings to use the advisor.
                   </div>
                 ) : null}

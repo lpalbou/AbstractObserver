@@ -99,7 +99,7 @@ export type BacklogAssistResponse = { ok: boolean; reply: string; draft_markdown
 
 export type BacklogMaintainResponse = { ok: boolean; reply: string; draft_markdown: string };
 
-export type BacklogAdvisorResponse = { ok: boolean; reply: string };
+export type BacklogAdvisorResponse = { ok: boolean; reply: string; run_id?: string | null; tool_trace?: any[] | null };
 
 export type BacklogExecConfigResponse = {
   ok: boolean;
@@ -138,9 +138,44 @@ export type BacklogExecRequestDetailResponse = { ok: boolean; request_id: string
 
 export type BacklogExecLogTailResponse = { ok: boolean; request_id: string; name: string; bytes: number; truncated: boolean; content: string };
 
+export type BacklogExecActiveItem = { request_id: string; status: string; kind: string; filename: string; relpath: string };
+
+export type BacklogExecActiveItemsResponse = { ok: boolean; items: BacklogExecActiveItem[] };
+
 export type BacklogAttachmentStored = { filename: string; relpath: string; bytes: number; sha256: string };
 
 export type BacklogAttachmentUploadResponse = { ok: boolean; kind: string; filename: string; item_id: number; stored: BacklogAttachmentStored };
+
+export type ManagedProcessInfo = {
+  id: string;
+  label: string;
+  kind: string;
+  description?: string | null;
+  cwd?: string | null;
+  command?: string[];
+  url?: string | null;
+  status?: string;
+  pid?: number | null;
+  started_at?: string | null;
+  stopped_at?: string | null;
+  exit_code?: number | null;
+  log_relpath?: string | null;
+  last_error?: string | null;
+  actions?: string[];
+};
+
+export type ProcessListResponse = { ok: boolean; enabled: boolean; processes: ManagedProcessInfo[] };
+
+export type ProcessActionResponse = { ok: boolean; process_id: string; state: any };
+
+export type ProcessLogTailResponse = {
+  ok: boolean;
+  process_id: string;
+  bytes: number;
+  truncated: boolean;
+  log_relpath?: string | null;
+  content: string;
+};
 
 function _join(base_url: string, path: string): string {
   const base = (base_url || "").trim().replace(/\/+$/, "");
@@ -273,6 +308,77 @@ export class GatewayClient {
     });
     if (!r.ok) throw new Error(`list_runs failed: ${await _read_error(r)}`);
     return await r.json();
+  }
+
+  async list_processes(): Promise<ProcessListResponse> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/processes"), {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`list_processes failed: ${await _read_error(r)}`);
+    return (await r.json()) as ProcessListResponse;
+  }
+
+  async start_process(process_id: string): Promise<ProcessActionResponse> {
+    const pid = String(process_id || "").trim();
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/processes/${encodeURIComponent(pid)}/start`), {
+      method: "POST",
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`start_process failed: ${await _read_error(r)}`);
+    return (await r.json()) as ProcessActionResponse;
+  }
+
+  async stop_process(process_id: string): Promise<ProcessActionResponse> {
+    const pid = String(process_id || "").trim();
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/processes/${encodeURIComponent(pid)}/stop`), {
+      method: "POST",
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`stop_process failed: ${await _read_error(r)}`);
+    return (await r.json()) as ProcessActionResponse;
+  }
+
+  async restart_process(process_id: string): Promise<ProcessActionResponse> {
+    const pid = String(process_id || "").trim();
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/processes/${encodeURIComponent(pid)}/restart`), {
+      method: "POST",
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`restart_process failed: ${await _read_error(r)}`);
+    return (await r.json()) as ProcessActionResponse;
+  }
+
+  async redeploy_process(process_id: string): Promise<ProcessActionResponse> {
+    const pid = String(process_id || "").trim();
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/processes/${encodeURIComponent(pid)}/redeploy`), {
+      method: "POST",
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`redeploy_process failed: ${await _read_error(r)}`);
+    return (await r.json()) as ProcessActionResponse;
+  }
+
+  async process_log_tail(process_id: string, opts?: { max_bytes?: number }): Promise<ProcessLogTailResponse> {
+    const pid = String(process_id || "").trim();
+    const max_bytes = typeof opts?.max_bytes === "number" ? Math.max(1024, Math.min(400000, Math.floor(opts.max_bytes))) : 80000;
+    const url = _join(this._cfg.base_url, `/api/gateway/processes/${encodeURIComponent(pid)}/logs/tail?max_bytes=${encodeURIComponent(String(max_bytes))}`);
+    const r = await fetch(url, {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`process_log_tail failed: ${await _read_error(r)}`);
+    return (await r.json()) as ProcessLogTailResponse;
   }
 
   async get_run_input_data(run_id: string): Promise<any> {
@@ -942,6 +1048,18 @@ export class GatewayClient {
     return await r.json();
   }
 
+  async backlog_exec_active_items(opts?: { status?: string; limit?: number }): Promise<BacklogExecActiveItemsResponse> {
+    const qs = new URLSearchParams();
+    const status = String(opts?.status || "").trim();
+    if (status) qs.set("status", status);
+    const limit = typeof opts?.limit === "number" && Number.isFinite(opts.limit) ? Number(opts.limit) : 600;
+    qs.set("limit", String(limit));
+    const url = _join(this._cfg.base_url, `/api/gateway/backlog/exec/active_items?${qs.toString()}`);
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`backlog_exec_active_items failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
   async backlog_upload_attachment(args: { kind: string; filename: string; file: File; overwrite?: boolean }): Promise<BacklogAttachmentUploadResponse> {
     const kind = String(args?.kind || "").trim();
     const filename = String(args?.filename || "").trim();
@@ -1042,6 +1160,8 @@ export class GatewayClient {
     messages: Array<{ role: string; content: string }>;
     provider?: string | null;
     model?: string | null;
+    agent?: string | null;
+    include_trace?: boolean;
     focus_kind?: string | null;
     focus_type?: string | null;
   }): Promise<BacklogAdvisorResponse> {
@@ -1051,6 +1171,9 @@ export class GatewayClient {
     if (provider) body.provider = provider;
     const model = String(args?.model || "").trim();
     if (model) body.model = model;
+    const agent = String(args?.agent || "").trim();
+    if (agent) body.agent = agent;
+    if (args?.include_trace === true) body.include_trace = true;
     const focus_kind = String(args?.focus_kind || "").trim();
     if (focus_kind) body.focus_kind = focus_kind;
     const focus_type = String(args?.focus_type || "").trim();

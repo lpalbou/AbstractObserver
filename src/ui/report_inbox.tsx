@@ -340,9 +340,9 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
               </button>
             </div>
           </div>
-          {triage_last ? <div className="mono muted" style={{ marginTop: "8px", fontSize: "12px" }}>{triage_last}</div> : null}
+          {triage_last ? <div className="mono muted" style={{ marginTop: "8px", fontSize: "var(--font-size-sm)" }}>{triage_last}</div> : null}
           {error ? (
-            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "12px" }}>
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
               {error}
             </div>
           ) : null}
@@ -353,7 +353,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
             {tab === "messages" ? (
               <div className="inbox_list">
                 {!decisions.length ? (
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     No decisions.
                   </div>
                 ) : (
@@ -383,7 +383,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
             ) : (
               <div className="inbox_list">
                 {!inbox_items.length ? (
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     No reports.
                   </div>
                 ) : (
@@ -450,14 +450,14 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
                     </div>
                   </div>
 
-                  <div className="inbox_detail_meta mono muted" style={{ fontSize: "12px" }}>
+                  <div className="inbox_detail_meta mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     {selected_decision.updated_at ? `updated ${format_when(selected_decision.updated_at)}` : null}
                     {selected_decision.created_at ? `${selected_decision.updated_at ? " • " : ""}created ${format_when(selected_decision.created_at)}` : null}
                     {selected_decision.defer_until ? ` • defer until ${selected_decision.defer_until}` : null}
                   </div>
 
                   {decision_action_error ? (
-                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                       {decision_action_error}
                     </div>
                   ) : null}
@@ -472,7 +472,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
                           ))}
                         </ul>
                       ) : (
-                        <div className="mono muted" style={{ fontSize: "12px" }}>
+                        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                           None.
                         </div>
                       )}
@@ -494,7 +494,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
                           })}
                         </ul>
                       ) : (
-                        <div className="mono muted" style={{ fontSize: "12px" }}>
+                        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                           None.
                         </div>
                       )}
@@ -502,12 +502,12 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
                     <div className="col" style={{ minWidth: 240 }}>
                       <div className="section_title">Draft</div>
                       {selected_decision.draft_relpath ? (
-                        <div className="mono" style={{ fontSize: "12px" }}>
+                        <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
                           <div className="mono muted">path</div>
                           <div className="mono">{selected_decision.draft_relpath}</div>
                         </div>
                       ) : (
-                        <div className="mono muted" style={{ fontSize: "12px" }}>
+                        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                           No draft yet. Approve to generate one (requires repo mounted on gateway host).
                         </div>
                       )}
@@ -526,14 +526,14 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
                     {selected_decision_report_md ? (
                       <Markdown text={selected_decision_report_md} />
                     ) : (
-                      <div className="mono muted" style={{ fontSize: "12px" }}>
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                         No report preview loaded.
                       </div>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="mono muted" style={{ fontSize: "12px" }}>
+                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                   Select a decision.
                 </div>
               )
@@ -561,25 +561,25 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
                 </div>
 
                 {selected_report_error ? (
-                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "8px" }}>
+                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                     {selected_report_error}
                   </div>
                 ) : null}
 
                 {selected_report_loading ? (
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     Loading…
                   </div>
                 ) : selected_report_md ? (
                   <Markdown text={selected_report_md} />
                 ) : (
-                  <div className="mono muted" style={{ fontSize: "12px" }}>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     No content loaded.
                   </div>
                 )}
               </div>
             ) : (
-              <div className="mono muted" style={{ fontSize: "12px" }}>
+              <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                 Select a report.
               </div>
             )}
@@ -605,7 +605,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
         <div className="field">
           <label>Session ID</label>
           <input value={create_session_id} onChange={(e) => set_create_session_id(e.target.value)} placeholder="session id (required)" />
-          <div className="mono muted" style={{ fontSize: "12px" }}>
+          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
             This correlates runs + attachments (via the session memory run).
           </div>
         </div>
@@ -619,7 +619,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
           />
         </div>
         {create_error ? (
-          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)" }}>
             {create_error}
           </div>
         ) : null}

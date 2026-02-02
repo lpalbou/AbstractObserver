@@ -164,19 +164,18 @@ button.primary:hover:not(:disabled) {
     height: auto;
     flex: 0 0 auto;
     min-height: var(--header-height);
-    padding: 8px 10px;
+    padding: var(--header-pad-y) 10px;
     gap: 8px;
     flex-wrap: wrap;
   }
 
-  /* Keep the header usable on narrow viewports: show icon-only branding and
-     allow the nav to wrap onto multiple lines. */
+  /* Keep the header usable on narrow viewports: tighten spacing and allow the nav to wrap. */
   .logo {
-    font-size: 14px;
+    font-size: var(--font-size-base);
   }
 
-  .logo > span:last-child {
-    display: none;
+  .logo_name {
+    max-width: 44vw;
   }
 
   .status_pills {
@@ -191,7 +190,7 @@ button.primary:hover:not(:disabled) {
   }
 
   .status_pill {
-    font-size: 11px;
+    font-size: var(--font-size-xs);
     padding: 4px 8px;
   }
 
@@ -215,7 +214,7 @@ button.primary:hover:not(:disabled) {
   border-radius: 999px;
   padding: 6px 10px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   transition:
     background 0.2s,
@@ -239,9 +238,15 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 8px;
   font-weight: 700;
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale));
   letter-spacing: 0.2px;
   min-width: 0;
+}
+
+.logo_name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .logo-icon {
@@ -282,7 +287,7 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--ui-pill-border);
   background: var(--ui-pill-bg);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -305,6 +310,84 @@ button.primary:hover:not(:disabled) {
 
 .status_pill.muted {
   color: var(--text-muted);
+}
+
+.gateway_led {
+  --led-rgb: 239, 68, 68;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(var(--led-rgb), 0.95);
+  box-shadow: 0 0 0 2px rgba(var(--led-rgb), 0.22);
+  flex: 0 0 auto;
+}
+
+.gateway_led.ok {
+  --led-rgb: 34, 197, 94;
+  box-shadow: 0 0 0 0 rgba(var(--led-rgb), 0.35);
+  animation: gateway_led_pulse 2.6s ease-in-out infinite;
+}
+
+.gateway_led.warn {
+  --led-rgb: 243, 156, 18;
+  box-shadow: 0 0 0 0 rgba(var(--led-rgb), 0.35);
+  animation: gateway_led_pulse 2.6s ease-in-out infinite;
+}
+
+.gateway_led.err {
+  --led-rgb: 239, 68, 68;
+}
+
+@keyframes gateway_led_pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--led-rgb), 0.32);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(var(--led-rgb), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--led-rgb), 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gateway_led.ok,
+  .gateway_led.warn {
+    animation: none;
+  }
+}
+
+.header_icon_btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.14));
+  background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.15s,
+    color 0.15s;
+  flex-shrink: 0;
+}
+
+.header_icon_btn:hover:not(:disabled) {
+  background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--ui-border-2, rgba(255, 255, 255, 0.18));
+  transform: translateY(-1px);
+  color: var(--text-primary);
+}
+
+.header_icon_btn.active {
+  background: var(--accent);
+  border-color: rgba(233, 69, 96, 0.55);
+  color: var(--text-primary);
 }
 
 .container {
@@ -345,7 +428,8 @@ button.primary:hover:not(:disabled) {
 }
 
 .page.page_scroll {
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .page_inner {
@@ -399,9 +483,55 @@ button.primary:hover:not(:disabled) {
   flex: 0 0 auto;
 }
 
+.row.backlog_toolbar {
+  flex-wrap: nowrap;
+}
+
+.row.backlog_toolbar_actions {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.row.backlog_filters {
+  flex-wrap: nowrap;
+}
+
 .backlog_filters {
   align-items: center;
   justify-content: space-between;
+}
+
+.backlog_filters_left {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.backlog_filters_right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.backlog_completed_meta_row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.backlog_filters_right .backlog_type_filter_field {
+  padding-left: 0;
+}
+
+.backlog_filters_right .backlog_count {
+  padding-left: 0;
+  margin-left: auto;
 }
 
 .backlog_search_field,
@@ -476,7 +606,7 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.2;
 }
 
@@ -489,7 +619,7 @@ button.primary:hover:not(:disabled) {
 
 .item_summary_text {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1.35;
   color: var(--text-secondary);
   overflow: hidden;
@@ -514,7 +644,7 @@ button.primary:hover:not(:disabled) {
 
 .inbox_item_meta {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.3;
   word-break: break-word;
 }
@@ -578,11 +708,11 @@ button.primary:hover:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .exec_event_right {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .exec_event_body {
@@ -633,7 +763,7 @@ button.primary:hover:not(:disabled) {
 .inbox_list_ul {
   margin: 0;
   padding-left: 18px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
 }
 
@@ -650,7 +780,7 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--muted-border, rgba(148, 163, 184, 0.22));
   background: var(--ui-chip-bg, rgba(148, 163, 184, 0.10));
   color: var(--ui-chip-text, rgba(226, 232, 240, 0.92));
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 700;
   letter-spacing: 0.2px;
   text-transform: lowercase;
@@ -787,7 +917,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .title h1 {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   margin: 0;
   letter-spacing: 0;
@@ -802,7 +932,7 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--ui-chip-border, var(--border-default));
   background: var(--ui-chip-bg, rgba(0, 0, 0, 0.22));
   color: var(--ui-chip-text, var(--text-secondary));
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
   font-family: var(--font-mono);
 }
@@ -817,7 +947,7 @@ button.primary:hover:not(:disabled) {
 .section_title {
   margin-top: 2px;
   margin-bottom: 2px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -831,7 +961,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .field label {
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   color: var(--muted);
 }
 
@@ -891,7 +1021,7 @@ button.primary:hover:not(:disabled) {
   background: var(--ui-overlay-bg, rgba(0, 0, 0, 0.18));
   color: var(--text-primary);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   transition:
     background 0.15s,
     border-color 0.15s,
@@ -902,6 +1032,27 @@ button.primary:hover:not(:disabled) {
   background: var(--ui-overlay-bg-hover, rgba(255, 255, 255, 0.08));
   border-color: var(--ui-border-2, rgba(255, 255, 255, 0.18));
   transform: translateY(-1px);
+}
+
+.btn.btn_icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.btn.btn_icon svg {
+  flex: 0 0 auto;
+}
+
+.btn.btn_icon.is_loading svg {
+  animation: btn_icon_spin 0.9s linear infinite;
+}
+
+@keyframes btn_icon_spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .btn.primary {
@@ -945,7 +1096,7 @@ button.primary:hover:not(:disabled) {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-surface);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .status_bar strong {
@@ -1039,7 +1190,7 @@ button.primary:hover:not(:disabled) {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-surface);
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
 }
 
 .log_item.card {
@@ -1051,7 +1202,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   justify-content: space-between;
   gap: 4px;
-  font-size: 9px;
+  font-size: calc(9px * var(--font-scale));
   color: var(--muted);
 }
 
@@ -1064,8 +1215,45 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--ui-chip-border, var(--border-default));
   background: var(--ui-chip-bg, rgba(0, 0, 0, 0.22));
   color: var(--ui-chip-text, var(--text-primary));
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 600;
+}
+
+.chip.backlog_path_chip {
+  gap: 6px;
+}
+
+.chip_icon_btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.85;
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+}
+
+.chip_icon_btn:hover:not(:disabled) {
+  opacity: 1;
+  transform: translateY(-0.5px);
+}
+
+.chip_icon_btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.chip_icon_btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .chip.muted {
@@ -1128,7 +1316,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .digest_stat .label {
-  font-size: 8px;
+  font-size: calc(8px * var(--font-scale));
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1137,14 +1325,14 @@ button.primary:hover:not(:disabled) {
 
 .digest_stat .value {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text);
   font-family: var(--font-mono);
 }
 
 .digest_stat .value .chip {
-  font-size: 9px;
+  font-size: calc(9px * var(--font-scale));
   padding: 1px 5px;
 }
 
@@ -1157,7 +1345,7 @@ button.primary:hover:not(:disabled) {
 
 .digest_detail summary {
   list-style: none;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
 }
 
@@ -1190,7 +1378,7 @@ button.primary:hover:not(:disabled) {
   justify-content: space-between;
   gap: 8px;
   transition: background 0.2s, border-color 0.2s;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .run_picker_btn:hover:not(:disabled) {
@@ -1213,7 +1401,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .run_picker_chevron {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   flex-shrink: 0;
 }
@@ -1231,7 +1419,7 @@ button.primary:hover:not(:disabled) {
   flex: 1 1 auto;
   min-width: 0;
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1241,7 +1429,7 @@ button.primary:hover:not(:disabled) {
 
 .run_selected_status {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1280,7 +1468,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .run_selected_time {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -1306,7 +1494,7 @@ button.primary:hover:not(:disabled) {
 
 .run_picker_filter {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .run_picker_filter::placeholder {
@@ -1368,7 +1556,7 @@ button.primary:hover:not(:disabled) {
 
 .run_card_name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1377,7 +1565,7 @@ button.primary:hover:not(:disabled) {
 
 .run_card_status {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1416,7 +1604,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .run_card_time {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   margin-bottom: 4px;
 }
@@ -1427,7 +1615,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .run_card_meta {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   font-family: var(--font-mono);
   margin-top: auto;
@@ -1447,7 +1635,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .run_picker_empty_icon {
-  font-size: 32px;
+  font-size: calc(32px * var(--font-scale));
   opacity: 0.4;
 }
 
@@ -1463,12 +1651,12 @@ button.primary:hover:not(:disabled) {
 .btn.big {
   width: 100%;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--font-size-base);
 }
 
 .log_preview {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
@@ -1486,7 +1674,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--muted);
 }
 
@@ -1494,7 +1682,7 @@ button.primary:hover:not(:disabled) {
   margin-top: 6px;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
 }
 
@@ -1518,7 +1706,7 @@ button.primary:hover:not(:disabled) {
 
 .modal h2 {
   margin: 0 0 6px 0;
-  font-size: 16px;
+  font-size: var(--font-size-lg);
 }
 
 .modal p {
@@ -1659,7 +1847,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .mindmap_recent_title {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   margin-bottom: 6px;
 }
 
@@ -1685,7 +1873,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .source_triple {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1.35;
   word-break: break-word;
   opacity: 0.95;
@@ -1709,7 +1897,7 @@ button.primary:hover:not(:disabled) {
 .source_evidence_quote {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.4;
   margin: 0;
 }
@@ -1731,7 +1919,7 @@ button.primary:hover:not(:disabled) {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
 }
 
@@ -1786,7 +1974,7 @@ button.primary:hover:not(:disabled) {
   border: 1px solid rgba(251, 191, 36, 0.28);
   background: rgba(251, 191, 36, 0.10);
   color: rgba(251, 191, 36, 0.95);
-  font-size: 9px;
+  font-size: calc(9px * var(--font-scale));
   margin-left: 8px;
 }
 
@@ -1820,13 +2008,13 @@ button.primary:hover:not(:disabled) {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 10px;
+  font-size: var(--font-size-xxs);
   margin-bottom: 6px;
   color: var(--text-muted);
 }
 
 .source_msg_body {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
   word-break: break-word;
 }
@@ -1850,7 +2038,7 @@ button.primary:hover:not(:disabled) {
   padding: 10px;
   max-height: 70vh;
   overflow: auto;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.4;
 }
 
@@ -1859,7 +2047,7 @@ button.primary:hover:not(:disabled) {
   border-radius: 10px;
   border: 1px solid rgba(251, 191, 36, 0.20);
   background: rgba(251, 191, 36, 0.10);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.35;
 }
 
@@ -1883,7 +2071,7 @@ button.primary:hover:not(:disabled) {
   border-radius: 999px;
   padding: 6px 12px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   transition:
     background 0.15s,
@@ -1923,7 +2111,7 @@ button.primary:hover:not(:disabled) {
 
 .viewer_run_title {
   font-weight: 700;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1936,7 +2124,7 @@ button.primary:hover:not(:disabled) {
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .graph_toolbar {
@@ -1965,7 +2153,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .graph_toolbar .field > label {
-  font-size: 9px;
+  font-size: calc(9px * var(--font-scale));
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1998,7 +2186,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .graph_toggle_text {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1;
 }
 
@@ -2061,7 +2249,7 @@ button.primary:hover:not(:disabled) {
   border: none;
   color: var(--text);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2110,7 +2298,7 @@ button.primary:hover:not(:disabled) {
   display: flex;
   justify-content: space-between;
   gap: 6px;
-  font-size: 9px;
+  font-size: calc(9px * var(--font-scale));
   margin-bottom: 3px;
   color: var(--text-muted);
 }
@@ -2118,18 +2306,18 @@ button.primary:hover:not(:disabled) {
 .chat_text {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
 }
 
 .chat_hint {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
 .chat_empty_hint {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   padding: 6px 8px;
 }
@@ -2151,19 +2339,19 @@ button.primary:hover:not(:disabled) {
 }
 
 .pin-legend-shape {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   width: 20px;
   text-align: center;
 }
 
 .pin-legend-label {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   min-width: 70px;
   color: var(--text);
 }
 
 .pin-legend-desc {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
 }
 
@@ -2171,7 +2359,7 @@ button.primary:hover:not(:disabled) {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
 }
 
@@ -2227,17 +2415,17 @@ button.primary:hover:not(:disabled) {
 }
 
 .graph_node_label {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   fill: rgba(226, 232, 240, 0.98);
 }
 
 .graph_node_type {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   fill: rgba(148, 163, 184, 0.95);
 }
 
 .graph_node_icon {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   fill: rgba(148, 163, 184, 0.95);
   opacity: 0.9;
   pointer-events: none;
@@ -2303,7 +2491,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .json_viewer {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
 }
 
@@ -2374,7 +2562,7 @@ button.primary:hover:not(:disabled) {
 
 .json_hint {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .modal_backdrop {
@@ -2426,7 +2614,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .modal_title {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 700;
 }
 
@@ -2481,7 +2669,7 @@ button.primary:hover:not(:disabled) {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   transform: rotate(180deg);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0.4px;
 }
@@ -2497,7 +2685,8 @@ button.primary:hover:not(:disabled) {
 }
 
 .drawer_panel {
-  width: min(520px, 92vw);
+  width: clamp(560px, 42vw, 760px);
+  max-width: 92vw;
   height: 100%;
   border-left: 1px solid var(--border);
   background: var(--bg-card, rgba(15, 23, 42, 0.92));
@@ -2516,7 +2705,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .drawer_title {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 800;
 }
 
@@ -2536,19 +2725,20 @@ button.primary:hover:not(:disabled) {
 
 @media (pointer: coarse) {
   .drawer_panel textarea {
-    font-size: 16px;
+    font-size: var(--font-size-lg);
   }
 }
 
 @media (max-width: 700px) {
   .backlog_search_field {
     min-width: 0;
-    flex: 1 1 100%;
+    flex: 1 1 auto;
   }
 
   .backlog_type_filter_field {
     min-width: 0;
     padding-left: 0;
+    flex: 0 0 120px;
   }
 
   .backlog_count {
@@ -2597,7 +2787,7 @@ button.primary:hover:not(:disabled) {
   .field input,
   .field textarea,
   .field select {
-    font-size: 16px;
+    font-size: var(--font-size-lg);
     }
   }
 
