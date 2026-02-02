@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import { ChatComposer, ChatMessageContent, Markdown, copyText, type PanelChatMessage } from "@abstractuic/panel-chat";
+import { ChatComposer, ChatThread, Markdown, copyText, type ChatMessage } from "@abstractuic/panel-chat";
 
 import type {
   BacklogExecConfigResponse,
@@ -11,6 +11,12 @@ import type {
   GatewayClient,
 } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
+import {
+  classify_exec_event_status_kind,
+  humanize_shell_command,
+  infer_exec_event_main_text,
+  infer_exec_event_time_label,
+} from "./exec_event";
 import { Modal } from "./modal";
 
 type BacklogTab = "processing" | "planned" | "proposed" | "recurrent" | "completed" | "failed" | "deprecated" | "trash";
@@ -82,15 +88,6 @@ function safe_json_parse(line: string): any | null {
   }
 }
 
-function first_line_snippet(text: string, max_len: number): string {
-  const t = String(text || "").replace(/\r/g, "").trim();
-  if (!t) return "";
-  const first = t.split("\n", 1)[0] || "";
-  const s = first.trim();
-  if (s.length <= max_len) return s;
-  return `${s.slice(0, Math.max(0, max_len - 1))}…`;
-}
-
 function _is_near_bottom(el: HTMLElement, threshold_px: number): boolean {
   const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
   return remaining <= threshold_px;
@@ -145,6 +142,30 @@ async function sha256_hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function use_media_query(query: string): boolean {
+  const get_matches = (): boolean => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    return window.matchMedia(query).matches;
+  };
+
+  const [matches, set_matches] = useState<boolean>(get_matches);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mql = window.matchMedia(query);
+    const on_change = () => set_matches(mql.matches);
+    on_change();
+    if (typeof mql.addEventListener === "function") mql.addEventListener("change", on_change);
+    else (mql as any).addListener?.(on_change);
+    return () => {
+      if (typeof mql.removeEventListener === "function") mql.removeEventListener("change", on_change);
+      else (mql as any).removeListener?.(on_change);
+    };
+  }, [query]);
+
+  return matches;
 }
 
 function render_backlog_template_draft(
@@ -425,6 +446,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const maint_model = String(props.maintenance_ai_model || "").trim();
 
   const [kind, set_kind] = useState<BacklogTab>("planned");
+  const is_compact_layout = use_media_query("(max-width: 900px)");
+  const [compact_pane, set_compact_pane] = useState<"list" | "detail">("list");
   const [items, set_items] = useState<BacklogItemSummary[]>([]);
   const [loading, set_loading] = useState(false);
   const [error, set_error] = useState("");
@@ -446,13 +469,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [edit_loading, set_edit_loading] = useState(false);
   const [edit_error, set_edit_error] = useState("");
 
-  const [maint_messages, set_maint_messages] = useState<PanelChatMessage[]>([]);
+  const [maint_messages, set_maint_messages] = useState<ChatMessage[]>([]);
   const [maint_input, set_maint_input] = useState("");
   const [maint_loading, set_maint_loading] = useState(false);
   const [maint_error, set_maint_error] = useState("");
 
   const [advisor_open, set_advisor_open] = useState(false);
-  const [advisor_messages, set_advisor_messages] = useState<PanelChatMessage[]>([]);
+  const [advisor_messages, set_advisor_messages] = useState<ChatMessage[]>([]);
   const [advisor_input, set_advisor_input] = useState("");
   const [advisor_loading, set_advisor_loading] = useState(false);
   const [advisor_error, set_advisor_error] = useState("");
@@ -487,6 +510,18 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const exec_log_scroll_el_ref = useRef<HTMLDivElement | null>(null);
   const exec_log_follow_ref = useRef(true);
 
+  const [exec_full_open, set_exec_full_open] = useState(false);
+  const [exec_full_backlog_filename, set_exec_full_backlog_filename] = useState("");
+  const [exec_full_requests, set_exec_full_requests] = useState<BacklogExecRequestSummary[]>([]);
+  const [exec_full_request_id, set_exec_full_request_id] = useState("");
+  const [exec_full_log_name, set_exec_full_log_name] = useState<"events" | "stderr" | "last_message">("events");
+  const [exec_full_text, set_exec_full_text] = useState("");
+  const [exec_full_loading, set_exec_full_loading] = useState(false);
+  const [exec_full_error, set_exec_full_error] = useState("");
+  const [exec_full_truncated, set_exec_full_truncated] = useState(false);
+  const [exec_full_search, set_exec_full_search] = useState("");
+  const exec_full_textarea_ref = useRef<HTMLTextAreaElement | null>(null);
+
   const [completed_view, set_completed_view] = useState<"tasks" | "runs">("tasks");
 
   const [new_task_open, set_new_task_open] = useState(false);
@@ -518,11 +553,16 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [attachments_uploading, set_attachments_uploading] = useState(false);
   const [attachments_error, set_attachments_error] = useState("");
 
-  const [assist_messages, set_assist_messages] = useState<PanelChatMessage[]>([]);
+  const [assist_messages, set_assist_messages] = useState<ChatMessage[]>([]);
   const [assist_input, set_assist_input] = useState("");
   const [assist_loading, set_assist_loading] = useState(false);
 
   const is_exec_view = kind === "processing" || kind === "failed" || (kind === "completed" && completed_view === "runs");
+
+  useEffect(() => {
+    if (!is_compact_layout) return;
+    set_compact_pane("list");
+  }, [is_compact_layout, kind, completed_view]);
 
   useEffect(() => {
     if (!advisor_open) return;
@@ -795,6 +835,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
   useEffect(() => {
     // Keep selection scoped to the active view.
+    set_compact_pane("list");
     if (is_exec_view) {
       if (selected) {
         set_selected(null);
@@ -828,6 +869,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   async function load_item(item: BacklogItemSummary, opts?: { kind?: BacklogFileKind }): Promise<void> {
     const k = (opts?.kind || (is_backlog_file_kind(kind) ? kind : "planned")) as any;
     set_selected(item);
+    if (is_compact_layout) set_compact_pane("detail");
     set_editing(false);
     set_edit_text("");
     set_edit_error("");
@@ -949,6 +991,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   async function load_exec_request(req: BacklogExecRequestSummary): Promise<void> {
     if (!can_use_gateway) return;
     set_exec_selected(req);
+    if (is_compact_layout) set_compact_pane("detail");
     set_exec_detail(null);
     set_exec_detail_error("");
     set_exec_detail_loading(true);
@@ -982,6 +1025,117 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_exec_log_error(String(e?.message || e || "Failed to load logs"));
     } finally {
       set_exec_log_loading(false);
+    }
+  }
+
+  function _artifact_id_from_ref(ref: any): string {
+    if (!ref || typeof ref !== "object") return "";
+    const v = (ref as any)["$artifact"];
+    return typeof v === "string" ? v.trim() : "";
+  }
+
+  async function load_exec_full_log(opts?: { request_id?: string; name?: "events" | "stderr" | "last_message" }): Promise<void> {
+    if (!can_use_gateway) return;
+    const rid = String(opts?.request_id || exec_full_request_id || "").trim();
+    if (!rid) return;
+    const name = (opts?.name || exec_full_log_name) as any;
+    if (exec_full_loading) return;
+    set_exec_full_error("");
+    set_exec_full_loading(true);
+    set_exec_full_truncated(false);
+    try {
+      const detail = await gateway.backlog_exec_request(rid);
+      const payload = detail?.payload;
+      const ledger = payload?.result?.ledger;
+      const ledger_run_id = String(ledger?.ledger_run_id || "").trim();
+      const artifacts = ledger?.log_artifacts;
+      const ref = artifacts ? (artifacts as any)[String(name)] : null;
+      const aid = _artifact_id_from_ref(ref);
+      if (ledger_run_id && aid) {
+        const blob = await gateway.download_run_artifact_content(ledger_run_id, aid);
+        const text = await blob.text();
+        set_exec_full_text(text);
+        return;
+      }
+
+      // Legacy fallback: tail API (bounded; may truncate).
+      const out = await gateway.backlog_exec_log_tail({ request_id: rid, name: String(name), max_bytes: 400_000 });
+      set_exec_full_text(String(out?.content || ""));
+      set_exec_full_truncated(Boolean(out?.truncated));
+      if (Boolean(out?.truncated)) {
+        set_exec_full_error("Legacy fallback: log is truncated (this exec request predates ledger log capture).");
+      }
+    } catch (e: any) {
+      set_exec_full_error(String(e?.message || e || "Failed to load execution log"));
+    } finally {
+      set_exec_full_loading(false);
+    }
+  }
+
+  async function open_exec_full_log_for_backlog(backlog_filename: string): Promise<void> {
+    if (!can_use_gateway) return;
+    const fn = String(backlog_filename || "").trim();
+    if (!fn) return;
+
+    set_exec_full_open(true);
+    set_exec_full_backlog_filename(fn);
+    set_exec_full_requests([]);
+    set_exec_full_request_id("");
+    set_exec_full_log_name("events");
+    set_exec_full_text("");
+    set_exec_full_error("");
+    set_exec_full_truncated(false);
+    set_exec_full_search("");
+
+    try {
+      const res = await gateway.backlog_exec_requests({ status: "completed,failed", limit: 500 });
+      const reqs = Array.isArray(res?.requests) ? res.requests : [];
+      const matches = reqs.filter((r) => String(r.backlog_filename || "").trim() === fn);
+      matches.sort((a, b) => {
+        const ta = String(a.finished_at || a.started_at || a.created_at || "");
+        const tb = String(b.finished_at || b.started_at || b.created_at || "");
+        return tb.localeCompare(ta);
+      });
+      set_exec_full_requests(matches);
+      if (!matches.length) {
+        set_exec_full_error("No execution logs found for this backlog item.");
+        return;
+      }
+      const rid = String(matches[0].request_id || "").trim();
+      set_exec_full_request_id(rid);
+      await load_exec_full_log({ request_id: rid, name: "events" });
+      setTimeout(() => exec_full_textarea_ref.current?.focus(), 0);
+    } catch (e: any) {
+      set_exec_full_error(String(e?.message || e || "Failed to load execution logs"));
+    }
+  }
+
+  function exec_full_find_next(dir: 1 | -1): void {
+    const q = String(exec_full_search || "");
+    if (!q) return;
+    const text = String(exec_full_text || "");
+    if (!text) return;
+    const el = exec_full_textarea_ref.current;
+    if (!el) return;
+
+    const sel_start = typeof el.selectionStart === "number" ? el.selectionStart : 0;
+    const sel_end = typeof el.selectionEnd === "number" ? el.selectionEnd : 0;
+    let idx = -1;
+    if (dir === 1) {
+      const start = Math.min(text.length, Math.max(0, sel_end));
+      idx = text.indexOf(q, start);
+      if (idx < 0 && start > 0) idx = text.indexOf(q, 0);
+    } else {
+      const start = Math.min(text.length, Math.max(0, sel_start - 1));
+      idx = text.lastIndexOf(q, start);
+      if (idx < 0 && start < text.length - 1) idx = text.lastIndexOf(q, text.length);
+    }
+    if (idx < 0) return;
+    try {
+      el.focus();
+      el.setSelectionRange(idx, idx + q.length);
+    } catch {
+      // ignore
     }
   }
 
@@ -1217,7 +1371,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_new_error("Package is required before using AI assist.");
       return;
     }
-    const user_msg: PanelChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
+    const user_msg: ChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
     const next_msgs = [...assist_messages, user_msg];
     set_assist_messages(next_msgs);
     set_assist_input("");
@@ -1283,7 +1437,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     set_maint_error("");
     const msg = maint_input.trim();
     if (!msg) return;
-    const user_msg: PanelChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
+    const user_msg: ChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
     const next_msgs = [...maint_messages, user_msg];
     set_maint_messages(next_msgs);
     set_maint_input("");
@@ -1319,7 +1473,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     set_advisor_error("");
     const msg = advisor_input.trim();
     if (!msg) return;
-    const user_msg: PanelChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
+    const user_msg: ChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
     const next_msgs = [...advisor_messages, user_msg];
     set_advisor_messages(next_msgs);
     set_advisor_input("");
@@ -1351,8 +1505,11 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const can_restore_from_trash = Boolean(selected && kind === "trash");
   const can_restore_from_deprecated = Boolean(selected && kind === "deprecated");
 
+  const show_compact_list = !is_compact_layout || compact_pane === "list";
+  const show_compact_detail = !is_compact_layout || compact_pane === "detail";
+
   return (
-    <div className="page">
+    <div className="page backlog_page">
       <div className="page_inner">
         <div className="card">
           <div className="title">
@@ -1370,8 +1527,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             ) : null}
           </div>
 
-          <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
-            <div className="tab_bar" style={{ paddingBottom: 0, borderBottom: "none" }}>
+          <div className="row backlog_toolbar" style={{ alignItems: "center", justifyContent: "space-between" }}>
+            <div className="tab_bar backlog_tabs" style={{ paddingBottom: 0, borderBottom: "none" }}>
               <button className={`tab ${kind === "processing" ? "active" : ""}`} onClick={() => set_kind("processing")}>
                 Processing
               </button>
@@ -1397,7 +1554,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 Trash
               </button>
             </div>
-            <div className="row" style={{ gap: "8px", justifyContent: "flex-end" }}>
+            <div className="row backlog_toolbar_actions" style={{ gap: "8px", justifyContent: "flex-end" }}>
               {kind === "completed" ? (
                 <div className="row" style={{ gap: "6px" }}>
                   <button className={`btn ${completed_view === "tasks" ? "primary" : ""}`} onClick={() => set_completed_view("tasks")}>
@@ -1417,8 +1574,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             </div>
           </div>
 
-          <div className="row" style={{ marginTop: "10px", alignItems: "center", justifyContent: "space-between" }}>
-            <div className="field" style={{ margin: 0, flex: "1 1 auto", minWidth: 240 }}>
+          <div className="row backlog_filters" style={{ marginTop: "10px", alignItems: "center", justifyContent: "space-between" }}>
+            <div className="field backlog_search_field">
               <input
                 value={query}
                 onChange={(e) => set_query(e.target.value)}
@@ -1426,7 +1583,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
               />
             </div>
             {!is_exec_view ? (
-              <div className="field" style={{ margin: 0, flex: "0 0 auto", minWidth: 150, paddingLeft: "10px" }}>
+              <div className="field backlog_type_filter_field">
                 <select value={type_filter} onChange={(e) => set_type_filter(e.target.value as any)} title="Filter by type">
                   <option value="all">all types</option>
                   <option value="bug">bug</option>
@@ -1435,7 +1592,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 </select>
               </div>
             ) : null}
-            <div className="mono muted" style={{ fontSize: "12px", paddingLeft: "10px" }}>
+            <div className="mono muted backlog_count" style={{ fontSize: "12px" }}>
               {is_exec_view ? `${filtered_exec_requests.length}/${exec_requests.length}` : `${filtered_items.length}/${items.length}`}
             </div>
           </div>
@@ -1463,75 +1620,82 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         </div>
 
         <div className="inbox_layout">
-          <div className="card inbox_sidebar">
-            <div className="inbox_list">
-              {is_exec_view ? (
-                !filtered_exec_requests.length ? (
+          {show_compact_list ? (
+            <div className="card inbox_sidebar">
+              <div className="inbox_list">
+                {is_exec_view ? (
+                  !filtered_exec_requests.length ? (
+                    <div className="mono muted" style={{ fontSize: "12px" }}>
+                      No requests.
+                    </div>
+                  ) : (
+                    filtered_exec_requests.map((r) => {
+                      const active = exec_selected?.request_id === r.request_id;
+                      const st = String(r.status || "").trim().toLowerCase();
+                      const status_chip =
+                        st === "completed"
+                          ? "ok"
+                          : st === "failed"
+                            ? "danger"
+                            : st === "running"
+                              ? "info"
+                              : st === "queued"
+                                ? "warn"
+                                : "muted";
+                      return (
+                        <button
+                          key={`exec:${r.request_id}`}
+                          className={`inbox_item ${active ? "active" : ""}`}
+                          onClick={() => void load_exec_request(r)}
+                        >
+                          <div className="inbox_item_title">
+                            <span className={`chip ${status_chip} mono`}>{st || "unknown"}</span>
+                            <span className="item_title_text">{short_id(r.backlog_filename || r.backlog_relpath || "request", 56)}</span>
+                          </div>
+                          <div className="inbox_item_meta mono muted">{short_id(r.request_id, 80)}</div>
+                          {r.error ? (
+                            <div className="inbox_item_meta mono" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                              {short_id(r.error, 180)}
+                            </div>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  )
+                ) : !filtered_items.length ? (
                   <div className="mono muted" style={{ fontSize: "12px" }}>
-                    No requests.
+                    No items.
                   </div>
                 ) : (
-                  filtered_exec_requests.map((r) => {
-                    const active = exec_selected?.request_id === r.request_id;
-                    const st = String(r.status || "").trim().toLowerCase();
-                    const status_chip =
-                      st === "completed"
-                        ? "ok"
-                        : st === "failed"
-                          ? "danger"
-                          : st === "running"
-                            ? "info"
-                            : st === "queued"
-                              ? "warn"
-                              : "muted";
+                  filtered_items.map((it) => {
+                    const active = selected?.filename === it.filename;
+                    const parsed = is_parsed(it);
+                    const tt = normalize_task_type(it.task_type);
                     return (
-                      <button
-                        key={`exec:${r.request_id}`}
-                        className={`inbox_item ${active ? "active" : ""}`}
-                        onClick={() => void load_exec_request(r)}
-                      >
+                      <button key={`${kind}:${it.filename}`} className={`inbox_item ${active ? "active" : ""}`} onClick={() => void load_item(it)}>
                         <div className="inbox_item_title">
-                          <span className={`chip ${status_chip} mono`}>{st || "unknown"}</span>
-                          <span className="item_title_text">{short_id(r.backlog_filename || r.backlog_relpath || "request", 56)}</span>
+                          {!parsed ? <span className="pill unparsed">unparsed</span> : null}
+                          {it.item_id ? <span className="chip info mono">#{it.item_id}</span> : null}
+                          {parsed ? <span className={`chip ${task_type_chip(tt)} mono`}>{tt}</span> : null}
+                          {it.package ? <span className="chip muted mono">{it.package}</span> : null}
+                          <span className="item_title_text">{short_id(it.title || it.filename, 56)}</span>
                         </div>
-                        <div className="inbox_item_meta mono muted">{short_id(r.request_id, 80)}</div>
-                        {r.error ? <div className="inbox_item_meta mono" style={{ color: "rgba(239, 68, 68, 0.9)" }}>{short_id(r.error, 180)}</div> : null}
+                        {it.summary ? (
+                          <div className="item_summary_text">
+                            <Markdown text={_summary_preview_markdown(it.summary)} className="backlog_summary_md" />
+                          </div>
+                        ) : null}
+                        <div className="inbox_item_meta mono muted">{it.filename}</div>
                       </button>
                     );
                   })
-                )
-              ) : !filtered_items.length ? (
-                <div className="mono muted" style={{ fontSize: "12px" }}>
-                  No items.
-                </div>
-              ) : (
-                filtered_items.map((it) => {
-                  const active = selected?.filename === it.filename;
-                  const parsed = is_parsed(it);
-                  const tt = normalize_task_type(it.task_type);
-                  return (
-                    <button key={`${kind}:${it.filename}`} className={`inbox_item ${active ? "active" : ""}`} onClick={() => void load_item(it)}>
-                      <div className="inbox_item_title">
-                        {!parsed ? <span className="pill unparsed">unparsed</span> : null}
-                        {it.item_id ? <span className="chip info mono">#{it.item_id}</span> : null}
-                        {parsed ? <span className={`chip ${task_type_chip(tt)} mono`}>{tt}</span> : null}
-                        {it.package ? <span className="chip muted mono">{it.package}</span> : null}
-                        <span className="item_title_text">{short_id(it.title || it.filename, 56)}</span>
-                      </div>
-                      {it.summary ? (
-                        <div className="item_summary_text">
-                          <Markdown text={_summary_preview_markdown(it.summary)} className="backlog_summary_md" />
-                        </div>
-                      ) : null}
-                      <div className="inbox_item_meta mono muted">{it.filename}</div>
-                    </button>
-                  );
-                })
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          <div className="card inbox_viewer">
+          {show_compact_detail ? (
+            <div className="card inbox_viewer">
             {is_exec_view ? (
               exec_selected ? (
                 <div className="inbox_detail">
@@ -1544,6 +1708,11 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                       <span className="chip mono muted">{short_id(exec_selected.request_id, 16)}</span>
                     </div>
                     <div className="inbox_detail_actions">
+                      {is_compact_layout ? (
+                        <button className="btn" onClick={() => set_compact_pane("list")} disabled={exec_detail_loading}>
+                          Back
+                        </button>
+                      ) : null}
                       <button className="btn" onClick={() => copyText(exec_selected.request_id)} disabled={exec_detail_loading}>
                         Copy request id
                       </button>
@@ -1696,10 +1865,10 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                         {exec_log_name === "events" && parsed_exec_events ? (
                           <>
                             <div
+                              className="exec_log_scroll"
                               ref={exec_log_scroll_el_ref}
-                              style={{ marginTop: "8px", maxHeight: "320px", overflow: "auto" }}
                               onScroll={(e) => {
-                                exec_log_follow_ref.current = _is_near_bottom(e.currentTarget, 28);
+                                exec_log_follow_ref.current = _is_near_bottom(e.currentTarget, 12);
                               }}
                             >
                               {parsed_exec_events.events.length === 0 ? (
@@ -1714,19 +1883,10 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                   const item_id = item ? String(item.id || "").trim() : "";
                                   const thread_id = p ? String(p.thread_id || "").trim() : "";
 
-                                  const is_error = ev.type === "error" || ev.type === "turn.failed";
-                                  const is_ok = ev.type === "turn.completed" || ev.type === "turn.succeeded" || ev.type === "turn.success";
-
-                                  const badge_bg = is_error
-                                    ? "rgba(239, 68, 68, 0.14)"
-                                    : is_ok
-                                      ? "rgba(34, 197, 94, 0.14)"
-                                      : "rgba(59, 130, 246, 0.12)";
-                                  const badge_border = is_error
-                                    ? "rgba(239, 68, 68, 0.35)"
-                                    : is_ok
-                                      ? "rgba(34, 197, 94, 0.35)"
-                                      : "rgba(59, 130, 246, 0.28)";
+                                  const status_kind = classify_exec_event_status_kind(ev.type, p);
+                                  const badge_class = status_kind === "error" ? "danger" : status_kind === "ok" ? "ok" : "info";
+                                  const time_label = infer_exec_event_time_label(p);
+                                  const main_text = infer_exec_event_main_text(ev.type, p);
 
                                   const msg = String(p?.message || p?.error?.message || "").trim();
                                   const text = item ? String(item.text || "").trim() : "";
@@ -1736,93 +1896,81 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                   const out = item ? String(item.aggregated_output || "").trim() : "";
                                   const todo_items = item && Array.isArray(item.items) ? item.items : [];
 
+                                  const short_cmd = cmd ? humanize_shell_command(cmd) || cmd : "";
+
                                   return (
-                                    <div
-                                      key={`${ev.idx}-${ev.type}`}
-                                      style={{
-                                        padding: "8px 10px",
-                                        borderTop: "1px solid rgba(255,255,255,0.06)",
-                                      }}
-                                    >
-                                      <div className="row" style={{ alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                        <span
-                                          className="mono"
-                                          style={{
-                                            fontSize: "11px",
-                                            padding: "2px 8px",
-                                            borderRadius: "999px",
-                                            background: badge_bg,
-                                            border: `1px solid ${badge_border}`,
-                                          }}
-                                        >
-                                          {ev.type}
+                                    <details key={`${item_id || ev.idx}-${ev.type}`} className={`exec_event ${status_kind}`}>
+                                      <summary className="exec_event_summary">
+                                        {time_label ? <span className="exec_event_when mono muted">{time_label}</span> : null}
+                                        {time_label ? <span className="exec_event_sep mono muted">|</span> : null}
+                                        <span className="exec_event_main mono" title={main_text}>
+                                          {main_text}
                                         </span>
-                                        {item_type ? (
+                                        <span className={`chip mono ${badge_class}`}>{item_type || ev.type}</span>
+                                        {exit_code ? <span className="mono muted exec_event_right">exit={exit_code}</span> : null}
+                                      </summary>
+                                      <div className="exec_event_body">
+                                        <div className="row exec_event_meta">
                                           <span className="mono muted" style={{ fontSize: "11px" }}>
-                                            {item_type}
+                                            {ev.type}
                                           </span>
-                                        ) : null}
-                                        {item_id ? (
-                                          <span className="mono muted" style={{ fontSize: "11px" }}>
-                                            {item_id}
-                                          </span>
-                                        ) : null}
-                                        {thread_id ? (
-                                          <span className="mono muted" style={{ fontSize: "11px" }}>
-                                            thread {short_id(thread_id, 18)}
-                                          </span>
-                                        ) : null}
-                                      </div>
-
-                                      {msg ? (
-                                        <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "8px" }}>
-                                          {msg}
-                                        </pre>
-                                      ) : null}
-
-                                      {todo_items && todo_items.length > 0 ? (
-                                        <div className="mono" style={{ fontSize: "12px", marginTop: "8px" }}>
-                                          {todo_items.map((t: any, i: number) => (
-                                            <div key={`${ev.idx}-todo-${i}`}>
-                                              {(t && t.completed) === true ? "✓" : "○"} {String(t?.text || "").trim()}
-                                            </div>
-                                          ))}
+                                          {item_id ? (
+                                            <span className="mono muted" style={{ fontSize: "11px" }}>
+                                              {item_id}
+                                            </span>
+                                          ) : null}
+                                          {thread_id ? (
+                                            <span className="mono muted" style={{ fontSize: "11px" }}>
+                                              thread {short_id(thread_id, 18)}
+                                            </span>
+                                          ) : null}
                                         </div>
-                                      ) : null}
 
-                                      {cmd ? (
-                                        <div style={{ marginTop: "8px" }}>
-                                          <div className="mono muted" style={{ fontSize: "11px" }}>
-                                            command_execution {status ? `(${status})` : ""} {exit_code ? `exit=${exit_code}` : ""}
-                                          </div>
-                                          <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "6px" }}>
-                                            {cmd}
-                                          </pre>
-                                        </div>
-                                      ) : null}
-
-                                      {out ? (
-                                        <details style={{ marginTop: "8px" }}>
-                                          <summary className="mono muted" style={{ fontSize: "12px", cursor: "pointer" }}>
-                                            output ({out.length.toLocaleString()} chars)
-                                          </summary>
+                                        {msg ? (
                                           <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "8px" }}>
-                                            {out}
+                                            {msg}
                                           </pre>
-                                        </details>
-                                      ) : null}
+                                        ) : null}
 
-                                      {text ? (
-                                        <details style={{ marginTop: "8px" }}>
-                                          <summary className="mono muted" style={{ fontSize: "12px", cursor: "pointer" }}>
-                                            text: {first_line_snippet(text, 80) || "(open)"}
-                                          </summary>
+                                        {todo_items && todo_items.length > 0 ? (
+                                          <div className="mono" style={{ fontSize: "12px", marginTop: "8px" }}>
+                                            {todo_items.map((t: any, i: number) => (
+                                              <div key={`${ev.idx}-todo-${i}`}>
+                                                {(t && t.completed) === true ? "✓" : "○"} {String(t?.text || "").trim()}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : null}
+
+                                        {cmd ? (
+                                          <div style={{ marginTop: "8px" }}>
+                                            <div className="mono muted" style={{ fontSize: "11px" }}>
+                                              command_execution {status ? `(${status})` : ""} {exit_code ? `exit=${exit_code}` : ""}
+                                            </div>
+                                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "6px" }}>
+                                              {short_cmd}
+                                            </pre>
+                                          </div>
+                                        ) : null}
+
+                                        {out ? (
+                                          <details style={{ marginTop: "8px" }}>
+                                            <summary className="mono muted" style={{ fontSize: "12px", cursor: "pointer" }}>
+                                              output ({out.length.toLocaleString()} chars)
+                                            </summary>
+                                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px", marginTop: "8px" }}>
+                                              {out}
+                                            </pre>
+                                          </details>
+                                        ) : null}
+
+                                        {text ? (
                                           <div style={{ marginTop: "8px" }}>
                                             <Markdown text={text} />
                                           </div>
-                                        </details>
-                                      ) : null}
-                                    </div>
+                                        ) : null}
+                                      </div>
+                                    </details>
                                   );
                                 })
                               )}
@@ -1842,10 +1990,10 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           </>
                         ) : (
                           <div
+                            className="exec_log_scroll"
                             ref={exec_log_scroll_el_ref}
-                            style={{ marginTop: "8px", maxHeight: "320px", overflow: "auto" }}
                             onScroll={(e) => {
-                              exec_log_follow_ref.current = _is_near_bottom(e.currentTarget, 28);
+                              exec_log_follow_ref.current = _is_near_bottom(e.currentTarget, 12);
                             }}
                           >
                             <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "12px" }}>
@@ -1900,9 +2048,23 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     <span className="chip mono muted">{selected.filename}</span>
                   </div>
                   <div className="inbox_detail_actions">
+                    {is_compact_layout ? (
+                      <button className="btn" onClick={() => set_compact_pane("list")} disabled={action_loading}>
+                        Back
+                      </button>
+                    ) : null}
                     <button className="btn" onClick={() => copyText(`docs/backlog/${String(kind)}/${selected.filename}`)} disabled={action_loading}>
                       Copy path
                     </button>
+                    {kind === "completed" && completed_view === "tasks" ? (
+                      <button
+                        className="btn"
+                        onClick={() => void open_exec_full_log_for_backlog(selected.filename)}
+                        disabled={action_loading || !can_use_gateway}
+                      >
+                        Execution log
+                      </button>
+                    ) : null}
                     {can_execute ? (
                       <button
                         className="btn primary"
@@ -2055,43 +2217,27 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                       ) : null}
 
                       <div className="section_divider" style={{ marginTop: "10px" }} />
-                      <div className="source_chat" style={{ maxHeight: "220px" }}>
-                        {maint_messages.length ? (
-                          maint_messages.map((m) => (
-                            <div key={m.id || `${m.role}_${m.ts}`} className={`source_msg ${m.role === "user" ? "source_user" : "source_assistant"}`}>
-                              <div className="source_msg_meta">
-                                <span className="mono">{m.role}</span>
-                                <span className="mono">{m.ts ? new Date(m.ts).toLocaleTimeString() : ""}</span>
-                              </div>
-                              <div className="source_msg_body">
-                                <ChatMessageContent text={m.content} />
-                              </div>
-                            </div>
-                          ))
-                        ) : (
+                      <ChatThread
+                        messages={maint_messages}
+                        className="backlog_chat_thread_small"
+                        empty={
                           <div className="mono muted" style={{ fontSize: "12px" }}>
                             No messages yet.
                           </div>
-                        )}
-                      </div>
+                        }
+                      />
 
-                      <div className="row" style={{ marginTop: "10px", alignItems: "center" }}>
-                        <div className="col" style={{ flex: "1 1 auto", minWidth: 240 }}>
-                          <input
-                            value={maint_input}
-                            onChange={(e) => set_maint_input(e.target.value)}
-                            placeholder="Message to maintainer (e.g. improve acceptance criteria…)"
-                          />
-                        </div>
-                        <div className="col" style={{ flex: "0 0 auto" }}>
-                          <button
-                            className="btn primary"
-                            onClick={() => void send_maintain()}
-                            disabled={!can_use_gateway || maint_loading || !maint_input.trim() || !selected || !is_backlog_file_kind(kind)}
-                          >
-                            {maint_loading ? "Thinking…" : "Send"}
-                          </button>
-                        </div>
+                      <div style={{ marginTop: "10px" }}>
+                        <ChatComposer
+                          value={maint_input}
+                          onChange={set_maint_input}
+                          onSubmit={() => void send_maintain()}
+                          placeholder="Message to maintainer (e.g. improve acceptance criteria…)"
+                          disabled={!can_use_gateway || maint_loading || !selected || !is_backlog_file_kind(kind)}
+                          busy={maint_loading}
+                          rows={3}
+                          sendButtonClassName="btn primary"
+                        />
                       </div>
 
                       {maint_error ? (
@@ -2115,6 +2261,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
               </div>
             )}
           </div>
+          ) : null}
         </div>
       </div>
 
@@ -2219,6 +2366,143 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             {action_error}
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={exec_full_open}
+        title={exec_full_backlog_filename ? `Execution log — ${exec_full_backlog_filename}` : "Execution log"}
+        variant="fullscreen"
+        onClose={() => {
+          set_exec_full_open(false);
+          set_exec_full_backlog_filename("");
+          set_exec_full_requests([]);
+          set_exec_full_request_id("");
+          set_exec_full_text("");
+          set_exec_full_error("");
+          set_exec_full_truncated(false);
+          set_exec_full_search("");
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <div className="row" style={{ alignItems: "flex-end", gap: "10px", flexWrap: "wrap" }}>
+            <div className="col" style={{ minWidth: 420, flex: "0 0 auto" }}>
+              <div className="field">
+                <label>Execution</label>
+                <select
+                  value={exec_full_request_id}
+                  onChange={(e) => {
+                    const rid = String(e.target.value || "").trim();
+                    set_exec_full_request_id(rid);
+                    set_exec_full_text("");
+                    set_exec_full_error("");
+                    set_exec_full_truncated(false);
+                    if (rid) void load_exec_full_log({ request_id: rid, name: exec_full_log_name });
+                    setTimeout(() => exec_full_textarea_ref.current?.focus(), 0);
+                  }}
+                  disabled={exec_full_loading || !exec_full_requests.length}
+                >
+                  {exec_full_requests.length ? null : <option value="">(none)</option>}
+                  {exec_full_requests.map((r) => {
+                    const ts = String(r.finished_at || r.started_at || r.created_at || "").trim();
+                    const label = ts ? `${ts} • ${short_id(r.request_id, 16)} • ${String(r.status || "").trim()}` : `${short_id(r.request_id, 16)} • ${String(r.status || "").trim()}`;
+                    return (
+                      <option key={`execfull:${r.request_id}`} value={r.request_id}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+
+            <div className="col" style={{ minWidth: 180, flex: "0 0 auto" }}>
+              <div className="field">
+                <label>Log</label>
+                <select
+                  value={exec_full_log_name}
+                  onChange={(e) => {
+                    const name = e.target.value as any;
+                    set_exec_full_log_name(name);
+                    set_exec_full_text("");
+                    set_exec_full_error("");
+                    set_exec_full_truncated(false);
+                    if (exec_full_request_id) void load_exec_full_log({ request_id: exec_full_request_id, name });
+                    setTimeout(() => exec_full_textarea_ref.current?.focus(), 0);
+                  }}
+                  disabled={exec_full_loading || !exec_full_request_id}
+                >
+                  <option value="events">events</option>
+                  <option value="stderr">stderr</option>
+                  <option value="last_message">last_message</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="col" style={{ minWidth: 240, flex: "1 1 240px" }}>
+              <div className="field">
+                <label>Search</label>
+                <input
+                  value={exec_full_search}
+                  onChange={(e) => set_exec_full_search(e.target.value)}
+                  placeholder="Find…"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      exec_full_find_next(e.shiftKey ? -1 : 1);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="col" style={{ flex: "0 0 auto", display: "flex", gap: "6px" }}>
+              <button className="btn" onClick={() => exec_full_find_next(-1)} disabled={!exec_full_search.trim() || !exec_full_text.trim()}>
+                Prev
+              </button>
+              <button className="btn" onClick={() => exec_full_find_next(1)} disabled={!exec_full_search.trim() || !exec_full_text.trim()}>
+                Next
+              </button>
+              <button className="btn" onClick={() => void load_exec_full_log()} disabled={exec_full_loading || !exec_full_request_id}>
+                {exec_full_loading ? "Loading…" : "Refresh"}
+              </button>
+              <button className="btn" onClick={() => copyText(exec_full_text)} disabled={!exec_full_text.trim()}>
+                Copy
+              </button>
+            </div>
+          </div>
+
+          {exec_full_error ? (
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+              {exec_full_error}
+            </div>
+          ) : null}
+          {!exec_full_error && exec_full_truncated ? (
+            <div className="mono muted" style={{ fontSize: "12px", marginTop: "10px" }}>
+              Showing only the tail of this log.
+            </div>
+          ) : null}
+
+          <div style={{ flex: "1 1 auto", marginTop: "10px" }}>
+            <textarea
+              ref={exec_full_textarea_ref}
+              value={exec_full_text || "(no log loaded)"}
+              readOnly
+              className="mono"
+              style={{
+                width: "100%",
+                height: "100%",
+                resize: "none",
+                borderRadius: "12px",
+                border: "1px solid var(--border)",
+                background: "rgba(0, 0, 0, 0.18)",
+                color: "var(--text)",
+                padding: "12px",
+                fontSize: "12px",
+                lineHeight: "16px",
+              }}
+            />
+          </div>
+        </div>
       </Modal>
 
       <Modal
@@ -2436,25 +2720,15 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           Use this to iteratively refine a backlog draft; assistant replies can also update the draft markdown.
         </div>
 
-        <div className="source_chat" style={{ maxHeight: "220px" }}>
-          {assist_messages.length ? (
-            assist_messages.map((m) => (
-              <div key={m.id || `${m.role}_${m.ts}`} className={`source_msg ${m.role === "user" ? "source_user" : "source_assistant"}`}>
-                <div className="source_msg_meta">
-                  <span className="mono">{m.role}</span>
-                  <span className="mono">{m.ts ? new Date(m.ts).toLocaleTimeString() : ""}</span>
-                </div>
-                <div className="source_msg_body">
-                  <ChatMessageContent text={m.content} />
-                </div>
-              </div>
-            ))
-          ) : (
+        <ChatThread
+          messages={assist_messages}
+          className="backlog_chat_thread_small"
+          empty={
             <div className="mono muted" style={{ fontSize: "12px" }}>
               No messages yet.
             </div>
-          )}
-        </div>
+          }
+        />
 
         <div style={{ marginTop: "10px" }}>
           <ChatComposer
@@ -2462,7 +2736,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             onChange={set_assist_input}
             onSubmit={() => void send_assist()}
             placeholder="Message to AI (e.g. refine acceptance criteria…)"
-            disabled={!new_title.trim()}
+            disabled={!can_use_gateway || !new_title.trim()}
             busy={assist_loading}
             rows={3}
             sendButtonClassName="btn primary"
@@ -2511,25 +2785,15 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             </div>
 
             <div className="drawer_body">
-              <div className="source_chat" style={{ maxHeight: "unset", flex: "1 1 auto", width: "100%" }}>
-                {advisor_messages.length ? (
-                  advisor_messages.map((m) => (
-                    <div key={m.id || `${m.role}_${m.ts}`} className={`source_msg ${m.role === "user" ? "source_user" : "source_assistant"}`}>
-                      <div className="source_msg_meta">
-                        <span className="mono">{m.role}</span>
-                        <span className="mono">{m.ts ? new Date(m.ts).toLocaleTimeString() : ""}</span>
-                      </div>
-                      <div className="source_msg_body">
-                        <ChatMessageContent text={m.content} />
-                      </div>
-                    </div>
-                  ))
-                ) : (
+              <ChatThread
+                messages={advisor_messages}
+                className="drawer_chat_thread"
+                empty={
                   <div className="mono muted" style={{ fontSize: "12px" }}>
                     Ask about the backlog, e.g. “What are the top 5 planned items to focus on next and why?”
                   </div>
-                )}
-              </div>
+                }
+              />
 
               <div className="drawer_footer">
                 <ChatComposer

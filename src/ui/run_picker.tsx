@@ -10,8 +10,10 @@ export type RunSummary = {
   parent_run_id?: string | null;
   session_id?: string | null;
   is_scheduled?: boolean | null;
+  paused?: boolean | null;
   waiting_reason?: string | null;
   schedule_interval?: string | null;
+  schedule_target_workflow_id?: string | null;
 };
 
 function parse_iso_ms(ts: any): number | null {
@@ -55,9 +57,11 @@ function short_id(id: string, keep: number): string {
 type StatusConfig = { label: string; cls: string };
 
 function get_status_config(run: RunSummary): StatusConfig {
+  const wid = typeof run.workflow_id === "string" ? String(run.workflow_id).trim() : "";
   const st = String(run.status || "").trim().toLowerCase();
   const waiting_reason = String(run.waiting_reason || "").trim().toLowerCase();
-  const is_scheduled = Boolean(run.is_scheduled);
+  const is_scheduled = Boolean(run.is_scheduled) || (wid && wid.startsWith("scheduled:"));
+  const is_paused = Boolean(run.paused);
   const config: Record<string, StatusConfig> = {
     completed: { label: "Completed", cls: "success" },
     failed: { label: "Failed", cls: "error" },
@@ -66,7 +70,16 @@ function get_status_config(run: RunSummary): StatusConfig {
     running: { label: "Running", cls: "info" },
   };
 
-  if (st === "waiting" && is_scheduled && waiting_reason === "until") {
+  if (is_scheduled && is_paused) {
+    return { label: "Suspended", cls: "scheduled" };
+  }
+
+  if (st === "waiting" && is_scheduled) {
+    return { label: "Scheduled", cls: "scheduled" };
+  }
+
+  if (st === "running" && is_scheduled && waiting_reason === "until") {
+    // Briefly running due to schedule wakeup; keep it marked.
     return { label: "Scheduled", cls: "scheduled" };
   }
 
@@ -110,11 +123,19 @@ function RunCard({
   onClick: () => void;
 }): React.ReactElement {
   const wid = typeof run.workflow_id === "string" ? String(run.workflow_id) : "";
-  const wf_display = extract_workflow_name(wid, workflow_label_by_id);
+  const target_wid = typeof run.schedule_target_workflow_id === "string" ? String(run.schedule_target_workflow_id) : "";
+  const display_id = target_wid.trim() ? target_wid : wid;
+  const wf_display = extract_workflow_name(display_id, workflow_label_by_id);
   
   const status_info = get_status_config(run);
   const time_ago = format_time_ago(run.updated_at || run.created_at);
   const steps = typeof run.ledger_len === "number" && run.ledger_len > 0 ? run.ledger_len : null;
+  const is_scheduled = Boolean(run.is_scheduled) || (wid && wid.startsWith("scheduled:"));
+  const interval = String(run.schedule_interval || "").trim();
+  const meta_parts: string[] = [];
+  if (is_scheduled) meta_parts.push(interval ? `every ${interval}` : "scheduled");
+  if (steps !== null) meta_parts.push(`${steps} steps`);
+  const meta = meta_parts.join(" • ");
 
     return (
     <button
@@ -131,9 +152,7 @@ function RunCard({
         <span className="run_card_sep">•</span>
         <span className="mono">{short_id(run.run_id, 8)}</span>
       </div>
-      {steps !== null ? (
-        <div className="run_card_meta">{steps} steps</div>
-      ) : null}
+      {meta ? <div className="run_card_meta">{meta}</div> : null}
     </button>
     );
   }
@@ -146,7 +165,9 @@ function SelectedRunBadge({
   workflow_label_by_id: Record<string, string>;
 }): React.ReactElement {
   const wid = typeof run.workflow_id === "string" ? String(run.workflow_id) : "";
-  const wf_display = extract_workflow_name(wid, workflow_label_by_id);
+  const target_wid = typeof run.schedule_target_workflow_id === "string" ? String(run.schedule_target_workflow_id) : "";
+  const display_id = target_wid.trim() ? target_wid : wid;
+  const wf_display = extract_workflow_name(display_id, workflow_label_by_id);
   
   const status_info = get_status_config(run);
   const time_ago = format_time_ago(run.updated_at || run.created_at);
@@ -246,9 +267,18 @@ export function RunPicker({
     return runs.filter((r) => {
       const rid = String(r.run_id || "").toLowerCase();
       const wid = typeof r.workflow_id === "string" ? String(r.workflow_id).toLowerCase() : "";
+      const target_wid = typeof r.schedule_target_workflow_id === "string" ? String(r.schedule_target_workflow_id).toLowerCase() : "";
       const wl = wid ? String(workflow_label_by_id[String(r.workflow_id)] || "").toLowerCase() : "";
+      const target_wl = target_wid ? String(workflow_label_by_id[String(r.schedule_target_workflow_id)] || "").toLowerCase() : "";
       const st = typeof r.status === "string" ? String(r.status).toLowerCase() : "";
-      return rid.includes(q) || wid.includes(q) || wl.includes(q) || st.includes(q);
+      return (
+        rid.includes(q) ||
+        wid.includes(q) ||
+        wl.includes(q) ||
+        target_wid.includes(q) ||
+        target_wl.includes(q) ||
+        st.includes(q)
+      );
     });
   }, [runs, filter, workflow_label_by_id]);
 

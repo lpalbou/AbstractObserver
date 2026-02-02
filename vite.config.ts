@@ -33,7 +33,7 @@ export default defineConfig({
     // In dev, you can proxy /api to a local gateway host (AbstractFlow backend).
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: "http://localhost:8081",
         changeOrigin: true,
         ws: true,
         secure: false,

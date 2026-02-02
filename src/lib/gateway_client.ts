@@ -2,7 +2,7 @@ import { LedgerStreamEvent } from "./types";
 import { SseParser } from "./sse_parser";
 
 export type GatewayClientConfig = {
-  base_url: string; // e.g. "http://localhost:8080" (no trailing slash) or "" for same-origin
+  base_url: string; // e.g. "http://localhost:8081" (no trailing slash) or "" for same-origin
   auth_token?: string;
 };
 

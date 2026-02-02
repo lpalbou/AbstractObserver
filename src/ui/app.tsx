@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractuic/monitor-flow";
-import { ChatComposer, ChatMessageContent, Markdown, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
+import { ChatComposer, ChatThread, Markdown, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
 import { AfSelect, ProviderModelSelect, ThemeSelect, applyTheme, type AfSelectOption, type ProviderOption } from "@abstractuic/ui-kit";
 import { registerMonitorGpuWidget } from "@abstractutils/monitor-gpu";
 
@@ -582,7 +582,6 @@ export function App(): React.ReactElement {
   const [chat_sending, set_chat_sending] = useState<boolean>(false);
   const [chat_export_state, set_chat_export_state] = useState<"idle" | "copied" | "failed">("idle");
   const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string }>>([]);
-  const chat_bottom_ref = useRef<HTMLDivElement | null>(null);
   const [chat_thread_saving, set_chat_thread_saving] = useState(false);
   const [chat_thread_save_error, set_chat_thread_save_error] = useState<string>("");
   const [chat_thread_last_saved_at, set_chat_thread_last_saved_at] = useState<string>("");
@@ -1037,8 +1036,11 @@ export function App(): React.ReactElement {
           parent_run_id: typeof r?.parent_run_id === "string" ? String(r.parent_run_id) : r?.parent_run_id ?? null,
           session_id: typeof r?.session_id === "string" ? String(r.session_id) : r?.session_id ?? null,
           is_scheduled: typeof r?.is_scheduled === "boolean" ? Boolean(r.is_scheduled) : r?.is_scheduled ?? null,
+          paused: typeof r?.paused === "boolean" ? Boolean(r.paused) : r?.paused ?? null,
           waiting_reason: typeof r?.waiting?.reason === "string" ? String(r.waiting.reason) : r?.waiting?.reason ?? null,
           schedule_interval: typeof r?.schedule?.interval === "string" ? String(r.schedule.interval).trim() : r?.schedule?.interval ?? null,
+          schedule_target_workflow_id:
+            typeof r?.schedule?.target_workflow_id === "string" ? String(r.schedule.target_workflow_id).trim() : r?.schedule?.target_workflow_id ?? null,
         }))
         .filter((r) => Boolean(r.run_id))
         // Observability UX: show only parent/root runs (subruns are observable via the parent’s ledger).
@@ -1056,6 +1058,31 @@ export function App(): React.ReactElement {
     set_gateway_connected(false);
     set_discovery_loading(true);
     try {
+      const gw_url_raw = String(settings.gateway_url || "").trim();
+      if (gw_url_raw) {
+        const lower = gw_url_raw.toLowerCase();
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+          throw new Error("Gateway URL must start with http:// or https:// (or leave it blank to use same origin / dev proxy).");
+        }
+        try {
+          const page_proto = String(window?.location?.protocol || "");
+          if (page_proto === "https:" && lower.startsWith("http://")) {
+            throw new Error("Gateway URL is http:// but this page is https:// (mixed content is blocked). Use https:// or leave Gateway URL blank to use same origin /api proxy.");
+          }
+          const u = new URL(gw_url_raw);
+          const page_host = String(window?.location?.hostname || "").trim().toLowerCase();
+          const gw_host = String(u.hostname || "").trim().toLowerCase();
+          const is_loopback = (h: string) => h === "localhost" || h === "127.0.0.1" || h === "::1";
+          if (is_loopback(gw_host) && page_host && !is_loopback(page_host)) {
+            throw new Error(
+              "Gateway URL points to localhost, which from this device is not your machine. Use the gateway's public URL (e.g. an ngrok https URL) or leave Gateway URL blank to use same origin /api proxy."
+            );
+          }
+        } catch (e: any) {
+          throw new Error(String(e?.message || e || "Invalid Gateway URL"));
+        }
+      }
+
       const bundles = await gateway.list_bundles();
       const opts = build_workflow_options_from_bundles(bundles);
       set_workflow_options(opts);
@@ -2183,12 +2210,6 @@ export function App(): React.ReactElement {
 
   useEffect(() => {
     if (right_tab !== "chat") return;
-    if (!chat_bottom_ref.current) return;
-    chat_bottom_ref.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [chat_messages, right_tab]);
-
-  useEffect(() => {
-    if (right_tab !== "chat") return;
     if (!run_id.trim()) return;
     if (!gateway_connected) return;
     void refresh_saved_chat_threads();
@@ -2226,6 +2247,52 @@ export function App(): React.ReactElement {
       const msg = String(e?.message || e || `${type} failed`);
       set_error_text(msg);
       return msg;
+    }
+  }
+
+  async function run_scheduled_now(): Promise<void> {
+    const rid = run_id.trim();
+    if (!rid) {
+      set_error_text("Select a run first.");
+      return;
+    }
+    if (!gateway_connected) {
+      set_error_text("Connect to the gateway first.");
+      return;
+    }
+    if (resuming) return;
+
+    // Scheduled runs idle in a WAIT_UNTIL node. Triggering "now" is implemented by resuming that wait early.
+    const wait_reason2 = String(run_state?.waiting?.reason || "").trim().toLowerCase() || String(wait_reason || "").trim().toLowerCase();
+    if (!is_scheduled_run || run_terminal || run_paused || run_status.toLowerCase() !== "waiting" || wait_reason2 !== "until") {
+      set_error_text("This run is not a scheduled wait that can be triggered now.");
+      return;
+    }
+
+    set_error_text("");
+    set_resuming(true);
+    try {
+      const payload: any = { payload: { mode: "run_now", requested_at: now_iso() } };
+      const wk = String(wait_key || "").trim();
+      if (wk) payload.wait_key = wk;
+      await gateway.submit_command({ command_id: random_id(), run_id: rid, type: "resume", payload, client_id: "web_pwa" });
+      push_log({
+        ts: now_iso(),
+        kind: "info",
+        title: "Scheduled run triggered",
+        preview: clamp_preview(`run ${rid}`),
+        data: { run_id: rid, until: wait_until || null },
+      });
+      try {
+        const st = await gateway.get_run(rid);
+        set_run_state(st);
+      } catch {
+        // ignore
+      }
+    } catch (e: any) {
+      set_error_text(String(e?.message || e || "Failed to trigger scheduled run"));
+    } finally {
+      set_resuming(false);
     }
   }
 
@@ -2702,10 +2769,6 @@ export function App(): React.ReactElement {
   const run_status = typeof run_state?.status === "string" ? String(run_state.status) : "";
   const run_paused = Boolean(run_state?.paused);
   const run_terminal = run_status === "completed" || run_status === "failed" || run_status === "cancelled";
-  const pause_resume_label = run_status === "running" && !run_paused ? "Pause" : "Resume";
-  const pause_resume_action: "pause" | "resume" = pause_resume_label === "Pause" ? "pause" : "resume";
-  const pause_resume_disabled =
-    !run_id.trim() || connecting || resuming || run_terminal || (pause_resume_label === "Resume" && !run_paused);
 
   const schedule_meta = run_state?.schedule && typeof run_state.schedule === "object" ? run_state.schedule : null;
   const schedule_interval = typeof schedule_meta?.interval === "string" ? String(schedule_meta.interval).trim() : "";
@@ -2716,6 +2779,22 @@ export function App(): React.ReactElement {
     Boolean(schedule_meta) ||
     (typeof run_state?.workflow_id === "string" && String(run_state.workflow_id).startsWith("scheduled:"));
   const is_scheduled_recurrent = is_scheduled_run && Boolean(schedule_interval);
+
+  const primary_control_label = is_scheduled_run ? (run_paused ? "Resume schedule" : "Suspend schedule") : run_status === "running" && !run_paused ? "Pause" : "Resume";
+  const primary_control_action: "pause" | "resume" = is_scheduled_run ? (run_paused ? "resume" : "pause") : primary_control_label === "Pause" ? "pause" : "resume";
+  const primary_control_disabled = is_scheduled_run
+    ? !run_id.trim() || connecting || resuming || run_terminal
+    : !run_id.trim() || connecting || resuming || run_terminal || (primary_control_action === "resume" && !run_paused);
+
+  const can_run_scheduled_now =
+    is_scheduled_run &&
+    !run_paused &&
+    !run_terminal &&
+    !connecting &&
+    !resuming &&
+    run_status.toLowerCase() === "waiting" &&
+    (String(run_state?.waiting?.reason || "").trim().toLowerCase() === "until" || wait_reason === "until") &&
+    Boolean(String(wait_until || "").trim());
 
   const limits_tokens = (run_state as any)?.limits?.tokens;
   const limits_pct = typeof limits_tokens?.pct === "number" ? Number(limits_tokens.pct) : null;
@@ -3518,14 +3597,17 @@ export function App(): React.ReactElement {
   }, [run_options, run_id]);
 
   const selected_run_label = useMemo(() => {
+    const target = typeof (run_state as any)?.schedule?.target_workflow_id === "string" ? String((run_state as any).schedule.target_workflow_id).trim() : "";
+    if (target) return extract_workflow_label(target, workflow_label_by_id);
     return extract_workflow_label(selected_run_summary?.workflow_id, workflow_label_by_id);
-  }, [selected_run_summary, workflow_label_by_id]);
+  }, [run_state, selected_run_summary, workflow_label_by_id]);
 
   const selected_run_status_raw = String(run_state?.status || selected_run_summary?.status || "").trim();
   const selected_run_wait_reason = String(wait_reason || run_state?.waiting?.reason || selected_run_summary?.waiting_reason || "").trim().toLowerCase();
   const selected_run_is_scheduled = Boolean(run_state?.is_scheduled || selected_run_summary?.is_scheduled);
-  const selected_run_is_scheduled_until =
-    selected_run_is_scheduled && selected_run_status_raw.toLowerCase() === "waiting" && selected_run_wait_reason === "until";
+  const selected_run_is_paused = Boolean(run_state?.paused || selected_run_summary?.paused);
+  const selected_run_is_scheduled_waiting = selected_run_is_scheduled && selected_run_status_raw.toLowerCase() === "waiting";
+  const selected_run_is_scheduled_until = selected_run_is_scheduled_waiting && selected_run_wait_reason === "until";
   const selected_next_ms = parse_iso_ms(wait_until);
   const selected_next_in =
     selected_run_is_scheduled_until && selected_next_ms !== null ? format_time_until_from_ms(selected_next_ms - Date.now()) : "";
@@ -3535,8 +3617,8 @@ export function App(): React.ReactElement {
       : selected_run_is_scheduled_until
         ? String(wait_until || "").trim()
         : "";
-  const selected_run_status_label = selected_run_is_scheduled_until ? "Scheduled" : selected_run_status_raw;
-  const selected_run_status_chip_cls = selected_run_is_scheduled_until
+  const selected_run_status_label = selected_run_is_scheduled && selected_run_is_paused ? "Suspended" : selected_run_is_scheduled_waiting ? "Scheduled" : selected_run_status_raw;
+  const selected_run_status_chip_cls = selected_run_is_scheduled && (selected_run_is_paused || selected_run_is_scheduled_waiting)
     ? "scheduled"
     : selected_run_status_raw.toLowerCase() === "completed"
       ? "ok"
@@ -3548,10 +3630,27 @@ export function App(): React.ReactElement {
   const selected_run_when = format_time_ago(selected_run_summary?.updated_at || selected_run_summary?.created_at);
 
   return (
-    <div className="app-shell">
+      <div className="app-shell">
       <div className="app-header">
         <div className="logo" title="AbstractObserver (Web/PWA)">
-          <span className="logo-icon">◉</span>
+          <span className="logo-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <ellipse
+                cx="12"
+                cy="12"
+                rx="9"
+                ry="4.2"
+                transform="rotate(-18 12 12)"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                opacity="0.75"
+              />
+              <circle cx="12" cy="12" r="4.7" fill="currentColor" opacity="0.95" />
+              <circle cx="10.3" cy="10.7" r="1.6" fill="#ffffff" opacity="0.18" />
+              <circle cx="19" cy="13.6" r="1.2" fill="currentColor" />
+            </svg>
+          </span>
           <span>AbstractObserver</span>
         </div>
         <div className="app_nav">
@@ -3583,7 +3682,7 @@ export function App(): React.ReactElement {
               <span className={`status_pill ${connected ? "ok" : connecting ? "warn" : "muted"}`}>
                 run {connected ? "ok" : connecting ? "…" : "off"}
               </span>
-              <span className="status_pill muted">cursor {cursor}</span>
+              <span className="status_pill muted status_pill_cursor">cursor {cursor}</span>
             </>
           ) : null}
           {monitor_gpu_enabled ? (
@@ -4539,46 +4638,55 @@ export function App(): React.ReactElement {
                   </div>
                 </div>
 
-                <div className="actions" style={{ justifyContent: "flex-start" }}>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      if (pause_resume_action === "pause") {
-                        set_run_control_type("pause");
-                        set_run_control_reason("");
-                        set_run_control_error("");
-                        set_run_control_open(true);
-                        return;
-                      }
-                      void submit_run_control("resume");
-                    }}
-                    disabled={pause_resume_disabled}
-                  >
-                    {pause_resume_label}
-                  </button>
-                  <button
-                    className="btn danger"
-                    onClick={() => {
-                      set_run_control_type("cancel");
-                      set_run_control_reason("");
-                      set_run_control_error("");
-                      set_run_control_open(true);
-                    }}
-                    disabled={!run_id.trim() || connecting || resuming || run_terminal}
-                  >
-                    Cancel
-                  </button>
-                  <button className="btn" onClick={() => set_page("launch")} disabled={!gateway_connected || discovery_loading}>
-                    Launch…
-                  </button>
-                </div>
+	                <div className="actions" style={{ justifyContent: "flex-start" }}>
+	                  <button
+	                    className="btn"
+	                    onClick={() => {
+	                      if (primary_control_action === "pause") {
+	                        set_run_control_type("pause");
+	                        set_run_control_reason("");
+	                        set_run_control_error("");
+	                        set_run_control_open(true);
+	                        return;
+	                      }
+	                      void submit_run_control("resume");
+	                    }}
+	                    disabled={primary_control_disabled}
+	                  >
+	                    {primary_control_label}
+	                  </button>
+	                  {can_run_scheduled_now ? (
+	                    <button
+	                      className="btn primary"
+	                      onClick={() => void run_scheduled_now()}
+	                      disabled={!run_id.trim() || connecting || resuming || run_terminal || run_paused}
+	                    >
+	                      Run now
+	                    </button>
+	                  ) : null}
+	                  <button
+	                    className="btn danger"
+	                    onClick={() => {
+	                      set_run_control_type("cancel");
+	                      set_run_control_reason("");
+	                      set_run_control_error("");
+	                      set_run_control_open(true);
+	                    }}
+	                    disabled={!run_id.trim() || connecting || resuming || run_terminal}
+	                  >
+	                    Cancel
+	                  </button>
+	                  <button className="btn" onClick={() => set_page("launch")} disabled={!gateway_connected || discovery_loading}>
+	                    Launch…
+	                  </button>
+	                </div>
 
                 {is_waiting ? (
                   <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
-                    <div className="meta">
-                      <span className="mono">{is_scheduled_run && wait_reason === "until" ? "scheduled" : "waiting"}</span>
-                      <span className="mono">{wait_reason || "unknown"}</span>
-                    </div>
+	                    <div className="meta">
+	                      <span className="mono">{is_scheduled_run ? (run_paused ? "suspended" : "scheduled") : "waiting"}</span>
+	                      <span className="mono">{wait_reason || "unknown"}</span>
+	                    </div>
                     <div className="body">
                       {wait_key ? (
                         <div className="mono" title={wait_key}>
@@ -4785,15 +4893,15 @@ export function App(): React.ReactElement {
                   <div className="viewer_header_left">
                     <div className="viewer_run_title">{run_id.trim() ? selected_run_label : "No run selected"}</div>
                     <span className={`chip mono ${selected_run_status_chip_cls}`}>{selected_run_status_label || "—"}</span>
-                    {selected_run_is_scheduled_until && selected_next_in ? (
-                      <span className="chip mono scheduled" title={selected_next_at ? `Next at ${selected_next_at}` : undefined}>
-                        next in {selected_next_in}
-                      </span>
-                    ) : null}
-                    {selected_run_is_scheduled_until && is_scheduled_recurrent && schedule_interval ? (
-                      <span className="chip mono muted">every {schedule_interval}</span>
-                    ) : null}
-                  </div>
+	                    {selected_run_is_scheduled_until && selected_next_in ? (
+	                      <span className="chip mono scheduled" title={selected_next_at ? `Next at ${selected_next_at}` : undefined}>
+	                        next in {selected_next_in}
+	                      </span>
+	                    ) : null}
+	                    {is_scheduled_recurrent && schedule_interval ? (
+	                      <span className="chip mono muted">every {schedule_interval}</span>
+	                    ) : null}
+	                  </div>
                   <div className="viewer_header_right">
                     {run_id.trim() ? <span className="mono muted">{short_run_id(run_id.trim())}</span> : null}
                     {run_id.trim() ? <span className="muted">{selected_run_when}</span> : null}
@@ -5320,23 +5428,12 @@ export function App(): React.ReactElement {
                       </div>
                     ) : null}
 
-                    <div className="chat_messages log_scroll" style={{ marginTop: "10px" }}>
-                      {!chat_messages.length ? <div className="chat_empty_hint">Ask about this run (why failed, which tools, what happened in subflows).</div> : null}
-                      {chat_messages.map((m) => (
-                        <div key={m.id} className={`chat_row ${m.role === "user" ? "right" : "left"}`}>
-                          <div className={`chat_bubble ${m.role}`}>
-                            <div className="chat_meta mono">
-                              <span className="mono muted" title={m.ts}>
-                                {format_time_ago(m.ts)}
-                              </span>
-                            </div>
-                            <div className="chat_text">
-                              <ChatMessageContent text={m.content} />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      <div ref={chat_bottom_ref} />
+                    <div className="chat_messages" style={{ marginTop: "10px" }}>
+                      <ChatThread
+                        messages={chat_messages}
+                        className="log_scroll"
+                        empty={<div className="chat_empty_hint">Ask about this run (why failed, which tools, what happened in subflows).</div>}
+                      />
                     </div>
 
                     <div className="chat_composer" style={{ marginTop: "10px" }}>
@@ -5551,10 +5648,10 @@ export function App(): React.ReactElement {
           </Modal>
         ) : null}
 
-        {run_control_open ? (
-          <Modal
-            open={run_control_open}
-            title={run_control_type === "cancel" ? "Cancel run" : "Pause run"}
+	        {run_control_open ? (
+	          <Modal
+	            open={run_control_open}
+	            title={run_control_type === "cancel" ? "Cancel run" : is_scheduled_run ? "Suspend schedule" : "Pause run"}
             onClose={() => {
               set_run_control_open(false);
               set_run_control_reason("");
@@ -5587,12 +5684,12 @@ export function App(): React.ReactElement {
                     set_run_control_error("");
                   }}
                   disabled={connecting || resuming}
-                >
-                  {run_control_type === "pause" ? "Pause" : "Cancel"}
-                </button>
-              </>
-            }
-          >
+	                >
+	                  {run_control_type === "pause" ? (is_scheduled_run ? "Suspend" : "Pause") : "Cancel"}
+	                </button>
+	              </>
+	            }
+	          >
             {run_control_error ? (
               <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: "10px" }}>
                 <div className="meta">

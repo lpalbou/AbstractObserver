@@ -145,6 +145,67 @@ button.primary:hover:not(:disabled) {
   min-width: 0;
 }
 
+.app_nav,
+.nav_tab {
+  /* Prevent overlap on small screens: flex items can shrink, but their text would
+     otherwise overflow and render on top of adjacent tabs (default overflow: visible). */
+  min-width: 0;
+}
+
+.nav_tab {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .app-header {
+    height: auto;
+    flex: 0 0 auto;
+    min-height: var(--header-height);
+    padding: 8px 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Keep the header usable on narrow viewports: show icon-only branding and
+     allow the nav to wrap onto multiple lines. */
+  .logo {
+    font-size: 14px;
+  }
+
+  .logo > span:last-child {
+    display: none;
+  }
+
+  .status_pills {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  /* Cursor is useful on desktop, but it burns horizontal space on mobile. */
+  .status_pills .status_pill_cursor {
+    display: none;
+  }
+
+  .status_pill {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+
+  .app_nav {
+    flex: 1 1 100%;
+    order: 3;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .nav_tab {
+    flex: 0 0 auto;
+  }
+}
+
 .nav_tab {
   appearance: none;
   border: 1px solid var(--ui-overlay-border);
@@ -183,8 +244,20 @@ button.primary:hover:not(:disabled) {
 }
 
 .logo-icon {
-  font-size: 18px;
-  line-height: 1;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  filter: drop-shadow(0 0 12px rgba(96, 165, 250, 0.18));
+  flex: 0 0 auto;
+}
+
+.logo-icon svg {
+  width: 28px;
+  height: 28px;
+  display: block;
 }
 
 .header_spacer {
@@ -306,9 +379,54 @@ button.primary:hover:not(:disabled) {
   gap: 12px;
 }
 
+.backlog_tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.backlog_tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.backlog_tabs .tab {
+  flex: 0 0 auto;
+}
+
+.backlog_filters {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.backlog_search_field,
+.backlog_type_filter_field {
+  margin: 0;
+}
+
+.backlog_search_field {
+  flex: 1 1 auto;
+  min-width: 240px;
+}
+
+.backlog_type_filter_field {
+  flex: 0 0 auto;
+  min-width: 150px;
+  padding-left: 10px;
+}
+
+.backlog_count {
+  padding-left: 10px;
+}
+
 .inbox_sidebar,
 .inbox_viewer {
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -402,6 +520,83 @@ button.primary:hover:not(:disabled) {
 
 .inbox_viewer {
   overflow: auto;
+}
+
+.exec_log_scroll {
+  margin-top: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exec_event {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 2px solid rgba(96, 165, 250, 0.18);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.10);
+}
+
+.exec_event.ok {
+  border-left-color: var(--success-border, rgba(34, 197, 94, 0.32));
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.exec_event.error {
+  border-left-color: var(--error-border, rgba(239, 68, 68, 0.32));
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.exec_event_summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.exec_event_summary:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.exec_event_summary::-webkit-details-marker {
+  display: none;
+}
+
+.exec_event_summary::marker {
+  content: "";
+}
+
+.exec_event_main {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.exec_event_right {
+  font-size: 11px;
+}
+
+.exec_event_body {
+  padding: 0 10px 10px 10px;
+}
+
+.exec_event_meta {
+  align-items: center;
+  gap: 8px;
+}
+
+.inbox_viewer .pc-md :not(pre) > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .inbox_detail {
@@ -1558,6 +1753,17 @@ button.primary:hover:not(:disabled) {
   padding-right: 4px;
 }
 
+.backlog_chat_thread_small {
+  max-height: 220px;
+}
+
+.drawer_chat_thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
 .source_msg {
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.10);
@@ -2181,6 +2387,11 @@ button.primary:hover:not(:disabled) {
   z-index: 2000;
 }
 
+.modal_backdrop.fullscreen {
+  padding: 0;
+  align-items: stretch;
+}
+
 .modal_panel {
   width: min(820px, 100%);
   max-height: calc(100vh - 80px);
@@ -2189,6 +2400,16 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--border);
   background: var(--bg-card, rgba(15, 23, 42, 0.92));
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.45);
+}
+
+.modal_panel.fullscreen {
+  width: 100%;
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .modal_header {
@@ -2210,6 +2431,11 @@ button.primary:hover:not(:disabled) {
 
 .modal_body {
   padding: 14px;
+}
+
+.modal_panel.fullscreen .modal_body {
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .modal_footer {
@@ -2314,19 +2540,35 @@ button.primary:hover:not(:disabled) {
 }
 
 @media (max-width: 700px) {
+  .backlog_search_field {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .backlog_type_filter_field {
+    min-width: 0;
+    padding-left: 0;
+  }
+
+  .backlog_count {
+    padding-left: 0;
+    margin-left: auto;
+  }
+
   .advisor_toggle {
-    top: auto;
-    bottom: 14px;
-    right: 14px;
-    transform: none;
-    border-right: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 10px 12px;
+    top: 50%;
+    bottom: auto;
+    right: env(safe-area-inset-right, 0px);
+    transform: translateY(-50%);
+    border-right: none;
+    border-radius: 12px 0 0 12px;
+    padding: 12px 10px;
   }
 
   .advisor_toggle_label {
-    writing-mode: horizontal-tb;
-    transform: none;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
   }
 
   .drawer_panel {
