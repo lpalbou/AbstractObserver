@@ -2,7 +2,17 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractuic/monitor-flow";
 import { ChatComposer, ChatThread, Markdown, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
-import { AfSelect, ProviderModelSelect, ThemeSelect, applyTheme, type AfSelectOption, type ProviderOption } from "@abstractuic/ui-kit";
+import {
+  AfSelect,
+  FontScaleSelect,
+  HeaderDensitySelect,
+  ProviderModelSelect,
+  ThemeSelect,
+  applyTheme,
+  applyTypography,
+  type AfSelectOption,
+  type ProviderOption,
+} from "@abstractuic/ui-kit";
 import { registerMonitorGpuWidget } from "@abstractutils/monitor-gpu";
 
 import { GatewayClient } from "../lib/gateway_client";
@@ -25,6 +35,8 @@ type Settings = {
   worker_url: string;
   worker_token: string;
   theme: string;
+  font_scale: string;
+  header_density: string;
   auto_connect_gateway: boolean;
   maintenance_ai_provider: string;
   maintenance_ai_model: string;
@@ -344,6 +356,8 @@ function load_settings(): Settings {
       worker_url: String(parsed?.worker_url || ""),
       worker_token: String(parsed?.worker_token || ""),
       theme: String(parsed?.theme || "dark"),
+      font_scale: String(parsed?.font_scale || parsed?.fontScale || "md").trim() || "md",
+      header_density: String(parsed?.header_density || parsed?.headerDensity || "standard").trim() || "standard",
       auto_connect_gateway: parsed?.auto_connect_gateway === false ? false : true,
       maintenance_ai_provider: String(parsed?.maintenance_ai_provider || ""),
       maintenance_ai_model: String(parsed?.maintenance_ai_model || ""),
@@ -355,6 +369,8 @@ function load_settings(): Settings {
       worker_url: "",
       worker_token: "",
       theme: "dark",
+      font_scale: "md",
+      header_density: "standard",
       auto_connect_gateway: true,
       maintenance_ai_provider: "",
       maintenance_ai_model: "",
@@ -746,6 +762,10 @@ export function App(): React.ReactElement {
   useEffect(() => {
     applyTheme(settings.theme);
   }, [settings.theme]);
+
+  useEffect(() => {
+    applyTypography({ font_scale: settings.font_scale, header_density: settings.header_density });
+  }, [settings.font_scale, settings.header_density]);
 
   useEffect(() => {
     return () => {
@@ -3725,6 +3745,14 @@ export function App(): React.ReactElement {
                   <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
                     Stored locally in this browser (no server round-trip).
                   </div>
+                </div>
+                <div className="field">
+                  <label>Font size</label>
+                  <FontScaleSelect value={settings.font_scale} onChange={(id) => set_settings((s) => ({ ...s, font_scale: id }))} />
+                </div>
+                <div className="field">
+                  <label>Header size</label>
+                  <HeaderDensitySelect value={settings.header_density} onChange={(id) => set_settings((s) => ({ ...s, header_density: id }))} />
                 </div>
 
                 <div className="section_title">Gateway</div>

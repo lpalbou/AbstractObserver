@@ -2,6 +2,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("AbstractObserver styles", () => {
+  it("uses shared typography tokens for base sizing", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    expect(css).toMatch(/font-size:\s*var\(--font-size-base\)/);
+    expect(css).toMatch(/line-height:\s*var\(--line-height-base\)/);
+  });
+
   it("includes a mobile-safe header/nav layout (no overlapping tabs)", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 

@@ -17,6 +17,7 @@ import {
   infer_exec_event_main_text,
   infer_exec_event_time_label,
 } from "./exec_event";
+import { MultiSelect } from "./multi_select";
 import { Modal } from "./modal";
 
 type BacklogTab = "processing" | "planned" | "proposed" | "recurrent" | "completed" | "failed" | "deprecated" | "trash";
@@ -489,6 +490,19 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [execute_confirm_open, set_execute_confirm_open] = useState(false);
   const [execute_target, set_execute_target] = useState<{ kind: BacklogFileKind; filename: string; title: string } | null>(null);
 
+  const [batch_filenames, set_batch_filenames] = useState<string[]>([]);
+  const [batch_execute_open, set_batch_execute_open] = useState(false);
+  const [batch_execute_loading, set_batch_execute_loading] = useState(false);
+  const [batch_execute_error, set_batch_execute_error] = useState("");
+
+  const [merge_open, set_merge_open] = useState(false);
+  const [merge_title, set_merge_title] = useState("");
+  const [merge_package, set_merge_package] = useState("framework");
+  const [merge_task_type, set_merge_task_type] = useState<BacklogTaskType>("task");
+  const [merge_summary, set_merge_summary] = useState("");
+  const [merge_loading, set_merge_loading] = useState(false);
+  const [merge_error, set_merge_error] = useState("");
+
   const [exec_cfg, set_exec_cfg] = useState<BacklogExecConfigResponse | null>(null);
   const [exec_cfg_loading, set_exec_cfg_loading] = useState(false);
   const [exec_cfg_error, set_exec_cfg_error] = useState("");
@@ -766,6 +780,15 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   }, [kind, completed_view, can_use_gateway]);
 
   useEffect(() => {
+    if (kind !== "planned") {
+      set_batch_filenames([]);
+      return;
+    }
+    const allowed = new Set(items.map((it) => String(it.filename || "").trim()).filter(Boolean));
+    set_batch_filenames((prev) => prev.filter((fn) => allowed.has(fn)));
+  }, [kind, items]);
+
+  useEffect(() => {
     if (!new_task_open) return;
     if (!can_use_gateway) return;
     void apply_template_to_draft();
@@ -778,6 +801,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     void load_exec_config();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [execute_confirm_open, can_use_gateway]);
+
+  useEffect(() => {
+    if (!batch_execute_open) return;
+    if (!can_use_gateway) return;
+    void load_exec_config();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch_execute_open, can_use_gateway]);
 
   useEffect(() => {
     if (!can_use_gateway) return;
@@ -910,6 +940,14 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       return hay.includes(q);
     });
   }, [items, query, type_filter]);
+
+  const batch_selected_items = useMemo(() => {
+    if (kind !== "planned") return [] as BacklogItemSummary[];
+    const wanted = new Set(batch_filenames.map((x) => String(x || "").trim()).filter(Boolean));
+    const out = items.filter((it) => wanted.has(String(it.filename || "").trim()));
+    out.sort((a, b) => String(a.filename || "").localeCompare(String(b.filename || "")));
+    return out;
+  }, [items, batch_filenames, kind]);
 
   const filtered_exec_requests = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -1186,6 +1224,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_editing(false);
       set_edit_text("");
       set_edit_error("");
+      set_maint_messages([]);
+      set_maint_input("");
+      set_maint_loading(false);
+      set_maint_error("");
+      set_edit_attachments_uploading(false);
+      set_edit_attachments_error("");
+      set_edit_recent_attachments([]);
 
       const provisional: BacklogExecRequestSummary = { request_id, status: "queued" };
       set_exec_selected(provisional);
@@ -1199,6 +1244,125 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_action_error(String(e?.message || e || "Execute failed"));
     } finally {
       set_action_loading(false);
+    }
+  }
+
+  async function confirm_execute_batch(): Promise<void> {
+    if (batch_execute_loading) return;
+    if (!batch_selected_items.length) return;
+    if (batch_selected_items.length < 2) {
+      set_batch_execute_error("Select at least 2 planned backlog items.");
+      return;
+    }
+    set_batch_execute_error("");
+    set_batch_execute_loading(true);
+    try {
+      const cfg = exec_cfg || (await load_exec_config());
+      if (!cfg) {
+        set_batch_execute_error("Could not load gateway exec config.");
+        return;
+      }
+      const alive = cfg.runner_alive !== false;
+      const codex_ok = cfg.codex_available !== false;
+      if (cfg.runner_enabled !== true) {
+        set_batch_execute_error("Backlog exec runner is disabled on this gateway.");
+        return;
+      }
+      if (!alive) {
+        set_batch_execute_error(cfg.runner_error ? `Backlog exec runner not running: ${cfg.runner_error}` : "Backlog exec runner is not running.");
+        return;
+      }
+      if (!codex_ok) {
+        const bin = String(cfg.codex_bin || "codex");
+        set_batch_execute_error(`Codex not found on gateway: ${bin}`);
+        return;
+      }
+      if (cfg.can_execute !== true) {
+        set_batch_execute_error("Backlog exec is not available on this gateway (misconfigured executor).");
+        return;
+      }
+
+      const out = await gateway.backlog_execute_batch({
+        items: batch_selected_items.map((it) => ({ kind: "planned", filename: it.filename })),
+      });
+      const request_id = String(out?.request_id || "").trim();
+      if (!request_id) throw new Error("No request_id returned");
+
+      set_batch_execute_open(false);
+      set_batch_filenames([]);
+
+      // Switch to Processing for immediate observability.
+      set_kind("processing");
+      set_completed_view("tasks");
+      set_query("");
+      set_selected(null);
+      set_content("");
+      set_content_sha("");
+      set_content_error("");
+      set_editing(false);
+      set_edit_text("");
+      set_edit_error("");
+
+      const provisional: BacklogExecRequestSummary = { request_id, status: "queued" };
+      set_exec_selected(provisional);
+      set_exec_detail(null);
+      set_exec_detail_error("");
+      const next_exec = await refresh_exec_list("processing");
+      const match = next_exec.find((r) => r.request_id === request_id) || null;
+      if (match) await load_exec_request(match);
+      else await load_exec_request(provisional);
+    } catch (e: any) {
+      set_batch_execute_error(String(e?.message || e || "Execute batch failed"));
+    } finally {
+      set_batch_execute_loading(false);
+    }
+  }
+
+  async function submit_merge_master(): Promise<void> {
+    if (merge_loading) return;
+    if (batch_selected_items.length < 2) {
+      set_merge_error("Select at least 2 planned backlog items.");
+      return;
+    }
+    const title = merge_title.trim();
+    if (!title) {
+      set_merge_error("Title is required.");
+      return;
+    }
+    const pkg = merge_package.trim().toLowerCase();
+    if (!pkg) {
+      set_merge_error("Package is required.");
+      return;
+    }
+    set_merge_error("");
+    set_merge_loading(true);
+    try {
+      const out = await gateway.backlog_merge({
+        kind: "planned",
+        package: pkg,
+        title,
+        task_type: merge_task_type,
+        summary: merge_summary.trim() || null,
+        items: batch_selected_items.map((it) => ({ kind: "planned", filename: it.filename })),
+      });
+      const created_kind = String(out?.kind || "").trim() as BacklogFileKind;
+      const filename = String(out?.filename || "").trim();
+      if (!created_kind || !filename) throw new Error("Merge succeeded but returned an invalid response");
+
+      set_merge_open(false);
+      set_merge_title("");
+      set_merge_summary("");
+      set_batch_filenames([]);
+
+      set_kind(created_kind as any);
+      set_query("");
+      const next = await refresh_backlog_list(created_kind);
+      const it = next.find((i) => i.filename === filename) || null;
+      if (it) await load_item(it, { kind: created_kind });
+    } catch (e: any) {
+      set_merge_error(String(e?.message || e || "Merge failed"));
+    } finally {
+      set_merge_loading(false);
     }
   }
 
@@ -1597,6 +1761,61 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             </div>
           </div>
 
+          {!is_exec_view && kind === "planned" ? (
+            <details style={{ marginTop: "10px" }}>
+              <summary className="mono muted" style={{ cursor: "pointer", fontSize: "12px" }}>
+                Batch actions (shared context)
+              </summary>
+              <div style={{ marginTop: "10px" }}>
+                <div className="mono muted" style={{ fontSize: "12px" }}>
+                  Select multiple planned backlog items to either execute them sequentially in a single exec worker (one Codex run) or merge them into a
+                  master backlog item.
+                </div>
+                <div style={{ marginTop: "10px" }}>
+                  <MultiSelect
+                    options={items.map((it) => String(it.filename || "").trim()).filter(Boolean)}
+                    value={batch_filenames}
+                    disabled={!can_use_gateway || loading}
+                    placeholder="(no items selected)"
+                    onChange={(next) => set_batch_filenames(next)}
+                  />
+                </div>
+                <div className="row" style={{ gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
+                  <button
+                    className="btn primary"
+                    disabled={!can_use_gateway || batch_selected_items.length < 2}
+                    onClick={() => {
+                      set_batch_execute_error("");
+                      set_batch_execute_open(true);
+                    }}
+                  >
+                    Execute batch
+                  </button>
+                  <button
+                    className="btn"
+                    disabled={!can_use_gateway || batch_selected_items.length < 2}
+                    onClick={() => {
+                      const inferred_pkg = (() => {
+                        const pkgs = batch_selected_items.map((it) => String(it.package || "").trim()).filter(Boolean);
+                        if (!pkgs.length) return "framework";
+                        const first = pkgs[0];
+                        return pkgs.every((p) => p === first) ? first : "framework";
+                      })();
+                      set_merge_package(inferred_pkg);
+                      set_merge_task_type("task");
+                      set_merge_title(`Master backlog (${batch_selected_items.length} items)`);
+                      set_merge_summary("");
+                      set_merge_error("");
+                      set_merge_open(true);
+                    }}
+                  >
+                    Merge → master
+                  </button>
+                </div>
+              </div>
+            </details>
+          ) : null}
+
           {!is_exec_view && error ? (
             <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "12px" }}>
               {error}
@@ -1721,6 +1940,18 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           Copy backlog path
                         </button>
                       ) : null}
+                      {(() => {
+                        const items = Array.isArray(exec_detail?.backlog_queue?.items) ? (exec_detail.backlog_queue.items as any[]) : [];
+                        const rels = items
+                          .map((it) => String(it?.relpath || "").trim())
+                          .filter(Boolean);
+                        if (!rels.length) return null;
+                        return (
+                          <button className="btn" onClick={() => copyText(rels.join("\n"))} disabled={exec_detail_loading}>
+                            Copy backlog paths
+                          </button>
+                        );
+                      })()}
                       {exec_selected.run_dir_relpath ? (
                         <button className="btn" onClick={() => copyText(exec_selected.run_dir_relpath || "")} disabled={exec_detail_loading}>
                           Copy run dir
@@ -1817,6 +2048,25 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                             )}
                           </div>
                         </div>
+
+                        {(() => {
+                          const items = Array.isArray(exec_detail?.backlog_queue?.items) ? (exec_detail.backlog_queue.items as any[]) : [];
+                          const rels = items
+                            .map((it) => String(it?.relpath || "").trim())
+                            .filter(Boolean);
+                          if (!rels.length) return null;
+                          return (
+                            <>
+                              <div className="section_divider" />
+                              <div className="section_title">Backlog queue</div>
+                              <div className="mono" style={{ fontSize: "12px" }}>
+                                {rels.map((rel) => (
+                                  <div key={`bq:${rel}`}>{rel}</div>
+                                ))}
+                              </div>
+                            </>
+                          );
+                        })()}
 
                         {exec_selected.last_message ? (
                           <>
@@ -2364,6 +2614,163 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         {action_error ? (
           <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
             {action_error}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={batch_execute_open}
+        title="Execute batch (single context)?"
+        onClose={() => {
+          set_batch_execute_open(false);
+          set_batch_execute_error("");
+        }}
+        actions={
+          <>
+            <button
+              className="btn"
+              onClick={() => {
+                set_batch_execute_open(false);
+                set_batch_execute_error("");
+              }}
+              disabled={batch_execute_loading}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn primary"
+              onClick={() => void confirm_execute_batch()}
+              disabled={batch_execute_loading || exec_cfg_loading || batch_selected_items.length < 2 || exec_cfg?.can_execute !== true}
+            >
+              {batch_execute_loading ? "Executing…" : "Execute batch"}
+            </button>
+          </>
+        }
+      >
+        <div className="mono" style={{ fontSize: "12px" }}>
+          Items:{" "}
+          <span className="mono" style={{ fontWeight: 700 }}>
+            {batch_selected_items.length}
+          </span>
+        </div>
+        <div className="mono muted" style={{ fontSize: "12px", marginTop: "8px" }}>
+          This queues a single exec request whose prompt includes all selected backlog items (in order), so the agent keeps a shared growing context.
+        </div>
+        {batch_selected_items.length ? (
+          <div className="mono" style={{ fontSize: "12px", marginTop: "10px" }}>
+            {batch_selected_items.map((it) => (
+              <div key={`batchitem:${it.filename}`}>- docs/backlog/planned/{it.filename}</div>
+            ))}
+          </div>
+        ) : null}
+
+        {exec_cfg_loading ? (
+          <div className="mono muted" style={{ fontSize: "12px", marginTop: "10px" }}>
+            Checking worker…
+          </div>
+        ) : null}
+        {!exec_cfg_loading && exec_cfg?.can_execute !== true ? (
+          <div style={{ marginTop: "10px" }}>
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px" }}>
+              {exec_cfg?.runner_enabled !== true
+                ? "Backlog exec runner is disabled on this gateway."
+                : exec_cfg?.runner_alive === false
+                  ? "Backlog exec runner is not running on this gateway."
+                  : exec_cfg?.codex_available === false
+                    ? `Codex not found on gateway: ${String(exec_cfg?.codex_bin || "codex")}`
+                    : "Backlog exec is not available on this gateway."}
+            </div>
+            {exec_cfg?.runner_error ? (
+              <div className="mono muted" style={{ fontSize: "12px", marginTop: "6px" }}>
+                {exec_cfg.runner_error}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {exec_cfg_error ? (
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+            {exec_cfg_error}
+          </div>
+        ) : null}
+        {batch_execute_error ? (
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+            {batch_execute_error}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={merge_open}
+        title="Merge planned items into master backlog?"
+        onClose={() => {
+          set_merge_open(false);
+          set_merge_error("");
+        }}
+        actions={
+          <>
+            <button
+              className="btn"
+              onClick={() => {
+                set_merge_open(false);
+                set_merge_error("");
+              }}
+              disabled={merge_loading}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn primary"
+              onClick={() => void submit_merge_master()}
+              disabled={merge_loading || batch_selected_items.length < 2 || !merge_title.trim() || !merge_package.trim()}
+            >
+              {merge_loading ? "Merging…" : "Create master"}
+            </button>
+          </>
+        }
+      >
+        <div className="row" style={{ gap: "10px", flexWrap: "wrap" }}>
+          <div className="col" style={{ minWidth: 220 }}>
+            <div className="field">
+              <label>Package</label>
+              <input value={merge_package} onChange={(e) => set_merge_package(e.target.value)} placeholder="framework" />
+            </div>
+          </div>
+          <div className="col" style={{ minWidth: 220 }}>
+            <div className="field">
+              <label>Type</label>
+              <select value={merge_task_type} onChange={(e) => set_merge_task_type(e.target.value as any)}>
+                <option value="task">task</option>
+                <option value="feature">feature</option>
+                <option value="bug">bug</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="field" style={{ marginTop: "10px" }}>
+          <label>Title</label>
+          <input value={merge_title} onChange={(e) => set_merge_title(e.target.value)} placeholder="Master backlog" />
+        </div>
+        <div className="field" style={{ marginTop: "10px" }}>
+          <label>Summary (optional)</label>
+          <textarea value={merge_summary} onChange={(e) => set_merge_summary(e.target.value)} rows={3} />
+        </div>
+
+        {batch_selected_items.length ? (
+          <div style={{ marginTop: "10px" }}>
+            <div className="mono muted" style={{ fontSize: "12px" }}>
+              Referenced backlog items:
+            </div>
+            <div className="mono" style={{ fontSize: "12px", marginTop: "6px" }}>
+              {batch_selected_items.map((it) => (
+                <div key={`mergeitem:${it.filename}`}>- docs/backlog/planned/{it.filename}</div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {merge_error ? (
+          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "12px", marginTop: "10px" }}>
+            {merge_error}
           </div>
         ) : null}
       </Modal>

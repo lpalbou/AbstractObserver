@@ -83,6 +83,18 @@ export type BacklogCreateResponse = { ok: boolean; kind: string; filename: strin
 
 export type BacklogExecuteResponse = { ok: boolean; request_id: string; request_relpath: string; prompt: string };
 
+export type BacklogRef = { kind: string; filename: string };
+
+export type BacklogMergeResponse = {
+  ok: boolean;
+  kind: string;
+  filename: string;
+  relpath: string;
+  item_id: number;
+  sha256: string;
+  merged_relpaths?: string[];
+};
+
 export type BacklogAssistResponse = { ok: boolean; reply: string; draft_markdown: string };
 
 export type BacklogMaintainResponse = { ok: boolean; reply: string; draft_markdown: string };
@@ -839,6 +851,49 @@ export class GatewayClient {
       headers: { ..._auth_headers(this._cfg.auth_token) },
     });
     if (!r.ok) throw new Error(`backlog_execute failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_execute_batch(args: { items: BacklogRef[] }): Promise<BacklogExecuteResponse> {
+    const items = Array.isArray(args?.items) ? (args.items as any[]) : [];
+    if (!items.length) throw new Error("backlog_execute_batch: items are required");
+    const body: any = { items: items.map((it) => ({ kind: String(it?.kind || "").trim(), filename: String(it?.filename || "").trim() })) };
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/execute_batch"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_execute_batch failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_merge(args: {
+    kind: string;
+    package: string;
+    title: string;
+    task_type?: string | null;
+    summary?: string | null;
+    items: BacklogRef[];
+  }): Promise<BacklogMergeResponse> {
+    const kind = String(args?.kind || "").trim();
+    const pkg = String(args?.package || "").trim();
+    const title = String(args?.title || "").trim();
+    const items = Array.isArray(args?.items) ? (args.items as any[]) : [];
+    if (!kind) throw new Error("backlog_merge: kind is required");
+    if (!pkg) throw new Error("backlog_merge: package is required");
+    if (!title) throw new Error("backlog_merge: title is required");
+    if (items.length < 2) throw new Error("backlog_merge: at least 2 items are required");
+    const body: any = { kind, package: pkg, title, items: items.map((it) => ({ kind: String(it?.kind || "").trim(), filename: String(it?.filename || "").trim() })) };
+    const task_type = String(args?.task_type || "").trim();
+    if (task_type) body.task_type = task_type;
+    const summary = String(args?.summary || "").trim();
+    if (summary) body.summary = summary;
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/merge"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_merge failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
