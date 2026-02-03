@@ -532,6 +532,9 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const [exec_detail, set_exec_detail] = useState<any>(null);
   const [exec_detail_loading, set_exec_detail_loading] = useState(false);
   const [exec_detail_error, set_exec_detail_error] = useState("");
+  const [exec_qa_feedback, set_exec_qa_feedback] = useState("");
+  const [exec_qa_loading, set_exec_qa_loading] = useState(false);
+  const [exec_qa_error, set_exec_qa_error] = useState("");
 
   const [exec_log_name, set_exec_log_name] = useState<"events" | "stderr" | "last_message">("events");
   const [exec_log_text, set_exec_log_text] = useState("");
@@ -677,9 +680,9 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   }, [exec_selected?.created_at, exec_selected?.started_at, exec_selected?.finished_at, exec_selected?.status]);
 
   function exec_status_filter_for_view(tab: BacklogTab): string {
-    if (tab === "processing") return "queued,running";
+    if (tab === "processing") return "queued,running,awaiting_qa";
     if (tab === "failed") return "failed";
-    if (tab === "completed" && completed_view === "runs") return "completed";
+    if (tab === "completed" && completed_view === "runs") return "completed,promoted";
     return "";
   }
 
@@ -689,6 +692,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     const result = p.result && typeof p.result === "object" ? p.result : {};
     const executor = p.executor && typeof p.executor === "object" ? p.executor : {};
     const last_msg = String(result.last_message || "").trim();
+    const target_model = String(p.target_model || executor.model || "").trim();
+    const target_reasoning_effort = String(p.target_reasoning_effort || executor.reasoning_effort || "").trim();
     return {
       request_id,
       status: String(p.status || "unknown"),
@@ -699,6 +704,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       backlog_kind: backlog.kind ?? null,
       backlog_filename: backlog.filename ?? null,
       target_agent: p.target_agent ?? null,
+      target_model: target_model || null,
+      target_reasoning_effort: target_reasoning_effort || null,
       executor_type: executor.type ?? null,
       ok: typeof result.ok === "boolean" ? result.ok : null,
       exit_code: typeof result.exit_code === "number" ? result.exit_code : result.exit_code ?? null,
@@ -714,7 +721,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     let next = Array.isArray(res?.items) ? res.items : [];
     if (k === "planned") {
       try {
-        const active = await gateway.backlog_exec_active_items({ status: "queued,running", limit: 1200 });
+        const active = await gateway.backlog_exec_active_items({ status: "queued,running,awaiting_qa", limit: 1200 });
         const active_items = Array.isArray((active as any)?.items) ? ((active as any).items as any[]) : [];
         const processing = new Set(
           active_items
@@ -767,11 +774,11 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           const status2 = String(payload?.status || "").trim().toLowerCase();
           if (status2 === "failed") {
             set_kind("failed");
-          } else if (status2 === "completed") {
+          } else if (status2 === "completed" || status2 === "promoted") {
             set_completed_view("runs");
             set_kind("completed");
           }
-          if (status2 === "failed" || status2 === "completed") {
+          if (status2 === "failed" || status2 === "completed" || status2 === "promoted") {
             set_exec_detail(payload);
             set_exec_selected(exec_summary_from_payload(payload, exec_selected.request_id));
           }
@@ -992,12 +999,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
   const filtered_exec_requests = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
-    if (!q) return exec_requests;
-    return exec_requests.filter((r) => {
-      const hay = `${r.request_id || ""} ${r.status || ""} ${r.backlog_filename || ""} ${r.backlog_relpath || ""} ${r.error || ""} ${r.last_message || ""}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [exec_requests, query]);
+	    if (!q) return exec_requests;
+	    return exec_requests.filter((r) => {
+	      const hay =
+	        `${r.request_id || ""} ${r.status || ""} ${r.backlog_filename || ""} ${r.backlog_relpath || ""} ${r.target_model || ""} ${r.target_reasoning_effort || ""} ${r.error || ""} ${r.last_message || ""}`.toLowerCase();
+	      return hay.includes(q);
+	    });
+	  }, [exec_requests, query]);
 
   async function move_selected(to_kind: BacklogFileKind): Promise<void> {
     if (!selected) return;
@@ -1074,6 +1082,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     set_exec_detail(null);
     set_exec_detail_error("");
     set_exec_detail_loading(true);
+    set_exec_qa_error("");
+    set_exec_qa_feedback("");
     set_exec_log_text("");
     set_exec_log_error("");
     set_exec_log_truncated(false);
@@ -1084,6 +1094,56 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_exec_detail_error(String(e?.message || e || "Failed to load request"));
     } finally {
       set_exec_detail_loading(false);
+    }
+  }
+
+  async function exec_send_feedback(): Promise<void> {
+    if (!can_use_gateway) return;
+    const rid = String(exec_selected?.request_id || "").trim();
+    if (!rid) return;
+    if (exec_qa_loading) return;
+    const text = String(exec_qa_feedback || "");
+    if (!text.trim()) {
+      set_exec_qa_error("Feedback is required.");
+      return;
+    }
+    set_exec_qa_error("");
+    set_exec_qa_loading(true);
+    try {
+      const out = await gateway.backlog_exec_feedback({ request_id: rid, feedback: text });
+      const payload = out?.payload ?? null;
+      set_exec_detail(payload);
+      if (payload) set_exec_selected(exec_summary_from_payload(payload, rid));
+      set_exec_qa_feedback("");
+      set_kind("processing");
+      await refresh_exec_list("processing");
+    } catch (e: any) {
+      set_exec_qa_error(String(e?.message || e || "Failed to send feedback"));
+    } finally {
+      set_exec_qa_loading(false);
+    }
+  }
+
+  async function exec_promote_to_prod(): Promise<void> {
+    if (!can_use_gateway) return;
+    const rid = String(exec_selected?.request_id || "").trim();
+    if (!rid) return;
+    if (exec_qa_loading) return;
+    set_exec_qa_error("");
+    set_exec_qa_loading(true);
+    try {
+      const out = await gateway.backlog_exec_promote({ request_id: rid, redeploy: false });
+      const payload = out?.payload ?? null;
+      set_exec_detail(payload);
+      if (payload) set_exec_selected(exec_summary_from_payload(payload, rid));
+      set_exec_qa_feedback("");
+      set_completed_view("runs");
+      set_kind("completed");
+      await refresh_exec_list("completed");
+    } catch (e: any) {
+      set_exec_qa_error(String(e?.message || e || "Failed to promote to prod"));
+    } finally {
+      set_exec_qa_loading(false);
     }
   }
 
@@ -1929,17 +1989,24 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         <div className="card">
           <div className="title">
             <h1>Backlog</h1>
-            {can_use_gateway && exec_cfg ? (
-              <span
-                className="badge"
-                style={{
-                  background: exec_cfg.runner_alive ? "rgba(34, 197, 94, 0.14)" : "rgba(239, 68, 68, 0.14)",
-                  borderColor: exec_cfg.runner_alive ? "rgba(34, 197, 94, 0.35)" : "rgba(239, 68, 68, 0.35)",
-                }}
-              >
-                exec worker {exec_cfg.runner_alive ? "on" : "off"}
-              </span>
-            ) : null}
+	            {can_use_gateway && exec_cfg ? (
+	              <span
+	                className="badge"
+	                style={{
+	                  background: exec_cfg.runner_alive ? "rgba(34, 197, 94, 0.14)" : "rgba(239, 68, 68, 0.14)",
+	                  borderColor: exec_cfg.runner_alive ? "rgba(34, 197, 94, 0.35)" : "rgba(239, 68, 68, 0.35)",
+	                }}
+	                title={
+	                  exec_cfg.codex_model || exec_cfg.codex_reasoning_effort
+	                    ? `codex: ${String(exec_cfg.codex_model || "").trim() || "?"}${exec_cfg.codex_reasoning_effort ? ` (reasoning ${exec_cfg.codex_reasoning_effort})` : ""}`
+	                    : undefined
+	                }
+	              >
+	                exec worker {exec_cfg.runner_alive ? "on" : "off"}
+	                {!is_compact_layout && exec_cfg.codex_model ? ` · ${exec_cfg.codex_model}` : ""}
+	                {!is_compact_layout && exec_cfg.codex_reasoning_effort ? ` · ${exec_cfg.codex_reasoning_effort}` : ""}
+	              </span>
+	            ) : null}
           </div>
 
           <div className="row backlog_toolbar" style={{ alignItems: "center", justifyContent: "space-between" }}>
@@ -2170,15 +2237,15 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                       const active = exec_selected?.request_id === r.request_id;
                       const st = String(r.status || "").trim().toLowerCase();
                       const status_chip =
-                        st === "completed"
+                        st === "completed" || st === "promoted"
                           ? "ok"
                           : st === "failed"
                             ? "danger"
-                            : st === "running"
-                              ? "info"
-                              : st === "queued"
-                                ? "warn"
-                                : "muted";
+                          : st === "running"
+                            ? "info"
+                            : st === "queued" || st === "awaiting_qa"
+                              ? "warn"
+                              : "muted";
                       return (
                         <button
                           key={`exec:${r.request_id}`}
@@ -2241,42 +2308,83 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                       <span className="mono" style={{ fontWeight: 700 }}>
                         {exec_selected.backlog_filename || exec_selected.backlog_relpath || exec_selected.request_id}
                       </span>
-                      <span className="chip mono muted">{exec_selected.status || "unknown"}</span>
+                      {(() => {
+                        const st = String(exec_selected.status || "").trim().toLowerCase();
+                        const status_chip =
+                          st === "completed" || st === "promoted"
+                            ? "ok"
+                            : st === "failed"
+                              ? "danger"
+                              : st === "running"
+                                ? "info"
+                                : st === "queued" || st === "awaiting_qa"
+                                  ? "warn"
+                                  : "muted";
+                        return <span className={`chip mono ${status_chip}`}>{st || "unknown"}</span>;
+                      })()}
                       <span className="chip mono muted">{short_id(exec_selected.request_id, 16)}</span>
                     </div>
-                    <div className="inbox_detail_actions">
-                      {is_compact_layout ? (
-                        <button className="btn" onClick={() => set_compact_pane("list")} disabled={exec_detail_loading}>
-                          Back
-                        </button>
-                      ) : null}
-                      <button className="btn" onClick={() => copyText(exec_selected.request_id)} disabled={exec_detail_loading}>
-                        Copy request id
-                      </button>
-                      {exec_selected.backlog_relpath ? (
-                        <button className="btn" onClick={() => copyText(exec_selected.backlog_relpath || "")} disabled={exec_detail_loading}>
-                          Copy backlog path
-                        </button>
-                      ) : null}
-                      {(() => {
-                        const items = Array.isArray(exec_detail?.backlog_queue?.items) ? (exec_detail.backlog_queue.items as any[]) : [];
-                        const rels = items
-                          .map((it) => String(it?.relpath || "").trim())
-                          .filter(Boolean);
-                        if (!rels.length) return null;
-                        return (
-                          <button className="btn" onClick={() => copyText(rels.join("\n"))} disabled={exec_detail_loading}>
-                            Copy backlog paths
-                          </button>
-                        );
-                      })()}
-                      {exec_selected.run_dir_relpath ? (
-                        <button className="btn" onClick={() => copyText(exec_selected.run_dir_relpath || "")} disabled={exec_detail_loading}>
-                          Copy run dir
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
+	                    <div className="inbox_detail_actions">
+	                      {is_compact_layout ? (
+	                        <button className="btn" onClick={() => set_compact_pane("list")} disabled={exec_detail_loading}>
+	                          Back
+	                        </button>
+	                      ) : null}
+	                      <button
+	                        className="btn btn_icon"
+	                        onClick={() => copyText(exec_selected.request_id)}
+	                        disabled={exec_detail_loading}
+	                        aria-label="Copy request id"
+	                        title="Copy request id"
+	                      >
+	                        <Icon name="copy" size={16} />
+	                        {is_compact_layout ? null : "Copy request id"}
+	                      </button>
+	                      {exec_selected.backlog_relpath ? (
+	                        <button
+	                          className="btn btn_icon"
+	                          onClick={() => copyText(exec_selected.backlog_relpath || "")}
+	                          disabled={exec_detail_loading}
+	                          aria-label="Copy backlog path"
+	                          title="Copy backlog path"
+	                        >
+	                          <Icon name="copy" size={16} />
+	                          {is_compact_layout ? null : "Copy backlog path"}
+	                        </button>
+	                      ) : null}
+	                      {(() => {
+	                        const items = Array.isArray(exec_detail?.backlog_queue?.items) ? (exec_detail.backlog_queue.items as any[]) : [];
+	                        const rels = items
+	                          .map((it) => String(it?.relpath || "").trim())
+	                          .filter(Boolean);
+	                        if (!rels.length) return null;
+	                        return (
+	                          <button
+	                            className="btn btn_icon"
+	                            onClick={() => copyText(rels.join("\n"))}
+	                            disabled={exec_detail_loading}
+	                            aria-label="Copy backlog paths"
+	                            title="Copy backlog paths"
+	                          >
+	                            <Icon name="copy" size={16} />
+	                            {is_compact_layout ? null : "Copy backlog paths"}
+	                          </button>
+	                        );
+	                      })()}
+	                      {exec_selected.run_dir_relpath ? (
+	                        <button
+	                          className="btn btn_icon"
+	                          onClick={() => copyText(exec_selected.run_dir_relpath || "")}
+	                          disabled={exec_detail_loading}
+	                          aria-label="Copy run dir"
+	                          title="Copy run dir"
+	                        >
+	                          <Icon name="copy" size={16} />
+	                          {is_compact_layout ? null : "Copy run dir"}
+	                        </button>
+	                      ) : null}
+	                    </div>
+	                  </div>
 
                   <div className="inbox_detail_meta mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     {exec_selected.created_at ? `created ${new Date(exec_selected.created_at).toLocaleString()}` : ""}
@@ -2302,6 +2410,82 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                       </div>
                     ) : (
                       <>
+                        {(() => {
+                          const st = String(exec_selected.status || "").trim().toLowerCase();
+                          if (st !== "awaiting_qa") return null;
+                          const candidate_rel = String((exec_detail as any)?.candidate_relpath || "").trim();
+                          const patch_rel = String((exec_detail as any)?.candidate_patch_relpath || "").trim();
+                          const uat_rel = String((exec_detail as any)?.uat_current_relpath || "").trim();
+                          const attempt = (exec_detail as any)?.attempt;
+                          return (
+                            <>
+                              <div className="section_title">QA decision</div>
+                              <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
+                                {typeof attempt === "number" ? (
+                                  <div>
+                                    <span className="mono muted">attempt:</span> {attempt}
+                                  </div>
+                                ) : null}
+                                {candidate_rel ? (
+                                  <div>
+                                    <span className="mono muted">candidate:</span> {candidate_rel}
+                                  </div>
+                                ) : null}
+                                {patch_rel ? (
+                                  <div>
+                                    <span className="mono muted">patch:</span> {patch_rel}
+                                  </div>
+                                ) : null}
+                                {uat_rel ? (
+                                  <div>
+                                    <span className="mono muted">uat_current:</span> {uat_rel}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="row" style={{ flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+                                {patch_rel ? (
+                                  <button className="btn btn_icon" onClick={() => copyText(patch_rel)} disabled={exec_qa_loading}>
+                                    <Icon name="copy" size={16} />
+                                    Copy patch path
+                                  </button>
+                                ) : null}
+                                {candidate_rel ? (
+                                  <button className="btn btn_icon" onClick={() => copyText(candidate_rel)} disabled={exec_qa_loading}>
+                                    <Icon name="copy" size={16} />
+                                    Copy candidate path
+                                  </button>
+                                ) : null}
+                              </div>
+                              <div style={{ marginTop: "10px" }}>
+                                <textarea
+                                  value={exec_qa_feedback}
+                                  onChange={(e) => set_exec_qa_feedback(e.target.value)}
+                                  rows={3}
+                                  placeholder="QA feedback (what to change / fix)…"
+                                  style={{ width: "100%", resize: "vertical", minHeight: "72px" }}
+                                  disabled={exec_qa_loading}
+                                />
+                              </div>
+                              {exec_qa_error ? (
+                                <div
+                                  className="mono"
+                                  style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
+                                >
+                                  {exec_qa_error}
+                                </div>
+                              ) : null}
+                              <div className="row" style={{ flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
+                                <button className="btn primary" onClick={() => void exec_promote_to_prod()} disabled={exec_qa_loading}>
+                                  Approve → promote to prod
+                                </button>
+                                <button className="btn" onClick={() => void exec_send_feedback()} disabled={exec_qa_loading}>
+                                  Iterate (send feedback)
+                                </button>
+                              </div>
+                              <div className="section_divider" />
+                            </>
+                          );
+                        })()}
                         <div className="section_title">Execution</div>
                         <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
                           <div>
@@ -2315,6 +2499,12 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           {exec_selected.target_agent ? (
                             <div>
                               <span className="mono muted">target_agent:</span> {exec_selected.target_agent}
+                            </div>
+                          ) : null}
+                          {exec_selected.target_model ? (
+                            <div>
+                              <span className="mono muted">model:</span> {exec_selected.target_model}
+                              {exec_selected.target_reasoning_effort ? ` (reasoning ${exec_selected.target_reasoning_effort})` : ""}
                             </div>
                           ) : null}
                           {exec_selected.exit_code != null ? (
@@ -2386,28 +2576,31 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           );
                         })()}
 
-                        {exec_selected.last_message ? (
-                          <>
-                            <div className="section_divider" />
-                            <div className="section_title">Last message</div>
-                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-                              {exec_selected.last_message}
-                            </pre>
-                          </>
-                        ) : null}
+                        {(() => {
+                          const last = String((exec_detail as any)?.result?.last_message || exec_selected.last_message || "").trim();
+                          if (!last) return null;
+                          return (
+                            <>
+                              <div className="section_divider" />
+                              <div className="section_title">Last message</div>
+                              <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                                {last}
+                              </pre>
+                            </>
+                          );
+                        })()}
 
                         <div className="section_divider" />
-                        <div className="section_title">Live logs</div>
                         <div className="row" style={{ alignItems: "center", justifyContent: "space-between", gap: "8px", marginTop: "8px" }}>
-                          <div className="col" style={{ flex: "0 0 auto" }}>
+                          <div className="section_title" style={{ marginTop: 0 }}>
+                            Live logs
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
                             <select value={exec_log_name} onChange={(e) => set_exec_log_name(e.target.value as any)}>
                               <option value="events">events</option>
                               <option value="stderr">stderr</option>
-                              <option value="last_message">last_message</option>
+                              <option value="last_message">last message</option>
                             </select>
-                          </div>
-                          <div className="col" style={{ flex: "1 1 auto" }} />
-                          <div className="col" style={{ flex: "0 0 auto", display: "flex", gap: "6px" }}>
                             <button
                               className={`btn ${exec_log_auto ? "primary" : ""}`}
                               onClick={() => set_exec_log_auto((v) => !v)}
@@ -2415,8 +2608,15 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                             >
                               {exec_log_auto ? "Auto on" : "Auto off"}
                             </button>
-                            <button className="btn" onClick={() => void load_exec_log_tail()} disabled={exec_log_loading || !exec_selected?.request_id}>
-                              {exec_log_loading ? "Loading…" : "Refresh"}
+                            <button
+                              className={`btn btn_icon ${exec_log_loading ? "is_loading" : ""}`}
+                              onClick={() => void load_exec_log_tail()}
+                              disabled={exec_log_loading || !exec_selected?.request_id}
+                              aria-label="Refresh logs"
+                              title="Refresh logs"
+                            >
+                              <Icon name="refresh" size={16} />
+                              {is_compact_layout ? null : exec_log_loading ? "Loading…" : "Refresh"}
                             </button>
                           </div>
                         </div>
@@ -2564,11 +2764,25 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                               exec_log_follow_ref.current = _is_near_bottom(e.currentTarget, 12);
                             }}
                           >
-                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)" }}>
-                              {exec_log_text || "(no logs yet)"}
-                            </pre>
-                          </div>
-                        )}
+	                            <pre className="mono" style={{ whiteSpace: "pre-wrap", fontSize: "var(--font-size-sm)" }}>
+	                              {(() => {
+	                                const t = String(exec_log_text || "").trim();
+	                                if (t) return exec_log_text;
+	                                if (exec_log_name === "last_message") {
+	                                  const last = String((exec_detail as any)?.result?.last_message || exec_selected.last_message || "").trim();
+	                                  if (last) return last;
+	                                  const st = String(exec_selected.status || "").trim().toLowerCase();
+	                                  if (st === "queued" || st === "running") {
+	                                    return "(last message is written when the run finishes — use events for live output)";
+	                                  }
+	                                  return "(no last message yet)";
+	                                }
+	                                if (exec_log_name === "stderr") return "(no stderr yet)";
+	                                return "(no logs yet)";
+	                              })()}
+	                            </pre>
+	                          </div>
+	                        )}
 
                         {exec_detail?.result?.logs ? (
                           <>

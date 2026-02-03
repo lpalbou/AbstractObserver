@@ -111,6 +111,7 @@ export type BacklogExecConfigResponse = {
   notify?: boolean;
   codex_bin?: string | null;
   codex_model?: string | null;
+  codex_reasoning_effort?: string | null;
   codex_available?: boolean | null;
 };
 
@@ -124,6 +125,8 @@ export type BacklogExecRequestSummary = {
   backlog_kind?: string | null;
   backlog_filename?: string | null;
   target_agent?: string | null;
+  target_model?: string | null;
+  target_reasoning_effort?: string | null;
   executor_type?: string | null;
   ok?: boolean | null;
   exit_code?: number | null;
@@ -1031,6 +1034,37 @@ export class GatewayClient {
     const url = _join(this._cfg.base_url, `/api/gateway/backlog/exec/requests/${encodeURIComponent(rid)}?${qs.toString()}`);
     const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
     if (!r.ok) throw new Error(`backlog_exec_request failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_exec_feedback(args: { request_id: string; feedback: string }): Promise<BacklogExecRequestDetailResponse> {
+    const rid = String(args?.request_id || "").trim();
+    if (!rid) throw new Error("backlog_exec_feedback: request_id is required");
+    const feedback = String(args?.feedback ?? "");
+    if (!feedback.trim()) throw new Error("backlog_exec_feedback: feedback is required");
+    const body: any = { feedback };
+    const url = _join(this._cfg.base_url, `/api/gateway/backlog/exec/requests/${encodeURIComponent(rid)}/feedback`);
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_exec_feedback failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async backlog_exec_promote(args: { request_id: string; redeploy?: boolean }): Promise<BacklogExecRequestDetailResponse> {
+    const rid = String(args?.request_id || "").trim();
+    if (!rid) throw new Error("backlog_exec_promote: request_id is required");
+    const body: any = {};
+    if (args?.redeploy === true) body.redeploy = true;
+    const url = _join(this._cfg.base_url, `/api/gateway/backlog/exec/requests/${encodeURIComponent(rid)}/promote`);
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`backlog_exec_promote failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
