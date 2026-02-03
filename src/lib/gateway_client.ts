@@ -950,12 +950,19 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async backlog_execute(args: { kind: string; filename: string }): Promise<BacklogExecuteResponse> {
+  async backlog_execute(args: { kind: string; filename: string; execution_mode?: string | null }): Promise<BacklogExecuteResponse> {
     const kind = String(args?.kind || "").trim();
     const filename = String(args?.filename || "").trim();
     if (!kind) throw new Error("backlog_execute: kind is required");
     if (!filename) throw new Error("backlog_execute: filename is required");
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/backlog/${encodeURIComponent(kind)}/${encodeURIComponent(filename)}/execute`), {
+    const qs = new URLSearchParams();
+    const execution_mode = String(args?.execution_mode || "").trim();
+    if (execution_mode) qs.set("execution_mode", execution_mode);
+    const url = _join(
+      this._cfg.base_url,
+      `/api/gateway/backlog/${encodeURIComponent(kind)}/${encodeURIComponent(filename)}/execute${qs.toString() ? `?${qs.toString()}` : ""}`
+    );
+    const r = await fetch(url, {
       method: "POST",
       headers: { ..._auth_headers(this._cfg.auth_token) },
     });
@@ -963,10 +970,12 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async backlog_execute_batch(args: { items: BacklogRef[] }): Promise<BacklogExecuteResponse> {
+  async backlog_execute_batch(args: { items: BacklogRef[]; execution_mode?: string | null }): Promise<BacklogExecuteResponse> {
     const items = Array.isArray(args?.items) ? (args.items as any[]) : [];
     if (!items.length) throw new Error("backlog_execute_batch: items are required");
     const body: any = { items: items.map((it) => ({ kind: String(it?.kind || "").trim(), filename: String(it?.filename || "").trim() })) };
+    const execution_mode = String(args?.execution_mode || "").trim();
+    if (execution_mode) body.execution_mode = execution_mode;
     const r = await fetch(_join(this._cfg.base_url, "/api/gateway/backlog/execute_batch"), {
       method: "POST",
       headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },

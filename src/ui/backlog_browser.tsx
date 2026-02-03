@@ -507,11 +507,13 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
   const [execute_confirm_open, set_execute_confirm_open] = useState(false);
   const [execute_target, set_execute_target] = useState<{ kind: BacklogFileKind; filename: string; title: string } | null>(null);
+  const [execute_mode, set_execute_mode] = useState<"uat" | "inplace">("uat");
 
   const [batch_filenames, set_batch_filenames] = useState<string[]>([]);
   const [batch_execute_open, set_batch_execute_open] = useState(false);
   const [batch_execute_loading, set_batch_execute_loading] = useState(false);
   const [batch_execute_error, set_batch_execute_error] = useState("");
+  const [batch_execute_mode, set_batch_execute_mode] = useState<"uat" | "inplace">("uat");
 
   const [merge_open, set_merge_open] = useState(false);
   const [merge_title, set_merge_title] = useState("");
@@ -1308,7 +1310,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         set_action_error("Backlog exec is not available on this gateway (misconfigured executor).");
         return;
       }
-      const out = await gateway.backlog_execute({ kind: execute_target.kind, filename: execute_target.filename });
+      const out = await gateway.backlog_execute({ kind: execute_target.kind, filename: execute_target.filename, execution_mode: execute_mode });
       const request_id = String(out?.request_id || "").trim();
       if (!request_id) throw new Error("No request_id returned");
       set_execute_confirm_open(false);
@@ -1385,6 +1387,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
 
       const out = await gateway.backlog_execute_batch({
         items: batch_selected_items.map((it) => ({ kind: "planned", filename: it.filename })),
+        execution_mode: batch_execute_mode,
       });
       const request_id = String(out?.request_id || "").trim();
       if (!request_id) throw new Error("No request_id returned");
@@ -2171,6 +2174,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                     disabled={!can_use_gateway || batch_selected_items.length < 2}
                     onClick={() => {
                       set_batch_execute_error("");
+                      set_batch_execute_mode("uat");
                       set_batch_execute_open(true);
                     }}
                   >
@@ -2413,14 +2417,23 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                         {(() => {
                           const st = String(exec_selected.status || "").trim().toLowerCase();
                           if (st !== "awaiting_qa") return null;
+                          const exec_mode = String((exec_detail as any)?.execution_mode || "").trim().toLowerCase() || "uat";
                           const candidate_rel = String((exec_detail as any)?.candidate_relpath || "").trim();
                           const patch_rel = String((exec_detail as any)?.candidate_patch_relpath || "").trim();
+                          const manifest_rel = String((exec_detail as any)?.candidate_manifest_relpath || "").trim();
                           const uat_rel = String((exec_detail as any)?.uat_current_relpath || "").trim();
+                          const uat_lock_owner = String((exec_detail as any)?.uat_lock_owner_request_id || "").trim();
+                          const uat_lock_acquired = Boolean((exec_detail as any)?.uat_lock_acquired);
+                          const uat_pending = Boolean((exec_detail as any)?.uat_pending);
+                          const uat_deploy_err = String((exec_detail as any)?.uat_deploy_error || "").trim();
                           const attempt = (exec_detail as any)?.attempt;
                           return (
                             <>
                               <div className="section_title">QA decision</div>
                               <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
+                                <div>
+                                  <span className="mono muted">mode:</span> {exec_mode}
+                                </div>
                                 {typeof attempt === "number" ? (
                                   <div>
                                     <span className="mono muted">attempt:</span> {attempt}
@@ -2429,6 +2442,11 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                 {candidate_rel ? (
                                   <div>
                                     <span className="mono muted">candidate:</span> {candidate_rel}
+                                  </div>
+                                ) : null}
+                                {manifest_rel ? (
+                                  <div>
+                                    <span className="mono muted">manifest:</span> {manifest_rel}
                                   </div>
                                 ) : null}
                                 {patch_rel ? (
@@ -2441,12 +2459,51 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                     <span className="mono muted">uat_current:</span> {uat_rel}
                                   </div>
                                 ) : null}
+                                {exec_mode === "uat" && uat_lock_owner ? (
+                                  <div>
+                                    <span className="mono muted">uat_lock:</span> {uat_lock_owner}
+                                    {uat_lock_acquired ? " (owned)" : uat_pending ? " (pending)" : ""}
+                                  </div>
+                                ) : null}
                               </div>
+                              {exec_mode === "inplace" ? (
+                                <div
+                                  className="mono"
+                                  style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
+                                >
+                                  Inplace mode: prod may already be mutated. Approving only finalizes the request status.
+                                </div>
+                              ) : exec_mode === "uat" && uat_pending && uat_lock_owner && !uat_lock_acquired ? (
+                                <div
+                                  className="mono"
+                                  style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
+                                >
+                                  UAT is locked by {short_id(uat_lock_owner, 16)}. This request did not auto-deploy to UAT.
+                                </div>
+                              ) : exec_mode === "uat" && uat_lock_acquired ? (
+                                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                                  UAT URLs: gateway `http://localhost:6081`, observer `http://localhost:6082`, code `http://localhost:6083`, flow `http://localhost:6084`
+                                </div>
+                              ) : null}
+                              {uat_deploy_err ? (
+                                <div
+                                  className="mono"
+                                  style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
+                                >
+                                  UAT deploy failed: {uat_deploy_err}
+                                </div>
+                              ) : null}
                               <div className="row" style={{ flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
                                 {patch_rel ? (
                                   <button className="btn btn_icon" onClick={() => copyText(patch_rel)} disabled={exec_qa_loading}>
                                     <Icon name="copy" size={16} />
                                     Copy patch path
+                                  </button>
+                                ) : null}
+                                {manifest_rel ? (
+                                  <button className="btn btn_icon" onClick={() => copyText(manifest_rel)} disabled={exec_qa_loading}>
+                                    <Icon name="copy" size={16} />
+                                    Copy manifest path
                                   </button>
                                 ) : null}
                                 {candidate_rel ? (
@@ -2476,7 +2533,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                               ) : null}
                               <div className="row" style={{ flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
                                 <button className="btn primary" onClick={() => void exec_promote_to_prod()} disabled={exec_qa_loading}>
-                                  Approve → promote to prod
+                                  {exec_mode === "inplace" ? "Approve (finalize)" : "Approve → promote to prod"}
                                 </button>
                                 <button className="btn" onClick={() => void exec_send_feedback()} disabled={exec_qa_loading}>
                                   Iterate (send feedback)
@@ -2861,6 +2918,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                         className="btn primary"
                         onClick={() => {
                           set_action_error("");
+                          set_execute_mode("uat");
                           set_execute_target({ kind: "planned", filename: selected.filename, title: selected.title || selected.filename });
                           set_execute_confirm_open(true);
                         }}
@@ -3101,6 +3159,30 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             {execute_target ? execute_target.title : "(unknown)"}
           </span>
         </div>
+        <div style={{ marginTop: "10px" }}>
+          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "6px" }}>
+            Execution mode
+          </div>
+          <select
+            className="input"
+            value={execute_mode}
+            onChange={(e) => set_execute_mode(e.target.value as any)}
+            disabled={action_loading}
+            style={{ width: "100%" }}
+          >
+            <option value="uat">UAT (staged, safe)</option>
+            <option value="inplace">Inplace (dangerous, edits prod)</option>
+          </select>
+          {execute_mode === "inplace" ? (
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+              Warning: inplace runs directly in the prod workspace. Use only when you understand the risk.
+            </div>
+          ) : (
+            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+              The run will execute in a candidate workspace and auto-deploy UAT on success (then you approve/iterate).
+            </div>
+          )}
+        </div>
         {exec_cfg_loading ? (
           <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
             Checking worker…
@@ -3206,6 +3288,30 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
         </div>
         <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
           This queues a single exec request whose prompt includes all selected backlog items (in order), so the agent keeps a shared growing context.
+        </div>
+        <div style={{ marginTop: "10px" }}>
+          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "6px" }}>
+            Execution mode
+          </div>
+          <select
+            className="input"
+            value={batch_execute_mode}
+            onChange={(e) => set_batch_execute_mode(e.target.value as any)}
+            disabled={batch_execute_loading}
+            style={{ width: "100%" }}
+          >
+            <option value="uat">UAT (staged, safe)</option>
+            <option value="inplace">Inplace (dangerous, edits prod)</option>
+          </select>
+          {batch_execute_mode === "inplace" ? (
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+              Warning: inplace runs directly in the prod workspace (for the entire batch). Use only when you understand the risk.
+            </div>
+          ) : (
+            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+              The batch will execute in a candidate workspace and auto-deploy UAT on success (then you approve/iterate).
+            </div>
+          )}
         </div>
         {batch_selected_items.length ? (
           <div className="mono" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
