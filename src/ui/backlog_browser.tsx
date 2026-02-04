@@ -1142,7 +1142,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_completed_view("runs");
       set_kind("completed");
       await refresh_exec_list("completed");
-      // Also refresh processing in the background so any unblocked UAT request shows up quickly.
+      // Also refresh processing in the background so remaining awaiting_qa requests stay visible.
       await refresh_exec_list("processing");
     } catch (e: any) {
       set_exec_qa_error(String(e?.message || e || "Failed to promote to prod"));
@@ -2564,7 +2564,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                   className="mono"
                                   style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
                                 >
-                                  UAT services were not started: process manager is disabled. Restart the gateway with `ABSTRACTGATEWAY_ENABLE_PROCESS_MANAGER=1` (default when using `./agw.sh`).
+                                  UAT services were not started: process manager is disabled. Restart the gateway with `ABSTRACTGATEWAY_ENABLE_PROCESS_MANAGER=1`.
                                 </div>
                               ) : null}
                               {uat_deploy_err ? (
