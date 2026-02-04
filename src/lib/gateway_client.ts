@@ -28,6 +28,93 @@ export type ReportContentResponse = {
   content: string;
 };
 
+export type EmailAccountInfo = {
+  account: string;
+  email?: string;
+  from_email?: string | null;
+  can_read?: boolean;
+  can_send?: boolean;
+  imap_password_set?: boolean | null;
+  smtp_password_set?: boolean | null;
+};
+
+export type EmailAccountsResponse = {
+  ok: boolean;
+  source?: string;
+  config_path?: string;
+  default_account?: string;
+  accounts: EmailAccountInfo[];
+};
+
+export type EmailMessageSummary = {
+  uid: string;
+  message_id?: string;
+  subject?: string;
+  from?: string;
+  to?: string;
+  date?: string;
+  flags?: string[];
+  seen?: boolean;
+  size?: number | null;
+};
+
+export type EmailListFilter = { since?: string | null; status?: string; limit?: number };
+
+export type EmailListCounts = { returned?: number; unread?: number; read?: number };
+
+export type EmailListResponse = {
+  ok: boolean;
+  account: string;
+  mailbox: string;
+  filter: EmailListFilter;
+  counts: EmailListCounts;
+  messages: EmailMessageSummary[];
+};
+
+export type EmailAttachmentInfo = { filename?: string; content_type?: string };
+
+export type EmailReadResponse = {
+  ok: boolean;
+  account: string;
+  mailbox: string;
+  uid: string;
+  message_id?: string;
+  subject?: string;
+  from?: string;
+  to?: string;
+  cc?: string;
+  date?: string;
+  flags?: string[];
+  seen?: boolean;
+  body_text?: string;
+  body_html?: string;
+  attachments?: EmailAttachmentInfo[];
+};
+
+export type EmailSendRequest = {
+  account?: string;
+  to: string | string[];
+  subject: string;
+  body_text?: string;
+  body_html?: string;
+  cc?: string | string[] | null;
+  bcc?: string | string[] | null;
+  headers?: Record<string, string> | null;
+};
+
+export type EmailSmtpInfo = { host?: string; port?: number; username?: string; starttls?: boolean };
+
+export type EmailSendResponse = {
+  ok: boolean;
+  account: string;
+  message_id?: string;
+  from?: string;
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  smtp?: EmailSmtpInfo;
+};
+
 export type TriageDecisionSummary = {
   decision_id: string;
   report_type: "bug" | "feature";
@@ -850,6 +937,72 @@ export class GatewayClient {
       headers: { ..._auth_headers(this._cfg.auth_token) },
     });
     if (!r.ok) throw new Error(`get_feature_request_content failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async email_list_accounts(): Promise<EmailAccountsResponse> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/email/accounts"), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`email_list_accounts failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async email_list_messages(opts?: {
+    account?: string;
+    mailbox?: string;
+    since?: string;
+    status?: "all" | "unread" | "read" | string;
+    limit?: number;
+  }): Promise<EmailListResponse> {
+    const qs = new URLSearchParams();
+    const account = String(opts?.account || "").trim();
+    if (account) qs.set("account", account);
+    const mailbox = String(opts?.mailbox || "").trim();
+    if (mailbox) qs.set("mailbox", mailbox);
+    const since = String(opts?.since || "").trim();
+    if (since) qs.set("since", since);
+    const status = String(opts?.status || "").trim();
+    if (status) qs.set("status", status);
+    const limit = typeof opts?.limit === "number" && Number.isFinite(opts.limit) ? Number(opts.limit) : 20;
+    qs.set("limit", String(limit));
+
+    const url = _join(this._cfg.base_url, `/api/gateway/email/messages?${qs.toString()}`);
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`email_list_messages failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async email_read_message(
+    uid: string,
+    opts?: { account?: string; mailbox?: string; max_body_chars?: number }
+  ): Promise<EmailReadResponse> {
+    const id = String(uid || "").trim();
+    if (!id) throw new Error("email_read_message: uid is required");
+
+    const qs = new URLSearchParams();
+    const account = String(opts?.account || "").trim();
+    if (account) qs.set("account", account);
+    const mailbox = String(opts?.mailbox || "").trim();
+    if (mailbox) qs.set("mailbox", mailbox);
+    const max_body_chars = typeof opts?.max_body_chars === "number" && Number.isFinite(opts.max_body_chars) ? Number(opts.max_body_chars) : 20000;
+    qs.set("max_body_chars", String(max_body_chars));
+
+    const url = _join(this._cfg.base_url, `/api/gateway/email/messages/${encodeURIComponent(id)}?${qs.toString()}`);
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`email_read_message failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async email_send(req: EmailSendRequest): Promise<EmailSendResponse> {
+    const subject = String(req?.subject || "").trim();
+    if (!subject) throw new Error("email_send: subject is required");
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/email/send"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(req || {}),
+    });
+    if (!r.ok) throw new Error(`email_send failed: ${await _read_error(r)}`);
     return await r.json();
   }
 

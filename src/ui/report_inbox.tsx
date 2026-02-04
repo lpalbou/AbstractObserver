@@ -4,9 +4,10 @@ import { Markdown, copyText } from "@abstractuic/panel-chat";
 
 import type { BacklogContentResponse, ReportInboxItem, TriageDecisionSummary } from "../lib/gateway_client";
 import { GatewayClient } from "../lib/gateway_client";
+import { EmailInboxPanel } from "./email_inbox";
 import { Modal } from "./modal";
 
-type InboxTab = "messages" | "bugs" | "features";
+type InboxTab = "messages" | "email" | "bugs" | "features";
 
 function filename_from_relpath(relpath: string): string {
   const raw = String(relpath || "").trim();
@@ -79,6 +80,12 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
     return [];
   }, [tab, bugs, features]);
 
+  useEffect(() => {
+    if (tab !== "email") return;
+    set_error("");
+    set_loading(false);
+  }, [tab]);
+
   async function refresh_bugs(): Promise<void> {
     const res = await gateway.list_bug_reports();
     set_bugs(Array.isArray(res?.items) ? res.items : []);
@@ -103,6 +110,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
 
   async function refresh_current_tab(): Promise<void> {
     if (!can_use_gateway) return;
+    if (tab === "email") return;
     set_error("");
     set_loading(true);
     try {
@@ -299,6 +307,9 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
               <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => set_tab("messages")}>
                 Messages
               </button>
+              <button className={`tab ${tab === "email" ? "active" : ""}`} onClick={() => set_tab("email")}>
+                Email
+              </button>
               <button className={`tab ${tab === "bugs" ? "active" : ""}`} onClick={() => set_tab("bugs")}>
                 Bugs
               </button>
@@ -327,7 +338,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
                     {triage_running ? "Running…" : "Run triage"}
                   </button>
                 </>
-              ) : (
+              ) : tab === "email" ? null : (
                 <button className="btn" onClick={() => void refresh_current_tab()} disabled={!can_use_gateway || loading}>
                   {loading ? "Refreshing…" : "Refresh"}
                 </button>
@@ -340,15 +351,22 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
               </button>
             </div>
           </div>
-          {triage_last ? <div className="mono muted" style={{ marginTop: "8px", fontSize: "var(--font-size-sm)" }}>{triage_last}</div> : null}
-          {error ? (
+          {tab !== "email" && triage_last ? (
+            <div className="mono muted" style={{ marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
+              {triage_last}
+            </div>
+          ) : null}
+          {tab !== "email" && error ? (
             <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
               {error}
             </div>
           ) : null}
         </div>
 
-        <div className="inbox_layout">
+        {tab === "email" ? (
+          <EmailInboxPanel gateway={gateway} enabled={can_use_gateway} />
+        ) : (
+          <div className="inbox_layout">
           <div className="card inbox_sidebar">
             {tab === "messages" ? (
               <div className="inbox_list">
@@ -585,6 +603,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
             )}
           </div>
         </div>
+        )}
       </div>
 
       <Modal

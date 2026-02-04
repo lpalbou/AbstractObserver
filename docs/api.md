@@ -57,6 +57,11 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `GET /api/gateway/triage/decisions?status=…&limit=…`
   - `POST /api/gateway/triage/decisions/{decision_id}/apply`
   - `POST /api/gateway/bugs/report` / `POST /api/gateway/features/report`
+- **Email inbox (multi-account)**
+  - `GET /api/gateway/email/accounts`
+  - `GET /api/gateway/email/messages?account=…&mailbox=…&since=…&status=…&limit=…`
+  - `GET /api/gateway/email/messages/{uid}?account=…&mailbox=…&max_body_chars=…`
+  - `POST /api/gateway/email/send`
 - **Backlog maintenance (Backlog page; high trust)**
   - `GET /api/gateway/backlog/{kind}` (kind = planned/proposed/recurrent/completed/deprecated/trash)
   - `GET /api/gateway/backlog/{kind}/{filename}/content`
