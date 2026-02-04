@@ -1146,6 +1146,15 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       await refresh_exec_list("processing");
     } catch (e: any) {
       set_exec_qa_error(String(e?.message || e || "Failed to promote to prod"));
+      // Best-effort: reload request detail so blocked promotion info (conflicts) becomes visible.
+      try {
+        const out = await gateway.backlog_exec_request(rid);
+        const payload = out?.payload ?? null;
+        set_exec_detail(payload);
+        if (payload) set_exec_selected(exec_summary_from_payload(payload, rid));
+      } catch {
+        // ignore
+      }
     } finally {
       set_exec_qa_loading(false);
     }
@@ -2451,6 +2460,16 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           const uat_deploy = (exec_detail as any)?.uat_deploy ?? null;
                           const uat_deploy_err = String((exec_detail as any)?.uat_deploy_error || "").trim();
                           const attempt = (exec_detail as any)?.attempt;
+                          const promotion_report = (exec_detail as any)?.promotion_report ?? null;
+                          const promo_blocked = Boolean((promotion_report as any)?.blocked);
+                          const promo_reason = String((promotion_report as any)?.reason || "").trim();
+                          const promo_conflicts = Array.isArray((promotion_report as any)?.conflicts)
+                            ? ((promotion_report as any)?.conflicts as any[]).slice(0, 8)
+                            : [];
+                          const promo_conflicts_total =
+                            typeof (promotion_report as any)?.conflicts_total === "number"
+                              ? Number((promotion_report as any).conflicts_total)
+                              : promo_conflicts.length;
 
                           let uat_deploy_status = "";
                           let uat_deploy_reason = "";
@@ -2554,6 +2573,30 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                   style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
                                 >
                                   UAT deploy failed: {uat_deploy_err}
+                                </div>
+                              ) : null}
+                              {promo_blocked && promo_reason === "conflicts" ? (
+                                <div
+                                  className="mono"
+                                  style={{
+                                    color: "rgba(239, 68, 68, 0.9)",
+                                    fontSize: "var(--font-size-sm)",
+                                    marginTop: "8px",
+                                  }}
+                                >
+                                  Promotion blocked: prod diverged from the candidate base ({promo_conflicts_total} conflict
+                                  {promo_conflicts_total === 1 ? "" : "s"}). Use “Iterate” to re-run the request on top of
+                                  current prod, or resolve conflicts manually.
+                                  {promo_conflicts.length ? (
+                                    <ul style={{ marginTop: "8px", paddingLeft: "18px" }}>
+                                      {promo_conflicts.map((c, idx) => (
+                                        <li key={`c:${idx}`}>
+                                          {String((c as any)?.repo || "")}/{String((c as any)?.path || "")} (
+                                          {String((c as any)?.reason || "conflict")})
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : null}
                                 </div>
                               ) : null}
                               <div className="row" style={{ flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
