@@ -1077,6 +1077,15 @@ export class GatewayClient {
     return await r.json();
   }
 
+  async backlog_exec_deploy_uat(args: { request_id: string }): Promise<BacklogExecRequestDetailResponse> {
+    const rid = String(args?.request_id || "").trim();
+    if (!rid) throw new Error("backlog_exec_deploy_uat: request_id is required");
+    const url = _join(this._cfg.base_url, `/api/gateway/backlog/exec/requests/${encodeURIComponent(rid)}/uat/deploy`);
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) }, body: "{}" });
+    if (!r.ok) throw new Error(`backlog_exec_deploy_uat failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
   async backlog_exec_log_tail(args: { request_id: string; name?: string; max_bytes?: number }): Promise<BacklogExecLogTailResponse> {
     const rid = String(args?.request_id || "").trim();
     if (!rid) throw new Error("backlog_exec_log_tail: request_id is required");

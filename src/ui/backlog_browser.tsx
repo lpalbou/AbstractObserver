@@ -1134,7 +1134,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
     set_exec_qa_error("");
     set_exec_qa_loading(true);
     try {
-      const out = await gateway.backlog_exec_promote({ request_id: rid, redeploy: false });
+      const out = await gateway.backlog_exec_promote({ request_id: rid, redeploy: true });
       const payload = out?.payload ?? null;
       set_exec_detail(payload);
       if (payload) set_exec_selected(exec_summary_from_payload(payload, rid));
@@ -1142,8 +1142,31 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
       set_completed_view("runs");
       set_kind("completed");
       await refresh_exec_list("completed");
+      // Also refresh processing in the background so any unblocked UAT request shows up quickly.
+      await refresh_exec_list("processing");
     } catch (e: any) {
       set_exec_qa_error(String(e?.message || e || "Failed to promote to prod"));
+    } finally {
+      set_exec_qa_loading(false);
+    }
+  }
+
+  async function exec_deploy_uat_now(): Promise<void> {
+    if (!can_use_gateway) return;
+    const rid = String(exec_selected?.request_id || "").trim();
+    if (!rid) return;
+    if (exec_qa_loading) return;
+    set_exec_qa_error("");
+    set_exec_qa_loading(true);
+    try {
+      const out = await gateway.backlog_exec_deploy_uat({ request_id: rid });
+      const payload = out?.payload ?? null;
+      set_exec_detail(payload);
+      if (payload) set_exec_selected(exec_summary_from_payload(payload, rid));
+      set_kind("processing");
+      await refresh_exec_list("processing");
+    } catch (e: any) {
+      set_exec_qa_error(String(e?.message || e || "Failed to deploy to UAT"));
     } finally {
       set_exec_qa_loading(false);
     }
@@ -2425,8 +2448,28 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           const uat_lock_owner = String((exec_detail as any)?.uat_lock_owner_request_id || "").trim();
                           const uat_lock_acquired = Boolean((exec_detail as any)?.uat_lock_acquired);
                           const uat_pending = Boolean((exec_detail as any)?.uat_pending);
+                          const uat_deploy = (exec_detail as any)?.uat_deploy ?? null;
                           const uat_deploy_err = String((exec_detail as any)?.uat_deploy_error || "").trim();
                           const attempt = (exec_detail as any)?.attempt;
+
+                          let uat_deploy_status = "";
+                          let uat_deploy_reason = "";
+                          const uat_probe_failed: string[] = [];
+                          try {
+                            const procs = (uat_deploy as any)?.processes;
+                            if (procs && typeof procs === "object" && !Array.isArray(procs)) {
+                              if (typeof (procs as any).status === "string") uat_deploy_status = String((procs as any).status || "").trim();
+                              if (typeof (procs as any).reason === "string") uat_deploy_reason = String((procs as any).reason || "").trim();
+                              for (const [pid, st] of Object.entries(procs as any)) {
+                                if (!st || typeof st !== "object" || Array.isArray(st)) continue;
+                                const probe = (st as any).probe;
+                                if (!probe || typeof probe !== "object") continue;
+                                if ((probe as any).ok === false) uat_probe_failed.push(String(pid));
+                              }
+                            }
+                          } catch {
+                            // ignore
+                          }
                           return (
                             <>
                               <div className="section_title">QA decision</div>
@@ -2481,8 +2524,28 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                   UAT is locked by {short_id(uat_lock_owner, 16)}. This request did not auto-deploy to UAT.
                                 </div>
                               ) : exec_mode === "uat" && uat_lock_acquired ? (
-                                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-                                  UAT URLs: gateway `http://localhost:6081`, observer `http://localhost:6082`, code `http://localhost:6083`, flow `http://localhost:6084`
+                                <>
+                                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                                    UAT URLs: gateway `http://localhost:6081`, observer `http://localhost:6082`, code `http://localhost:6083`, flow
+                                    `http://localhost:6084`
+                                  </div>
+                                  {uat_probe_failed.length ? (
+                                    <div
+                                      className="mono"
+                                      style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
+                                    >
+                                      UAT may be unreachable: URL probe failed for {uat_probe_failed.slice(0, 4).join(", ")}
+                                      {uat_probe_failed.length > 4 ? "…" : ""}. Click “Restart UAT” and check process logs.
+                                    </div>
+                                  ) : null}
+                                </>
+                              ) : null}
+                              {exec_mode === "uat" && uat_deploy_status === "skipped" && uat_deploy_reason === "process_manager_disabled" ? (
+                                <div
+                                  className="mono"
+                                  style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
+                                >
+                                  UAT services were not started: process manager is disabled. Restart the gateway with `ABSTRACTGATEWAY_ENABLE_PROCESS_MANAGER=1` (default when using `./agw.sh`).
                                 </div>
                               ) : null}
                               {uat_deploy_err ? (
@@ -2532,12 +2595,83 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                 </div>
                               ) : null}
                               <div className="row" style={{ flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
+                                {exec_mode === "uat" ? (
+                                  <button className="btn" onClick={() => void exec_deploy_uat_now()} disabled={exec_qa_loading}>
+                                    {uat_lock_acquired ? "Restart UAT" : uat_pending ? "Deploy to UAT" : "Deploy to UAT"}
+                                  </button>
+                                ) : null}
                                 <button className="btn primary" onClick={() => void exec_promote_to_prod()} disabled={exec_qa_loading}>
                                   {exec_mode === "inplace" ? "Approve (finalize)" : "Approve → promote to prod"}
                                 </button>
                                 <button className="btn" onClick={() => void exec_send_feedback()} disabled={exec_qa_loading}>
                                   Iterate (send feedback)
                                 </button>
+                              </div>
+                              <div className="section_divider" />
+                            </>
+                          );
+                        })()}
+                        {(() => {
+                          const st = String(exec_selected.status || "").trim().toLowerCase();
+                          if (st !== "promoted") return null;
+                          const promoted_at = String((exec_detail as any)?.promoted_at || "").trim();
+                          const promotion = (exec_detail as any)?.promotion ?? null;
+                          const promotion_report = (exec_detail as any)?.promotion_report ?? null;
+                          const copied = typeof (promotion as any)?.copied === "number" ? Number((promotion as any)?.copied) : null;
+                          const deleted = typeof (promotion as any)?.deleted === "number" ? Number((promotion as any)?.deleted) : null;
+                          const manifest_sha = String((promotion as any)?.manifest_sha256 || "").trim();
+                          const mode = String((promotion as any)?.mode || "").trim();
+                          const next_uat = String((promotion_report as any)?.next_uat_autodeployed_request_id || "").trim();
+                          const redeploy = (promotion_report as any)?.redeploy ?? null;
+                          const redeploy_status = String((redeploy as any)?.status || "").trim();
+                          const redeploy_reason = String((redeploy as any)?.reason || "").trim();
+                          const redeploy_error = String((promotion_report as any)?.redeploy_error || "").trim();
+
+                          return (
+                            <>
+                              <div className="section_title">Promotion</div>
+                              <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
+                                {promoted_at ? (
+                                  <div>
+                                    <span className="mono muted">promoted_at:</span> {new Date(promoted_at).toLocaleString()}
+                                  </div>
+                                ) : null}
+                                {mode ? (
+                                  <div>
+                                    <span className="mono muted">mode:</span> {mode}
+                                  </div>
+                                ) : null}
+                                {manifest_sha ? (
+                                  <div>
+                                    <span className="mono muted">manifest_sha256:</span> {manifest_sha.slice(0, 16)}…
+                                  </div>
+                                ) : null}
+                                {copied != null ? (
+                                  <div>
+                                    <span className="mono muted">files_copied:</span> {copied}
+                                  </div>
+                                ) : null}
+                                {deleted != null ? (
+                                  <div>
+                                    <span className="mono muted">files_deleted:</span> {deleted}
+                                  </div>
+                                ) : null}
+                                {redeploy_status ? (
+                                  <div>
+                                    <span className="mono muted">redeploy:</span> {redeploy_status}
+                                    {redeploy_reason ? ` (${redeploy_reason})` : ""}
+                                  </div>
+                                ) : null}
+                                {redeploy_error ? (
+                                  <div style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                                    <span className="mono muted">redeploy_error:</span> {redeploy_error}
+                                  </div>
+                                ) : null}
+                                {next_uat ? (
+                                  <div>
+                                    <span className="mono muted">next_uat_autodeployed:</span> {short_id(next_uat, 16)}
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="section_divider" />
                             </>
@@ -2613,6 +2747,63 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                             )}
                           </div>
                         </div>
+
+                        {(() => {
+                          const promo = exec_detail && typeof (exec_detail as any).promotion === "object" ? ((exec_detail as any).promotion as any) : null;
+                          if (!promo) return null;
+                          const rep = exec_detail && typeof (exec_detail as any).promotion_report === "object" ? ((exec_detail as any).promotion_report as any) : null;
+                          const mode = String(promo?.mode || "").trim();
+                          const copied = promo?.copied != null ? String(promo.copied) : "";
+                          const deleted = promo?.deleted != null ? String(promo.deleted) : "";
+                          const sha = String(promo?.manifest_sha256 || "").trim();
+                          const redeploy = rep && typeof rep.redeploy === "object" ? rep.redeploy : null;
+                          const redeploy_status = redeploy ? String(redeploy.status || "").trim() : "";
+                          const next_uat = rep ? String(rep.next_uat_autodeployed_request_id || "").trim() : "";
+                          return (
+                            <>
+                              <div className="section_divider" />
+                              <div className="section_title">Promotion</div>
+                              <div className="mono" style={{ fontSize: "var(--font-size-sm)" }}>
+                                {mode ? (
+                                  <div>
+                                    <span className="mono muted">mode:</span> {mode}
+                                  </div>
+                                ) : null}
+                                {copied ? (
+                                  <div>
+                                    <span className="mono muted">copied:</span> {copied} files
+                                  </div>
+                                ) : null}
+                                {deleted ? (
+                                  <div>
+                                    <span className="mono muted">deleted:</span> {deleted} files
+                                  </div>
+                                ) : null}
+                                {sha ? (
+                                  <div className="row" style={{ gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                                    <div style={{ minWidth: "180px" }}>
+                                      <span className="mono muted">manifest_sha256:</span> {sha.slice(0, 16)}…
+                                    </div>
+                                    <button className="btn btn_icon" onClick={() => copyText(sha)} disabled={exec_qa_loading}>
+                                      <Icon name="copy" size={16} />
+                                      Copy sha
+                                    </button>
+                                  </div>
+                                ) : null}
+                                {redeploy_status ? (
+                                  <div>
+                                    <span className="mono muted">redeploy:</span> {redeploy_status}
+                                  </div>
+                                ) : null}
+                                {next_uat ? (
+                                  <div>
+                                    <span className="mono muted">next_uat_autodeploy:</span> {short_id(next_uat, 16)}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </>
+                          );
+                        })()}
 
                         {(() => {
                           const items = Array.isArray(exec_detail?.backlog_queue?.items) ? (exec_detail.backlog_queue.items as any[]) : [];

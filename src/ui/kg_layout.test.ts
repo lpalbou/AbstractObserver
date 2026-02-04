@@ -6,6 +6,7 @@ import {
   forceSimulationPositions,
   hashStringToSeed,
   initForceSimulation,
+  sanitizeViewport,
   stepForceSimulation,
   type KgAssertion,
 } from "@abstractuic/monitor-active-memory";
@@ -67,5 +68,19 @@ describe("KG layout helpers", () => {
     const outB = roundPositions(forceSimulationPositions(b));
 
     expect(outA).toEqual(outB);
+  });
+
+  it("sanitizeViewport rejects invalid or extreme values", () => {
+    expect(sanitizeViewport({ x: Number.POSITIVE_INFINITY, y: 0, zoom: 1 })).toBe(null);
+    expect(sanitizeViewport({ x: 0, y: Number.NaN, zoom: 1 })).toBe(null);
+    expect(sanitizeViewport({ x: 0, y: 0, zoom: Number.NaN })).toBe(null);
+    expect(sanitizeViewport({ x: 2_000_000, y: 0, zoom: 1 }, { maxAbsTranslate: 1_000_000 })).toBe(null);
+  });
+
+  it("sanitizeViewport clamps zoom to configured bounds", () => {
+    expect(sanitizeViewport({ x: 0, y: 0, zoom: 0 })?.zoom).toBe(0.025);
+    expect(sanitizeViewport({ x: 0, y: 0, zoom: 999 })?.zoom).toBe(6);
+    expect(sanitizeViewport({ x: 0, y: 0, zoom: 1 }, { minZoom: 0.5, maxZoom: 2 })?.zoom).toBe(1);
+    expect(sanitizeViewport({ x: 0, y: 0, zoom: 0.1 }, { minZoom: 0.5, maxZoom: 2 })?.zoom).toBe(0.5);
   });
 });
