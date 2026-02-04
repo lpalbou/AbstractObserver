@@ -11,7 +11,7 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 ## Quickstart (npm)
 Prereqs:
 - Node.js `>=18`
-- An AbstractGateway that exposes the endpoints listed in `docs/gateway-api.md`
+- An AbstractGateway that exposes the endpoints listed in `docs/api.md`
 
 Run the UI server:
 ```bash
@@ -32,7 +32,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx abstractobserver@0.1.3
+npx abstractobserver@0.1.4
 ```
 
 ### CLI configuration
@@ -51,11 +51,19 @@ All pages share the same gateway connection settings.
 
 ## Documentation
 - Start here: `docs/getting-started.md`
+- Docs index: `docs/README.md`
+- FAQ: `docs/faq.md`
 - Architecture (with diagrams): `docs/architecture.md`
 - Configuration & deployment: `docs/configuration.md`
-- Gateway API contract (endpoints used): `docs/gateway-api.md`
+- API (gateway endpoints used): `docs/api.md`
 - Development: `docs/development.md`
 - Security & trust boundaries: `docs/security.md`
+
+## Project
+- Changelog: `CHANGELOG.md`
+- Contributing: `CONTRIBUTING.md`
+- Security policy (vulnerability reporting): `SECURITY.md`
+- Acknowledments: `ACKNOWLEDMENTS.md`
 
 ## Development (from source)
 ```bash

@@ -2521,7 +2521,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                   className="mono"
                                   style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
                                 >
-                                  UAT currently points to {short_id(uat_lock_owner, 16)}. Click “Deploy to UAT” to switch the shared UAT stack to this request.
+                                  UAT currently points to {short_id(uat_lock_owner, 16)}. Click “Restart UAT” to switch the shared UAT stack to this request.
                                 </div>
                               ) : exec_mode === "uat" && uat_lock_acquired ? (
                                 <>
@@ -2597,7 +2597,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                               <div className="row" style={{ flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
                                 {exec_mode === "uat" ? (
                                   <button className="btn" onClick={() => void exec_deploy_uat_now()} disabled={exec_qa_loading}>
-                                    {uat_lock_acquired ? "Restart UAT" : uat_pending ? "Deploy to UAT" : "Deploy to UAT"}
+                                    Restart UAT
                                   </button>
                                 ) : null}
                                 <button className="btn primary" onClick={() => void exec_promote_to_prod()} disabled={exec_qa_loading}>

@@ -1,14 +1,16 @@
 # Changelog
 
 ## Unreleased
-- UI: align AbstractObserver’s theme with AbstractFlow (tokens, typography, inputs/buttons, scrollbars).
-- UI: new app header with status pills; Viewer header shows workflow, status, short run id, and relative time.
-- UI: run picker cards show clearer labels + relative times and include a short run id for disambiguation.
-- UI: ledger cards use relative timestamps (no long ISO strings) and improved status chips.
-- UI: digest timestamps and tool/LLM detail timestamps use relative time (falls back to date after 3d).
-- UI: chat copy/empty-state messaging is more concise; chat timestamps are relative.
-- Tests: `cd abstractobserver && npm test`
-- Build: `cd abstractobserver && npm run build`
+- (nothing yet)
+
+## 0.1.4 (2026-02-04)
+- Docs: refresh documentation for public release (README, getting started, docs index, API contract, FAQ).
+- Docs: add security policy (`SECURITY.md`), contributing guide, and acknowledments.
+- UI: align theme with AbstractFlow (tokens, typography, inputs/buttons, scrollbars).
+- UI: new header with status pills; run picker and ledger cards use clearer labels + relative time.
+- UI: digest and chat timestamps use relative time (falls back to date after 3d).
+- Tests: `npm test`
+- Build: `npm run build`
 
 ## 0.1.3 (2026-01-11)
 - UI: Digest stays up to date and includes per-subflow stats (polls discovered subrun ledgers).

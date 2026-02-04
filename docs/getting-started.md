@@ -46,12 +46,13 @@ Go to **Launch**:
 - select a workflow (discovered from gateway bundles)
 - click **Start Workflow** (or schedule via the cadence section)
 
-The UI uses `POST /api/gateway/runs/start` and `POST /api/gateway/runs/schedule` (see `src/lib/gateway_client.ts` and `gateway-api.md`).
+The UI uses `POST /api/gateway/runs/start` and `POST /api/gateway/runs/schedule` (see `src/lib/gateway_client.ts` and `api.md`).
 
 ## Next
+- Docs index: `README.md`
+- FAQ: `faq.md`
 - Configuration & deployment: `configuration.md`
-- Gateway endpoints used by the UI: `gateway-api.md`
+- Gateway endpoints used by the UI: `api.md`
 - Security & trust boundaries: `security.md`
 - Development (from source): `development.md`
 - Troubleshooting: `troubleshooting.md`
-

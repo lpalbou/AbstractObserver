@@ -39,5 +39,6 @@ In dev, AbstractObserver automatically unregisters service workers on load (see 
 
 ## See also
 - Getting started: `getting-started.md`
+- FAQ: `faq.md`
 - Configuration & deployment: `configuration.md`
 - Security & trust boundaries: `security.md`

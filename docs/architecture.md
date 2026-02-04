@@ -64,7 +64,8 @@ See `security.md` for operational guidance.
 
 ## Related docs
 - Getting started: `getting-started.md`
+- Docs index: `README.md`
 - Project overview + install: `../README.md`
-- Gateway API contract (what the UI calls): `gateway-api.md`
+- API (gateway endpoints used): `api.md`
 - Configuration & deployment: `configuration.md`
 - Security & trust boundaries: `security.md`

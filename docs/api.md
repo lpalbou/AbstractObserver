@@ -1,4 +1,4 @@
-# AbstractObserver ↔ AbstractGateway API contract
+# API (AbstractGateway endpoints used by AbstractObserver)
 
 This document lists the **HTTP endpoints AbstractObserver calls**, grouped by feature.
 The **source of truth** for paths, query params, and request bodies is `src/lib/gateway_client.ts`.
@@ -81,6 +81,7 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/backlog/advisor`
 
 ## See also
+- Docs index: `README.md`
 - Getting started: `getting-started.md`
 - Architecture: `architecture.md`
 - Configuration & deployment: `configuration.md`

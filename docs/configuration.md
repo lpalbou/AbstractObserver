@@ -50,6 +50,7 @@ If your gateway is elsewhere, update the `server.proxy` section.
 
 ## See also
 - Getting started: `getting-started.md`
-- API endpoints used by the UI: `gateway-api.md`
+- FAQ: `faq.md`
+- API endpoints used by the UI: `api.md`
 - Security & trust boundaries: `security.md`
 - Development: `development.md`

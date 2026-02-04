@@ -46,6 +46,8 @@ Guidance:
 
 ## See also
 - Getting started: `getting-started.md`
+- FAQ: `faq.md`
 - Configuration & deployment: `configuration.md`
-- Gateway API contract: `gateway-api.md`
+- API (gateway endpoints used): `api.md`
 - Architecture: `architecture.md`
+- Security policy (vulnerability reporting): `../SECURITY.md`

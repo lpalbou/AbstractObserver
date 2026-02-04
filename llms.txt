@@ -8,9 +8,11 @@ For exact API paths and request bodies, treat `src/lib/gateway_client.ts` as the
 ## Docs
 - [README](README.md): Install and quickstart
 - [Getting started](docs/getting-started.md): Run the UI and connect to a gateway
+- [FAQ](docs/faq.md): Common questions (grounded in code)
+- [Docs index](docs/README.md): What to read next
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): CLI env vars, UI settings, deployment patterns
-- [Gateway API contract](docs/gateway-api.md): Endpoints used by the UI (grounded in code)
+- [API](docs/api.md): Gateway endpoints used by the UI (grounded in code)
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes
@@ -24,6 +26,19 @@ For exact API paths and request bodies, treat `src/lib/gateway_client.ts` as the
 - [Vite config](vite.config.ts): Workspace aliases + dev `/api` proxy
 - [Package metadata](package.json): Scripts, bin name, Node engine
 
+## Commands
+- Run packaged UI server: `npx abstractobserver`
+- Dev server (with `/api` proxy): `npm run dev`
+- Unit tests: `npm test`
+- Production build (writes `dist/`): `npm run build`
+
+## Notes
+- Build output lives in `dist/` and is served by `bin/cli.js` (don’t edit `dist/` manually).
+- Dev/build uses Vite aliases to sibling workspace packages under `../abstractuic/*/src` (see `vite.config.ts` and `docs/development.md`).
+
 ## Optional
 - [Changelog](CHANGELOG.md): Release notes
+- [Contributing](CONTRIBUTING.md): How to develop and submit changes
+- [Security policy](SECURITY.md): Responsible vulnerability reporting
+- [Acknowledments](ACKNOWLEDMENTS.md): Credits
 - [License](LICENSE): MIT license
