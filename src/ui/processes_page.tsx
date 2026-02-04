@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { GatewayClient, ManagedProcessInfo } from "../lib/gateway_client";
+import type { GatewayClient, ManagedEnvVarItem, ManagedProcessInfo } from "../lib/gateway_client";
 import { Modal } from "./modal";
 import { Icon } from "@abstractuic/ui-kit";
 
@@ -36,6 +36,15 @@ function sort_processes(items: ManagedProcessInfo[]): ManagedProcessInfo[] {
   });
 }
 
+function env_source_chip(source: string): { cls: string; label: string } {
+  const s = String(source || "").trim().toLowerCase();
+  if (s === "override") return { cls: "ok", label: "override" };
+  if (s.startsWith("inherited")) return { cls: "info", label: s };
+  if (s === "unset") return { cls: "warn", label: "unset" };
+  if (!s || s === "missing") return { cls: "muted", label: "missing" };
+  return { cls: "muted", label: s };
+}
+
 export function ProcessesPage({
   gateway,
   gateway_connected,
@@ -43,11 +52,18 @@ export function ProcessesPage({
   gateway: GatewayClient;
   gateway_connected: boolean;
 }): React.ReactElement {
+  const [tab, set_tab] = useState<"processes" | "env_vars">("processes");
   const [enabled, set_enabled] = useState<boolean | null>(null);
   const [items, set_items] = useState<ManagedProcessInfo[]>([]);
   const [loading, set_loading] = useState(false);
   const [error, set_error] = useState<string>("");
   const [auto_refresh, set_auto_refresh] = useState(false);
+
+  const [env_enabled, set_env_enabled] = useState<boolean | null>(null);
+  const [env_items, set_env_items] = useState<ManagedEnvVarItem[]>([]);
+  const [env_loading, set_env_loading] = useState(false);
+  const [env_error, set_env_error] = useState<string>("");
+  const [env_inputs, set_env_inputs] = useState<Record<string, string>>({});
 
   const [log_open, set_log_open] = useState(false);
   const [log_target, set_log_target] = useState<ManagedProcessInfo | null>(null);
@@ -71,6 +87,24 @@ export function ProcessesPage({
       set_error(String(e?.message || e || "Failed to list processes"));
     } finally {
       set_loading(false);
+    }
+  }, [gateway, gateway_connected]);
+
+  const refresh_env = useCallback(async () => {
+    if (!gateway_connected) return;
+    set_env_loading(true);
+    set_env_error("");
+    try {
+      const body = await gateway.list_process_env_vars();
+      set_env_enabled(Boolean((body as any)?.enabled));
+      const vars0 = Array.isArray((body as any)?.vars) ? ((body as any).vars as ManagedEnvVarItem[]) : [];
+      set_env_items(vars0);
+      const err = String((body as any)?.error || "").trim();
+      if (err) set_env_error(err);
+    } catch (e: any) {
+      set_env_error(String(e?.message || e || "Failed to list env vars"));
+    } finally {
+      set_env_loading(false);
     }
   }, [gateway, gateway_connected]);
 
@@ -118,10 +152,17 @@ export function ProcessesPage({
 
   useEffect(() => {
     if (!gateway_connected) return;
+    if (tab !== "processes") return;
     if (!auto_refresh) return;
     const id = window.setInterval(() => void refresh(), 2000);
     return () => window.clearInterval(id);
-  }, [gateway_connected, auto_refresh, refresh]);
+  }, [gateway_connected, tab, auto_refresh, refresh]);
+
+  useEffect(() => {
+    if (!gateway_connected) return;
+    if (tab !== "env_vars") return;
+    void refresh_env();
+  }, [gateway_connected, tab, refresh_env]);
 
   useEffect(() => {
     if (!gateway_connected) return;
@@ -148,14 +189,56 @@ export function ProcessesPage({
     }
   }
 
+  async function env_set(key: string): Promise<void> {
+    const k = String(key || "").trim();
+    if (!k) return;
+    set_env_error("");
+    try {
+      const value = String(env_inputs?.[k] ?? "");
+      const body = await gateway.update_process_env_vars({ set: { [k]: value } });
+      set_env_enabled(Boolean((body as any)?.enabled));
+      set_env_items(Array.isArray((body as any)?.vars) ? ((body as any).vars as ManagedEnvVarItem[]) : []);
+      set_env_inputs((prev) => ({ ...(prev || {}), [k]: "" }));
+      const err = String((body as any)?.error || "").trim();
+      if (err) set_env_error(err);
+    } catch (e: any) {
+      set_env_error(String(e?.message || e || "Failed to set env var"));
+    }
+  }
+
+  async function env_unset(key: string): Promise<void> {
+    const k = String(key || "").trim();
+    if (!k) return;
+    set_env_error("");
+    try {
+      const body = await gateway.update_process_env_vars({ unset: [k] });
+      set_env_enabled(Boolean((body as any)?.enabled));
+      set_env_items(Array.isArray((body as any)?.vars) ? ((body as any).vars as ManagedEnvVarItem[]) : []);
+      set_env_inputs((prev) => ({ ...(prev || {}), [k]: "" }));
+      const err = String((body as any)?.error || "").trim();
+      if (err) set_env_error(err);
+    } catch (e: any) {
+      set_env_error(String(e?.message || e || "Failed to unset env var"));
+    }
+  }
+
   const enabled_label = enabled === null ? "…" : enabled ? "enabled" : "disabled";
+  const env_enabled_label = env_enabled === null ? "…" : env_enabled ? "enabled" : "disabled";
 
   return (
     <div className="page page_scroll">
       <div className="page_inner constrained">
         <div className="card">
           <div className="title">
-            <h1>Processes</h1>
+            <h1>Process manager</h1>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+              <button className={`nav_tab ${tab === "processes" ? "active" : ""}`} onClick={() => set_tab("processes")}>
+                Processes
+              </button>
+              <button className={`nav_tab ${tab === "env_vars" ? "active" : ""}`} onClick={() => set_tab("env_vars")}>
+                Env vars
+              </button>
+            </div>
           </div>
 
           {!gateway_connected ? (
@@ -185,110 +268,201 @@ export function ProcessesPage({
                 </div>
               ) : null}
 
-              <div className="actions" style={{ marginTop: "10px" }}>
-                <button className={`btn btn_icon ${loading ? "is_loading" : ""}`} onClick={() => void refresh()} disabled={!gateway_connected || loading}>
-                  <Icon name="refresh" size={16} />
-                  {loading ? "Refreshing…" : "Refresh"}
-                </button>
-                <label className="btn" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                  <input type="checkbox" checked={auto_refresh} onChange={(e) => set_auto_refresh(Boolean(e.target.checked))} />
-                  auto
-                </label>
-              </div>
-
-              {error ? (
-                <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
-                  <div className="meta">
-                    <span className="mono">error</span>
-                    <span className="mono">processes</span>
+              {tab === "processes" ? (
+                <>
+                  <div className="actions" style={{ marginTop: "10px" }}>
+                    <button className={`btn btn_icon ${loading ? "is_loading" : ""}`} onClick={() => void refresh()} disabled={!gateway_connected || loading}>
+                      <Icon name="refresh" size={16} />
+                      {loading ? "Refreshing…" : "Refresh"}
+                    </button>
+                    <label className="btn" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                      <input type="checkbox" checked={auto_refresh} onChange={(e) => set_auto_refresh(Boolean(e.target.checked))} />
+                      auto
+                    </label>
                   </div>
-                  <div className="body mono">{error}</div>
-                </div>
-              ) : null}
 
-              <div style={{ marginTop: "12px" }}>
-                {sorted_items.map((p) => {
-                  const id = String(p.id || "").trim();
-                  const label = String(p.label || id).trim() || id;
-                  const s = status_chip(String(p.status || ""));
-                  const actions = Array.isArray((p as any)?.actions) ? ((p as any).actions as any[]).map((x) => String(x || "").trim()) : [];
-                  const can_start = actions.includes("start");
-                  const can_stop = actions.includes("stop");
-                  const can_restart = actions.includes("restart");
-                  const can_redeploy = actions.includes("redeploy");
-                  const can_logs = actions.includes("logs");
-                  const pid = typeof (p as any)?.pid === "number" ? Number((p as any).pid) : null;
-                  const url = String((p as any)?.url || "").trim();
-                  const desc = String((p as any)?.description || "").trim();
-                  const err0 = String((p as any)?.last_error || "").trim();
-                  const exit_code = typeof (p as any)?.exit_code === "number" ? Number((p as any).exit_code) : null;
-                  const subtitle_bits: string[] = [];
-                  if (pid) subtitle_bits.push(`pid ${pid}`);
-                  if (exit_code !== null) subtitle_bits.push(`exit ${exit_code}`);
-                  if (url) subtitle_bits.push(url);
-                  const subtitle = subtitle_bits.join(" • ");
-
-                  return (
-                    <div key={id} className="log_item" style={{ marginBottom: "10px" }}>
+                  {error ? (
+                    <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
                       <div className="meta">
-                        <span className="mono">{id}</span>
-                        <span className={`tag ${s.cls}`}>{s.label}</span>
+                        <span className="mono">error</span>
+                        <span className="mono">processes</span>
                       </div>
-                      <div className="body">
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
-                          <div>
+                      <div className="body mono">{error}</div>
+                    </div>
+                  ) : null}
+
+                  <div style={{ marginTop: "12px" }}>
+                    {sorted_items.map((p) => {
+                      const id = String(p.id || "").trim();
+                      const label = String(p.label || id).trim() || id;
+                      const s = status_chip(String(p.status || ""));
+                      const actions = Array.isArray((p as any)?.actions) ? ((p as any).actions as any[]).map((x) => String(x || "").trim()) : [];
+                      const can_start = actions.includes("start");
+                      const can_stop = actions.includes("stop");
+                      const can_restart = actions.includes("restart");
+                      const can_redeploy = actions.includes("redeploy");
+                      const can_logs = actions.includes("logs");
+                      const pid = typeof (p as any)?.pid === "number" ? Number((p as any).pid) : null;
+                      const url = String((p as any)?.url || "").trim();
+                      const desc = String((p as any)?.description || "").trim();
+                      const err0 = String((p as any)?.last_error || "").trim();
+                      const exit_code = typeof (p as any)?.exit_code === "number" ? Number((p as any).exit_code) : null;
+                      const subtitle_bits: string[] = [];
+                      if (pid) subtitle_bits.push(`pid ${pid}`);
+                      if (exit_code !== null) subtitle_bits.push(`exit ${exit_code}`);
+                      if (url) subtitle_bits.push(url);
+                      const subtitle = subtitle_bits.join(" • ");
+
+                      return (
+                        <div key={id} className="log_item" style={{ marginBottom: "10px" }}>
+                          <div className="meta">
+                            <span className="mono">{id}</span>
+                            <span className={`tag ${s.cls}`}>{s.label}</span>
+                          </div>
+                          <div className="body">
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
+                              <div>
+                                <div style={{ fontWeight: 700 }}>{label}</div>
+                                {desc ? (
+                                  <div className="mono muted" style={{ marginTop: "4px" }}>
+                                    {clamp(desc, 220)}
+                                  </div>
+                                ) : null}
+                                {subtitle ? (
+                                  <div className="mono muted" style={{ marginTop: "6px", fontSize: "var(--font-size-sm)" }}>
+                                    {subtitle}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            {err0 ? (
+                              <div className="mono" style={{ marginTop: "8px", color: "var(--error)" }}>
+                                {clamp(err0, 360)}
+                              </div>
+                            ) : null}
+
+                            <div className="actions" style={{ marginTop: "10px" }}>
+                              {can_start ? (
+                                <button className="btn primary" onClick={() => void run_action(p, "start")} disabled={loading}>
+                                  Start
+                                </button>
+                              ) : null}
+                              {can_stop ? (
+                                <button className="btn danger" onClick={() => void run_action(p, "stop")} disabled={loading}>
+                                  Stop
+                                </button>
+                              ) : null}
+                              {can_restart ? (
+                                <button className="btn" onClick={() => void run_action(p, "restart")} disabled={loading}>
+                                  Restart
+                                </button>
+                              ) : null}
+                              {can_redeploy ? (
+                                <button className="btn" onClick={() => void run_action(p, "redeploy")} disabled={loading}>
+                                  Redeploy
+                                </button>
+                              ) : null}
+                              {can_logs ? (
+                                <button className="btn" onClick={() => void open_logs(p)} disabled={loading}>
+                                  Logs
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
+                    Write-only: the gateway will never return env var values to the browser. Use this for integration config (email, notifications, …).
+                  </div>
+
+                  <div className="mono muted" style={{ marginTop: "6px" }}>
+                    Env vars: {env_enabled_label}
+                  </div>
+
+                  <div className="actions" style={{ marginTop: "10px" }}>
+                    <button className={`btn btn_icon ${env_loading ? "is_loading" : ""}`} onClick={() => void refresh_env()} disabled={!gateway_connected || env_loading}>
+                      <Icon name="refresh" size={16} />
+                      {env_loading ? "Refreshing…" : "Refresh"}
+                    </button>
+                  </div>
+
+                  {env_error ? (
+                    <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
+                      <div className="meta">
+                        <span className="mono">error</span>
+                        <span className="mono">env</span>
+                      </div>
+                      <div className="body mono">{env_error}</div>
+                    </div>
+                  ) : null}
+
+                  <div style={{ marginTop: "12px" }}>
+                    {env_items.map((it) => {
+                      const key = String((it as any)?.key || "").trim();
+                      if (!key) return null;
+                      const label = String((it as any)?.label || key).trim() || key;
+                      const desc = String((it as any)?.description || "").trim();
+                      const source = String((it as any)?.source || "").trim();
+                      const secret = Boolean((it as any)?.secret);
+                      const updated_at = String((it as any)?.updated_at || "").trim();
+                      const chip = env_source_chip(source);
+                      const v = String(env_inputs?.[key] ?? "");
+
+                      return (
+                        <div key={`env:${key}`} className="log_item" style={{ marginBottom: "10px" }}>
+                          <div className="meta">
+                            <span className="mono">{key}</span>
+                            <span className={`chip mono ${chip.cls}`}>{chip.label}</span>
+                          </div>
+                          <div className="body">
                             <div style={{ fontWeight: 700 }}>{label}</div>
                             {desc ? (
                               <div className="mono muted" style={{ marginTop: "4px" }}>
-                                {clamp(desc, 220)}
+                                {clamp(desc, 280)}
                               </div>
                             ) : null}
-                            {subtitle ? (
+                            {updated_at ? (
                               <div className="mono muted" style={{ marginTop: "6px", fontSize: "var(--font-size-sm)" }}>
-                                {subtitle}
+                                updated {updated_at}
                               </div>
                             ) : null}
+
+                            <div className="actions" style={{ marginTop: "10px", alignItems: "center" }}>
+                              <input
+                                className="input"
+                                value={v}
+                                onChange={(e) => set_env_inputs((prev) => ({ ...(prev || {}), [key]: String(e.target.value || "") }))}
+                                placeholder={secret ? "••••••••" : "value"}
+                                type={secret ? "password" : "text"}
+                                style={{ flex: "1 1 320px", minWidth: "220px" }}
+                                autoComplete="off"
+                                spellCheck={false}
+                              />
+                              <button className="btn primary" onClick={() => void env_set(key)} disabled={env_loading}>
+                                Set
+                              </button>
+                              <button className="btn" onClick={() => void env_unset(key)} disabled={env_loading}>
+                                Unset
+                              </button>
+                            </div>
                           </div>
                         </div>
-
-                        {err0 ? (
-                          <div className="mono" style={{ marginTop: "8px", color: "var(--error)" }}>
-                            {clamp(err0, 360)}
-                          </div>
-                        ) : null}
-
-                        <div className="actions" style={{ marginTop: "10px" }}>
-                          {can_start ? (
-                            <button className="btn primary" onClick={() => void run_action(p, "start")} disabled={loading}>
-                              Start
-                            </button>
-                          ) : null}
-                          {can_stop ? (
-                            <button className="btn danger" onClick={() => void run_action(p, "stop")} disabled={loading}>
-                              Stop
-                            </button>
-                          ) : null}
-                          {can_restart ? (
-                            <button className="btn" onClick={() => void run_action(p, "restart")} disabled={loading}>
-                              Restart
-                            </button>
-                          ) : null}
-                          {can_redeploy ? (
-                            <button className="btn" onClick={() => void run_action(p, "redeploy")} disabled={loading}>
-                              Redeploy
-                            </button>
-                          ) : null}
-                          {can_logs ? (
-                            <button className="btn" onClick={() => void open_logs(p)} disabled={loading}>
-                              Logs
-                            </button>
-                          ) : null}
-                        </div>
+                      );
+                    })}
+                    {!env_items.length ? (
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
+                        No env vars available (process manager must be enabled).
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    ) : null}
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>

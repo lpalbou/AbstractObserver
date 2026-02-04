@@ -180,6 +180,24 @@ export type ProcessLogTailResponse = {
   content: string;
 };
 
+export type ManagedEnvVarItem = {
+  key: string;
+  label: string;
+  description: string;
+  category?: string;
+  secret?: boolean;
+  is_set?: boolean;
+  source?: string;
+  updated_at?: string | null;
+};
+
+export type ManagedEnvVarListResponse = {
+  ok: boolean;
+  enabled: boolean;
+  error?: string | null;
+  vars: ManagedEnvVarItem[];
+};
+
 function _join(base_url: string, path: string): string {
   const base = (base_url || "").trim().replace(/\/+$/, "");
   if (!base) return path;
@@ -321,6 +339,35 @@ export class GatewayClient {
     });
     if (!r.ok) throw new Error(`list_processes failed: ${await _read_error(r)}`);
     return (await r.json()) as ProcessListResponse;
+  }
+
+  async list_process_env_vars(): Promise<ManagedEnvVarListResponse> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/processes/env"), {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`list_process_env_vars failed: ${await _read_error(r)}`);
+    return (await r.json()) as ManagedEnvVarListResponse;
+  }
+
+  async update_process_env_vars(args: { set?: Record<string, string>; unset?: string[] }): Promise<ManagedEnvVarListResponse> {
+    const req_body: any = {};
+    const set0 = args?.set && typeof args.set === "object" ? args.set : {};
+    const unset0 = Array.isArray(args?.unset) ? args?.unset : [];
+    if (set0 && Object.keys(set0).length) req_body.set = set0;
+    if (unset0 && unset0.length) req_body.unset = unset0;
+
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/processes/env"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify(req_body),
+    });
+    if (!r.ok) throw new Error(`update_process_env_vars failed: ${await _read_error(r)}`);
+    return (await r.json()) as ManagedEnvVarListResponse;
   }
 
   async start_process(process_id: string): Promise<ProcessActionResponse> {

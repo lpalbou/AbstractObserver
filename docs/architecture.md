@@ -1,63 +1,70 @@
-# AbstractObserver — Architecture (Living)
+# AbstractObserver — Architecture
 
-> Updated: 2026-01-11
+> Last updated: 2026-02-04
 
-## Purpose
-**AbstractObserver** is a lightweight **observability-first** web/PWA UI for the AbstractFramework runtime, viewed through the **AbstractGateway**.
+AbstractObserver is a **gateway-only** UI:
+- It **does not execute** workflows.
+- It renders state by fetching + streaming a **durable run ledger** from an AbstractGateway.
+- It can submit **durable commands** back to the gateway.
 
-It is intentionally **not** a workflow editor:
-- authoring stays in **AbstractFlow**
-- durable execution stays in **AbstractRuntime**
-- network control-plane stays in **AbstractGateway**
+The implementation is intentionally simple: a static SPA + typed HTTP client.
 
-AbstractObserver’s job is to make it easy to:
-- discover available workflows/bundles exposed by a gateway
-- start a workflow run with typed inputs
-- attach to any existing run
-- observe ledger + graph + digest in real time (replay-first + streaming)
-- submit durable run commands (pause/resume/cancel) and resume waits when applicable
+## Component view (what runs where)
+```mermaid
+flowchart LR
+  U[User] -->|opens| B[Browser / PWA<br/><code>src/ui/app.tsx</code>]
+  S[Static UI server<br/><code>bin/cli.js</code>] -->|serves dist/ + SPA fallback| B
+  B -->|HTTP fetch + SSE| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  B -->|optional JSON-RPC over HTTP| W[MCP tool worker<br/><code>src/lib/mcp_worker_client.ts</code>]
 
-## Dependencies and Contracts
-### AbstractGateway API (primary)
-AbstractObserver talks only to the gateway HTTP API:
-- `GET /api/gateway/bundles` (workflow discovery)
-- `GET /api/gateway/runs` (recent run listing)
-- `GET /api/gateway/runs/{run_id}` + `.../input_data` (attach context)
-- `GET /api/gateway/ledger` (replay)
-- `GET /api/gateway/ledger/stream` (stream)
-- `POST /api/gateway/runs/start` (start run)
-- `POST /api/gateway/commands` (pause/resume/cancel/resume-wait)
+  subgraph Notes[Notes]
+    N1[Dev: Vite dev server can proxy /api<br/><code>vite.config.ts</code>]
+    N2[PWA shell cache via service worker<br/><code>src/main.tsx</code>, <code>public/sw.js</code>]
+  end
+```
 
-The UI treats the **ledger as the source of truth**:
-- it replays before streaming (replay-first)
-- UI status is derived from durable `emit_event` records (e.g. `abstract.status`)
+## Core data flow: observe a run (replay → stream)
+The UI is **replay-first**:
+1) page through ledger history; then
+2) open an SSE stream and append new records.
 
-### Optional: Process manager (dev-only)
-When `ABSTRACTGATEWAY_ENABLE_PROCESS_MANAGER=1` is enabled on the gateway host, AbstractObserver can also use:
-- `GET /api/gateway/processes` (list managed processes)
-- `POST /api/gateway/processes/{id}/start|stop|restart` (control)
-- `POST /api/gateway/processes/gateway/redeploy` (run build + restart gateway; best-effort)
-- `GET /api/gateway/processes/{id}/logs/tail` (tail process logs)
+```mermaid
+sequenceDiagram
+  participant UI as Browser UI
+  participant GW as AbstractGateway
 
-This is a **high-trust** feature intended for private dev machines.
+  UI->>GW: GET /api/gateway/runs/{run_id}
+  UI->>GW: GET /api/gateway/runs/{run_id}/ledger?after=0&limit=N (repeat)
+  UI->>GW: GET /api/gateway/runs/{run_id}/ledger/stream?after=cursor (SSE)
+  GW-->>UI: event: step {"cursor": number, "record": StepRecord}
+```
 
-### Optional: Remote Tool Worker (advanced)
-For deployments where tool execution is delegated to a client-controlled environment, AbstractObserver can be configured with an **MCP HTTP tool worker** endpoint.
+**Evidence in code**
+- Replay: `GatewayClient.get_ledger()` in `src/lib/gateway_client.ts`
+- Stream: `GatewayClient.stream_ledger()` + `SseParser` in `src/lib/gateway_client.ts` and `src/lib/sse_parser.ts`
+- Ledger record shape: `StepRecord` / `LedgerStreamEvent` in `src/lib/types.ts`
+- Minimal record interpretation helpers: `src/lib/runtime_extractors.ts`
 
-This is optional and should be treated as **high trust / potentially dangerous**, because it can execute tools on behalf of a run.
+## UI structure (pages → code)
+AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
-## Where it fits in the framework
-AbstractObserver is a **host app** focused on **observability**, alongside:
-- AbstractFlow Web (authoring + inspection)
-- AbstractCode (CLI host)
-- AbstractAssistant (desktop host)
+- **Observe** (runs, ledger, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/flow_graph.tsx`, `src/ui/run_picker.tsx`
+- **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
+- **Mindmap** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
+- **Backlog** (browse/edit/execute maintenance items): `src/ui/backlog_browser.tsx` + `GatewayClient.backlog_*()`
+- **Inbox** (bug/feature reports + triage decisions): `src/ui/report_inbox.tsx` + `GatewayClient.list_*_reports()` / `triage_*()`
+- **Processes** (dev-only process manager): `src/ui/processes_page.tsx` + `GatewayClient.list_processes()` / `process_log_tail()` / `*_process()`
 
-It is designed to work even when:
-- workflows are complex and nested (subflows/subruns)
-- runs are long-lived
-- multiple clients attach/detach over time
+## Trust boundaries (important)
+AbstractObserver can enable high-trust features depending on what your gateway exposes:
+- Process manager endpoints can start/stop/redeploy processes.
+- Remote tool execution can be delegated to a client-controlled MCP worker, then resumed into a run via `POST /api/gateway/commands`.
+
+See `security.md` for operational guidance.
 
 ## Related docs
-- Framework overview: `docs/architecture.md`
-- Gateway architecture: `abstractgateway/docs/architecture.md`
-- Runtime architecture: `abstractruntime/docs/architecture.md`
+- Getting started: `getting-started.md`
+- Project overview + install: `../README.md`
+- Gateway API contract (what the UI calls): `gateway-api.md`
+- Configuration & deployment: `configuration.md`
+- Security & trust boundaries: `security.md`

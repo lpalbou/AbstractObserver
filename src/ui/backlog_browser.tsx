@@ -2521,7 +2521,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                   className="mono"
                                   style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}
                                 >
-                                  UAT is locked by {short_id(uat_lock_owner, 16)}. This request did not auto-deploy to UAT.
+                                  UAT currently points to {short_id(uat_lock_owner, 16)}. Click “Deploy to UAT” to switch the shared UAT stack to this request.
                                 </div>
                               ) : exec_mode === "uat" && uat_lock_acquired ? (
                                 <>
@@ -2621,7 +2621,6 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           const deleted = typeof (promotion as any)?.deleted === "number" ? Number((promotion as any)?.deleted) : null;
                           const manifest_sha = String((promotion as any)?.manifest_sha256 || "").trim();
                           const mode = String((promotion as any)?.mode || "").trim();
-                          const next_uat = String((promotion_report as any)?.next_uat_autodeployed_request_id || "").trim();
                           const redeploy = (promotion_report as any)?.redeploy ?? null;
                           const redeploy_status = String((redeploy as any)?.status || "").trim();
                           const redeploy_reason = String((redeploy as any)?.reason || "").trim();
@@ -2665,11 +2664,6 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                 {redeploy_error ? (
                                   <div style={{ color: "rgba(239, 68, 68, 0.9)" }}>
                                     <span className="mono muted">redeploy_error:</span> {redeploy_error}
-                                  </div>
-                                ) : null}
-                                {next_uat ? (
-                                  <div>
-                                    <span className="mono muted">next_uat_autodeployed:</span> {short_id(next_uat, 16)}
                                   </div>
                                 ) : null}
                               </div>
@@ -2758,7 +2752,6 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                           const sha = String(promo?.manifest_sha256 || "").trim();
                           const redeploy = rep && typeof rep.redeploy === "object" ? rep.redeploy : null;
                           const redeploy_status = redeploy ? String(redeploy.status || "").trim() : "";
-                          const next_uat = rep ? String(rep.next_uat_autodeployed_request_id || "").trim() : "";
                           return (
                             <>
                               <div className="section_divider" />
@@ -2793,11 +2786,6 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                 {redeploy_status ? (
                                   <div>
                                     <span className="mono muted">redeploy:</span> {redeploy_status}
-                                  </div>
-                                ) : null}
-                                {next_uat ? (
-                                  <div>
-                                    <span className="mono muted">next_uat_autodeploy:</span> {short_id(next_uat, 16)}
                                   </div>
                                 ) : null}
                               </div>
@@ -3370,7 +3358,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             </div>
           ) : (
             <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-              The run will execute in a candidate workspace and auto-deploy UAT on success (then you approve/iterate).
+              The run will execute in a candidate workspace. When it reaches “awaiting QA”, click “Restart UAT” to deploy it to the shared UAT stack.
             </div>
           )}
         </div>
@@ -3500,7 +3488,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             </div>
           ) : (
             <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-              The batch will execute in a candidate workspace and auto-deploy UAT on success (then you approve/iterate).
+              The batch will execute in a candidate workspace. When it reaches “awaiting QA”, click “Restart UAT” to deploy it to the shared UAT stack.
             </div>
           )}
         </div>

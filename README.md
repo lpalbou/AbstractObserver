@@ -1,37 +1,67 @@
-# AbstractObserver (Web/PWA)
+# AbstractObserver
 
-This is a **gateway-only** observability UI for AbstractFramework:
-- connect to a Run Gateway (`/api/gateway/*`)
-- render by replaying/streaming the **ledger**
-- act by submitting **durable commands**
+Gateway-only observability UI (Web/PWA) for AbstractFramework runs.
 
-## Docs
-- Architecture: `docs/architecture.md`
+What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
+- **Discover** workflows/bundles exposed by an AbstractGateway
+- **Launch** or **schedule** runs (durable)
+- **Observe** runs by replaying + streaming the durable **ledger** (replay-first + SSE)
+- **Control** runs via durable commands (pause/resume/cancel/resume-wait)
 
-## Installation
+## Quickstart (npm)
+Prereqs:
+- Node.js `>=18`
+- An AbstractGateway that exposes the endpoints listed in `docs/gateway-api.md`
 
-### Global CLI (recommended)
+Run the UI server:
+```bash
+npx abstractobserver
+```
+
+Open `http://localhost:3001`, then go to **Settings** and configure:
+- **Gateway URL** (usually your gateway base URL, e.g. `http://localhost:8081`)
+  - Leave it blank only for same-origin deployments (reverse proxy routes `/api`) or when using `npm run dev` (Vite `/api` proxy).
+- optional **Auth token**, then click **Connect**
+
+## Install options
+### Global install
 ```bash
 npm install -g abstractobserver
 abstractobserver
 ```
 
-This will start the UI server on `http://localhost:3001` (configurable via `PORT` env var).
-
-### From source
+### Pin a version (recommended for deployments)
 ```bash
-git clone https://github.com/lpalbou/abstractobserver.git
-cd abstractobserver
+npx abstractobserver@0.1.3
+```
+
+### CLI configuration
+The CLI is a static file server implemented in `bin/cli.js`.
+- `PORT` (default `3001`)
+- `HOST` (default `0.0.0.0`)
+- `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=on` (enables the optional GPU widget)
+
+## Features (UI pages)
+All pages share the same gateway connection settings.
+
+- **Observe**: ledger, graph, digest, attachments, chat
+- **Launch**: start runs, schedule runs, bundle upload/reload
+- **Mindmap**: knowledge-graph query UI (requires `POST /api/gateway/kg/query`)
+- **Backlog / Inbox / Processes**: maintainer tooling (high trust; requires additional gateway endpoints)
+
+## Documentation
+- Start here: `docs/getting-started.md`
+- Architecture (with diagrams): `docs/architecture.md`
+- Configuration & deployment: `docs/configuration.md`
+- Gateway API contract (endpoints used): `docs/gateway-api.md`
+- Development: `docs/development.md`
+- Security & trust boundaries: `docs/security.md`
+
+## Development (from source)
+```bash
 npm install
 npm run dev
 ```
 
-## Start a workflow
-- Run a gateway (`abstractgateway`) with `ABSTRACTGATEWAY_WORKFLOW_SOURCE=bundle` and `ABSTRACTGATEWAY_FLOWS_DIR` pointing to a directory containing one or more `*.flow` bundles.
-- For LLM/tool/agent workflows in bundle mode, configure:
-  - `ABSTRACTGATEWAY_PROVIDER` and `ABSTRACTGATEWAY_MODEL`
-  - `ABSTRACTGATEWAY_TOOL_MODE=passthrough` (default) or `ABSTRACTGATEWAY_TOOL_MODE=local` (dev only)
-- In the UI:
-  - click **Connect** to discover workflows/runs/tools/providers,
-  - select a workflow (discovered) to load its entrypoint pin schema,
-  - click **Start Workflow** and provide inputs in the modal, then **Start**.
+Important: dev/build expects sibling “AbstractUIC” source packages because `vite.config.ts` aliases imports to `../abstractuic/*/src`.
+See `docs/development.md` for details.
