@@ -236,10 +236,6 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
   const [source, set_source] = useState<"all" | "global" | "session" | "run">("all");
   const all_owners = source === "all";
 
-  const explorer_wrap_ref = useRef<HTMLDivElement | null>(null);
-  const [explorer_epoch, set_explorer_epoch] = useState(0);
-  const rescue_remounts_ref = useRef(0);
-
   const [live, set_live] = useState(true);
   const [poll_ms, set_poll_ms] = useState(750);
   const [highlight_ms, set_highlight_ms] = useState(5000);
@@ -355,10 +351,6 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
     return `mindmap:${source}:${rid}:${sid}`;
   }, [run_id_override, session_id_override, source]);
 
-  useEffect(() => {
-    rescue_remounts_ref.current = 0;
-  }, [reset_key]);
-
   const time_bounds = useMemo(() => {
     let min_ms: number | null = null;
     let max_ms: number | null = null;
@@ -371,14 +363,25 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
     return { min_ms, max_ms };
   }, [items]);
 
+  const timeline_step_ms = 1000;
+  const slider_bounds = useMemo(() => {
+    const min_ms = time_bounds.min_ms;
+    const max_ms = time_bounds.max_ms;
+    if (typeof min_ms !== "number" || typeof max_ms !== "number") return null;
+    if (!Number.isFinite(min_ms) || !Number.isFinite(max_ms)) return null;
+    if (max_ms <= min_ms) return { min_ms, max_ms: min_ms, real_max_ms: max_ms };
+    const aligned_max = min_ms + Math.ceil((max_ms - min_ms) / timeline_step_ms) * timeline_step_ms;
+    return { min_ms, max_ms: aligned_max, real_max_ms: max_ms };
+  }, [time_bounds.max_ms, time_bounds.min_ms]);
+
   const [follow_latest, set_follow_latest] = useState(true);
   const [time_cursor_ms, set_time_cursor_ms] = useState<number | null>(null);
 
   useEffect(() => {
     if (!follow_latest) return;
-    if (typeof time_bounds.max_ms !== "number") return;
-    set_time_cursor_ms(time_bounds.max_ms);
-  }, [follow_latest, time_bounds.max_ms]);
+    if (!slider_bounds) return;
+    set_time_cursor_ms(slider_bounds.max_ms);
+  }, [follow_latest, slider_bounds]);
 
   const filtered_items = useMemo(() => {
     const cur = typeof time_cursor_ms === "number" ? time_cursor_ms : null;
@@ -413,43 +416,6 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
     seen_keys_ref.current = seen;
     last_seen_observed_at_ref.current = last_seen || prev_last_seen;
   }, []);
-
-  const is_explorer_graph_blank = useCallback((): boolean | null => {
-    const root = explorer_wrap_ref.current;
-    if (!root) return null;
-    const graph = root.querySelector(".amx-graph") as HTMLElement | null;
-    if (!graph) return null;
-    const nodes = Array.from(root.querySelectorAll(".react-flow__node")) as HTMLElement[];
-    if (!nodes.length) return null;
-
-    const g = graph.getBoundingClientRect();
-    if (!Number.isFinite(g.width) || !Number.isFinite(g.height) || g.width < 64 || g.height < 64) return null;
-
-    const margin = 10;
-    const left = g.left + margin;
-    const right = g.right - margin;
-    const top = g.top + margin;
-    const bottom = g.bottom - margin;
-
-    for (let i = 0; i < Math.min(nodes.length, 120); i++) {
-      const r = nodes[i].getBoundingClientRect();
-      if (r.right <= left) continue;
-      if (r.left >= right) continue;
-      if (r.bottom <= top) continue;
-      if (r.top >= bottom) continue;
-      return false;
-    }
-    return true;
-  }, []);
-
-  const maybe_fit_explorer_view = useCallback(() => {
-    const blank = is_explorer_graph_blank();
-    if (blank !== true) return;
-    const root = explorer_wrap_ref.current;
-    if (!root) return;
-    const fit = root.querySelector('button[aria-label="fit view"]') as HTMLButtonElement | null;
-    if (fit && !fit.disabled) fit.click();
-  }, [is_explorer_graph_blank]);
 
   const query_gateway = useCallback(
     async (params: {
@@ -715,18 +681,13 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
       const res = await query_gateway({ scope, limit: 0, order: "desc" });
       replace_items(res.items || [], { warnings: res.warnings });
       base_query_ref.current = { scope };
-      // ReactFlow can occasionally render a blank canvas during early layout/resize.
-      // We keep it user-friendly by snapping back to "fit view" if the graph is offscreen.
-      window.setTimeout(() => maybe_fit_explorer_view(), 0);
-      window.setTimeout(() => maybe_fit_explorer_view(), 120);
-      window.setTimeout(() => maybe_fit_explorer_view(), 300);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set_error(msg || "Load failed");
     } finally {
       set_loading(false);
     }
-  }, [maybe_fit_explorer_view, query_gateway, replace_items, source]);
+  }, [query_gateway, replace_items, source]);
 
   useEffect(() => {
     if (items.length) return;
@@ -771,13 +732,8 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
         }
       }
       replace_items(next_items, { warnings: meta?.result?.warnings });
-      // Query results can change the graph shape drastically; keep it in view.
-      if (meta?.kind === "live query") {
-        window.setTimeout(() => maybe_fit_explorer_view(), 0);
-        window.setTimeout(() => maybe_fit_explorer_view(), 120);
-      }
     },
-    [maybe_fit_explorer_view, replace_items]
+    [replace_items]
   );
 
   const poll_once = useCallback(async () => {
@@ -863,35 +819,6 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
     return () => window.clearInterval(t);
   }, [recent.length]);
 
-  useEffect(() => {
-    // If the explorer is mounted with an offscreen viewport, "fit view" and (rarely) remount once.
-    // This mirrors the user's manual workaround (switch tabs and back) without being disruptive.
-    let cancelled = false;
-    const check = () => {
-      if (cancelled) return;
-      const blank = is_explorer_graph_blank();
-      if (blank !== true) return;
-      maybe_fit_explorer_view();
-    };
-
-    const delays = [0, 80, 180, 420, 900];
-    const timers = delays.map((d) => window.setTimeout(check, d));
-    const final = window.setTimeout(() => {
-      if (cancelled) return;
-      const blank = is_explorer_graph_blank();
-      if (blank !== true) return;
-      if (rescue_remounts_ref.current >= 1) return;
-      rescue_remounts_ref.current += 1;
-      set_explorer_epoch((x) => x + 1);
-    }, 1200);
-
-    return () => {
-      cancelled = true;
-      for (const t of timers) window.clearTimeout(t);
-      window.clearTimeout(final);
-    };
-  }, [explorer_epoch, is_explorer_graph_blank, maybe_fit_explorer_view, reset_key]);
-
   return (
     <div className="mindmap_root">
       <div className="mindmap_bar">
@@ -969,9 +896,9 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
         </div>
       ) : null}
 
-      <div className="mindmap_explorer" ref={explorer_wrap_ref}>
+      <div className="mindmap_explorer">
         <KgActiveMemoryExplorer
-          key={`${reset_key}:${explorer_epoch}`}
+          key={reset_key}
           title="mindmap"
           resetKey={reset_key}
           queryMode="replace"
@@ -1008,29 +935,28 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
           </div>
         ) : null}
 
-        {typeof time_bounds.min_ms === "number" && typeof time_bounds.max_ms === "number" ? (
+        {slider_bounds ? (
           <div className="mindmap_timeline mindmap_overlay mindmap_overlay_timeline">
             <div className="mindmap_timeline_row">
-              <button
-                className={`btn mindmap_timeline_btn ${follow_latest ? "primary" : ""}`}
-                onClick={() => {
-                  set_follow_latest(true);
-                  if (typeof time_bounds.max_ms === "number") set_time_cursor_ms(time_bounds.max_ms);
-                }}
-              >
-                follow
-              </button>
-              <div className="mindmap_timeline_label mono muted">{format_utc_minute(time_cursor_ms)}</div>
+              <div className="mindmap_timeline_label mono muted">
+                {format_utc_minute(
+                  Math.min(
+                    typeof time_cursor_ms === "number" ? time_cursor_ms : slider_bounds.max_ms,
+                    slider_bounds.real_max_ms
+                  )
+                )}
+              </div>
               <input
                 className="mindmap_slider"
                 type="range"
-                min={time_bounds.min_ms}
-                max={time_bounds.max_ms}
-                step={1000}
-                value={typeof time_cursor_ms === "number" ? time_cursor_ms : time_bounds.max_ms}
+                min={slider_bounds.min_ms}
+                max={slider_bounds.max_ms}
+                step={timeline_step_ms}
+                value={typeof time_cursor_ms === "number" ? time_cursor_ms : slider_bounds.max_ms}
                 onChange={(e) => {
-                  set_follow_latest(false);
-                  set_time_cursor_ms(Number(e.target.value || 0));
+                  const next = Number(e.target.value || 0);
+                  set_time_cursor_ms(next);
+                  set_follow_latest(next >= slider_bounds.max_ms);
                 }}
               />
               <div className="mindmap_timeline_counts mono muted">

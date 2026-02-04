@@ -1802,11 +1802,6 @@ button.primary:hover:not(:disabled) {
   width: 100%;
 }
 
-.mindmap_timeline_btn {
-  padding: 6px 10px;
-  border-radius: 999px;
-}
-
 .mindmap_timeline_label {
   width: 150px;
   white-space: nowrap;

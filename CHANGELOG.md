@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- (nothing yet)
+- UI: Mindmap: layout toolbar (algorithm + spread + apply + force simulation play/pause), Search KG panel is inside the canvas, and blank/offscreen views auto-recover.
 
 ## 0.1.4 (2026-02-04)
 - Docs: refresh documentation for public release (README, getting started, docs index, API contract, FAQ).
@@ -10,7 +10,7 @@
 - UI: align theme with AbstractFlow (tokens, typography, inputs/buttons, scrollbars).
 - UI: new header with status pills; run picker and ledger cards use clearer labels + relative time.
 - UI: digest and chat timestamps use relative time (falls back to date after 3d).
-- Fix: Mindmap graph renders reliably (imports required styles + auto-recovers from blank/offscreen view).
+- Fix: Mindmap UI: resilient render (auto-recovers blank/offscreen view), legend toggle in graph controls, minimap toggle near the preview, and timeline reaches the latest snapshot.
 - Tests: `npm test`
 - Build: `npm run build`
 
