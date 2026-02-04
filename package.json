@@ -33,6 +33,7 @@
     "preview": "vite preview",
     "start": "node ./bin/cli.js",
     "test": "vitest run",
+    "llms:full": "node ./scripts/generate-llms-full.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

@@ -47,7 +47,7 @@ All pages share the same gateway connection settings.
 - **Observe**: ledger, graph, digest, attachments, chat
 - **Launch**: start runs, schedule runs, bundle upload/reload
 - **Mindmap**: knowledge-graph query UI (requires `POST /api/gateway/kg/query`)
-- **Backlog / Inbox / Processes**: maintainer tooling (high trust; requires additional gateway endpoints)
+- **Backlog / Inbox (reports + email) / Processes**: maintainer tooling (high trust; requires additional gateway endpoints)
 
 ## Documentation
 - Start here: `docs/getting-started.md`

@@ -79,10 +79,10 @@ For the authoritative list grouped by feature, see `api.md` (grounded in `src/li
 ## What are Backlog / Inbox / Processes?
 They are maintainer-oriented pages that rely on additional gateway endpoints and are **high trust**:
 - Backlog: maintenance items (create/edit/execute)
-- Inbox: bug/feature reports + triage decisions
+- Inbox: bug/feature reports + triage decisions + email mailbox (list/read/send)
 - Processes: process manager controls + log tail
 
-Evidence: `src/ui/backlog_browser.tsx`, `src/ui/report_inbox.tsx`, `src/ui/processes_page.tsx`.
+Evidence: `src/ui/backlog_browser.tsx`, `src/ui/report_inbox.tsx`, `src/ui/email_inbox.tsx`, `src/ui/processes_page.tsx`.
 Security guidance: `security.md`.
 
 ## What is the “Remote tool worker (MCP)”?

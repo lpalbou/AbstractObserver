@@ -4,6 +4,7 @@ import ReactDOM from "react-dom/client";
 import "reactflow/dist/style.css";
 
 import "@abstractuic/ui-kit/theme.css";
+import "@abstractuic/monitor-active-memory/styles.css";
 
 import { App } from "./ui/app";
 import "./ui/styles.css";

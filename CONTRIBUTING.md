@@ -35,6 +35,7 @@ When you change behavior or configuration:
 - update the relevant docs under `docs/`
 - keep language concise and actionable
 - when practical, reference the implementing file(s) (source of truth)
+- regenerate `llms-full.txt` with `npm run llms:full` (keeps agent context in sync)
 
 Docs entrypoint: `README.md` → `docs/getting-started.md` → `docs/README.md`.
 
@@ -47,4 +48,3 @@ Docs entrypoint: `README.md` → `docs/getting-started.md` → `docs/README.md`.
 ## Reporting security issues
 Please do **not** open public issues for suspected vulnerabilities.
 See `SECURITY.md` for responsible disclosure instructions.
-

@@ -41,6 +41,8 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/kg/query`
 - **Process manager (Processes page; high trust)**
   - `GET /api/gateway/processes`
+  - `GET /api/gateway/processes/env` — list managed environment variables
+  - `POST /api/gateway/processes/env` — set/unset managed environment variables
   - `POST /api/gateway/processes/{id}/start|stop|restart|redeploy`
   - `GET /api/gateway/processes/{id}/logs/tail?max_bytes=…`
 - **Run artifacts (attachments + saved chat threads)**

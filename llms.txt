@@ -5,6 +5,17 @@
 This repository contains a React single-page app (served from `dist/` by `bin/cli.js`) that connects to an AbstractGateway from the browser.
 For exact API paths and request bodies, treat `src/lib/gateway_client.ts` as the source of truth.
 
+Key commands:
+- Run packaged UI server: `npx abstractobserver`
+- Dev server (with `/api` proxy): `npm run dev`
+- Unit tests: `npm test`
+- Production build (writes `dist/`): `npm run build`
+
+Notes:
+- Build output lives in `dist/` and is served by `bin/cli.js` (don’t edit `dist/` manually).
+- Dev/build uses Vite aliases to sibling workspace packages under `../abstractuic/*/src` (see `vite.config.ts` and `docs/development.md`).
+- Regenerate `llms-full.txt`: `npm run llms:full`.
+
 ## Docs
 - [README](README.md): Install and quickstart
 - [Getting started](docs/getting-started.md): Run the UI and connect to a gateway
@@ -20,21 +31,12 @@ For exact API paths and request bodies, treat `src/lib/gateway_client.ts` as the
 ## Key files
 - [CLI server](bin/cli.js): Static server (`PORT`, `HOST`); optional GPU widget injection
 - [Main UI](src/ui/app.tsx): Page routing, settings, gateway interaction
+- [Email inbox](src/ui/email_inbox.tsx): Inbox → Email mailbox UI (list/read/send; multi-account)
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming
 - [SSE parser](src/lib/sse_parser.ts): Incremental parser used by `stream_ledger()`
 - [MCP worker client](src/lib/mcp_worker_client.ts): JSON-RPC `tools/call` client
 - [Vite config](vite.config.ts): Workspace aliases + dev `/api` proxy
 - [Package metadata](package.json): Scripts, bin name, Node engine
-
-## Commands
-- Run packaged UI server: `npx abstractobserver`
-- Dev server (with `/api` proxy): `npm run dev`
-- Unit tests: `npm test`
-- Production build (writes `dist/`): `npm run build`
-
-## Notes
-- Build output lives in `dist/` and is served by `bin/cli.js` (don’t edit `dist/` manually).
-- Dev/build uses Vite aliases to sibling workspace packages under `../abstractuic/*/src` (see `vite.config.ts` and `docs/development.md`).
 
 ## Optional
 - [Changelog](CHANGELOG.md): Release notes

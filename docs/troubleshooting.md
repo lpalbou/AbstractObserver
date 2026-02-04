@@ -29,6 +29,11 @@ The packaged CLI (`bin/cli.js`) is a static server and does not proxy `/api`.
 - Set **Gateway URL** to your gateway base URL (e.g. `http://localhost:8081`), or
 - deploy behind a reverse proxy so the UI and gateway are same-origin and `/api` routes to the gateway.
 
+## Mindmap shows counts but the graph canvas is blank
+If Mindmap shows a snapshot count (assertions/nodes/edges) but the canvas looks empty:
+- click **fit view** in the graph controls (bottom-left)
+- if you previously saved a layout in Mindmap, open **layout → Clear saved** (a bad saved viewport can pan you far away)
+
 ## Stale UI after updating
 Production builds register a service worker (`src/main.tsx`, `public/sw.js`).
 If you see stale UI assets:

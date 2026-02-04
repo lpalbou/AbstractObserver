@@ -6,9 +6,11 @@
 ## 0.1.4 (2026-02-04)
 - Docs: refresh documentation for public release (README, getting started, docs index, API contract, FAQ).
 - Docs: add security policy (`SECURITY.md`), contributing guide, and acknowledments.
+- Docs: align `llms.txt` with the `llms.txt` spec and keep `llms-full.txt` in sync.
 - UI: align theme with AbstractFlow (tokens, typography, inputs/buttons, scrollbars).
 - UI: new header with status pills; run picker and ledger cards use clearer labels + relative time.
 - UI: digest and chat timestamps use relative time (falls back to date after 3d).
+- Fix: Mindmap graph renders reliably (imports required styles + auto-recovers from blank/offscreen view).
 - Tests: `npm test`
 - Build: `npm run build`
 
