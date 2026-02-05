@@ -1,6 +1,6 @@
 {
   "name": "@abstractframework/observer",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
