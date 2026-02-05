@@ -2258,6 +2258,8 @@ button.primary:hover:not(:disabled) {
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-surface);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .chat_row {

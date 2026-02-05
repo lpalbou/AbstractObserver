@@ -2,6 +2,8 @@
 
 ## Unreleased
 - UI: Mindmap: layout toolbar (algorithm + spread + apply + force simulation play/pause), Search KG panel is inside the canvas, and blank/offscreen views auto-recover.
+- UI: Chat: unify chat UX (cards + composer) across Backlog → Advisor and Observe → Chat (shared `@abstractuic/panel-chat` styling).
+- UI: Voice: gateway-based TTS + push-to-talk transcription (matches AbstractCode) and available in Observe → Chat and Backlog → Advisor.
 
 ## 0.1.4 (2026-02-04)
 - Docs: refresh documentation for public release (README, getting started, docs index, API contract, FAQ).

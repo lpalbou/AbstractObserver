@@ -1,5 +1,5 @@
 {
-  "name": "abstractobserver",
+  "name": "@abstractframework/observer",
   "version": "0.1.4",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
@@ -19,6 +19,9 @@
     "url": "https://github.com/lpalbou/abstractobserver.git"
   },
   "homepage": "https://github.com/lpalbou/abstractobserver#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "abstractobserver": "./bin/cli.js"
   },

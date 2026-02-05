@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChatComposer, ChatThread, Markdown, copyText, type ChatMessage } from "@abstractuic/panel-chat";
 import { Icon as UiIcon } from "@abstractuic/ui-kit";
 
+import { useGatewayVoice } from "./use_gateway_voice";
+
 import type {
   BacklogExecConfigResponse,
   BacklogExecRequestListResponse,
@@ -145,6 +147,23 @@ async function sha256_hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+const _SAFE_RUN_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function _is_safe_run_id(value: string): boolean {
+  return _SAFE_RUN_ID_PATTERN.test(String(value || "").trim());
+}
+
+async function session_memory_run_id(session_id: string): Promise<string> {
+  const sid = String(session_id || "").trim();
+  if (!sid) throw new Error("session_id is required");
+  if (_is_safe_run_id(sid)) {
+    const rid = `session_memory_${sid}`;
+    if (_is_safe_run_id(rid)) return rid;
+  }
+  const digest = await sha256_hex(sid);
+  return `session_memory_sha_${digest.slice(0, 32)}`;
 }
 
 function use_media_query(query: string): boolean {
@@ -441,6 +460,7 @@ export type BacklogBrowserPageProps = {
   maintenance_ai_provider?: string;
   maintenance_ai_model?: string;
   backlog_advisor_agent?: string;
+  voice_session_id?: string;
 };
 
 export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactElement {
@@ -490,15 +510,37 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   const advisor_input_ref = useRef<HTMLTextAreaElement | null>(null);
   const advisor_attach_input_ref = useRef<HTMLInputElement | null>(null);
 
-  const advisor_tts_supported = typeof window !== "undefined" && typeof (window as any).speechSynthesis === "object";
-  const advisor_stt_ctor: any =
-    typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null;
-  const advisor_stt_supported = typeof advisor_stt_ctor === "function";
-  const advisor_stt_ref = useRef<any>(null);
-  const [advisor_stt_listening, set_advisor_stt_listening] = useState(false);
+  const advisor_voice_session_id = String(props.voice_session_id || "").trim() || "abstractobserver_backlog_advisor";
+  const [advisor_voice_run_id, set_advisor_voice_run_id] = useState<string>("");
+  const [advisor_voice_error, set_advisor_voice_error] = useState("");
 
-  const advisor_tts_state_ref = useRef<{ key: string; status: "playing" | "paused" } | null>(null);
-  const [advisor_tts_tick, set_advisor_tts_tick] = useState(0);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const rid = await session_memory_run_id(advisor_voice_session_id);
+        set_advisor_voice_run_id(rid);
+      } catch {
+        set_advisor_voice_run_id("");
+      }
+    })();
+  }, [advisor_voice_session_id]);
+
+  const advisor_voice = useGatewayVoice({
+    gateway: can_use_gateway ? gateway : null,
+    session_id: advisor_voice_session_id,
+    run_id: advisor_voice_run_id,
+    on_error: set_advisor_voice_error,
+    on_transcript: (text) => {
+      const t = String(text || "").trim();
+      if (!t) return;
+      set_advisor_input((prev) => {
+        const cur = String(prev || "");
+        if (!cur.trim()) return t;
+        return `${cur.trimEnd()}\n${t}`;
+      });
+      window.setTimeout(() => advisor_input_ref.current?.focus(), 0);
+    },
+  });
 
   const edit_attach_input_ref = useRef<HTMLInputElement | null>(null);
   const [edit_attachments_uploading, set_edit_attachments_uploading] = useState(false);
@@ -1770,7 +1812,12 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   async function send_advisor(): Promise<void> {
     if (advisor_loading) return;
     if (!can_use_gateway) return;
+    if (advisor_voice.voice_ptt_busy) {
+      set_advisor_voice_error("Wait for transcription to finish.");
+      return;
+    }
     set_advisor_error("");
+    set_advisor_voice_error("");
     const msg = advisor_input.trim();
     if (!msg) return;
     const user_msg: ChatMessage = { id: random_id(), role: "user", content: msg, ts: new Date().toISOString() };
@@ -1845,165 +1892,24 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
   }
 
   function toggle_advisor_tts(m: ChatMessage): void {
-    if (!advisor_tts_supported) {
-      set_advisor_error("TTS is not supported in this browser.");
-      return;
-    }
-    const synth: SpeechSynthesis | null = (window as any).speechSynthesis || null;
-    if (!synth) {
-      set_advisor_error("TTS is not supported in this browser.");
-      return;
-    }
     const key = String(m.id || m.ts || "").trim();
     const text = String(m.content || "").trim();
     if (!key || !text) return;
-
-    const cur = advisor_tts_state_ref.current;
-    if (cur && cur.key === key) {
-      if (cur.status === "playing") {
-        try {
-          synth.pause();
-          advisor_tts_state_ref.current = { key, status: "paused" };
-          set_advisor_tts_tick((x) => x + 1);
-        } catch {
-          // ignore
-        }
-        return;
-      }
-      if (cur.status === "paused") {
-        try {
-          synth.resume();
-          advisor_tts_state_ref.current = { key, status: "playing" };
-          set_advisor_tts_tick((x) => x + 1);
-        } catch {
-          // ignore
-        }
-        return;
-      }
-    }
-
-    try {
-      synth.cancel();
-    } catch {
-      // ignore
-    }
-
-    const ut = new SpeechSynthesisUtterance(text);
-    ut.onend = () => {
-      advisor_tts_state_ref.current = null;
-      set_advisor_tts_tick((x) => x + 1);
-    };
-    ut.onerror = () => {
-      advisor_tts_state_ref.current = null;
-      set_advisor_tts_tick((x) => x + 1);
-    };
-
-    advisor_tts_state_ref.current = { key, status: "playing" };
-    set_advisor_tts_tick((x) => x + 1);
-    try {
-      synth.speak(ut);
-    } catch (e: any) {
-      advisor_tts_state_ref.current = null;
-      set_advisor_tts_tick((x) => x + 1);
-      set_advisor_error(String(e?.message || e || "TTS failed"));
-    }
+    set_advisor_voice_error("");
+    void advisor_voice.toggle_tts(key, text);
   }
 
   function advisor_tts_state_for(m: ChatMessage): "idle" | "loading" | "playing" | "paused" {
-    void advisor_tts_tick;
     const key = String(m.id || m.ts || "").trim();
-    const cur = advisor_tts_state_ref.current;
-    if (!cur || !key || cur.key !== key) return "idle";
-    return cur.status === "paused" ? "paused" : "playing";
+    const cur = advisor_voice.tts_playback;
+    if (!key || !cur.key || cur.key !== key) return "idle";
+    return cur.status;
   }
 
-  function toggle_advisor_stt(): void {
-    if (!advisor_stt_supported) {
-      set_advisor_error("Voice input is not supported in this browser.");
-      return;
-    }
-    const rec = advisor_stt_ref.current;
-    if (advisor_stt_listening && rec) {
-      try {
-        rec.stop();
-      } catch {
-        // ignore
-      }
-      return;
-    }
-
-    try {
-      set_advisor_error("");
-      const R = advisor_stt_ctor;
-      const r = new R();
-      advisor_stt_ref.current = r;
-      r.continuous = false;
-      r.interimResults = false;
-      r.lang = "en-US";
-      r.onresult = (ev: any) => {
-        try {
-          let t = "";
-          const results = ev?.results;
-          const start = typeof ev?.resultIndex === "number" ? ev.resultIndex : 0;
-          if (results && typeof results.length === "number") {
-            for (let i = start; i < results.length; i += 1) {
-              const alt = results[i]?.[0];
-              const part = String(alt?.transcript || "").trim();
-              if (part) t = t ? `${t} ${part}` : part;
-            }
-          }
-          if (t) set_advisor_input((prev) => (String(prev || "").trim() ? `${String(prev).trim()} ${t}` : t));
-        } catch {
-          // ignore
-        }
-      };
-      r.onerror = (ev: any) => {
-        const msg = String(ev?.error || ev?.message || "").trim();
-        if (msg) set_advisor_error(`Voice input error: ${msg}`);
-      };
-      r.onend = () => {
-        advisor_stt_ref.current = null;
-        set_advisor_stt_listening(false);
-      };
-      set_advisor_stt_listening(true);
-      r.start();
-    } catch (e: any) {
-      advisor_stt_ref.current = null;
-      set_advisor_stt_listening(false);
-      set_advisor_error(String(e?.message || e || "Voice input failed"));
-    }
+  function stop_advisor_voice(): void {
+    advisor_voice.stop_voice_ptt_recording();
+    advisor_voice.stop_tts();
   }
-
-  function stop_advisor_stt(): void {
-    try {
-      advisor_stt_ref.current?.stop?.();
-    } catch {
-      // ignore
-    }
-    advisor_stt_ref.current = null;
-    set_advisor_stt_listening(false);
-  }
-
-  function stop_advisor_tts(): void {
-    if (!advisor_tts_supported) return;
-    try {
-      (window as any).speechSynthesis?.cancel?.();
-    } catch {
-      // ignore
-    }
-    advisor_tts_state_ref.current = null;
-    set_advisor_tts_tick((x) => x + 1);
-  }
-
-  useEffect(() => {
-    return () => {
-      try {
-        advisor_stt_ref.current?.stop?.();
-      } catch {
-      // ignore
-      }
-    };
-  }, []);
 
   const selected_task_type = selected && is_parsed(selected) ? normalize_task_type(selected.task_type) : null;
 
@@ -4042,8 +3948,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           set_advisor_open((v) => {
             const next = !v;
             if (!next) {
-              stop_advisor_stt();
-              stop_advisor_tts();
+              stop_advisor_voice();
             }
             return next;
           });
@@ -4059,8 +3964,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
           className="drawer_backdrop"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {
-              stop_advisor_stt();
-              stop_advisor_tts();
+              stop_advisor_voice();
               set_advisor_open(false);
             }
           }}
@@ -4090,8 +3994,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 <button
                   className="btn"
                   onClick={() => {
-                    stop_advisor_stt();
-                    stop_advisor_tts();
+                    stop_advisor_voice();
                     set_advisor_open(false);
                   }}
                 >
@@ -4105,7 +4008,7 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 messages={advisor_messages}
                 className="drawer_chat_thread"
                 messageProps={
-                  advisor_tts_supported
+                  advisor_voice.tts_supported && can_use_gateway && Boolean(advisor_voice_run_id.trim())
                     ? {
                         onSpeakToggle: toggle_advisor_tts,
                         getSpeakState: advisor_tts_state_for,
@@ -4140,27 +4043,54 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                   onSubmit={() => void send_advisor()}
                   placeholder="Message to backlog advisor…"
                   disabled={!can_use_gateway}
-                  busy={advisor_loading}
+                  busy={advisor_loading || advisor_voice.voice_ptt_busy}
                   rows={3}
                   sendButtonClassName="btn primary"
+                  busyLabel={advisor_voice.voice_ptt_busy ? "Transcribing…" : "Thinking…"}
                   actions={
                     <>
                       <button
-                        className={`btn btn_icon ${advisor_stt_listening ? "danger" : ""}`}
+                        className={`btn btn_icon voice_btn${advisor_voice.voice_ptt_recording ? " danger" : ""}`}
                         type="button"
-                        onClick={() => toggle_advisor_stt()}
-                        disabled={advisor_loading || !advisor_stt_supported}
+                        disabled={
+                          !can_use_gateway ||
+                          !advisor_voice_run_id.trim() ||
+                          advisor_loading ||
+                          advisor_voice.voice_ptt_busy ||
+                          !advisor_voice.voice_ptt_supported
+                        }
                         title={
-                          !advisor_stt_supported
-                            ? "Voice input is not supported in this browser"
-                            : advisor_stt_listening
-                              ? "Stop voice input"
-                              : "Voice input (STT)"
+                          !advisor_voice.voice_ptt_supported
+                            ? "Voice recording is not supported in this browser"
+                          : advisor_voice.voice_ptt_busy
+                              ? "Transcribing…"
+                              : advisor_voice.voice_ptt_recording
+                                ? "Recording… release to transcribe"
+                                : "Hold to talk (record + transcribe)"
                         }
                         aria-label="Voice input"
+                        onPointerDown={(e) => {
+                          if (!can_use_gateway || !advisor_voice_run_id.trim() || advisor_loading || advisor_voice.voice_ptt_busy || !advisor_voice.voice_ptt_supported)
+                            return;
+                          e.preventDefault();
+                          try {
+                            (e.currentTarget as any)?.setPointerCapture?.(e.pointerId);
+                          } catch {
+                            // ignore
+                          }
+                          void advisor_voice.start_voice_ptt_recording();
+                        }}
+                        onPointerUp={(e) => {
+                          e.preventDefault();
+                          advisor_voice.stop_voice_ptt_recording();
+                        }}
+                        onPointerCancel={(e) => {
+                          e.preventDefault();
+                          advisor_voice.stop_voice_ptt_recording();
+                        }}
                       >
-                        <UiIcon name="mic" size={16} />
-                        {is_compact_layout ? null : advisor_stt_listening ? "Listening…" : "Voice"}
+                        <UiIcon name={advisor_voice.voice_ptt_recording ? "x" : "mic"} size={16} />
+                        {is_compact_layout ? null : advisor_voice.voice_ptt_busy ? "Transcribing…" : advisor_voice.voice_ptt_recording ? "Recording…" : "Voice"}
                       </button>
                       <button
                         className="btn btn_icon"
@@ -4184,6 +4114,11 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                 {advisor_error ? (
                   <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                     {advisor_error}
+                  </div>
+                ) : null}
+                {advisor_voice_error ? (
+                  <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                    {advisor_voice_error}
                   </div>
                 ) : null}
                 {!can_use_gateway ? (

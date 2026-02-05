@@ -5,6 +5,7 @@ import "reactflow/dist/style.css";
 
 import "@abstractuic/ui-kit/theme.css";
 import "@abstractuic/monitor-active-memory/styles.css";
+import "@abstractuic/panel-chat/panel_chat.css";
 
 import { App } from "./ui/app";
 import "./ui/styles.css";

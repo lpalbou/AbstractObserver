@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractuic/monitor-flow";
-import { ChatComposer, ChatThread, Markdown, chatToMarkdown, copyText, downloadTextFile } from "@abstractuic/panel-chat";
+import { ChatComposer, ChatThread, Markdown, chatToMarkdown, copyText, downloadTextFile, type ChatMessage } from "@abstractuic/panel-chat";
 import {
   AfSelect,
   FontScaleSelect,
@@ -30,6 +30,7 @@ import { MultiSelect } from "./multi_select";
 import { ProcessesPage } from "./processes_page";
 import { ReportInboxPage } from "./report_inbox";
 import { RunPicker, type RunSummary } from "./run_picker";
+import { useGatewayVoice } from "./use_gateway_voice";
 
 type Settings = {
   gateway_url: string;
@@ -600,9 +601,12 @@ export function App(): React.ReactElement {
 
   const [chat_input, set_chat_input] = useState<string>("");
   const [chat_error, set_chat_error] = useState<string>("");
+  const [chat_voice_error, set_chat_voice_error] = useState<string>("");
+  const [chat_voice_run_id, set_chat_voice_run_id] = useState<string>("");
   const [chat_sending, set_chat_sending] = useState<boolean>(false);
   const [chat_export_state, set_chat_export_state] = useState<"idle" | "copied" | "failed">("idle");
   const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string }>>([]);
+  const chat_input_ref = useRef<HTMLTextAreaElement | null>(null);
   const [chat_thread_saving, set_chat_thread_saving] = useState(false);
   const [chat_thread_save_error, set_chat_thread_save_error] = useState<string>("");
   const [chat_thread_last_saved_at, set_chat_thread_last_saved_at] = useState<string>("");
@@ -1267,6 +1271,45 @@ export function App(): React.ReactElement {
     if (sid == null) return "";
     return String(sid || "").trim();
   }, [run_state]);
+
+  const chat_voice_session_id = useMemo(() => {
+    const sid = String(session_id_for_run || "").trim();
+    if (sid) return sid;
+    return String(start_session_id || "").trim();
+  }, [session_id_for_run, start_session_id]);
+
+  useEffect(() => {
+    if (!gateway_connected || !chat_voice_session_id) {
+      set_chat_voice_run_id("");
+      set_chat_voice_error("");
+      return;
+    }
+    void (async () => {
+      try {
+        const rid = await session_memory_run_id(chat_voice_session_id);
+        set_chat_voice_run_id(rid);
+      } catch {
+        set_chat_voice_run_id("");
+      }
+    })();
+  }, [gateway_connected, chat_voice_session_id]);
+
+  const chat_voice = useGatewayVoice({
+    gateway: gateway_connected ? gateway : null,
+    session_id: chat_voice_session_id,
+    run_id: chat_voice_run_id,
+    on_error: set_chat_voice_error,
+    on_transcript: (text) => {
+      const t = String(text || "").trim();
+      if (!t) return;
+      set_chat_input((prev) => {
+        const cur = String(prev || "");
+        if (!cur.trim()) return t;
+        return `${cur.trimEnd()}\n${t}`;
+      });
+      window.setTimeout(() => chat_input_ref.current?.focus(), 0);
+    },
+  });
 
   function _download_blob(blob: Blob, filename: string): void {
     try {
@@ -2456,8 +2499,13 @@ export function App(): React.ReactElement {
     const q = chat_input.trim();
     if (!q) return;
     if (chat_sending) return;
+    if (chat_voice.voice_ptt_busy) {
+      set_chat_voice_error("Wait for transcription to finish.");
+      return;
+    }
 
     set_chat_error("");
+    set_chat_voice_error("");
     set_chat_sending(true);
     const user_id = `local:${random_id()}`;
     const user_msg = { id: user_id, role: "user" as const, content: q, ts: now_iso() };
@@ -2489,6 +2537,21 @@ export function App(): React.ReactElement {
     } finally {
       set_chat_sending(false);
     }
+  }
+
+  function toggle_chat_tts(m: ChatMessage): void {
+    const key = String(m.id || m.ts || "").trim();
+    const text = String(m.content || "").trim();
+    if (!key || !text) return;
+    set_chat_voice_error("");
+    void chat_voice.toggle_tts(key, text);
+  }
+
+  function chat_tts_state_for(m: ChatMessage): "idle" | "loading" | "playing" | "paused" {
+    const key = String(m.id || m.ts || "").trim();
+    const cur = chat_voice.tts_playback;
+    if (!key || !cur.key || cur.key !== key) return "idle";
+    return cur.status;
   }
 
   function export_chat_markdown(mode: "copy" | "download"): void {
@@ -4635,6 +4698,7 @@ export function App(): React.ReactElement {
             maintenance_ai_provider={settings.maintenance_ai_provider}
             maintenance_ai_model={settings.maintenance_ai_model}
             backlog_advisor_agent={settings.backlog_advisor_agent}
+            voice_session_id={start_session_id}
           />
         ) : null}
 
@@ -5493,25 +5557,98 @@ export function App(): React.ReactElement {
                         <div className="body mono">{chat_error}</div>
                       </div>
                     ) : null}
+                    {chat_voice_error ? (
+                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                        <div className="meta">
+                          <span className="mono">voice</span>
+                          <span className="mono">{now_iso()}</span>
+                        </div>
+                        <div className="body mono">{chat_voice_error}</div>
+                      </div>
+                    ) : null}
 
                     <div className="chat_messages" style={{ marginTop: "10px" }}>
                       <ChatThread
                         messages={chat_messages}
                         className="log_scroll"
+                        messageProps={
+                          chat_voice.tts_supported && gateway_connected && Boolean(chat_voice_run_id.trim())
+                            ? {
+                                onSpeakToggle: toggle_chat_tts,
+                                getSpeakState: chat_tts_state_for,
+                                jsonCollapseAfterDepth: 4,
+                              }
+                            : { jsonCollapseAfterDepth: 4 }
+                        }
                         empty={<div className="chat_empty_hint">Ask about this run (why failed, which tools, what happened in subflows).</div>}
                       />
                     </div>
 
                     <div className="chat_composer" style={{ marginTop: "10px" }}>
                       <ChatComposer
+                        ref={chat_input_ref}
                         value={chat_input}
                         onChange={set_chat_input}
                         onSubmit={() => void send_chat_message()}
                         placeholder="Ask about this run…"
                         disabled={!run_id.trim() || !gateway_connected || chat_sending}
-                        busy={chat_sending}
+                        busy={chat_sending || chat_voice.voice_ptt_busy}
+                        busyLabel={chat_voice.voice_ptt_busy ? "Transcribing…" : "Thinking…"}
                         rows={3}
                         sendButtonClassName="btn primary"
+                        actions={
+                          <button
+                            className={`btn btn_icon voice_btn${chat_voice.voice_ptt_recording ? " danger" : ""}`}
+                            type="button"
+                            disabled={
+                              !gateway_connected ||
+                              !chat_voice_session_id.trim() ||
+                              !chat_voice_run_id.trim() ||
+                              chat_sending ||
+                              chat_voice.voice_ptt_busy ||
+                              !chat_voice.voice_ptt_supported
+                            }
+                            title={
+                              !chat_voice.voice_ptt_supported
+                                ? "Voice recording is not supported in this browser"
+                                : chat_voice.voice_ptt_busy
+                                  ? "Transcribing…"
+                                  : chat_voice.voice_ptt_recording
+                                    ? "Recording… release to transcribe"
+                                    : "Hold to talk (record + transcribe)"
+                            }
+                            aria-label="Voice input"
+                            onPointerDown={(e) => {
+                              if (
+                                !gateway_connected ||
+                                !chat_voice_session_id.trim() ||
+                                !chat_voice_run_id.trim() ||
+                                chat_sending ||
+                                chat_voice.voice_ptt_busy ||
+                                !chat_voice.voice_ptt_supported
+                              )
+                                return;
+                              e.preventDefault();
+                              try {
+                                (e.currentTarget as any)?.setPointerCapture?.(e.pointerId);
+                              } catch {
+                                // ignore
+                              }
+                              void chat_voice.start_voice_ptt_recording();
+                            }}
+                            onPointerUp={(e) => {
+                              e.preventDefault();
+                              chat_voice.stop_voice_ptt_recording();
+                            }}
+                            onPointerCancel={(e) => {
+                              e.preventDefault();
+                              chat_voice.stop_voice_ptt_recording();
+                            }}
+                          >
+                            <Icon name={chat_voice.voice_ptt_recording ? "x" : "mic"} size={16} />
+                            {chat_voice.voice_ptt_busy ? "Transcribing…" : chat_voice.voice_ptt_recording ? "Recording…" : "Voice"}
+                          </button>
+                        }
                       />
                     </div>
 

@@ -236,6 +236,11 @@ export type BacklogAttachmentStored = { filename: string; relpath: string; bytes
 
 export type BacklogAttachmentUploadResponse = { ok: boolean; kind: string; filename: string; item_id: number; stored: BacklogAttachmentStored };
 
+export type AttachmentRef = {
+  $artifact: string;
+  [k: string]: any;
+};
+
 export type ManagedProcessInfo = {
   id: string;
   label: string;
@@ -654,6 +659,87 @@ export class GatewayClient {
     return await r.json();
   }
 
+  async audio_transcribe(
+    run_id: string,
+    req: {
+      audio_artifact: AttachmentRef;
+      language?: string;
+      request_id?: string;
+    }
+  ): Promise<{ ok: boolean; run_id: string; request_id: string; text: string; transcript_artifact: any }> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("audio_transcribe: run_id is required");
+    const audio_artifact = req?.audio_artifact;
+    if (!audio_artifact || typeof audio_artifact !== "object") throw new Error("audio_transcribe: audio_artifact is required");
+    const aid = String((audio_artifact as any).$artifact || "").trim();
+    if (!aid) throw new Error("audio_transcribe: audio_artifact.$artifact is required");
+
+    const body: any = { audio_artifact };
+    const lang = String(req?.language || "").trim();
+    if (lang) body.language = lang;
+    const req_id = String(req?.request_id || "").trim();
+    if (req_id) body.request_id = req_id;
+
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/audio/transcribe`), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`audio_transcribe failed: ${await _read_error(r)}`);
+    const out: any = await r.json();
+    const text = String(out?.text || "");
+    return {
+      ok: Boolean(out?.ok),
+      run_id: String(out?.run_id || ""),
+      request_id: String(out?.request_id || ""),
+      text,
+      transcript_artifact: out?.transcript_artifact,
+    };
+  }
+
+  async voice_tts(
+    run_id: string,
+    req: {
+      text: string;
+      voice?: string;
+      format?: string;
+      request_id?: string;
+    }
+  ): Promise<{ ok: boolean; run_id: string; request_id: string; audio_artifact: any }> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("voice_tts: run_id is required");
+    const text = String(req?.text || "").trim();
+    if (!text) throw new Error("voice_tts: text is required");
+
+    const body: any = { text };
+    const voice = String(req?.voice || "").trim();
+    if (voice) body.voice = voice;
+    const fmt = String(req?.format || "").trim();
+    if (fmt) body.format = fmt;
+    const req_id = String(req?.request_id || "").trim();
+    if (req_id) body.request_id = req_id;
+
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/voice/tts`), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`voice_tts failed: ${await _read_error(r)}`);
+    const out: any = await r.json();
+    return {
+      ok: Boolean(out?.ok),
+      run_id: String(out?.run_id || ""),
+      request_id: String(out?.request_id || ""),
+      audio_artifact: out?.audio_artifact,
+    };
+  }
+
   async save_chat_thread(
     run_id: string,
     opts: {
@@ -735,6 +821,43 @@ export class GatewayClient {
     });
     if (!r.ok) throw new Error(`upload_bundle failed: ${await _read_error(r)}`);
     return await r.json();
+  }
+
+  async attachments_upload(
+    session_id: string,
+    file: File,
+    opts?: {
+      filename?: string;
+      content_type?: string;
+    }
+  ): Promise<AttachmentRef> {
+    const sid = String(session_id || "").trim();
+    if (!sid) throw new Error("attachments_upload: session_id is required");
+    if (!file) throw new Error("attachments_upload: file is required");
+
+    const filename = String(opts?.filename || "").trim() || String((file as any)?.name || "").trim() || "upload.bin";
+    const content_type = String(opts?.content_type || "").trim() || String((file as any)?.type || "").trim();
+
+    const form = new FormData();
+    form.append("session_id", sid);
+    form.append("file", file, filename);
+    if (filename) form.append("filename", filename);
+    if (content_type) form.append("content_type", content_type);
+
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/attachments/upload"), {
+      method: "POST",
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      body: form,
+    });
+    if (!r.ok) throw new Error(`attachments_upload failed: ${await _read_error(r)}`);
+    const body = await r.json();
+    const attachment = body?.attachment;
+    if (!attachment || typeof attachment !== "object") throw new Error("attachments_upload: missing attachment");
+    const aid = String((attachment as any).$artifact || "").trim();
+    if (!aid) throw new Error("attachments_upload: missing attachment.$artifact");
+    return attachment as AttachmentRef;
   }
 
   async remove_bundle(bundle_id: string, opts?: { bundle_version?: string; reload?: boolean }): Promise<any> {

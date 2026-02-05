@@ -17,6 +17,14 @@ export default defineConfig({
       { find: "@abstractuic/panel-chat", replacement: resolve(__dirname, "../abstractuic/panel-chat/src") },
       { find: "@abstractuic/ui-kit", replacement: resolve(__dirname, "../abstractuic/ui-kit/src") },
       { find: "@abstractutils/monitor-gpu", replacement: resolve(__dirname, "../abstractuic/monitor-gpu/src") },
+
+      // Support published package names too (some shared packages import each other
+      // via @abstractframework/* even when apps use @abstractuic/* workspace aliases).
+      { find: "@abstractframework/monitor-active-memory", replacement: resolve(__dirname, "../abstractuic/monitor-active-memory/src") },
+      { find: "@abstractframework/monitor-flow", replacement: resolve(__dirname, "../abstractuic/monitor-flow/src") },
+      { find: "@abstractframework/panel-chat", replacement: resolve(__dirname, "../abstractuic/panel-chat/src") },
+      { find: "@abstractframework/ui-kit", replacement: resolve(__dirname, "../abstractuic/ui-kit/src") },
+      { find: "@abstractframework/monitor-gpu", replacement: resolve(__dirname, "../abstractuic/monitor-gpu/src") },
     ],
   },
   server: {
