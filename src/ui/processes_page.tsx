@@ -22,8 +22,13 @@ function status_chip(status: string): { cls: string; label: string } {
 function sort_processes(items: ManagedProcessInfo[]): ManagedProcessInfo[] {
   const rank = (p: ManagedProcessInfo): number => {
     const id = String(p?.id || "").trim();
-    if (id === "gateway") return 0;
-    if (id === "build") return 1;
+    const base = id.endsWith("_uat") ? id.slice(0, -4) : id;
+    if (base === "gateway") return 0;
+    if (base === "build") return 1;
+    if (base === "abstractobserver") return 2;
+    if (base === "abstractcode_web") return 3;
+    if (base === "abstractflow_backend") return 4;
+    if (base === "abstractflow_frontend") return 5;
     return 10;
   };
   return [...(items || [])].sort((a, b) => {
@@ -52,7 +57,7 @@ export function ProcessesPage({
   gateway: GatewayClient;
   gateway_connected: boolean;
 }): React.ReactElement {
-  const [tab, set_tab] = useState<"processes" | "env_vars">("processes");
+  const [tab, set_tab] = useState<"prod" | "uat" | "env">("prod");
   const [enabled, set_enabled] = useState<boolean | null>(null);
   const [items, set_items] = useState<ManagedProcessInfo[]>([]);
   const [loading, set_loading] = useState(false);
@@ -72,7 +77,12 @@ export function ProcessesPage({
   const [log_loading, set_log_loading] = useState(false);
   const log_refresh_timer = useRef<number | null>(null);
 
-  const sorted_items = useMemo(() => sort_processes(items), [items]);
+  const prod_items = useMemo(
+    () => sort_processes(items.filter((p) => !String((p as any)?.id || "").trim().endsWith("_uat"))),
+    [items]
+  );
+  const uat_items = useMemo(() => sort_processes(items.filter((p) => String((p as any)?.id || "").trim().endsWith("_uat"))), [items]);
+  const visible_items = tab === "uat" ? uat_items : prod_items;
 
   const refresh = useCallback(async () => {
     if (!gateway_connected) return;
@@ -152,7 +162,7 @@ export function ProcessesPage({
 
   useEffect(() => {
     if (!gateway_connected) return;
-    if (tab !== "processes") return;
+    if (tab === "env") return;
     if (!auto_refresh) return;
     const id = window.setInterval(() => void refresh(), 2000);
     return () => window.clearInterval(id);
@@ -160,7 +170,7 @@ export function ProcessesPage({
 
   useEffect(() => {
     if (!gateway_connected) return;
-    if (tab !== "env_vars") return;
+    if (tab !== "env") return;
     void refresh_env();
   }, [gateway_connected, tab, refresh_env]);
 
@@ -232,11 +242,14 @@ export function ProcessesPage({
           <div className="title">
             <h1>Process manager</h1>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
-              <button className={`nav_tab ${tab === "processes" ? "active" : ""}`} onClick={() => set_tab("processes")}>
-                Processes
+              <button className={`nav_tab ${tab === "prod" ? "active" : ""}`} onClick={() => set_tab("prod")}>
+                Production
               </button>
-              <button className={`nav_tab ${tab === "env_vars" ? "active" : ""}`} onClick={() => set_tab("env_vars")}>
-                Env vars
+              <button className={`nav_tab ${tab === "uat" ? "active" : ""}`} onClick={() => set_tab("uat")}>
+                UAT
+              </button>
+              <button className={`nav_tab ${tab === "env" ? "active" : ""}`} onClick={() => set_tab("env")}>
+                ENV
               </button>
             </div>
           </div>
@@ -255,20 +268,20 @@ export function ProcessesPage({
                 Process manager: {enabled_label}
               </div>
 
-              {enabled === false ? (
+              {tab !== "env" && enabled === false ? (
                 <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
                   <div className="meta">
                     <span className="mono">hint</span>
                     <span className="mono">server</span>
                   </div>
                   <div className="body mono">
-                    Set <span className="mono">ABSTRACTGATEWAY_ENABLE_PROCESS_MANAGER=1</span> and{" "}
-                    <span className="mono">ABSTRACTGATEWAY_TRIAGE_REPO_ROOT</span> on the gateway host.
+                    To manage processes, set <span className="mono">ABSTRACTGATEWAY_ENABLE_PROCESS_MANAGER=1</span> and{" "}
+                    <span className="mono">ABSTRACTGATEWAY_TRIAGE_REPO_ROOT</span> (your AbstractFramework checkout root) on the gateway host.
                   </div>
                 </div>
               ) : null}
 
-              {tab === "processes" ? (
+              {tab !== "env" ? (
                 <>
                   <div className="actions" style={{ marginTop: "10px" }}>
                     <button className={`btn btn_icon ${loading ? "is_loading" : ""}`} onClick={() => void refresh()} disabled={!gateway_connected || loading}>
@@ -292,10 +305,12 @@ export function ProcessesPage({
                   ) : null}
 
                   <div style={{ marginTop: "12px" }}>
-                    {sorted_items.map((p) => {
+                    {visible_items.map((p) => {
                       const id = String(p.id || "").trim();
                       const label = String(p.label || id).trim() || id;
                       const s = status_chip(String(p.status || ""));
+                      const status_raw = String(p.status || "").trim().toLowerCase();
+                      const is_running = status_raw === "running";
                       const actions = Array.isArray((p as any)?.actions) ? ((p as any).actions as any[]).map((x) => String(x || "").trim()) : [];
                       const can_start = actions.includes("start");
                       const can_stop = actions.includes("stop");
@@ -310,7 +325,6 @@ export function ProcessesPage({
                       const subtitle_bits: string[] = [];
                       if (pid) subtitle_bits.push(`pid ${pid}`);
                       if (exit_code !== null) subtitle_bits.push(`exit ${exit_code}`);
-                      if (url) subtitle_bits.push(url);
                       const subtitle = subtitle_bits.join(" • ");
 
                       return (
@@ -331,6 +345,17 @@ export function ProcessesPage({
                                 {subtitle ? (
                                   <div className="mono muted" style={{ marginTop: "6px", fontSize: "var(--font-size-sm)" }}>
                                     {subtitle}
+                                  </div>
+                                ) : null}
+                                {url ? (
+                                  <div className="mono muted" style={{ marginTop: subtitle ? "4px" : "6px", fontSize: "var(--font-size-sm)" }}>
+                                    {is_running ? (
+                                      <a href={url} target="_blank" rel="noreferrer" className="mono" style={{ opacity: 0.95 }}>
+                                        {url}
+                                      </a>
+                                    ) : (
+                                      <span className="mono">{url}</span>
+                                    )}
                                   </div>
                                 ) : null}
                               </div>
@@ -384,6 +409,18 @@ export function ProcessesPage({
                   <div className="mono muted" style={{ marginTop: "6px" }}>
                     Env vars: {env_enabled_label}
                   </div>
+
+                  {env_enabled === false ? (
+                    <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
+                      <div className="meta">
+                        <span className="mono">hint</span>
+                        <span className="mono">server</span>
+                      </div>
+                      <div className="body mono">
+                        Set <span className="mono">ABSTRACTGATEWAY_ENABLE_PROCESS_MANAGER=1</span> on the gateway host.
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="actions" style={{ marginTop: "10px" }}>
                     <button className={`btn btn_icon ${env_loading ? "is_loading" : ""}`} onClick={() => void refresh_env()} disabled={!gateway_connected || env_loading}>

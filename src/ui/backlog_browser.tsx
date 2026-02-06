@@ -2454,6 +2454,9 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
                                     UAT URLs: gateway `http://localhost:6081`, observer `http://localhost:6082`, code `http://localhost:6083`, flow
                                     `http://localhost:6084`
                                   </div>
+                                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
+                                    UAT is intentionally short-lived: promoting or iterating will stop the shared UAT services.
+                                  </div>
                                   {uat_probe_failed.length ? (
                                     <div
                                       className="mono"
@@ -3307,7 +3310,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             </div>
           ) : (
             <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-              The run will execute in a candidate workspace. When it reaches “awaiting QA”, click “Restart UAT” to deploy it to the shared UAT stack.
+              The run will execute in a candidate workspace. When it reaches “awaiting QA”, click “Restart UAT” to deploy it to the shared UAT stack. After you
+              promote or iterate, UAT services are stopped automatically.
             </div>
           )}
         </div>
@@ -3437,7 +3441,8 @@ export function BacklogBrowserPage(props: BacklogBrowserPageProps): React.ReactE
             </div>
           ) : (
             <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-              The batch will execute in a candidate workspace. When it reaches “awaiting QA”, click “Restart UAT” to deploy it to the shared UAT stack.
+              The batch will execute in a candidate workspace. When it reaches “awaiting QA”, click “Restart UAT” to deploy it to the shared UAT stack. After you
+              promote or iterate, UAT services are stopped automatically.
             </div>
           )}
         </div>
