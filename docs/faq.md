@@ -1,6 +1,6 @@
 # FAQ
 
-> Last updated: 2026-02-04
+> Last updated: 2026-02-09
 
 ## What is AbstractObserver?
 AbstractObserver is a **gateway-only** observability UI (Web/PWA) for AbstractFramework runs:
@@ -21,10 +21,17 @@ Evidence:
 
 ## How do I run it?
 ```bash
-npx abstractobserver
+npx --yes --package @abstractframework/observer -- abstractobserver
 ```
 
 For other install options and CLI flags/env vars, see `../README.md` and `configuration.md`.
+
+## Why is the npm package name different from the CLI command?
+The published npm package is scoped (`@abstractframework/observer`), but the installed CLI binary is `abstractobserver`.
+
+Examples:
+- no global install: `npx --yes --package @abstractframework/observer -- abstractobserver`
+- global install: `npm install -g @abstractframework/observer && abstractobserver`
 
 ## How do I change the port / host?
 The packaged CLI reads:
@@ -93,6 +100,18 @@ Evidence:
 - UI resume flow: `execute_tools_via_worker()` in `src/ui/app.tsx`
 
 Security guidance: `security.md`.
+
+## Does it support voice (PTT / TTS)?
+Yes — in **Observe → Chat** and **Backlog → Advisor**, the UI can:
+- record audio in the browser, upload it to the gateway, and request transcription (push-to-talk)
+- request gateway-based text-to-speech audio and play it back (TTS)
+
+Gateway endpoints: `api.md` (Voice section).
+
+Evidence:
+- voice hook: `src/ui/use_gateway_voice.ts`
+- UI wiring: `src/ui/app.tsx`, `src/ui/backlog_browser.tsx`
+- gateway client: `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`)
 
 ## What is “monitor-gpu” and how do I enable it?
 It’s an optional GPU usage widget in the header. Enable it by starting the CLI with:

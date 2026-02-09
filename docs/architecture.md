@@ -1,6 +1,6 @@
 # AbstractObserver — Architecture
 
-> Last updated: 2026-02-04
+> Last updated: 2026-02-09
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
@@ -9,12 +9,21 @@ AbstractObserver is a **gateway-only** UI:
 
 The implementation is intentionally simple: a static SPA + typed HTTP client.
 
+## Ecosystem context (AbstractFramework)
+AbstractObserver is part of the **AbstractFramework** ecosystem:
+- AbstractFramework (ecosystem entrypoint): https://github.com/lpalbou/AbstractFramework
+- AbstractRuntime (durable workflow runtime; produces the append-only ledger that the UI renders): https://github.com/lpalbou/abstractruntime
+- AbstractCore (LLM + tools integration commonly used by runtime/workflows): https://github.com/lpalbou/abstractcore
+
+AbstractObserver talks only to the **AbstractGateway HTTP API**. The gateway is typically backed by AbstractRuntime (and optional AbstractCore integrations), but those components are not direct dependencies of this UI package.
+
 ## Component view (what runs where)
 ```mermaid
 flowchart LR
   U[User] -->|opens| B[Browser / PWA<br/><code>src/ui/app.tsx</code>]
   S[Static UI server<br/><code>bin/cli.js</code>] -->|serves dist/ + SPA fallback| B
   B -->|HTTP fetch + SSE| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  G -->|backed by| R[AbstractRuntime<br/>durable runs + append-only ledger]
   B -->|optional JSON-RPC over HTTP| W[MCP tool worker<br/><code>src/lib/mcp_worker_client.ts</code>]
 
   subgraph Notes[Notes]

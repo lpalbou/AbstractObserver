@@ -1,13 +1,17 @@
 # Changelog
 
 ## Unreleased
+- Docs: align npm install/run commands with the scoped package name (`@abstractframework/observer`) and refresh core docs for ecosystem context and voice endpoints.
+
+## 0.1.6 (2026-02-05)
+- Package: publish as `@abstractframework/observer` (CLI binary remains `abstractobserver`).
 - UI: Mindmap: layout toolbar (algorithm + spread + apply + force simulation play/pause), Search KG panel is inside the canvas, and blank/offscreen views auto-recover.
 - UI: Chat: unify chat UX (cards + composer) across Backlog → Advisor and Observe → Chat (shared `@abstractuic/panel-chat` styling).
 - UI: Voice: gateway-based TTS + push-to-talk transcription (matches AbstractCode) and available in Observe → Chat and Backlog → Advisor.
 
 ## 0.1.4 (2026-02-04)
 - Docs: refresh documentation for public release (README, getting started, docs index, API contract, FAQ).
-- Docs: add security policy (`SECURITY.md`), contributing guide, and acknowledments.
+- Docs: add security policy (`SECURITY.md`), contributing guide, and acknowledgments.
 - Docs: align `llms.txt` with the `llms.txt` spec and keep `llms-full.txt` in sync.
 - UI: align theme with AbstractFlow (tokens, typography, inputs/buttons, scrollbars).
 - UI: new header with status pills; run picker and ledger cards use clearer labels + relative time.

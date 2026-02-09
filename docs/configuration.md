@@ -7,6 +7,9 @@ This project has two layers of configuration:
 ## CLI (static server)
 Implemented in `bin/cli.js`.
 
+- The npm package is `@abstractframework/observer`; the installed CLI binary is `abstractobserver`.
+- If you don’t want a global install, you can run the CLI via `npx --yes --package @abstractframework/observer -- abstractobserver`.
+
 - `PORT` — HTTP port to listen on (default `3001`)
 - `HOST` — bind address (default `0.0.0.0`)
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
@@ -16,6 +19,9 @@ Examples:
 PORT=8080 abstractobserver
 HOST=127.0.0.1 PORT=3001 abstractobserver
 abstractobserver --monitor-gpu
+
+# no global install:
+HOST=127.0.0.1 PORT=3001 npx --yes --package @abstractframework/observer -- abstractobserver
 ```
 
 ## Browser UI settings (per device/browser)

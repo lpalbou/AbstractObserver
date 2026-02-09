@@ -9,14 +9,16 @@ It serves a static single-page app (`dist/`) via a small Node.js CLI (`bin/cli.j
 - (Optional) a gateway auth token (sent as `Authorization: Bearer …`)
 
 ## Run AbstractObserver
+The npm package is `@abstractframework/observer` and the installed CLI binary is `abstractobserver`.
+
 Run the packaged UI server (no build step):
 ```bash
-npx abstractobserver
+npx --yes --package @abstractframework/observer -- abstractobserver
 ```
 
 By default the server listens on `0.0.0.0:3001` (see `bin/cli.js`). To bind to localhost only:
 ```bash
-HOST=127.0.0.1 PORT=3001 npx abstractobserver
+HOST=127.0.0.1 PORT=3001 npx --yes --package @abstractframework/observer -- abstractobserver
 ```
 
 Open `http://localhost:3001`.
@@ -38,6 +40,7 @@ Go to **Observe**:
   - **Ledger** (durable log; replay-first + streaming)
   - **Graph** (flow visualization from bundle/workflow flow data)
   - **Digest** (derived stats + summary)
+  - **Chat** (run-scoped chat; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
 
 Architecture and data flow: `architecture.md`.
 

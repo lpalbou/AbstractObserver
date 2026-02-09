@@ -4,6 +4,8 @@ This document lists the **HTTP endpoints AbstractObserver calls**, grouped by fe
 The **source of truth** for paths, query params, and request bodies is `src/lib/gateway_client.ts`.
 
 > Authentication: when configured, the UI sends `Authorization: Bearer <token>` (see `_auth_headers()` in `src/lib/gateway_client.ts`).
+>
+> Base URL: the UI’s **Gateway URL** setting is passed as `GatewayClientConfig.base_url`. When blank, requests are same-origin (`/api/...`). Evidence: `_join()` in `src/lib/gateway_client.ts`.
 
 ## Minimum endpoints (core Observe + Launch)
 Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
@@ -24,7 +26,7 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs/{run_id}/ledger/stream?after=…` — SSE stream of `"step"` events
   - `POST /api/gateway/runs/ledger/batch` — fetch ledgers for multiple runs (digest/subrun support)
 - **Run control**
-  - `POST /api/gateway/commands` — submit durable commands (pause/resume/cancel/resume-wait)
+  - `POST /api/gateway/commands` — submit durable commands (at minimum `pause`, `resume`, `cancel`; also used for schedule updates and wait/tool resume flows)
 
 ## Optional endpoints (feature-gated in the UI)
 These power additional pages/drawers. If your gateway does not expose them, the corresponding UI areas will show errors or empty states.
@@ -52,6 +54,10 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/runs/{run_id}/summary`
   - `POST /api/gateway/runs/{run_id}/chat`
   - `POST /api/gateway/runs/{run_id}/chat_threads` — persist a discussion as an artifact
+- **Voice (Observe → Chat; optional)**
+  - `POST /api/gateway/attachments/upload` — upload an attachment (used for voice recordings; multipart form with `session_id` + `file`)
+  - `POST /api/gateway/runs/{run_id}/audio/transcribe` — transcribe an uploaded audio artifact
+  - `POST /api/gateway/runs/{run_id}/voice/tts` — text-to-speech (returns an audio artifact)
 - **Bug/feature inbox + triage**
   - `GET /api/gateway/reports/bugs` / `GET /api/gateway/reports/features`
   - `GET /api/gateway/reports/bugs/{filename}/content` / `…/features/{filename}/content`
