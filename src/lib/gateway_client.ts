@@ -401,6 +401,30 @@ export class GatewayClient {
     return await r.json();
   }
 
+  async get_run_history_bundle(
+    run_id: string,
+    opts?: {
+      include_subruns?: boolean;
+      include_session?: boolean;
+      session_turn_limit?: number;
+      ledger_mode?: "tail" | "full";
+      ledger_max_items?: number;
+    }
+  ): Promise<any> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("get_run_history_bundle: run_id is required");
+    const qs = new URLSearchParams();
+    if (opts?.include_subruns === false) qs.set("include_subruns", "false");
+    if (opts?.include_session === true) qs.set("include_session", "true");
+    if (typeof opts?.session_turn_limit === "number" && Number.isFinite(opts.session_turn_limit)) qs.set("session_turn_limit", String(Math.max(1, Math.trunc(opts.session_turn_limit))));
+    if (opts?.ledger_mode) qs.set("ledger_mode", String(opts.ledger_mode));
+    if (typeof opts?.ledger_max_items === "number" && Number.isFinite(opts.ledger_max_items)) qs.set("ledger_max_items", String(Math.max(0, Math.trunc(opts.ledger_max_items))));
+    const url = _join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/history_bundle?${qs.toString()}`);
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
+    if (!r.ok) throw new Error(`get_run_history_bundle failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
   async list_runs(opts?: { limit?: number; status?: string; workflow_id?: string; session_id?: string; root_only?: boolean }): Promise<any> {
     const limit = typeof opts?.limit === "number" ? opts.limit : 50;
     const status = String(opts?.status || "").trim();

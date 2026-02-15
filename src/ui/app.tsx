@@ -1908,6 +1908,49 @@ export function App(): React.ReactElement {
       }
 
       await replay_ledger(rid, { after: 0 });
+
+      // Best-effort: discover descendant runs even when the root run's ledger does not include
+      // explicit subworkflow wait markers (common for event-driven "listener" children).
+      //
+      // This keeps Observer useful for transports like Telegram where the durable work happens in
+      // child runs (event listeners + per-message subruns).
+      try {
+        const bundle = await gateway.get_run_history_bundle(rid, { include_subruns: true, include_session: false, ledger_mode: "tail", ledger_max_items: 1 });
+        const ledgers = bundle && typeof bundle === "object" ? (bundle as any).ledgers : null;
+        const ids = ledgers && typeof ledgers === "object" ? Object.keys(ledgers as any) : [];
+        const subs = ids
+          .map((x) => String(x || "").trim())
+          .filter(Boolean)
+          .filter((x) => x !== rid);
+        if (subs.length) {
+          for (const s of subs) subrun_ids_ref.current.add(s);
+          set_subrun_ids((prev) => Array.from(new Set([...prev, ...subs])));
+
+          // If the selected run is just a lightweight wrapper (common for event-driven transports),
+          // automatically follow the "main" descendant so the user sees meaningful ledger/digest data.
+          try {
+            const root_total = typeof (ledgers as any)?.[rid]?.total === "number" ? Number((ledgers as any)[rid].total) : 0;
+            let best = "";
+            let best_total = -1;
+            for (const s of subs) {
+              const total = typeof (ledgers as any)?.[s]?.total === "number" ? Number((ledgers as any)[s].total) : 0;
+              if (total > best_total) {
+                best = s;
+                best_total = total;
+              }
+            }
+            if (best && best_total > Math.max(root_total * 3, root_total + 20)) {
+              follow_run_ref.current = best;
+              set_follow_run_id(best);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      } catch {
+        // ignore (Observer still works for the root ledger)
+      }
+
       set_connected(true);
       push_log({ ts: now_iso(), kind: "info", title: `Attached to run ${rid}`, data: { run_id: rid } });
       attach_ok = true;
