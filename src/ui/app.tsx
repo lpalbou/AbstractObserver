@@ -450,30 +450,7 @@ function format_time_until_from_ms(ms_until: number): string {
   return `${total_s}s`;
 }
 
-function short_run_id(run_id: string): string {
-  const s = String(run_id || "").trim();
-  if (!s) return "";
-  if (s.length <= 8) return s;
-  return `${s.slice(0, 7)}…`;
-}
-
-function extract_workflow_label(workflow_id: any, label_map: Record<string, string>): string {
-  const wid = typeof workflow_id === "string" ? String(workflow_id).trim() : "";
-  if (!wid) return "Unknown workflow";
-
-  const mapped = label_map[wid];
-  if (mapped) {
-    const parts = mapped.split(/[·:]/);
-    return parts.length > 1 ? parts[parts.length - 1].trim() : mapped.trim();
-  }
-
-  const idx = wid.indexOf(":");
-  if (idx > 0) return wid.slice(idx + 1).trim() || wid.slice(0, idx).trim();
-
-  if (/[a-z]/i.test(wid)) return wid;
-
-  return "Unknown workflow";
-}
+/* short_run_id, extract_workflow_label: removed — info is now in the run picker. */
 
 function is_uuid(s: string): boolean {
   const v = String(s || "").trim();
@@ -3727,12 +3704,6 @@ export function App(): React.ReactElement {
     return run_options.find((r) => String(r.run_id || "").trim() === rid) || null;
   }, [run_options, run_id]);
 
-  const selected_run_label = useMemo(() => {
-    const target = typeof (run_state as any)?.schedule?.target_workflow_id === "string" ? String((run_state as any).schedule.target_workflow_id).trim() : "";
-    if (target) return extract_workflow_label(target, workflow_label_by_id);
-    return extract_workflow_label(selected_run_summary?.workflow_id, workflow_label_by_id);
-  }, [run_state, selected_run_summary, workflow_label_by_id]);
-
   const selected_run_status_raw = String(run_state?.status || selected_run_summary?.status || "").trim();
   const selected_run_wait_reason = String(wait_reason || run_state?.waiting?.reason || selected_run_summary?.waiting_reason || "").trim().toLowerCase();
   const selected_run_is_scheduled = Boolean(run_state?.is_scheduled || selected_run_summary?.is_scheduled);
@@ -3742,23 +3713,7 @@ export function App(): React.ReactElement {
   const selected_next_ms = parse_iso_ms(wait_until);
   const selected_next_in =
     selected_run_is_scheduled_until && selected_next_ms !== null ? format_time_until_from_ms(selected_next_ms - Date.now()) : "";
-  const selected_next_at =
-    selected_run_is_scheduled_until && selected_next_ms !== null
-      ? new Date(selected_next_ms).toLocaleString()
-      : selected_run_is_scheduled_until
-        ? String(wait_until || "").trim()
-        : "";
   const selected_run_status_label = selected_run_is_scheduled && selected_run_is_paused ? "Suspended" : selected_run_is_scheduled_waiting ? "Scheduled" : selected_run_status_raw;
-  const selected_run_status_chip_cls = selected_run_is_scheduled && (selected_run_is_paused || selected_run_is_scheduled_waiting)
-    ? "scheduled"
-    : selected_run_status_raw.toLowerCase() === "completed"
-      ? "ok"
-      : selected_run_status_raw.toLowerCase() === "failed"
-        ? "danger"
-        : selected_run_status_raw.toLowerCase() === "waiting" || selected_run_status_raw.toLowerCase() === "running"
-          ? "warn"
-          : "muted";
-  const selected_run_when = format_time_ago(selected_run_summary?.updated_at || selected_run_summary?.created_at);
 
   return (
       <div className="app-shell">
@@ -4024,9 +3979,9 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
-                <div className="field">
-                  <label>Workflow (discovered)</label>
+                <div className="launch_workflow_bar">
                   <select
+                    className="launch_workflow_select"
                     value={selected_workflow_value}
                     onChange={async (e) => {
                       const wid = String(e.target.value || "").trim();
@@ -4040,48 +3995,18 @@ export function App(): React.ReactElement {
                     }}
                     disabled={discovery_loading || !workflow_options.length}
                   >
-                    <option value="">{workflow_options.length ? "(select)" : "(empty — connect in Settings)"}</option>
+                    <option value="">{workflow_options.length ? "(select workflow)" : "(connect in Settings)"}</option>
                     {workflow_options.map((w) => (
                       <option key={w.workflow_id} value={w.workflow_id}>
                         {w.label}
                       </option>
                     ))}
                   </select>
-                  <div className="actions" style={{ justifyContent: "flex-start", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
-                    <input
-                      ref={bundle_upload_input_ref}
-                      type="file"
-                      accept=".flow"
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        const f = e.target.files && e.target.files.length ? e.target.files[0] : null;
-                        if (!f) return;
-                        void upload_gateway_bundle(f);
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => bundle_upload_input_ref.current?.click()}
-                      disabled={!gateway_connected || discovery_loading || bundle_uploading || connecting || resuming}
-                    >
-                      {bundle_uploading ? "Uploading…" : "Upload .flow"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => void reload_gateway_bundles()}
-                      disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming}
-                    >
-                      {bundles_reloading ? "Reloading…" : "Reload bundles"}
-                    </button>
-                    <button type="button" className="btn" onClick={() => void refresh_runs()} disabled={!gateway_connected || runs_loading || discovery_loading}>
-                      {runs_loading ? "Refreshing…" : "Refresh runs"}
-                    </button>
-                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                      Use Upload for remote installs. Reload picks up server-side edits (dev).
-                    </div>
-                  </div>
+                  <input ref={bundle_upload_input_ref} type="file" accept=".flow" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files.length ? e.target.files[0] : null; if (!f) return; void upload_gateway_bundle(f); }} />
+                  <button type="button" className="btn launch_btn_upload" onClick={() => bundle_upload_input_ref.current?.click()} disabled={!gateway_connected || discovery_loading || bundle_uploading || connecting || resuming} title="Upload a .flow bundle">{bundle_uploading ? "…" : "Upload"}</button>
+                  <button type="button" className="btn launch_btn_reload" onClick={() => void reload_gateway_bundles()} disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming} title="Reload picks up server-side edits"><Icon name="refresh" size={14} />{bundles_reloading ? "…" : "Reload"}</button>
+                </div>
+                <div className="field">
                   {selected_entrypoint?.description ? (
                     <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                       {String(selected_entrypoint.description)}
@@ -4099,88 +4024,8 @@ export function App(): React.ReactElement {
 	                  ) : null}
 	                </div>
 
-	                {bundle_info && selected_entrypoint ? (
-	                  <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
-	                    <div className="meta">
-	                      <span className="mono">workflow</span>
-	                      <span className="mono">{String(bundle_info.bundle_ref || `${bundle_id.trim()}:${flow_id.trim()}`)}</span>
-	                    </div>
-	                    <div className="body">
-	                      {selected_entrypoint.name ? (
-	                        <div className="mono">
-	                          <span className="muted">name</span>: {String(selected_entrypoint.name)}
-	                        </div>
-	                      ) : null}
-	                      {selected_entrypoint.interfaces && selected_entrypoint.interfaces.length ? (
-	                        <div className="mono">
-	                          <span className="muted">interfaces</span>: {selected_entrypoint.interfaces.join(", ")}
-	                        </div>
-	                      ) : null}
-	                      <div className="mono">
-	                        <span className="muted">inputs</span>: {adaptive_pins.length}
-	                      </div>
-	                      {bundle_info.created_at ? (
-	                        <div className="mono">
-	                          <span className="muted">created</span>: {String(bundle_info.created_at)}
-	                        </div>
-	                      ) : null}
-	                    </div>
-	                  </div>
-	                ) : null}
-
-	                <div className="field">
-	                  <label>session_id (scope=session)</label>
-	                  <input
-                    className="mono"
-                    value={start_session_id}
-                    onChange={(e) => set_start_session_id(e.target.value)}
-                    placeholder="(optional; empty ⇒ scope=session behaves like per-run)"
-                    disabled={connecting || resuming}
-                  />
-                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                    Shared across runs when the same session_id is sent to the gateway.
-                  </div>
-                </div>
-
-                <div className="actions" style={{ justifyContent: "flex-start", flexWrap: "wrap", gap: "10px" }}>
-                  <button
-                    className="btn primary"
-                    onClick={() => void submit_launch()}
-                    disabled={
-                      connecting ||
-                      resuming ||
-                      discovery_loading ||
-                      bundle_loading ||
-                      schedule_submitting ||
-                      !gateway_connected ||
-                      !bundle_id.trim() ||
-                      !flow_id.trim() ||
-                      input_data_obj === null
-                    }
-                  >
-                    {schedule_start_mode !== "now" || schedule_repeat_mode !== "once" ? "Launch (scheduled)" : "Launch now"}
-                  </button>
-                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", alignSelf: "center" }}>
-                    {schedule_start_mode !== "now" || schedule_repeat_mode !== "once"
-                      ? "Uses the schedule settings below."
-                      : "Starts immediately (no schedule)."}
-                  </div>
-                </div>
-
-                {new_run_error ? (
-                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
-                    <div className="meta">
-                      <span className="mono">error</span>
-                      <span className="mono">{now_iso()}</span>
-                    </div>
-                    <div className="body mono">{new_run_error}</div>
-                  </div>
-                ) : null}
-
-                <details style={{ marginTop: "10px" }} open>
-                  <summary className="mono muted" style={{ cursor: "pointer" }}>
-                    Inputs
-                  </summary>
+                <div className="section_divider" />
+                <div className="section_title">Inputs</div>
 
                   {!bundle_id.trim() || !flow_id.trim() ? (
                     <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
@@ -4195,248 +4040,81 @@ export function App(): React.ReactElement {
                       <div className="body mono">Invalid input JSON. Fix it in Advanced JSON.</div>
                     </div>
                   ) : has_adaptive_inputs ? (
-                    <div style={{ marginTop: "10px" }}>
-                      {adaptive_pins.map((p) => {
-                        if (!p || typeof p !== "object") return null;
+                    <div className="launch_inputs">
+                      {(() => {
+                        const disabled = connecting || resuming;
+                        const wide_pins: typeof adaptive_pins = [];
+                        const compact_pins: typeof adaptive_pins = [];
+
+                        for (const p of adaptive_pins) {
+                          if (!p || typeof p !== "object") continue;
+                          const pid = String((p as any).id || "").trim();
+                          if (!pid) continue;
+                          const ptype = String((p as any).type || "").trim().toLowerCase();
+                          const is_wide = ptype === "tools" || ptype === "array" || is_json_pin_type(ptype) || pid === "prompt" || pid === "system";
+                          if (is_wide) wide_pins.push(p);
+                          else compact_pins.push(p);
+                        }
+
+                        const humanize = (id: string): string => String(id || "").trim().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+                        const render_pin = (p: BundlePinDef, grid_class?: string) => {
                         const pid = String((p as any).id || "").trim();
                         if (!pid) return null;
-                        const label = String((p as any).label || pid).trim() || pid;
+                        const raw_label = String((p as any).label || pid).trim() || pid;
+                        const display_label = raw_label === pid ? humanize(pid) : raw_label;
                         const ptype = String((p as any).type || "").trim().toLowerCase();
                         const has_default = Object.prototype.hasOwnProperty.call(p, "default");
-                        const default_s = has_default ? safe_json_inline((p as any).default, 160) : "";
-                        const disabled = connecting || resuming;
+                        const default_val = has_default ? (p as any).default : undefined;
+                        const default_s = has_default ? safe_json_inline(default_val, 80) : "";
                         const cur = (input_data_obj as any)?.[pid];
-
-                        const field_label = ptype && ptype !== "unknown" ? `${label} (${ptype})` : label;
-                        const hint = default_s ? `default: ${default_s}` : "";
+                        const placeholder_default = has_default ? `${default_s}` : "";
 
                         if (ptype === "tools") {
-                          const selected = Array.isArray(cur)
-                            ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean)
-                            : [];
-                          return (
-                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
-                              <label>{field_label}</label>
-                              <MultiSelect
-                                options={available_tool_names}
-                                value={selected}
-                                disabled={disabled}
-                                placeholder="(no tools selected)"
-                                onChange={(next) => update_input_data_field(pid, next)}
-                              />
-                              {hint ? (
-                                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                                  {hint}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
+                          const selected = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
+                          const default_tools = Array.isArray(default_val) ? (default_val as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
+                          const merged_options = Array.from(new Set([...available_tool_names, ...selected, ...default_tools])).sort();
+                          return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><MultiSelect options={merged_options} value={selected} disabled={disabled} placeholder="(no tools selected)" onChange={(next) => update_input_data_field(pid, next)} /></div>);
                         }
-
                         if (ptype === "provider") {
-                          const selected = typeof cur === "string" ? String(cur) : "";
-                          return (
-                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
-                              <label>{field_label}</label>
-                              <select value={selected} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}>
-                                <option value="">{has_default ? `(default: ${default_s || "…" })` : "(unset)"}</option>
-                                {available_providers.map((p) => (
-                                  <option key={p} value={p}>
-                                    {p}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          );
+                          const sel = typeof cur === "string" ? String(cur) : "";
+                          return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label><select value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}><option value="">{placeholder_default || "(select)"}</option>{available_providers.map((p) => (<option key={p} value={p}>{p}</option>))}</select></div>);
                         }
-
                         if (ptype === "model") {
-                          const selected = typeof cur === "string" ? String(cur) : "";
+                          const sel = typeof cur === "string" ? String(cur) : "";
                           const prov = String((input_data_obj as any)?.provider || "").trim();
                           const found = prov ? discovered_models_by_provider[prov] : undefined;
                           const models = found && Array.isArray(found.models) ? found.models.map((x) => String(x || "").trim()).filter(Boolean) : [];
-                          return (
-                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
-                              <label>{field_label}</label>
-                              {models.length ? (
-                                <select value={selected} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}>
-                                  <option value="">{has_default ? `(default: ${default_s || "…" })` : "(unset)"}</option>
-                                  {models.map((m) => (
-                                    <option key={m} value={m}>
-                                      {m}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  className="mono"
-                                  value={selected}
-                                  onChange={(e) => update_input_data_field(pid, e.target.value)}
-                                  placeholder={has_default ? `(default: ${default_s || "…" })` : "model id"}
-                                  disabled={disabled}
-                                />
-                              )}
-                            </div>
-                          );
+                          return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label>{models.length ? (<select value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}><option value="">{placeholder_default || "(select)"}</option>{models.map((m) => (<option key={m} value={m}>{m}</option>))}</select>) : (<input className="mono" value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default || "model id"} disabled={disabled} />)}</div>);
                         }
-
                         if (ptype === "boolean") {
-                          const selected = typeof cur === "boolean" ? (cur ? "true" : "false") : "";
-                          return (
-                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
-                              <label>{field_label}</label>
-                              <select
-                                value={selected}
-                                onChange={(e) => {
-                                  const v = String(e.target.value || "").trim();
-                                  if (!v) update_input_data_field(pid, undefined);
-                                  else update_input_data_field(pid, v === "true");
-                                }}
-                                disabled={disabled}
-                              >
-                                <option value="">{has_default ? `(default: ${default_s || "…" })` : "(unset)"}</option>
-                                <option value="true">true</option>
-                                <option value="false">false</option>
-                              </select>
-                            </div>
-                          );
+                          const sel = typeof cur === "boolean" ? (cur ? "true" : "false") : "";
+                          return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label><select value={sel} onChange={(e) => { const v = String(e.target.value || "").trim(); if (!v) update_input_data_field(pid, undefined); else update_input_data_field(pid, v === "true"); }} disabled={disabled}><option value="">{placeholder_default || "(default)"}</option><option value="true">Yes</option><option value="false">No</option></select></div>);
                         }
-
                         if (ptype === "number") {
-                          const selected = typeof cur === "number" && Number.isFinite(cur) ? String(cur) : "";
-                          return (
-                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
-                              <label>{field_label}</label>
-                              <input
-                                type="number"
-                                value={selected}
-                                onChange={(e) => {
-                                  const raw = String(e.target.value || "").trim();
-                                  if (!raw) {
-                                    update_input_data_field(pid, undefined);
-                                    return;
-                                  }
-                                  const n = Number(raw);
-                                  if (Number.isFinite(n)) update_input_data_field(pid, n);
-                                }}
-                                placeholder={has_default ? `(default: ${default_s || "…" })` : ""}
-                                disabled={disabled}
-                              />
-                            </div>
-                          );
+                          const sel = typeof cur === "number" && Number.isFinite(cur) ? String(cur) : "";
+                          return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label><input type="number" value={sel} onChange={(e) => { const raw = String(e.target.value || "").trim(); if (!raw) { update_input_data_field(pid, undefined); return; } const n = Number(raw); if (Number.isFinite(n)) update_input_data_field(pid, n); }} placeholder={placeholder_default} disabled={disabled} /></div>);
                         }
-
                         if (ptype === "array") {
-                          const selected = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean).join("\n") : "";
-                          return (
-                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
-                              <label>{field_label}</label>
-                              <textarea
-                                className="mono"
-                                value={selected}
-                                onChange={(e) => {
-                                  const lines = String(e.target.value || "")
-                                    .split(/\r?\n/g)
-                                    .map((x) => String(x || "").trim())
-                                    .filter(Boolean);
-                                  update_input_data_field(pid, lines.length ? lines : undefined);
-                                }}
-                                placeholder={has_default ? `(default: ${default_s || "…" })` : "(one item per line)"}
-                                rows={3}
-                                disabled={disabled}
-                              />
-                            </div>
-                          );
+                          const sel = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean).join("\n") : "";
+                          return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><textarea className="mono" value={sel} onChange={(e) => { const lines = String(e.target.value || "").split(/\r?\n/g).map((x) => String(x || "").trim()).filter(Boolean); update_input_data_field(pid, lines.length ? lines : undefined); }} placeholder={placeholder_default || "(one item per line)"} rows={2} disabled={disabled} /></div>);
                         }
-
                         if (is_json_pin_type(ptype)) {
                           const val = typeof pin_json_text_by_id[pid] === "string" ? pin_json_text_by_id[pid] : "";
                           const err = String(pin_json_error_by_id[pid] || "").trim();
-                          return (
-                            <div key={pid} className="field" style={{ marginTop: "10px" }}>
-                              <label>{field_label}</label>
-                              <textarea
-                                className="mono"
-                                value={val}
-                                onChange={(e) => {
-                                  const next = String(e.target.value ?? "");
-                                  set_pin_json_text_by_id((prev) => ({ ...prev, [pid]: next }));
-                                  const trimmed = next.trim();
-                                  if (!trimmed) {
-                                    set_pin_json_error_by_id((prev) => {
-                                      const out = { ...prev };
-                                      delete out[pid];
-                                      return out;
-                                    });
-                                    update_input_data_field(pid, undefined);
-                                    return;
-                                  }
-                                  try {
-                                    const parsed = JSON.parse(trimmed);
-                                    set_pin_json_error_by_id((prev) => {
-                                      const out = { ...prev };
-                                      delete out[pid];
-                                      return out;
-                                    });
-                                    update_input_data_field(pid, parsed);
-                                  } catch (e: any) {
-                                    set_pin_json_error_by_id((prev) => ({
-                                      ...prev,
-                                      [pid]: String(e?.message || e || "Invalid JSON"),
-                                    }));
-                                  }
-                                }}
-                                placeholder={has_default ? `(default: ${default_s || "…" })` : "{...}"}
-                                rows={5}
-                                disabled={disabled}
-                              />
-                              {err ? (
-                                <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)" }}>
-                                  {err}
-                                </div>
-                              ) : hint ? (
-                                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                                  {hint}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
+                          return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label} <span className="launch_label_type">{ptype}</span></label><textarea className="mono" value={val} onChange={(e) => { const next = String(e.target.value ?? ""); set_pin_json_text_by_id((prev) => ({ ...prev, [pid]: next })); const trimmed = next.trim(); if (!trimmed) { set_pin_json_error_by_id((prev) => { const out = { ...prev }; delete out[pid]; return out; }); update_input_data_field(pid, undefined); return; } try { const parsed = JSON.parse(trimmed); set_pin_json_error_by_id((prev) => { const out = { ...prev }; delete out[pid]; return out; }); update_input_data_field(pid, parsed); } catch (e: any) { set_pin_json_error_by_id((prev) => ({ ...prev, [pid]: String(e?.message || e || "Invalid JSON") })); } }} placeholder={placeholder_default || "{...}"} rows={3} disabled={disabled} />{err ? <div className="launch_field_error">{err}</div> : null}</div>);
                         }
+                        /* Default: string */
+                        const sel = typeof cur === "string" ? String(cur) : "";
+                        const is_textarea = pid === "prompt" || pid === "system";
+                        if (is_textarea) return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><textarea className="mono" value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default || (pid === "prompt" ? "What should the agent do?" : "System instructions (optional)")} rows={3} disabled={disabled} /></div>);
+                        return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label><input className="mono" value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default} disabled={disabled} /></div>);
+                        };
 
-                        const selected = typeof cur === "string" ? String(cur) : "";
-                        const is_prompt = pid === "prompt";
-                        return (
-                          <div key={pid} className="field" style={{ marginTop: "10px" }}>
-                            <label>{field_label}</label>
-                            {is_prompt ? (
-                              <textarea
-                                className="mono"
-                                value={selected}
-                                onChange={(e) => update_input_data_field(pid, e.target.value)}
-                                placeholder={has_default ? `(default: ${default_s || "…" })` : "prompt"}
-                                rows={3}
-                                disabled={disabled}
-                              />
-                            ) : (
-                              <input
-                                className="mono"
-                                value={selected}
-                                onChange={(e) => update_input_data_field(pid, e.target.value)}
-                                placeholder={has_default ? `(default: ${default_s || "…" })` : ""}
-                                disabled={disabled}
-                              />
-                            )}
-                            {hint ? (
-                              <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                                {hint}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "10px" }}>
-                        Advanced JSON below is the source of truth for full `input_data`.
-                      </div>
+                        wide_pins.sort((a, b) => { const order: Record<string, number> = { system: 0, prompt: 1, tools: 2 }; return (order[String((a as any).id || "")] ?? 10) - (order[String((b as any).id || "")] ?? 10); });
+
+                        return (<>{wide_pins.map((p) => render_pin(p))}{compact_pins.length > 0 ? (<div className="launch_grid">{compact_pins.map((p) => render_pin(p, "launch_grid_cell"))}</div>) : null}</>);
+                      })()}
                     </div>
                   ) : (
                     <>
@@ -4482,18 +4160,16 @@ export function App(): React.ReactElement {
 
                   <details style={{ marginTop: "10px" }}>
                     <summary className="mono muted" style={{ cursor: "pointer" }}>
-                      Advanced: input_data JSON
+                      Advanced
                     </summary>
                     <div className="field" style={{ marginTop: "10px" }}>
                       <label>Input data (JSON)</label>
-                      <textarea
-                        className="mono"
-                        value={input_data_text}
-                        onChange={(e) => set_input_data_text(e.target.value)}
-                        placeholder='{"prompt":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}'
-                        rows={10}
-                        disabled={connecting || resuming}
-                      />
+                      <textarea className="mono" value={input_data_text} onChange={(e) => set_input_data_text(e.target.value)} placeholder='{"prompt":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}' rows={10} disabled={connecting || resuming} />
+                    </div>
+                    <div className="field" style={{ marginTop: "10px" }}>
+                      <label>Session ID (scope=session)</label>
+                      <input className="mono" value={start_session_id} onChange={(e) => set_start_session_id(e.target.value)} placeholder="(optional — leave blank for per-run scope)" disabled={connecting || resuming} />
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>Set the same session_id across multiple runs to share session-scoped memory.</div>
                     </div>
                   </details>
 
@@ -4545,190 +4221,69 @@ export function App(): React.ReactElement {
 	                    </div>
 	                  </details>
 
-	                </details>
+                <div className="section_divider" />
+                <div className="section_title">Schedule</div>
 
-	                <details style={{ marginTop: "10px" }}>
-	                    <summary className="mono muted" style={{ cursor: "pointer" }}>
-	                      Schedule
-	                    </summary>
+                {schedule_error ? (
+                  <div className="observe_context_card error" style={{ marginTop: "6px" }}>
+                    <span className="chip mono danger">error</span>
+                    <span className="mono">{schedule_error}</span>
+                  </div>
+                ) : null}
 
-                    {(() => {
-                      const unit_label = schedule_every_unit === "weeks" ? "week" : schedule_every_unit === "months" ? "month" : schedule_every_unit.slice(0, -1);
-                      const n = Math.max(1, Math.floor(schedule_every_n || 1));
-                      const every = `${n} ${unit_label}${n === 1 ? "" : "s"}`;
-                      const start_s =
-                        schedule_start_mode === "now"
-                          ? "now"
-                          : schedule_start_at_local
-                            ? (() => {
-                                const dt = new Date(schedule_start_at_local);
-                                return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "at …";
-                              })()
-                            : "at …";
-                      const until_s =
-                        schedule_repeat_mode === "until" && schedule_repeat_until_date_local
-                          ? (() => {
-                              const t = schedule_repeat_until_time_local || "23:59";
-                              const dt = new Date(`${schedule_repeat_until_date_local}T${t}`);
-                              return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "…";
-                            })()
-                          : "";
-                      const end_s =
-                        schedule_repeat_mode === "once"
-                          ? ""
-                          : schedule_repeat_mode === "forever"
-                            ? "forever"
-                            : schedule_repeat_mode === "count"
-                              ? `${Math.max(1, Math.floor(schedule_repeat_count || 1))} runs`
-                              : until_s
-                                ? `until ${until_s}`
-                                : "until …";
-                      const summary =
-                        schedule_repeat_mode === "once"
-                          ? `Runs once • starts ${start_s}`
-                          : `Repeats every ${every} • starts ${start_s} • ${end_s}`;
-                      return (
-                        <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
-                          <div className="meta">
-                            <span className="mono">schedule</span>
-                            <span className="mono">{schedule_repeat_mode}</span>
-                          </div>
-                          <div className="body">{summary}</div>
-                        </div>
-                      );
-                    })()}
-
-                    {schedule_error ? (
-                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
-                        <div className="meta">
-                          <span className="mono">error</span>
-                          <span className="mono">{now_iso()}</span>
-                        </div>
-                        <div className="body mono">{schedule_error}</div>
-                      </div>
-                    ) : null}
-
-                    <div className="field" style={{ marginTop: "10px" }}>
-                      <label>Start</label>
-                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                        <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                          <input
-                            type="radio"
-                            name="schedule_start"
-                            checked={schedule_start_mode === "now"}
-                            onChange={() => set_schedule_start_mode("now")}
-                          />
-                          now
-                        </label>
-                        <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                          <input
-                            type="radio"
-                            name="schedule_start"
-                            checked={schedule_start_mode === "at"}
-                            onChange={() => set_schedule_start_mode("at")}
-                          />
-                          at
-                        </label>
-                        {schedule_start_mode === "at" ? (
-                          <input type="datetime-local" value={schedule_start_at_local} onChange={(e) => set_schedule_start_at_local(e.target.value)} />
-                        ) : null}
-                      </div>
-                      {schedule_start_mode === "at" ? (
-                        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                          Uses your device time; the gateway stores UTC.
-                        </div>
-                      ) : null}
+                <div className="sched_grid">
+                  <div className="sched_cell">
+                    <label className="launch_label">Start</label>
+                    <div className="sched_radio_row">
+                      <label className="sched_radio"><input type="radio" name="schedule_start" checked={schedule_start_mode === "now"} onChange={() => set_schedule_start_mode("now")} /><span>Now</span></label>
+                      <label className="sched_radio"><input type="radio" name="schedule_start" checked={schedule_start_mode === "at"} onChange={() => set_schedule_start_mode("at")} /><span>Scheduled</span></label>
                     </div>
-
-                    <div className="field">
-                      <label>Cadence</label>
-                      <select value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
-                        <option value="once">Once</option>
-                        <option value="forever">Repeat</option>
-                        <option value="count">Repeat • N times</option>
-                        <option value="until">Repeat • until date</option>
-                      </select>
-                    </div>
-
-                    {schedule_repeat_mode !== "once" ? (
-                      <>
-                        <div className="row">
-                          <div className="col">
-                            <div className="field">
-                              <label>Every</label>
-                              <input
-                                type="number"
-                                min={1}
-                                value={String(schedule_every_n)}
-                                onChange={(e) => set_schedule_every_n(Math.max(1, parseInt(e.target.value || "1", 10) || 1))}
-                              />
-                            </div>
-                          </div>
-                          <div className="col">
-                            <div className="field">
-                              <label>Unit</label>
-                              <select value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
-                                <option value="minutes">minutes</option>
-                                <option value="hours">hours</option>
-                                <option value="days">days</option>
-                                <option value="weeks">weeks (≈7d)</option>
-                                <option value="months">months (≈30d)</option>
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-                        {schedule_every_unit === "months" || schedule_every_unit === "weeks" ? (
-                          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                            Note: weeks/months are implemented as fixed day intervals (calendar-aware scheduling is planned).
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-
-                    {schedule_repeat_mode === "count" ? (
-                      <div className="field">
-                        <label>Runs</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={String(schedule_repeat_count)}
-                          onChange={(e) => set_schedule_repeat_count(Math.max(1, parseInt(e.target.value || "1", 10) || 1))}
-                        />
-                      </div>
-                    ) : null}
-
-                    {schedule_repeat_mode === "until" ? (
-                      <div className="row">
-                        <div className="col">
-                          <div className="field">
-                            <label>Until (date)</label>
-                            <input type="date" value={schedule_repeat_until_date_local} onChange={(e) => set_schedule_repeat_until_date_local(e.target.value)} />
-                          </div>
-                        </div>
-                        <div className="col">
-                          <div className="field">
-                            <label>Until (time)</label>
-                            <input type="time" value={schedule_repeat_until_time_local} onChange={(e) => set_schedule_repeat_until_time_local(e.target.value)} />
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="field">
-                      <label>Context</label>
-                      <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                        <input type="checkbox" checked={schedule_share_context} onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))} />
-                        Share context over time/calls
-                      </label>
-                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                        When disabled, each execution runs in its own session (isolated memory).
+                    {schedule_start_mode === "at" ? (<input type="datetime-local" value={schedule_start_at_local} onChange={(e) => set_schedule_start_at_local(e.target.value)} style={{ marginTop: "6px" }} />) : null}
+                  </div>
+                  <div className="sched_cell">
+                    <label className="launch_label">Cadence</label>
+                    <select value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
+                      <option value="once">Run once</option>
+                      <option value="forever">Repeat forever</option>
+                      <option value="count">Repeat N times</option>
+                      <option value="until">Repeat until date</option>
+                    </select>
+                  </div>
+                  {schedule_repeat_mode !== "once" ? (
+                    <div className="sched_cell">
+                      <label className="launch_label">Every</label>
+                      <div className="sched_inline">
+                        <input type="number" min={1} value={String(schedule_every_n)} onChange={(e) => set_schedule_every_n(Math.max(1, parseInt(e.target.value || "1", 10) || 1))} style={{ width: "70px" }} />
+                        <select value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
+                          <option value="minutes">min</option><option value="hours">hours</option><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option>
+                        </select>
                       </div>
                     </div>
+                  ) : null}
+                  {schedule_repeat_mode === "count" ? (
+                    <div className="sched_cell"><label className="launch_label">Total runs</label><input type="number" min={1} value={String(schedule_repeat_count)} onChange={(e) => set_schedule_repeat_count(Math.max(1, parseInt(e.target.value || "1", 10) || 1))} style={{ width: "100px" }} /></div>
+                  ) : null}
+                  {schedule_repeat_mode === "until" ? (
+                    <div className="sched_cell"><label className="launch_label">End date</label><div className="sched_inline"><input type="date" value={schedule_repeat_until_date_local} onChange={(e) => set_schedule_repeat_until_date_local(e.target.value)} /><input type="time" value={schedule_repeat_until_time_local} onChange={(e) => set_schedule_repeat_until_time_local(e.target.value)} /></div></div>
+                  ) : null}
+                  <div className="sched_cell">
+                    <label className="launch_checkbox"><input type="checkbox" checked={schedule_share_context} onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))} /><span>Shared context</span></label>
+                  </div>
+                </div>
 
-                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                      Tip: set cadence to Once + now for an immediate launch.
-                    </div>
-                  </details>
+                {/* ── Launch button ── */}
+                <div className="section_divider" />
+                {new_run_error ? (
+                  <div className="observe_context_card error" style={{ marginBottom: "10px" }}>
+                    <span className="chip mono danger">error</span>
+                    <span className="mono">{new_run_error}</span>
+                  </div>
+                ) : null}
+                <div className="launch_actions_bar">
+                  <button className="launch_submit_btn" onClick={() => void submit_launch()} disabled={connecting || resuming || discovery_loading || bundle_loading || schedule_submitting || !gateway_connected || !bundle_id.trim() || !flow_id.trim() || input_data_obj === null}>
+                    {schedule_start_mode !== "now" || schedule_repeat_mode !== "once" ? "Launch (scheduled)" : "Launch now"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -4788,298 +4343,160 @@ export function App(): React.ReactElement {
 
         {page === "observe" ? (
           <div className="page observe_page">
-            <div className="observe_layout">
-              <div className="card panel_card scroll_y observe_sidebar">
-                <div className="section_title">Runs</div>
-                <div className="field">
-                  <label>Runs (parent — select to observe)</label>
-                  <div className="field_inline">
-                    <RunPicker
-                      runs={run_options}
-                      selected_run_id={run_id}
-                      workflow_label_by_id={workflow_label_by_id}
-                      disabled={!gateway_connected || runs_loading || discovery_loading || connecting || resuming}
-                      loading={runs_loading}
-                      onSelect={(rid) => void attach_to_run(rid)}
-                    />
-                    <button className="btn" onClick={refresh_runs} disabled={!gateway_connected || runs_loading || discovery_loading}>
-                      {runs_loading ? "Refreshing…" : "Refresh"}
-                    </button>
-                    <button className="btn" onClick={clear_run_view} disabled={!run_id.trim() && !connected}>
-                      Disconnect
-                    </button>
-                  </div>
-                </div>
+            {/* ── Observe toolbar: run picker + controls ── */}
+            <div className="observe_toolbar">
+              <div className="observe_toolbar_row">
+                <RunPicker
+                  runs={run_options}
+                  selected_run_id={run_id}
+                  workflow_label_by_id={workflow_label_by_id}
+                  disabled={!gateway_connected || runs_loading || discovery_loading || connecting || resuming}
+                  loading={runs_loading}
+                  onSelect={(rid) => void attach_to_run(rid)}
+                />
+                <button className="btn btn_icon" onClick={refresh_runs} disabled={!gateway_connected || runs_loading || discovery_loading} title="Refresh runs">
+                  <Icon name="refresh" size={14} />
+                  {runs_loading ? "…" : "Refresh"}
+                </button>
+                <button className="btn btn_icon" onClick={clear_run_view} disabled={!run_id.trim() && !connected} title="Disconnect from run">
+                  <Icon name="x" size={14} />
+                  Disconnect
+                </button>
 
-	                <div className="actions" style={{ justifyContent: "flex-start" }}>
-	                  <button
-	                    className="btn"
-	                    onClick={() => {
-	                      if (primary_control_action === "pause") {
-	                        set_run_control_type("pause");
-	                        set_run_control_reason("");
-	                        set_run_control_error("");
-	                        set_run_control_open(true);
-	                        return;
-	                      }
-	                      void submit_run_control("resume");
-	                    }}
-	                    disabled={primary_control_disabled}
-	                  >
-	                    {primary_control_label}
-	                  </button>
-	                  {can_run_scheduled_now ? (
-	                    <button
-	                      className="btn primary"
-	                      onClick={() => void run_scheduled_now()}
-	                      disabled={!run_id.trim() || connecting || resuming || run_terminal || run_paused}
-	                    >
-	                      Run now
-	                    </button>
-	                  ) : null}
-	                  <button
-	                    className="btn danger"
-	                    onClick={() => {
-	                      set_run_control_type("cancel");
-	                      set_run_control_reason("");
-	                      set_run_control_error("");
-	                      set_run_control_open(true);
-	                    }}
-	                    disabled={!run_id.trim() || connecting || resuming || run_terminal}
-	                  >
-	                    Cancel
-	                  </button>
-	                  <button className="btn" onClick={() => set_page("launch")} disabled={!gateway_connected || discovery_loading}>
-	                    Launch…
-	                  </button>
-	                </div>
+                <span className="observe_toolbar_sep" />
 
-                {is_waiting ? (
-                  <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
-	                    <div className="meta">
-	                      <span className="mono">{is_scheduled_run ? (run_paused ? "suspended" : "scheduled") : "waiting"}</span>
-	                      <span className="mono">{wait_reason || "unknown"}</span>
-	                    </div>
-                    <div className="body">
-                      {wait_key ? (
-                        <div className="mono" title={wait_key}>
-                          <span className="muted">wait_key</span>: {short_id(wait_key, 46)}
-                        </div>
-                      ) : null}
-                      {wait_reason === "event" && wait_event_name ? (
-                        <div className="mono">
-                          <span className="muted">event</span>: {wait_event_name}
-                        </div>
-                      ) : null}
-                      {wait_reason === "subworkflow" && sub_run_id ? (
-                        <div className="mono">
-                          <span className="muted">child run</span>: {short_id(sub_run_id, 18)}
-                        </div>
-                      ) : null}
-                      {wait_reason === "until" && wait_until ? (
-                        <div className="mono" title={wait_until}>
-                          <span className="muted">until</span>: {short_id(wait_until, 46)}
-                        </div>
-                      ) : null}
-                    </div>
-                    {wait_reason === "until" && wait_until ? (
-                      <div className="mono muted" style={{ marginTop: "10px", fontSize: "var(--font-size-sm)" }}>
-                        {(() => {
-                          const ms = parse_iso_ms(wait_until);
-                          const at = ms !== null ? new Date(ms).toLocaleString() : wait_until;
-                          const in_ = ms !== null ? format_time_until_from_ms(ms - Date.now()) : "";
-                          return `Next execution at ${at}${in_ ? ` (in ${in_})` : ""}`;
-                        })()}
-                      </div>
-                    ) : null}
-                    {wait_reason === "subworkflow" && sub_run_id ? (
-                      <div className="actions">
-                        <button
-                          className="btn primary"
-                          onClick={async () => {
-                            set_run_id(sub_run_id);
-                            await connect_to_run(sub_run_id);
-                          }}
-                          disabled={connecting}
-                        >
-                          Attach to child run
-                        </button>
-                        {root_run_id.trim() && root_run_id.trim() !== run_id.trim() ? (
-                          <button
-                            className="btn"
-                            onClick={async () => {
-                              set_run_id(root_run_id.trim());
-                              await connect_to_run(root_run_id.trim());
-                            }}
-                            disabled={connecting}
-                          >
-                            Back to root
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    if (primary_control_action === "pause") {
+                      set_run_control_type("pause");
+                      set_run_control_reason("");
+                      set_run_control_error("");
+                      set_run_control_open(true);
+                      return;
+                    }
+                    void submit_run_control("resume");
+                  }}
+                  disabled={primary_control_disabled}
+                >
+                  {primary_control_label}
+                </button>
+                {can_run_scheduled_now ? (
+                  <button
+                    className="btn primary"
+                    onClick={() => void run_scheduled_now()}
+                    disabled={!run_id.trim() || connecting || resuming || run_terminal || run_paused}
+                  >
+                    Run now
+                  </button>
                 ) : null}
-
-                {is_scheduled_run ? (
-                  <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                    <div className="meta">
-                      <span className="mono">schedule</span>
-                      <span className="mono">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
-                    </div>
-                    <div className="body">
-                      {schedule_interval ? (
-                        <div className="mono">
-                          <span className="muted">interval</span>: {schedule_interval}
-                        </div>
-                      ) : null}
-                      <div className="mono">
-                        <span className="muted">share context</span>: {schedule_share_ctx ? "true" : "false"}
-                      </div>
-                      {typeof schedule_meta_repeat_count === "number" ? (
-                        <div className="mono">
-                          <span className="muted">repeat count</span>: {schedule_meta_repeat_count}
-                        </div>
-                      ) : null}
-                    </div>
-                    {limits_pct !== null ? (
-                      <div className="body" style={{ marginTop: "10px" }}>
-                        <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "6px" }}>
-                          Context budget
-                        </div>
-                        <div className="mono" style={{ marginBottom: "6px" }}>
-                          {typeof limits_used === "number" && typeof limits_budget === "number"
-                            ? `${limits_used.toLocaleString()} / ${limits_budget.toLocaleString()}`
-                            : ""}
-                          {` • ${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`}
-                        </div>
-                        <div style={{ height: "6px", borderRadius: "999px", background: "rgba(148, 163, 184, 0.25)", overflow: "hidden" }}>
-                          <div
-                            style={{
-                              height: "100%",
-                              width: `${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`,
-                              background:
-                                limits_pct >= 0.9
-                                  ? "rgba(239, 68, 68, 0.9)"
-                                  : limits_pct >= 0.75
-                                    ? "rgba(245, 158, 11, 0.9)"
-                                    : "rgba(34, 197, 94, 0.9)",
-                            }}
-                          />
-                        </div>
-                        {is_scheduled_recurrent ? (
-                          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                            Auto-compaction triggers at ~90% for recurrent schedules.
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    <div className="actions">
-                      {is_scheduled_recurrent ? (
-                        <button
-                          className="btn"
-                          onClick={() => {
-                            set_schedule_edit_interval(schedule_interval || "");
-                            set_schedule_edit_apply_immediately(true);
-                            set_schedule_edit_error("");
-                            set_schedule_edit_open(true);
-                          }}
-                          disabled={connecting || schedule_edit_submitting}
-                        >
-                          Edit schedule
-                        </button>
-                      ) : null}
-                      {is_scheduled_recurrent ? (
-                        <button
-                          className="btn primary"
-                          onClick={() => {
-                            set_compact_error("");
-                            set_compact_open(true);
-                          }}
-                          disabled={connecting || compact_submitting}
-                        >
-                          Compact context
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-
-                {run_state ? (
-                  <details style={{ marginTop: "10px" }}>
-                    <summary className="mono" style={{ color: "var(--muted)", cursor: "pointer" }}>
-                      Run state • {run_status || "unknown"}
-                      {run_paused ? " • paused" : ""}
-                    </summary>
-                    <div className="log_item" style={{ marginTop: "10px" }}>
-                      <div className="body mono">
-                        {safe_json({
-                          status: run_state?.status,
-                          paused: run_state?.paused,
-                          current_node: run_state?.current_node,
-                          waiting: run_state?.waiting
-                            ? {
-                                reason: run_state.waiting.reason,
-                                wait_key: run_state.waiting.wait_key,
-                                prompt: run_state.waiting.prompt,
-                                details: run_state.waiting.details,
-                              }
-                            : null,
-                          error: run_state?.error,
-                        })}
-                      </div>
-                    </div>
-                  </details>
-                ) : null}
-
-                {error_text ? (
-                  <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                    <div className="meta">
-                      <span className="mono">error</span>
-                      <span className="mono">{now_iso()}</span>
-                    </div>
-                    <div className="body mono">{error_text}</div>
-                  </div>
-                ) : null}
+                <button
+                  className="btn danger"
+                  onClick={() => {
+                    set_run_control_type("cancel");
+                    set_run_control_reason("");
+                    set_run_control_error("");
+                    set_run_control_open(true);
+                  }}
+                  disabled={!run_id.trim() || connecting || resuming || run_terminal}
+                >
+                  Cancel
+                </button>
+                <button className="btn primary" onClick={() => set_page("launch")} disabled={!gateway_connected || discovery_loading}>
+                  Launch…
+                </button>
               </div>
 
-              <div className="card panel_card card_scroll observe_viewer">
-                <div className="tab_bar">
-                  <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
-                    Ledger
-                  </button>
-                  <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
-                    Graph
-                  </button>
-                  <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
-                    Digest
-                  </button>
-                  <button className={`tab mono ${right_tab === "attachments" ? "active" : ""}`} onClick={() => set_right_tab("attachments")}>
-                    Attachments
-                  </button>
-                  <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
-                    Chat
-                  </button>
-                </div>
+              {/* Contextual info: waiting / schedule / error — shown inline when relevant */}
+              {(is_waiting || is_scheduled_run || error_text) ? (
+                <div className="observe_toolbar_context">
+                  {is_waiting ? (
+                    <div className="observe_context_card info">
+                      <div className="observe_context_label">
+                        <span className="chip mono info">{is_scheduled_run ? (run_paused ? "suspended" : "scheduled") : "waiting"}</span>
+                        <span className="mono muted">{wait_reason || "unknown"}</span>
+                      </div>
+                      <div className="observe_context_body">
+                        {wait_key ? (<span className="mono" title={wait_key}><span className="muted">wait_key</span>: {short_id(wait_key, 46)}</span>) : null}
+                        {wait_reason === "event" && wait_event_name ? (<span className="mono"><span className="muted">event</span>: {wait_event_name}</span>) : null}
+                        {wait_reason === "subworkflow" && sub_run_id ? (<span className="mono"><span className="muted">child</span>: {short_id(sub_run_id, 18)}</span>) : null}
+                        {wait_reason === "until" && wait_until ? (<span className="mono" title={wait_until}><span className="muted">until</span>: {short_id(wait_until, 46)}</span>) : null}
+                        {wait_reason === "until" && wait_until ? (
+                          <span className="mono muted">
+                            {(() => {
+                              const ms = parse_iso_ms(wait_until);
+                              const at = ms !== null ? new Date(ms).toLocaleString() : wait_until;
+                              const in_ = ms !== null ? format_time_until_from_ms(ms - Date.now()) : "";
+                              return `Next at ${at}${in_ ? ` (in ${in_})` : ""}`;
+                            })()}
+                          </span>
+                        ) : null}
+                      </div>
+                      {wait_reason === "subworkflow" && sub_run_id ? (
+                        <div className="observe_context_actions">
+                          <button className="btn primary" onClick={async () => { set_run_id(sub_run_id); await connect_to_run(sub_run_id); }} disabled={connecting}>Attach to child</button>
+                          {root_run_id.trim() && root_run_id.trim() !== run_id.trim() ? (
+                            <button className="btn" onClick={async () => { set_run_id(root_run_id.trim()); await connect_to_run(root_run_id.trim()); }} disabled={connecting}>Back to root</button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
 
-                <div className="viewer_header">
-                  <div className="viewer_header_left">
-                    <div className="viewer_run_title">{run_id.trim() ? selected_run_label : "No run selected"}</div>
-                    <span className={`chip mono ${selected_run_status_chip_cls}`}>{selected_run_status_label || "—"}</span>
-	                    {selected_run_is_scheduled_until && selected_next_in ? (
-	                      <span className="chip mono scheduled" title={selected_next_at ? `Next at ${selected_next_at}` : undefined}>
-	                        next in {selected_next_in}
-	                      </span>
-	                    ) : null}
-	                    {is_scheduled_recurrent && schedule_interval ? (
-	                      <span className="chip mono muted">every {schedule_interval}</span>
-	                    ) : null}
-	                  </div>
-                  <div className="viewer_header_right">
-                    {run_id.trim() ? <span className="mono muted">{short_run_id(run_id.trim())}</span> : null}
-                    {run_id.trim() ? <span className="muted">{selected_run_when}</span> : null}
-                  </div>
+                  {is_scheduled_run ? (
+                    <div className="observe_context_card muted">
+                      <div className="observe_context_label">
+                        <span className="chip mono muted">schedule</span>
+                        <span className="mono muted">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
+                      </div>
+                      <div className="observe_context_body">
+                        {schedule_interval ? (<span className="mono"><span className="muted">interval</span>: {schedule_interval}</span>) : null}
+                        <span className="mono"><span className="muted">share ctx</span>: {schedule_share_ctx ? "yes" : "no"}</span>
+                        {typeof schedule_meta_repeat_count === "number" ? (<span className="mono"><span className="muted">repeats</span>: {schedule_meta_repeat_count}</span>) : null}
+                      </div>
+                      {limits_pct !== null ? (
+                        <div className="observe_context_budget">
+                          <span className="mono muted">{typeof limits_used === "number" && typeof limits_budget === "number" ? `${limits_used.toLocaleString()} / ${limits_budget.toLocaleString()}` : ""}{` • ${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`}</span>
+                          <div className="observe_budget_bar"><div className="observe_budget_fill" style={{ width: `${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`, background: limits_pct >= 0.9 ? "rgba(239, 68, 68, 0.9)" : limits_pct >= 0.75 ? "rgba(245, 158, 11, 0.9)" : "rgba(34, 197, 94, 0.9)" }} /></div>
+                        </div>
+                      ) : null}
+                      <div className="observe_context_actions">
+                        {is_scheduled_recurrent ? (<button className="btn" onClick={() => { set_schedule_edit_interval(schedule_interval || ""); set_schedule_edit_apply_immediately(true); set_schedule_edit_error(""); set_schedule_edit_open(true); }} disabled={connecting || schedule_edit_submitting}>Edit schedule</button>) : null}
+                        {is_scheduled_recurrent ? (<button className="btn" onClick={() => { set_compact_error(""); set_compact_open(true); }} disabled={connecting || compact_submitting}>Compact context</button>) : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {error_text ? (
+                    <div className="observe_context_card error">
+                      <span className="chip mono danger">error</span>
+                      <span className="mono">{error_text}</span>
+                    </div>
+                  ) : null}
                 </div>
+              ) : null}
+            </div>
+
+            {/* ── Single full-width content panel ── */}
+            <div className="card panel_card card_scroll observe_viewer observe_viewer_full">
+              {/* Content tabs */}
+              <div className="tab_bar">
+                <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
+                  Ledger
+                </button>
+                <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
+                  Graph
+                </button>
+                <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
+                  Digest
+                </button>
+                <button className={`tab mono ${right_tab === "attachments" ? "active" : ""}`} onClick={() => set_right_tab("attachments")}>
+                  Attachments
+                </button>
+                <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
+                  Chat
+                </button>
+              </div>
 
                 {right_tab === "ledger" ? (
                   <>
@@ -5698,16 +5115,15 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
-                <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
-                  <strong>Run</strong>:{" "}
-                  {run_id.trim() ? (
-                    <span className="mono">{selected_run_status_label || selected_run_status_raw || "unknown"}</span>
-                  ) : (
-                    <span className="mono">(none)</span>
-                  )}
-                  {run_id.trim() && selected_run_is_scheduled_until && selected_next_in ? <span className="mono muted"> • next in {selected_next_in}</span> : null}
-                  {status_text ? <span className="mono muted"> • {status_text}</span> : null}
-                </div>
+              <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
+                <strong>Run</strong>:{" "}
+                {run_id.trim() ? (
+                  <span className="mono">{selected_run_status_label || selected_run_status_raw || "unknown"}</span>
+                ) : (
+                  <span className="mono">(none)</span>
+                )}
+                {run_id.trim() && selected_run_is_scheduled_until && selected_next_in ? <span className="mono muted"> • next in {selected_next_in}</span> : null}
+                {status_text ? <span className="mono muted"> • {status_text}</span> : null}
               </div>
             </div>
           </div>
@@ -6030,6 +5446,11 @@ function AskForm(props: { wait: WaitState; disabled?: boolean; on_submit: (value
   );
 }
 
+/* --------------------------------------------------------------------------
+   LedgerCard — visual step card for the observe ledger.
+   Structured layout: header row (title + status + time), meta chips,
+   optional preview, and compact action buttons.
+   -------------------------------------------------------------------------- */
 function LedgerCard(props: {
   item: UiLogItem;
   open: boolean;
@@ -6063,80 +5484,47 @@ function LedgerCard(props: {
 
   const status = String(item.status || "").trim();
   const st = status.toLowerCase();
-  const status_chip =
-    st === "completed"
-      ? "chip ok"
-      : st === "failed"
-        ? "chip danger"
-        : st === "waiting"
-          ? "chip warn"
-          : st === "running"
-            ? "chip info"
-            : status
-              ? "chip muted"
-              : "chip muted";
+  const status_cls =
+    st === "completed" ? "ok" : st === "failed" ? "danger" : st === "waiting" ? "warn" : st === "running" ? "info" : "muted";
 
   const response_text = extract_response_text_from_record(item.data);
   const has_response = Boolean(response_text && response_text.trim());
   const when = format_time_ago(item.ts);
 
   return (
-    <div className="log_item card" style={{ ["--card-accent" as any]: accent }}>
-      <div className="meta">
-        <span className="mono">
-          {item.kind} • {display_label}
-        </span>
-        <span className="mono muted" title={item.ts}>
-          {when}
-        </span>
+    <div className={`lc ${status_cls}`} style={{ ["--lc-accent" as any]: accent }}>
+      <div className="lc_header">
+        <span className="lc_title">{display_label}</span>
+        <div className="lc_header_right">
+          {status ? <span className={`lc_status ${status_cls}`}>{status}</span> : null}
+          <span className="lc_time" title={item.ts}>{when}</span>
+        </div>
       </div>
-      <div className="meta2">
-        {status ? <span className={`mono ${status_chip}`}>{status}</span> : null}
-        {node_type ? <span className="chip mono muted">{node_type}</span> : null}
-        {item.effect_type ? <span className="chip mono muted">{String(item.effect_type)}</span> : null}
-        {item.cursor ? <span className="chip mono muted">#{item.cursor}</span> : null}
-        {item.run_id ? <span className="chip mono muted">{short_id(String(item.run_id), 10)}</span> : null}
-        {item.kind !== "step" && node_id ? <span className="chip mono muted">{node_id}</span> : null}
+      <div className="lc_meta">
+        {node_type ? <span className="lc_chip">{node_type}</span> : null}
+        {item.effect_type ? <span className="lc_chip">{String(item.effect_type)}</span> : null}
+        {item.cursor ? <span className="lc_chip">#{item.cursor}</span> : null}
+        {item.run_id ? <span className="lc_chip">{short_id(String(item.run_id), 10)}</span> : null}
+        {item.kind !== "step" && node_id ? <span className="lc_chip">{node_id}</span> : null}
       </div>
-      {item.preview ? <div className="log_preview mono">{item.preview}</div> : null}
+      {item.preview ? <div className="lc_preview">{item.preview}</div> : null}
       {item.data ? (
-        <div className="log_actions">
+        <div className="lc_actions">
           {has_response ? (
             <>
-              <button className="btn" onClick={props.on_toggle_response}>
-                {props.response_open ? "Fold Response" : "Unfold Response"}
-              </button>
-              <button className="btn" onClick={() => props.on_copy(String(response_text || ""))}>
-                Copy Response
-              </button>
+              <button className="lc_btn" onClick={props.on_toggle_response}>{props.response_open ? "Fold Response" : "Unfold Response"}</button>
+              <button className="lc_btn" onClick={() => props.on_copy(String(response_text || ""))}>Copy Response</button>
             </>
           ) : null}
-          <button className="btn" onClick={props.on_toggle}>
-            {props.open ? "Fold JSON" : "Unfold JSON"}
-          </button>
-          <button
-            className="btn"
-            onClick={() => {
-              try {
-                props.on_copy(JSON.stringify(item.data, null, 2));
-              } catch {
-                props.on_copy(String(item.data));
-              }
-            }}
-          >
-            Copy JSON
-          </button>
+          <button className="lc_btn" onClick={props.on_toggle}>{props.open ? "Fold JSON" : "Unfold JSON"}</button>
+          <button className="lc_btn" onClick={() => { try { props.on_copy(JSON.stringify(item.data, null, 2)); } catch { props.on_copy(String(item.data)); } }}>Copy JSON</button>
         </div>
       ) : null}
       {props.response_open && has_response ? (
-        <div className="body">
-          <Markdown text={String(response_text || "")} />
-        </div>
+        <div className="lc_body"><Markdown text={String(response_text || "")} /></div>
       ) : null}
       {props.open && item.data ? (
-        <div className="body mono">
-          <JsonViewer value={item.data} max_string_len={220} />
-        </div>
+        <div className="lc_body lc_body_json mono"><JsonViewer value={item.data} max_string_len={220} /></div>
       ) : null}
     </div>
   );

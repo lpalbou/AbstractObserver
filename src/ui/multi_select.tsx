@@ -1,3 +1,8 @@
+/* --------------------------------------------------------------------------
+   MultiSelect — chip-based multi-value selector with search.
+   Shows all selected items as removable chips (always visible),
+   with an expandable checkbox list for adding/removing.
+   -------------------------------------------------------------------------- */
 import React, { useMemo, useState } from "react";
 
 function uniq_sorted(arr: string[]): string[] {
@@ -30,8 +35,6 @@ export function MultiSelect(props: {
   const selected = useMemo(() => new Set(value), [value]);
 
   const max_h = typeof props.max_list_height_px === "number" ? props.max_list_height_px : 220;
-  const summary =
-    value.length > 0 ? `${value.length} selected: ${value.slice(0, 3).join(", ")}${value.length > 3 ? "…" : ""}` : props.placeholder || "(none)";
 
   return (
     <div className="multi_select">
@@ -43,7 +46,16 @@ export function MultiSelect(props: {
           disabled={disabled || !options.length}
           aria-expanded={open}
         >
-          {open ? "Hide" : "Select"} • {summary}
+          {open ? "Hide" : "Select"} • {value.length > 0 ? `${value.length} of ${options.length}` : props.placeholder || "(none)"}
+        </button>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => props.onChange(options.slice())}
+          disabled={disabled || !options.length || value.length === options.length}
+          title="Select all"
+        >
+          All
         </button>
         <button
           className="btn"
@@ -55,6 +67,28 @@ export function MultiSelect(props: {
           Clear
         </button>
       </div>
+
+      {/* Show all selected items as chips (always visible) */}
+      {value.length > 0 ? (
+        <div className="multi_select_chips">
+          {value.map((v) => (
+            <span
+              key={v}
+              className="multi_select_chip"
+              title={v}
+              onClick={() => {
+                if (disabled) return;
+                const next = new Set(selected);
+                next.delete(v);
+                props.onChange(Array.from(next.values()));
+              }}
+            >
+              {v}
+              {!disabled ? <span className="multi_select_chip_x">×</span> : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       {open ? (
         <div className="multi_select_panel">
@@ -92,4 +126,3 @@ export function MultiSelect(props: {
     </div>
   );
 }
-
