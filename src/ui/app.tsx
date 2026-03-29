@@ -97,6 +97,22 @@ type WorkflowOption = {
   description?: string;
 };
 
+// === UI feature flags (runtime config injected by CLI) ===
+function read_ui_flag(key: string, default_value = false): boolean {
+  const cfg: any = typeof window !== "undefined" ? window.__ABSTRACT_UI_CONFIG__ : undefined;
+  const raw = cfg?.[key];
+  if (raw === undefined || raw === null || raw === "") return default_value;
+  if (typeof raw === "boolean") return raw;
+  const normalized = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  console.warn(`#FALLBACK: ui_config.${key}="${raw}" is not a boolean; defaulting to ${default_value ? "true" : "false"}.`);
+  return default_value;
+}
+
+const ENABLE_BACKLOG = read_ui_flag("enable_backlog");
+const ENABLE_INBOX_TRIAGE = read_ui_flag("enable_inbox_triage");
+
 function now_iso(): string {
   return new Date().toISOString();
 }
@@ -500,6 +516,10 @@ function getOrCreateStableSessionId(): string {
 export function App(): React.ReactElement {
   const [page, set_page] = useState<"observe" | "launch" | "mindmap" | "backlog" | "inbox" | "processes" | "settings">("observe");
 
+  useEffect(() => {
+    if (!ENABLE_BACKLOG && (page === "backlog" || page === "processes")) set_page("observe");
+  }, [page, ENABLE_BACKLOG]);
+
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
   const monitor_gpu_ref = useRef<HTMLElement | null>(null);
@@ -509,7 +529,7 @@ export function App(): React.ReactElement {
   const [flow_id, set_flow_id] = useState<string>("");
   const [bundle_id, set_bundle_id] = useState<string>("");
   const [input_data_text, set_input_data_text] = useState<string>("{}");
-  const [start_session_id, set_start_session_id] = useState<string>(() => getOrCreateStableSessionId());
+  const [start_session_id] = useState<string>(() => getOrCreateStableSessionId());
 
   const [bundle_info, set_bundle_info] = useState<BundleInfo | null>(null);
   const [bundle_loading, set_bundle_loading] = useState(false);
@@ -529,7 +549,6 @@ export function App(): React.ReactElement {
   const [connected, set_connected] = useState(false);
   const [connecting, set_connecting] = useState(false);
   const [resuming, set_resuming] = useState(false);
-  const [cursor, set_cursor] = useState<number>(0);
   const [records, set_records] = useState<Array<{ cursor: number; record: StepRecord }>>([]);
   const [child_records_for_digest, set_child_records_for_digest] = useState<Array<{ run_id: string; cursor: number; record: StepRecord }>>([]);
   const cursor_ref = useRef<number>(0);
@@ -788,11 +807,15 @@ export function App(): React.ReactElement {
   const workspace_root_value = typeof input_data_obj?.workspace_root === "string" ? String(input_data_obj.workspace_root) : "";
   const workspace_access_mode_value =
     typeof input_data_obj?.workspace_access_mode === "string" ? String(input_data_obj.workspace_access_mode) : "";
+  const workspace_allowed_paths_value = useMemo(() => {
+    const raw = (input_data_obj as any)?.workspace_allowed_paths;
+    if (Array.isArray(raw)) return raw.map((x) => String(x || "").trim()).filter(Boolean).join("\n");
+    if (typeof raw === "string") return String(raw);
+    return "";
+  }, [input_data_obj]);
   const workspace_ignored_paths_value = useMemo(() => {
     const raw = (input_data_obj as any)?.workspace_ignored_paths;
-    if (Array.isArray(raw)) {
-      return raw.map((x) => String(x || "").trim()).filter(Boolean).join("\n");
-    }
+    if (Array.isArray(raw)) return raw.map((x) => String(x || "").trim()).filter(Boolean).join("\n");
     if (typeof raw === "string") return String(raw);
     return "";
   }, [input_data_obj]);
@@ -1525,7 +1548,6 @@ export function App(): React.ReactElement {
 
   function handle_step(ev: LedgerStreamEvent): void {
     cursor_ref.current = ev.cursor;
-    set_cursor(ev.cursor);
     set_records((prev) => [...prev, { cursor: ev.cursor, record: ev.record }]);
     if (run_id.trim()) digest_seen_ref.current.add(`${run_id.trim()}:${ev.cursor}`);
 
@@ -1787,7 +1809,6 @@ export function App(): React.ReactElement {
       const page = await gateway.get_ledger(run_id_value, { after, limit: 200 });
       const items = Array.isArray(page.items) ? page.items : [];
       if (!items.length) {
-        set_cursor(after);
         cursor_ref.current = after;
         return after;
       }
@@ -1806,7 +1827,6 @@ export function App(): React.ReactElement {
     set_connecting(true);
     set_connected(false);
     set_records([]);
-    set_cursor(0);
     cursor_ref.current = 0;
     set_child_records_for_digest([]);
     digest_seen_ref.current = new Set();
@@ -2245,7 +2265,6 @@ export function App(): React.ReactElement {
     set_resuming(false);
 
     cursor_ref.current = 0;
-    set_cursor(0);
     set_records([]);
     set_child_records_for_digest([]);
     digest_seen_ref.current = new Set();
@@ -3738,11 +3757,6 @@ export function App(): React.ReactElement {
             </svg>
           </span>
           <span className="logo_name">AbstractObserver</span>
-          <span
-            className={`gateway_led ${gateway_connected ? "ok" : discovery_loading ? "warn" : "err"}`}
-            title={`Gateway: ${gateway_connected ? "connected" : discovery_loading ? "connecting" : "disconnected"}`}
-            aria-hidden="true"
-          />
         </div>
         <div className="app_nav">
           <button className={`nav_tab ${page === "observe" ? "active" : ""}`} onClick={() => set_page("observe")}>
@@ -3754,22 +3768,16 @@ export function App(): React.ReactElement {
           <button className={`nav_tab ${page === "mindmap" ? "active" : ""}`} onClick={() => set_page("mindmap")}>
             Mindmap
           </button>
+          {ENABLE_BACKLOG ? (
           <button className={`nav_tab ${page === "backlog" ? "active" : ""}`} onClick={() => set_page("backlog")}>
             Backlog
           </button>
+          ) : null}
           <button className={`nav_tab ${page === "inbox" ? "active" : ""}`} onClick={() => set_page("inbox")}>
             Inbox
           </button>
         </div>
         <div className="status_pills">
-          {page === "observe" ? (
-            <>
-              <span className={`status_pill ${connected ? "ok" : connecting ? "warn" : "muted"}`}>
-                run {connected ? "ok" : connecting ? "…" : "off"}
-              </span>
-              <span className="status_pill muted status_pill_cursor">cursor {cursor}</span>
-            </>
-          ) : null}
           {monitor_gpu_enabled ? (
             <monitor-gpu
               ref={monitor_gpu_ref as any}
@@ -3791,6 +3799,7 @@ export function App(): React.ReactElement {
               }
             />
           ) : null}
+          {ENABLE_BACKLOG ? (
           <button
             className={`header_icon_btn ${page === "processes" ? "active" : ""}`}
             title="Processes"
@@ -3800,6 +3809,7 @@ export function App(): React.ReactElement {
           >
             <Icon name="terminal" size={16} />
           </button>
+          ) : null}
           <button
             className={`header_icon_btn ${page === "settings" ? "active" : ""}`}
             title="Settings"
@@ -3809,6 +3819,11 @@ export function App(): React.ReactElement {
           >
             <Icon name="settings" size={16} />
           </button>
+          <span
+            className={`gateway_led ${gateway_connected ? "ok" : discovery_loading ? "warn" : "err"}`}
+            title={`Gateway: ${gateway_connected ? "connected" : discovery_loading ? "connecting" : "disconnected"}`}
+            aria-hidden="true"
+          />
         </div>
       </div>
 
@@ -3905,9 +3920,11 @@ export function App(): React.ReactElement {
                   }
                 />
                 <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                  Used for backlog AI assist and in-editor maintenance chat. Defaults follow `ABSTRACTGATEWAY_PROVIDER` / `ABSTRACTGATEWAY_MODEL`.
+                  Used for in-editor maintenance chat{ENABLE_BACKLOG ? " and backlog AI assist" : ""}. Defaults follow `ABSTRACTGATEWAY_PROVIDER` /
+                  `ABSTRACTGATEWAY_MODEL`.
                 </div>
 
+                {ENABLE_BACKLOG ? (
                 <div className="field" style={{ marginTop: "10px" }}>
                   <label>Backlog advisor agent (bundle id; blank = basic-agent)</label>
                   <input
@@ -3920,6 +3937,7 @@ export function App(): React.ReactElement {
                     Used by Backlog → Advisor drawer. Must be a bundle available on the gateway (e.g. `basic-agent`, `advanced-agent`).
                   </div>
                 </div>
+                ) : null}
 
                 <div className="section_divider" />
                 <div className="section_title">Remote Tool Worker (MCP)</div>
@@ -4005,7 +4023,7 @@ export function App(): React.ReactElement {
                   <input ref={bundle_upload_input_ref} type="file" accept=".flow" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files.length ? e.target.files[0] : null; if (!f) return; void upload_gateway_bundle(f); }} />
                   <button type="button" className="btn launch_btn_upload" onClick={() => bundle_upload_input_ref.current?.click()} disabled={!gateway_connected || discovery_loading || bundle_uploading || connecting || resuming} title="Upload a .flow bundle">{bundle_uploading ? "…" : "Upload"}</button>
                   <button type="button" className="btn launch_btn_reload" onClick={() => void reload_gateway_bundles()} disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming} title="Reload picks up server-side edits"><Icon name="refresh" size={14} />{bundles_reloading ? "…" : "Reload"}</button>
-                </div>
+                    </div>
                 <div className="field">
                   {selected_entrypoint?.description ? (
                     <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
@@ -4158,78 +4176,59 @@ export function App(): React.ReactElement {
                     </>
                   )}
 
-                  <details style={{ marginTop: "10px" }}>
-                    <summary className="mono muted" style={{ cursor: "pointer" }}>
-                      Advanced
-                    </summary>
-                    <div className="field" style={{ marginTop: "10px" }}>
-                      <label>Input data (JSON)</label>
-                      <textarea className="mono" value={input_data_text} onChange={(e) => set_input_data_text(e.target.value)} placeholder='{"prompt":"...","provider":"lmstudio","model":"qwen/qwen3-next-80b"}' rows={10} disabled={connecting || resuming} />
-                    </div>
-                    <div className="field" style={{ marginTop: "10px" }}>
-                      <label>Session ID (scope=session)</label>
-                      <input className="mono" value={start_session_id} onChange={(e) => set_start_session_id(e.target.value)} placeholder="(optional — leave blank for per-run scope)" disabled={connecting || resuming} />
-                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>Set the same session_id across multiple runs to share session-scoped memory.</div>
-                    </div>
-                  </details>
+                  {/* Advanced JSON + session_id removed: raw JSON is an implementation
+                      detail (form fields are the source of truth), and session_id is
+                      auto-generated — no user-facing reason to expose either. */}
 
                   <details style={{ marginTop: "10px" }}>
                     <summary className="mono muted" style={{ cursor: "pointer" }}>
-                      Workspace policy (filesystem)
+                      Workspace
                     </summary>
-                    <div className="field" style={{ marginTop: "10px" }}>
-                      <label>Workspace root (workspace_root)</label>
-                      <input
-                        className="mono"
-                        value={workspace_root_value}
-                        onChange={(e) => update_input_data_field("workspace_root", e.target.value)}
-                        placeholder="(leave blank to auto-generate a per-run workspace on the gateway)"
-                        disabled={connecting || resuming}
-                      />
-                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                        Relative tool paths resolve under this directory.
-                      </div>
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                      Controls what the agent can access via filesystem tools.
                     </div>
-                    <div className="field">
-                      <label>Filesystem access mode (workspace_access_mode)</label>
-                      <select
-                        className="mono"
-                        value={(workspace_access_mode_value || "workspace_only").trim() || "workspace_only"}
-                        onChange={(e) => update_input_data_field("workspace_access_mode", e.target.value)}
-                        disabled={connecting || resuming}
-                      >
-                        <option value="workspace_only">workspace_only (restrict absolute paths to workspace_root)</option>
-                        <option value="all_except_ignored">all_except_ignored (allow absolute paths outside workspace_root)</option>
+
+                    <div className="launch_grid" style={{ marginTop: "8px" }}>
+                      <div className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
+                        <label className="launch_label">Workspace Root</label>
+                        <input className="mono" value={workspace_root_value} onChange={(e) => update_input_data_field("workspace_root", e.target.value)} placeholder="/path/to/workspace" disabled={connecting || resuming} />
+                        <div className="mono muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = gateway default (isolated per-run workspace)</div>
+                      </div>
+                      <div className="launch_grid_cell">
+                        <label className="launch_label">Access Mode</label>
+                        <select className="mono" value={(workspace_access_mode_value || "workspace_only").trim() || "workspace_only"} onChange={(e) => update_input_data_field("workspace_access_mode", e.target.value)} disabled={connecting || resuming}>
+                          <option value="workspace_only">workspace_only</option>
+                          <option value="workspace_or_allowed">workspace_or_allowed</option>
+                          <option value="all_except_ignored">all_except_ignored</option>
                       </select>
-                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                        This only affects absolute paths; relative paths still stay under workspace_root.
+                        <div className="mono muted" style={{ fontSize: "var(--font-size-xxs)" }}>workspace_only: absolute paths must stay under root. workspace_or_allowed: allow additional roots.</div>
                       </div>
                     </div>
-                    <div className="field">
-                      <label>Ignored folders (workspace_ignored_paths)</label>
-                      <textarea
-                        className="mono"
-                        value={workspace_ignored_paths_value}
-                        onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)}
-                        placeholder={".git\nnode_modules\n.venv\n~/Library\n/Users/albou/.ssh"}
-                        rows={5}
-                        disabled={connecting || resuming}
-                      />
-                      <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                        One path per line. Relative entries are resolved under workspace_root.
+
+                    {(workspace_access_mode_value || "").trim() === "workspace_or_allowed" ? (
+                      <div className="field" style={{ marginTop: "8px" }}>
+                        <label className="launch_label">Allowed Paths</label>
+                        <textarea className="mono" rows={3} value={workspace_allowed_paths_value} onChange={(e) => update_input_data_field("workspace_allowed_paths", e.target.value)} placeholder={"/path/to/project\n/path/to/workspace"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
+                        <div className="mono muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated directories (absolute or relative to workspace_root)</div>
                       </div>
+                    ) : null}
+
+                    <div className="field" style={{ marginTop: "8px" }}>
+                      <label className="launch_label">Ignored Paths</label>
+                      <textarea className="mono" rows={3} value={workspace_ignored_paths_value} onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)} placeholder={"node_modules\nruntime\nsecret"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
+                      <div className="mono muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated paths to block (absolute or relative to workspace_root)</div>
 	                    </div>
 	                  </details>
 
                 <div className="section_divider" />
                 <div className="section_title">Schedule</div>
 
-                {schedule_error ? (
+                    {schedule_error ? (
                   <div className="observe_context_card error" style={{ marginTop: "6px" }}>
                     <span className="chip mono danger">error</span>
                     <span className="mono">{schedule_error}</span>
-                  </div>
-                ) : null}
+                      </div>
+                    ) : null}
 
                 <div className="sched_grid">
                   <div className="sched_cell">
@@ -4237,39 +4236,40 @@ export function App(): React.ReactElement {
                     <div className="sched_radio_row">
                       <label className="sched_radio"><input type="radio" name="schedule_start" checked={schedule_start_mode === "now"} onChange={() => set_schedule_start_mode("now")} /><span>Now</span></label>
                       <label className="sched_radio"><input type="radio" name="schedule_start" checked={schedule_start_mode === "at"} onChange={() => set_schedule_start_mode("at")} /><span>Scheduled</span></label>
-                    </div>
+                      </div>
                     {schedule_start_mode === "at" ? (<input type="datetime-local" value={schedule_start_at_local} onChange={(e) => set_schedule_start_at_local(e.target.value)} style={{ marginTop: "6px" }} />) : null}
-                  </div>
+                        </div>
                   <div className="sched_cell">
                     <label className="launch_label">Cadence</label>
-                    <select value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
+                      <select value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
                       <option value="once">Run once</option>
                       <option value="forever">Repeat forever</option>
                       <option value="count">Repeat N times</option>
                       <option value="until">Repeat until date</option>
-                    </select>
-                  </div>
-                  {schedule_repeat_mode !== "once" ? (
+                      </select>
+                    </div>
+                    {schedule_repeat_mode !== "once" ? (
                     <div className="sched_cell">
                       <label className="launch_label">Every</label>
                       <div className="sched_inline">
                         <input type="number" min={1} value={String(schedule_every_n)} onChange={(e) => set_schedule_every_n(Math.max(1, parseInt(e.target.value || "1", 10) || 1))} style={{ width: "70px" }} />
-                        <select value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
+                              <select value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
                           <option value="minutes">min</option><option value="hours">hours</option><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option>
-                        </select>
-                      </div>
-                    </div>
-                  ) : null}
-                  {schedule_repeat_mode === "count" ? (
+                              </select>
+                            </div>
+                          </div>
+                        ) : null}
+                    {schedule_repeat_mode === "count" ? (
                     <div className="sched_cell"><label className="launch_label">Total runs</label><input type="number" min={1} value={String(schedule_repeat_count)} onChange={(e) => set_schedule_repeat_count(Math.max(1, parseInt(e.target.value || "1", 10) || 1))} style={{ width: "100px" }} /></div>
-                  ) : null}
-                  {schedule_repeat_mode === "until" ? (
+                    ) : null}
+                    {schedule_repeat_mode === "until" ? (
                     <div className="sched_cell"><label className="launch_label">End date</label><div className="sched_inline"><input type="date" value={schedule_repeat_until_date_local} onChange={(e) => set_schedule_repeat_until_date_local(e.target.value)} /><input type="time" value={schedule_repeat_until_time_local} onChange={(e) => set_schedule_repeat_until_time_local(e.target.value)} /></div></div>
-                  ) : null}
-                  <div className="sched_cell">
-                    <label className="launch_checkbox"><input type="checkbox" checked={schedule_share_context} onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))} /><span>Shared context</span></label>
-                  </div>
+                    ) : null}
                 </div>
+                <label className="launch_checkbox" style={{ marginTop: "8px" }}>
+                        <input type="checkbox" checked={schedule_share_context} onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))} />
+                  <span>Share context across executions <span className="mono muted" style={{ fontSize: "var(--font-size-xxs)", fontWeight: 400 }}>(when disabled, each run gets its own isolated session)</span></span>
+                      </label>
 
                 {/* ── Launch button ── */}
                 <div className="section_divider" />
@@ -4277,7 +4277,7 @@ export function App(): React.ReactElement {
                   <div className="observe_context_card error" style={{ marginBottom: "10px" }}>
                     <span className="chip mono danger">error</span>
                     <span className="mono">{new_run_error}</span>
-                  </div>
+                    </div>
                 ) : null}
                 <div className="launch_actions_bar">
                   <button className="launch_submit_btn" onClick={() => void submit_launch()} disabled={connecting || resuming || discovery_loading || bundle_loading || schedule_submitting || !gateway_connected || !bundle_id.trim() || !flow_id.trim() || input_data_obj === null}>
@@ -4289,7 +4289,7 @@ export function App(): React.ReactElement {
           </div>
         ) : null}
 
-        {page === "backlog" ? (
+        {ENABLE_BACKLOG && page === "backlog" ? (
           <BacklogBrowserPage
             gateway={gateway}
             gateway_connected={gateway_connected}
@@ -4304,13 +4304,14 @@ export function App(): React.ReactElement {
           <ReportInboxPage
             gateway={gateway}
             gateway_connected={gateway_connected}
+            enable_triage={ENABLE_INBOX_TRIAGE}
             default_session_id={session_id_for_run || run_id || start_session_id}
             default_active_run_id={run_id}
             default_workflow_id={(run_state as any)?.workflow_id ?? selected_run_summary?.workflow_id ?? null}
           />
         ) : null}
 
-        {page === "processes" ? <ProcessesPage gateway={gateway} gateway_connected={gateway_connected} /> : null}
+        {ENABLE_BACKLOG && page === "processes" ? <ProcessesPage gateway={gateway} gateway_connected={gateway_connected} /> : null}
 
         {page === "mindmap" ? (
           <div className="page mindmap_page">
@@ -4346,181 +4347,174 @@ export function App(): React.ReactElement {
             {/* ── Observe toolbar: run picker + controls ── */}
             <div className="observe_toolbar">
               <div className="observe_toolbar_row">
-                <RunPicker
-                  runs={run_options}
-                  selected_run_id={run_id}
-                  workflow_label_by_id={workflow_label_by_id}
-                  disabled={!gateway_connected || runs_loading || discovery_loading || connecting || resuming}
-                  loading={runs_loading}
-                  onSelect={(rid) => void attach_to_run(rid)}
-                />
+                    <RunPicker
+                      runs={run_options}
+                      selected_run_id={run_id}
+                      workflow_label_by_id={workflow_label_by_id}
+                      disabled={!gateway_connected || runs_loading || discovery_loading || connecting || resuming}
+                      loading={runs_loading}
+                      onSelect={(rid) => void attach_to_run(rid)}
+                    />
                 <button className="btn btn_icon" onClick={refresh_runs} disabled={!gateway_connected || runs_loading || discovery_loading} title="Refresh runs">
                   <Icon name="refresh" size={14} />
                   {runs_loading ? "…" : "Refresh"}
-                </button>
+                    </button>
                 <button className="btn btn_icon" onClick={clear_run_view} disabled={!run_id.trim() && !connected} title="Disconnect from run">
                   <Icon name="x" size={14} />
-                  Disconnect
-                </button>
+                      Disconnect
+                    </button>
 
                 <span className="observe_toolbar_sep" />
 
-                <button
-                  className="btn"
-                  onClick={() => {
-                    if (primary_control_action === "pause") {
-                      set_run_control_type("pause");
-                      set_run_control_reason("");
-                      set_run_control_error("");
-                      set_run_control_open(true);
-                      return;
-                    }
-                    void submit_run_control("resume");
-                  }}
-                  disabled={primary_control_disabled}
-                >
-                  {primary_control_label}
-                </button>
-                {can_run_scheduled_now ? (
-                  <button
-                    className="btn primary"
-                    onClick={() => void run_scheduled_now()}
-                    disabled={!run_id.trim() || connecting || resuming || run_terminal || run_paused}
-                  >
-                    Run now
-                  </button>
-                ) : null}
-                <button
-                  className="btn danger"
-                  onClick={() => {
-                    set_run_control_type("cancel");
-                    set_run_control_reason("");
-                    set_run_control_error("");
-                    set_run_control_open(true);
-                  }}
-                  disabled={!run_id.trim() || connecting || resuming || run_terminal}
-                >
-                  Cancel
-                </button>
-                <button className="btn primary" onClick={() => set_page("launch")} disabled={!gateway_connected || discovery_loading}>
-                  Launch…
-                </button>
-              </div>
+	                  <button
+	                    className="btn"
+	                    onClick={() => {
+	                      if (primary_control_action === "pause") {
+	                        set_run_control_type("pause");
+	                        set_run_control_reason("");
+	                        set_run_control_error("");
+	                        set_run_control_open(true);
+	                        return;
+	                      }
+	                      void submit_run_control("resume");
+	                    }}
+	                    disabled={primary_control_disabled}
+	                  >
+	                    {primary_control_label}
+	                  </button>
+	                  {can_run_scheduled_now ? (
+	                    <button
+	                      className="btn primary"
+	                      onClick={() => void run_scheduled_now()}
+	                      disabled={!run_id.trim() || connecting || resuming || run_terminal || run_paused}
+	                    >
+	                      Run now
+	                    </button>
+	                  ) : null}
+	                  <button
+	                    className="btn danger"
+	                    onClick={() => {
+	                      set_run_control_type("cancel");
+	                      set_run_control_reason("");
+	                      set_run_control_error("");
+	                      set_run_control_open(true);
+	                    }}
+	                    disabled={!run_id.trim() || connecting || resuming || run_terminal}
+	                  >
+	                    Cancel
+	                  </button>
+	                </div>
 
               {/* Contextual info: waiting / schedule / error — shown inline when relevant */}
               {(is_waiting || is_scheduled_run || error_text) ? (
                 <div className="observe_toolbar_context">
-                  {is_waiting ? (
+                {is_waiting ? (
                     <div className="observe_context_card info">
                       <div className="observe_context_label">
                         <span className="chip mono info">{is_scheduled_run ? (run_paused ? "suspended" : "scheduled") : "waiting"}</span>
                         <span className="mono muted">{wait_reason || "unknown"}</span>
-                      </div>
+	                    </div>
                       <div className="observe_context_body">
                         {wait_key ? (<span className="mono" title={wait_key}><span className="muted">wait_key</span>: {short_id(wait_key, 46)}</span>) : null}
                         {wait_reason === "event" && wait_event_name ? (<span className="mono"><span className="muted">event</span>: {wait_event_name}</span>) : null}
                         {wait_reason === "subworkflow" && sub_run_id ? (<span className="mono"><span className="muted">child</span>: {short_id(sub_run_id, 18)}</span>) : null}
                         {wait_reason === "until" && wait_until ? (<span className="mono" title={wait_until}><span className="muted">until</span>: {short_id(wait_until, 46)}</span>) : null}
-                        {wait_reason === "until" && wait_until ? (
+                      {wait_reason === "until" && wait_until ? (
                           <span className="mono muted">
-                            {(() => {
-                              const ms = parse_iso_ms(wait_until);
-                              const at = ms !== null ? new Date(ms).toLocaleString() : wait_until;
-                              const in_ = ms !== null ? format_time_until_from_ms(ms - Date.now()) : "";
+                        {(() => {
+                          const ms = parse_iso_ms(wait_until);
+                          const at = ms !== null ? new Date(ms).toLocaleString() : wait_until;
+                          const in_ = ms !== null ? format_time_until_from_ms(ms - Date.now()) : "";
                               return `Next at ${at}${in_ ? ` (in ${in_})` : ""}`;
-                            })()}
+                        })()}
                           </span>
-                        ) : null}
+                    ) : null}
                       </div>
-                      {wait_reason === "subworkflow" && sub_run_id ? (
+                    {wait_reason === "subworkflow" && sub_run_id ? (
                         <div className="observe_context_actions">
                           <button className="btn primary" onClick={async () => { set_run_id(sub_run_id); await connect_to_run(sub_run_id); }} disabled={connecting}>Attach to child</button>
-                          {root_run_id.trim() && root_run_id.trim() !== run_id.trim() ? (
+                        {root_run_id.trim() && root_run_id.trim() !== run_id.trim() ? (
                             <button className="btn" onClick={async () => { set_run_id(root_run_id.trim()); await connect_to_run(root_run_id.trim()); }} disabled={connecting}>Back to root</button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
-                  {is_scheduled_run ? (
+                {is_scheduled_run ? (
                     <div className="observe_context_card muted">
                       <div className="observe_context_label">
                         <span className="chip mono muted">schedule</span>
                         <span className="mono muted">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
-                      </div>
+                    </div>
                       <div className="observe_context_body">
                         {schedule_interval ? (<span className="mono"><span className="muted">interval</span>: {schedule_interval}</span>) : null}
                         <span className="mono"><span className="muted">share ctx</span>: {schedule_share_ctx ? "yes" : "no"}</span>
                         {typeof schedule_meta_repeat_count === "number" ? (<span className="mono"><span className="muted">repeats</span>: {schedule_meta_repeat_count}</span>) : null}
-                      </div>
-                      {limits_pct !== null ? (
+                    </div>
+                    {limits_pct !== null ? (
                         <div className="observe_context_budget">
                           <span className="mono muted">{typeof limits_used === "number" && typeof limits_budget === "number" ? `${limits_used.toLocaleString()} / ${limits_budget.toLocaleString()}` : ""}{` • ${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`}</span>
                           <div className="observe_budget_bar"><div className="observe_budget_fill" style={{ width: `${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`, background: limits_pct >= 0.9 ? "rgba(239, 68, 68, 0.9)" : limits_pct >= 0.75 ? "rgba(245, 158, 11, 0.9)" : "rgba(34, 197, 94, 0.9)" }} /></div>
-                        </div>
-                      ) : null}
+                          </div>
+                        ) : null}
                       <div className="observe_context_actions">
                         {is_scheduled_recurrent ? (<button className="btn" onClick={() => { set_schedule_edit_interval(schedule_interval || ""); set_schedule_edit_apply_immediately(true); set_schedule_edit_error(""); set_schedule_edit_open(true); }} disabled={connecting || schedule_edit_submitting}>Edit schedule</button>) : null}
                         {is_scheduled_recurrent ? (<button className="btn" onClick={() => { set_compact_error(""); set_compact_open(true); }} disabled={connecting || compact_submitting}>Compact context</button>) : null}
-                      </div>
                     </div>
-                  ) : null}
+                  </div>
+                ) : null}
 
                   {error_text ? (
                     <div className="observe_context_card error">
                       <span className="chip mono danger">error</span>
                       <span className="mono">{error_text}</span>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+                      </div>
+                ) : null}
+                  </div>
+                ) : null}
+              </div>
 
             {/* ── Single full-width content panel ── */}
             <div className="card panel_card card_scroll observe_viewer observe_viewer_full">
-              {/* Content tabs */}
-              <div className="tab_bar">
-                <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
-                  Ledger
-                </button>
-                <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
-                  Graph
-                </button>
-                <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
-                  Digest
-                </button>
-                <button className={`tab mono ${right_tab === "attachments" ? "active" : ""}`} onClick={() => set_right_tab("attachments")}>
-                  Attachments
-                </button>
-                <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
-                  Chat
-                </button>
-              </div>
+              {/* Content tabs + inline contextual controls */}
+                <div className="tab_bar" style={{ justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                  <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
+                    Ledger
+                  </button>
+                  <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
+                    Graph
+                  </button>
+                  <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
+                    Digest
+                  </button>
+                  <button className={`tab mono ${right_tab === "attachments" ? "active" : ""}`} onClick={() => set_right_tab("attachments")}>
+                    Attachments
+                  </button>
+                  <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
+                    Chat
+                  </button>
+                </div>
 
-                {right_tab === "ledger" ? (
-                  <>
-                    <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
-                      <button className={`btn ${ledger_view === "steps" ? "primary" : ""}`} onClick={() => set_ledger_view("steps")}>
-                        Steps
-                      </button>
-                      <button className={`btn ${ledger_view === "cycles" ? "primary" : ""}`} onClick={() => set_ledger_view("cycles")}>
-                        Cycles
-                      </button>
+                  {/* Ledger inline controls — only shown when ledger tab is active AND there is data */}
+                  {right_tab === "ledger" && (visible_log.length > 0 || ledger_view === "cycles") ? (
+                    <div className="tab_bar_controls">
+                      <div className="seg_toggle mono">
+                        <button className={`seg_btn ${ledger_view === "steps" ? "active" : ""}`} onClick={() => set_ledger_view("steps")}>Steps</button>
+                        <button className={`seg_btn ${ledger_view === "cycles" ? "active" : ""}`} onClick={() => set_ledger_view("cycles")}>Cycles</button>
+	                  </div>
                       {ledger_view === "steps" ? (
-                        <button className={`btn ${ledger_condensed ? "primary" : ""}`} onClick={() => set_ledger_condensed((v) => !v)}>
+                        <button className={`seg_action mono ${ledger_condensed ? "active" : ""}`} onClick={() => set_ledger_condensed((v) => !v)} title={ledger_condensed ? "Showing condensed view" : "Showing all steps"}>
                           {ledger_condensed ? "Condensed" : "All"}
                         </button>
                       ) : (
-                        <div className="field_inline" style={{ alignItems: "center", flexWrap: "wrap" }}>
-                          <span className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                            Run
-                          </span>
                           <select
-                            className="mono"
+                          className="mono seg_select"
                             value={cycles_run_id}
                             onChange={(e) => set_ledger_cycles_run_id(String(e.target.value || ""))}
                             disabled={!cycles_run_options.length}
+                          title="Select run for cycles view"
                           >
                             {!cycles_run_options.length ? <option value="">(no runs)</option> : null}
                             {cycles_run_options.map((rid) => {
@@ -4533,11 +4527,11 @@ export function App(): React.ReactElement {
                               );
                             })}
                           </select>
-                        </div>
                       )}
                       <button
-                        className="btn"
+                        className="seg_action mono"
                         disabled={!records.length && !child_records_for_digest.length}
+                        title="Copy full ledger as JSONL"
                         onClick={() => {
                           const max = 5000;
                           const merged = [
@@ -4555,9 +4549,53 @@ export function App(): React.ReactElement {
                           copy_to_clipboard(text);
                         }}
                       >
-                        Copy ledger (JSONL)
+                        Copy JSONL
                       </button>
                     </div>
+                  ) : null}
+
+                  {/* Graph inline controls — only shown when graph tab is active */}
+                  {right_tab === "graph" ? (
+                    <div className="tab_bar_controls">
+                      <button className={`seg_action mono ${graph_show_subflows ? "active" : ""}`} onClick={() => set_graph_show_subflows((v) => !v)}>
+                        Subflows
+                      </button>
+                      <button className={`seg_action mono ${graph_highlight_path ? "active" : ""}`} onClick={() => set_graph_highlight_path((v) => !v)}>
+                        Path
+                      </button>
+                      {graph_flow_options.length ? (
+                        <select
+                          className="mono seg_select"
+                          value={graph_flow_id}
+                          onChange={(e) => set_graph_flow_id(String(e.target.value || ""))}
+                          disabled={Boolean(scheduled_workflow_id.trim()) || !bundle_id.trim() || graph_loading}
+                        >
+                          {graph_flow_options.map((fid) => (
+                            <option key={fid} value={fid}>
+                              {fid}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {/* Digest inline controls — only shown when digest tab is active and has data */}
+                  {right_tab === "digest" && digest?.overall?.stats?.steps ? (
+                    <div className="tab_bar_controls">
+                      <button
+                        className="seg_action mono"
+                        onClick={() => { copy_to_clipboard(JSON.stringify(digest, null, 2)); }}
+                        disabled={!digest?.overall?.stats?.steps}
+                      >
+                        Copy JSON
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {right_tab === "ledger" ? (
+                  <>
                     {ledger_view === "steps" ? (
                       <div className="log log_scroll">
                         {visible_log.map((item) => (
@@ -4601,35 +4639,6 @@ export function App(): React.ReactElement {
 
                 {right_tab === "graph" ? (
                   <>
-                    <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
-                      <button className={`btn ${graph_show_subflows ? "primary" : ""}`} onClick={() => set_graph_show_subflows((v) => !v)}>
-                        {graph_show_subflows ? "Subflows: on" : "Subflows: off"}
-                      </button>
-                      <button
-                        className={`btn ${graph_highlight_path ? "primary" : ""}`}
-                        onClick={() => set_graph_highlight_path((v) => !v)}
-                      >
-                        {graph_highlight_path ? "Path: on" : "Path: off"}
-                      </button>
-                      {graph_flow_options.length ? (
-                        <select
-                          className="mono"
-                          value={graph_flow_id}
-                          onChange={(e) => set_graph_flow_id(String(e.target.value || ""))}
-                          disabled={Boolean(scheduled_workflow_id.trim()) || !bundle_id.trim() || graph_loading}
-                        >
-                          {graph_flow_options.map((fid) => (
-                            <option key={fid} value={fid}>
-                              {fid}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-                      <span className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                        {scheduled_workflow_id.trim() ? scheduled_workflow_id.trim() : graph_flow_id ? `flow ${graph_flow_id}` : ""}
-                      </span>
-                    </div>
-
                     {graph_error ? (
                       <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
                         <div className="meta">
@@ -4672,17 +4681,6 @@ export function App(): React.ReactElement {
 
                 {right_tab === "digest" ? (
                   <div className="log log_scroll" style={{ marginTop: "6px" }}>
-                    <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
-                      <button
-                        className="btn"
-                        onClick={() => {
-                          copy_to_clipboard(JSON.stringify(digest, null, 2));
-                        }}
-                        disabled={!digest?.overall?.stats?.steps}
-                      >
-                        Copy JSON
-                      </button>
-                    </div>
 
                     <div
                       className="log_item"
@@ -5115,15 +5113,15 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
-              <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
-                <strong>Run</strong>:{" "}
-                {run_id.trim() ? (
-                  <span className="mono">{selected_run_status_label || selected_run_status_raw || "unknown"}</span>
-                ) : (
-                  <span className="mono">(none)</span>
-                )}
-                {run_id.trim() && selected_run_is_scheduled_until && selected_next_in ? <span className="mono muted"> • next in {selected_next_in}</span> : null}
-                {status_text ? <span className="mono muted"> • {status_text}</span> : null}
+                <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
+                  <strong>Run</strong>:{" "}
+                  {run_id.trim() ? (
+                    <span className="mono">{selected_run_status_label || selected_run_status_raw || "unknown"}</span>
+                  ) : (
+                    <span className="mono">(none)</span>
+                  )}
+                  {run_id.trim() && selected_run_is_scheduled_until && selected_next_in ? <span className="mono muted"> • next in {selected_next_in}</span> : null}
+                  {status_text ? <span className="mono muted"> • {status_text}</span> : null}
               </div>
             </div>
           </div>
@@ -5498,7 +5496,7 @@ function LedgerCard(props: {
         <div className="lc_header_right">
           {status ? <span className={`lc_status ${status_cls}`}>{status}</span> : null}
           <span className="lc_time" title={item.ts}>{when}</span>
-        </div>
+      </div>
       </div>
       <div className="lc_meta">
         {node_type ? <span className="lc_chip">{node_type}</span> : null}

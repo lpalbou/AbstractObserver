@@ -13,6 +13,8 @@ Implemented in `bin/cli.js`.
 - `PORT` — HTTP port to listen on (default `3001`)
 - `HOST` — bind address (default `0.0.0.0`)
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
+- `ABSTRACTOBSERVER_ENABLE_BACKLOG=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.enable_backlog=true` to show Backlog + Process Manager
+- `ABSTRACTOBSERVER_ENABLE_INBOX_TRIAGE=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.enable_inbox_triage=true` to enable Inbox triage/reporting
 
 Examples:
 ```bash

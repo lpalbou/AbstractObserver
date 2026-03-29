@@ -122,6 +122,16 @@ Evidence:
 - HTML config injection: `bin/cli.js`
 - UI feature gate: `monitor_gpu_enabled` in `src/ui/app.tsx`
 
+## How do I enable Backlog or Inbox triage?
+These are optional UI features gated by runtime flags injected by the CLI.
+
+- `ABSTRACTOBSERVER_ENABLE_BACKLOG=on` → enables Backlog + Process Manager
+- `ABSTRACTOBSERVER_ENABLE_INBOX_TRIAGE=on` → enables Inbox triage/reporting
+
+Evidence:
+- HTML config injection: `bin/cli.js`
+- UI feature gates: `enable_backlog`, `enable_inbox_triage` in `src/ui/app.tsx`
+
 ## Is this a PWA? Does it work offline?
 The app registers a service worker in production to cache the UI shell (installability + faster reloads), but run data still comes from the gateway.
 

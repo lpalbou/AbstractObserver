@@ -6,6 +6,8 @@ declare global {
   interface Window {
     __ABSTRACT_UI_CONFIG__?: {
       monitor_gpu?: boolean;
+      enable_backlog?: boolean;
+      enable_inbox_triage?: boolean;
     };
   }
 

@@ -15,9 +15,21 @@ const DIST_DIR = join(__dirname, '..', 'dist');
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const ARGV = process.argv.slice(2);
+function parse_bool_env(name) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === "") return undefined;
+  const normalized = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  console.warn(`#FALLBACK: ${name}="${raw}" is not a boolean; defaulting to false.`);
+  return false;
+}
+
 const MONITOR_GPU =
   ARGV.includes("--monitor-gpu") ||
   ["1", "true", "yes", "on"].includes(String(process.env.ABSTRACTOBSERVER_MONITOR_GPU || "").trim().toLowerCase());
+const ENABLE_BACKLOG = parse_bool_env("ABSTRACTOBSERVER_ENABLE_BACKLOG");
+const ENABLE_INBOX_TRIAGE = parse_bool_env("ABSTRACTOBSERVER_ENABLE_INBOX_TRIAGE");
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -40,10 +52,14 @@ function getMimeType(filePath) {
 }
 
 function inject_config_html(html) {
-  if (!MONITOR_GPU) return html;
+  const ui_config = {};
+  if (MONITOR_GPU) ui_config.monitor_gpu = true;
+  if (ENABLE_BACKLOG !== undefined) ui_config.enable_backlog = ENABLE_BACKLOG;
+  if (ENABLE_INBOX_TRIAGE !== undefined) ui_config.enable_inbox_triage = ENABLE_INBOX_TRIAGE;
+  if (!Object.keys(ui_config).length) return html;
   const marker = "window.__ABSTRACT_UI_CONFIG__";
   if (html.includes(marker)) return html;
-  const snippet = `<script>${marker}=Object.assign(${marker}||{}, { monitor_gpu: true });</script>`;
+  const snippet = `<script>${marker}=Object.assign(${marker}||{}, ${JSON.stringify(ui_config)});</script>`;
   if (html.includes("</head>")) return html.replace("</head>", `${snippet}\n</head>`);
   if (html.includes("</body>")) return html.replace("</body>", `${snippet}\n</body>`);
   return `${html}\n${snippet}\n`;

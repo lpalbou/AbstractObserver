@@ -33,6 +33,7 @@ function short_id(value: string, keep: number): string {
 export type ReportInboxPageProps = {
   gateway: GatewayClient;
   gateway_connected: boolean;
+  enable_triage?: boolean;
   default_session_id?: string;
   default_active_run_id?: string;
   default_workflow_id?: string | null;
@@ -41,7 +42,10 @@ export type ReportInboxPageProps = {
 export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement {
   const gateway = props.gateway;
 
-  const [tab, set_tab] = useState<InboxTab>("messages");
+  // === Inbox feature gating (simple mailbox vs triage) ===
+  const triage_enabled = Boolean(props.enable_triage);
+
+  const [tab, set_tab] = useState<InboxTab>(triage_enabled ? "messages" : "email");
 
   const [bugs, set_bugs] = useState<ReportInboxItem[]>([]);
   const [features, set_features] = useState<ReportInboxItem[]>([]);
@@ -73,6 +77,10 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
   const [create_loading, set_create_loading] = useState(false);
 
   const can_use_gateway = props.gateway_connected;
+
+  useEffect(() => {
+    if (!triage_enabled && tab !== "email") set_tab("email");
+  }, [triage_enabled, tab]);
 
   const inbox_items = useMemo(() => {
     if (tab === "bugs") return bugs;
@@ -110,6 +118,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
 
   async function refresh_current_tab(): Promise<void> {
     if (!can_use_gateway) return;
+    if (!triage_enabled) return;
     if (tab === "email") return;
     set_error("");
     set_loading(true);
@@ -127,7 +136,7 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
   useEffect(() => {
     void refresh_current_tab();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, can_use_gateway, decision_filter]);
+  }, [tab, can_use_gateway, decision_filter, triage_enabled]);
 
   async function load_report(item: ReportInboxItem): Promise<void> {
     set_selected_report(item);
@@ -304,59 +313,71 @@ export function ReportInboxPage(props: ReportInboxPageProps): React.ReactElement
           </div>
           <div className="row" style={{ alignItems: "center", justifyContent: "space-between" }}>
             <div className="tab_bar" style={{ paddingBottom: 0, borderBottom: "none" }}>
-              <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => set_tab("messages")}>
-                Messages
-              </button>
-              <button className={`tab ${tab === "email" ? "active" : ""}`} onClick={() => set_tab("email")}>
-                Email
-              </button>
-              <button className={`tab ${tab === "bugs" ? "active" : ""}`} onClick={() => set_tab("bugs")}>
-                Bugs
-              </button>
-              <button className={`tab ${tab === "features" ? "active" : ""}`} onClick={() => set_tab("features")}>
-                Features
-              </button>
-            </div>
-            <div className="row" style={{ gap: "8px", justifyContent: "flex-end" }}>
-              {tab === "messages" ? (
+              {triage_enabled ? (
                 <>
-                  <select
-                    value={decision_filter}
-                    onChange={(e) => set_decision_filter(String(e.target.value) as any)}
-                    title="Filter triage decisions by status"
-                  >
-                    <option value="pending">pending</option>
-                    <option value="approved">approved</option>
-                    <option value="deferred">deferred</option>
-                    <option value="rejected">rejected</option>
-                    <option value="">all</option>
-                  </select>
-                  <button className="btn" onClick={() => void refresh_current_tab()} disabled={!can_use_gateway || loading}>
-                    {loading ? "Refreshing…" : "Refresh"}
+                  <button className={`tab ${tab === "messages" ? "active" : ""}`} onClick={() => set_tab("messages")}>
+                    Messages
                   </button>
-                  <button className="btn primary" onClick={() => void run_triage()} disabled={!can_use_gateway || triage_running}>
-                    {triage_running ? "Running…" : "Run triage"}
+                  <button className={`tab ${tab === "email" ? "active" : ""}`} onClick={() => set_tab("email")}>
+                    Email
+                  </button>
+                  <button className={`tab ${tab === "bugs" ? "active" : ""}`} onClick={() => set_tab("bugs")}>
+                    Bugs
+                  </button>
+                  <button className={`tab ${tab === "features" ? "active" : ""}`} onClick={() => set_tab("features")}>
+                    Features
                   </button>
                 </>
-              ) : tab === "email" ? null : (
-                <button className="btn" onClick={() => void refresh_current_tab()} disabled={!can_use_gateway || loading}>
-                  {loading ? "Refreshing…" : "Refresh"}
+              ) : (
+                <button className={`tab ${tab === "email" ? "active" : ""}`} onClick={() => set_tab("email")}>
+                  Email
                 </button>
               )}
-              <button className="btn" onClick={() => set_create_kind("bug")} disabled={!can_use_gateway}>
-                File bug
-              </button>
-              <button className="btn" onClick={() => set_create_kind("feature")} disabled={!can_use_gateway}>
-                File feature
-              </button>
+            </div>
+            <div className="row" style={{ gap: "8px", justifyContent: "flex-end" }}>
+              {triage_enabled ? (
+                <>
+                  {tab === "messages" ? (
+                    <>
+                      <select
+                        value={decision_filter}
+                        onChange={(e) => set_decision_filter(String(e.target.value) as any)}
+                        title="Filter triage decisions by status"
+                      >
+                        <option value="pending">pending</option>
+                        <option value="approved">approved</option>
+                        <option value="deferred">deferred</option>
+                        <option value="rejected">rejected</option>
+                        <option value="">all</option>
+                      </select>
+                      <button className="btn" onClick={() => void refresh_current_tab()} disabled={!can_use_gateway || loading}>
+                        {loading ? "Refreshing…" : "Refresh"}
+                      </button>
+                      <button className="btn primary" onClick={() => void run_triage()} disabled={!can_use_gateway || triage_running}>
+                        {triage_running ? "Running…" : "Run triage"}
+                      </button>
+                    </>
+                  ) : tab === "email" ? null : (
+                    <button className="btn" onClick={() => void refresh_current_tab()} disabled={!can_use_gateway || loading}>
+                      {loading ? "Refreshing…" : "Refresh"}
+                    </button>
+                  )}
+                  <button className="btn" onClick={() => set_create_kind("bug")} disabled={!can_use_gateway}>
+                    File bug
+                  </button>
+                  <button className="btn" onClick={() => set_create_kind("feature")} disabled={!can_use_gateway}>
+                    File feature
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
-          {tab !== "email" && triage_last ? (
+          {triage_enabled && tab !== "email" && triage_last ? (
             <div className="mono muted" style={{ marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
               {triage_last}
             </div>
           ) : null}
-          {tab !== "email" && error ? (
+          {triage_enabled && tab !== "email" && error ? (
             <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", marginTop: "8px", fontSize: "var(--font-size-sm)" }}>
               {error}
             </div>
