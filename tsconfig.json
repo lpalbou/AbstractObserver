@@ -25,15 +25,6 @@
       "@abstractframework/ui-kit": ["../abstractuic/ui-kit/src/index.ts"],
       "@abstractframework/ui-kit/*": ["../abstractuic/ui-kit/src/*"],
       "@abstractframework/monitor-gpu": ["../abstractuic/monitor-gpu/src/index.d.ts"],
-      "@abstractuic/monitor-active-memory": ["../abstractuic/monitor-active-memory/src/index.ts"],
-      "@abstractuic/monitor-active-memory/*": ["../abstractuic/monitor-active-memory/src/*"],
-      "@abstractuic/monitor-flow": ["../abstractuic/monitor-flow/src/index.ts"],
-      "@abstractuic/monitor-flow/*": ["../abstractuic/monitor-flow/src/*"],
-      "@abstractuic/panel-chat": ["../abstractuic/panel-chat/src/index.ts"],
-      "@abstractuic/panel-chat/*": ["../abstractuic/panel-chat/src/*"],
-      "@abstractuic/ui-kit": ["../abstractuic/ui-kit/src/index.ts"],
-      "@abstractuic/ui-kit/*": ["../abstractuic/ui-kit/src/*"],
-      "@abstractutils/monitor-gpu": ["../abstractuic/monitor-gpu/src/index.d.ts"],
       "reactflow": ["./node_modules/reactflow/dist/esm/index.d.ts"],
       "reactflow/*": ["./node_modules/reactflow/*"],
       "react": ["./node_modules/@types/react/index.d.ts"],
@@ -47,3 +38,4 @@
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
+

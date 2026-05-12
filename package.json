@@ -1,6 +1,6 @@
 {
   "name": "@abstractframework/observer",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -16,9 +16,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/lpalbou/abstractobserver.git"
+    "url": "https://github.com/lpalbou/AbstractObserver.git"
   },
-  "homepage": "https://github.com/lpalbou/abstractobserver#readme",
+  "homepage": "https://github.com/lpalbou/AbstractObserver#readme",
   "publishConfig": {
     "access": "public"
   },

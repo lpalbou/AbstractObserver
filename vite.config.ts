@@ -18,11 +18,6 @@ export default defineConfig({
       { find: "@abstractframework/ui-kit", replacement: resolve(__dirname, "../abstractuic/ui-kit/src") },
       { find: "@abstractframework/monitor-gpu", replacement: resolve(__dirname, "../abstractuic/monitor-gpu/src") },
 
-      { find: "@abstractuic/monitor-active-memory", replacement: resolve(__dirname, "../abstractuic/monitor-active-memory/src") },
-      { find: "@abstractuic/monitor-flow", replacement: resolve(__dirname, "../abstractuic/monitor-flow/src") },
-      { find: "@abstractuic/panel-chat", replacement: resolve(__dirname, "../abstractuic/panel-chat/src") },
-      { find: "@abstractuic/ui-kit", replacement: resolve(__dirname, "../abstractuic/ui-kit/src") },
-      { find: "@abstractutils/monitor-gpu", replacement: resolve(__dirname, "../abstractuic/monitor-gpu/src") },
     ],
   },
   server: {
@@ -51,3 +46,4 @@ export default defineConfig({
     sourcemap: true,
   },
 });
+
