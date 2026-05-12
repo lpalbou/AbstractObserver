@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractuic/monitor-flow";
-import { ChatComposer, ChatThread, Markdown, chatToMarkdown, copyText, downloadTextFile, type ChatMessage } from "@abstractuic/panel-chat";
+import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractframework/monitor-flow";
+import { ChatComposer, ChatThread, Markdown, chatToMarkdown, copyText, downloadTextFile, type ChatMessage } from "@abstractframework/panel-chat";
 import {
   AfSelect,
   FontScaleSelect,
@@ -13,8 +13,8 @@ import {
   applyTypography,
   type AfSelectOption,
   type ProviderOption,
-} from "@abstractuic/ui-kit";
-import { registerMonitorGpuWidget } from "@abstractutils/monitor-gpu";
+} from "@abstractframework/ui-kit";
+import { registerMonitorGpuWidget } from "@abstractframework/monitor-gpu";
 
 import { GatewayClient } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";

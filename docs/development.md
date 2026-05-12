@@ -10,19 +10,8 @@ npm install
 npm run dev
 ```
 
-### Workspace dependencies (important)
-The UI imports several “AbstractUIC” packages (examples in `src/ui/app.tsx`) and `vite.config.ts` aliases them to local source paths like `../abstractuic/*/src`.
-
-That means `npm run dev` / `npm run build` expect the following to exist **next to** this repo:
-- `../abstractuic/monitor-active-memory/src`
-- `../abstractuic/monitor-flow/src`
-- `../abstractuic/panel-chat/src`
-- `../abstractuic/ui-kit/src`
-- `../abstractuic/monitor-gpu/src`
-
-If you only cloned `abstractobserver`, you have two options:
-1) check out the required sibling repos under `../abstractuic`, or
-2) replace the Vite aliases and add proper package dependencies (if/when those packages are published).
+### Shared UI dependencies
+The UI imports the public `@abstractframework/*` UI package names, and Vite aliases them to sibling `../abstractuic/*/src` packages for source builds. GitHub Actions checks out `AbstractUIC` next to `AbstractObserver` before testing, building, and publishing.
 
 ## Tests
 ```bash
@@ -39,6 +28,7 @@ npm run build
 - Builds the SPA into `dist/` (Vite) and type-checks via `tsc`.
 - The published CLI serves `dist/` (see `bin/cli.js`).
 - `npm publish` runs `npm run build` via `prepublishOnly` (see `package.json`).
+- GitHub Actions publishes through `.github/workflows/release.yml` using npm trusted publishing/provenance. Configure the npm package trusted publisher for `lpalbou/abstractobserver` and the `npm` environment before running the workflow.
 
 ## Useful scripts
 - `npm run dev` — Vite dev server (defaults to port `3001`; proxies `/api` to `http://localhost:8081` per `vite.config.ts`)

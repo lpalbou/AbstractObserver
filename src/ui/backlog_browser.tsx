@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-import { ChatComposer, ChatThread, Markdown, copyText, type ChatMessage } from "@abstractuic/panel-chat";
-import { Icon as UiIcon } from "@abstractuic/ui-kit";
+import { ChatComposer, ChatThread, Markdown, copyText, type ChatMessage } from "@abstractframework/panel-chat";
+import { Icon as UiIcon } from "@abstractframework/ui-kit";
 
 import { useGatewayVoice } from "./use_gateway_voice";
 
@@ -22,7 +22,7 @@ import {
 } from "./exec_event";
 import { MultiSelect } from "./multi_select";
 import { Modal } from "./modal";
-import { Icon } from "@abstractuic/ui-kit";
+import { Icon } from "@abstractframework/ui-kit";
 
 type BacklogTab = "processing" | "planned" | "proposed" | "recurrent" | "completed" | "failed" | "deprecated" | "trash";
 type BacklogFileKind = "planned" | "proposed" | "recurrent" | "completed" | "deprecated" | "trash";

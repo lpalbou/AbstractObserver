@@ -7,8 +7,8 @@ import {
   type KgQueryParams,
   type KgQueryResult,
   type MemoryScope,
-} from "@abstractuic/monitor-active-memory";
-import { Markdown } from "@abstractuic/panel-chat";
+} from "@abstractframework/monitor-active-memory";
+import { Markdown } from "@abstractframework/panel-chat";
 
 import { GatewayClient } from "../lib/gateway_client";
 import { Modal } from "./modal";

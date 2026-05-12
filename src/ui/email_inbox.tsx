@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-import { copyText } from "@abstractuic/panel-chat";
+import { copyText } from "@abstractframework/panel-chat";
 
 import type { EmailAccountInfo, EmailMessageSummary, EmailReadResponse } from "../lib/gateway_client";
 import { GatewayClient } from "../lib/gateway_client";

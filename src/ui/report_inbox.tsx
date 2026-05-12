@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-import { Markdown, copyText } from "@abstractuic/panel-chat";
+import { Markdown, copyText } from "@abstractframework/panel-chat";
 
 import type { BacklogContentResponse, ReportInboxItem, TriageDecisionSummary } from "../lib/gateway_client";
 import { GatewayClient } from "../lib/gateway_client";

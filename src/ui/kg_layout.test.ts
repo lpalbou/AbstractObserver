@@ -9,7 +9,7 @@ import {
   sanitizeViewport,
   stepForceSimulation,
   type KgAssertion,
-} from "@abstractuic/monitor-active-memory";
+} from "@abstractframework/monitor-active-memory";
 
 function roundPositions(pos: Record<string, { x: number; y: number }>): Array<[string, number, number]> {
   return Object.entries(pos)

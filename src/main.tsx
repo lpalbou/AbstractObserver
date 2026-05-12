@@ -3,9 +3,9 @@ import ReactDOM from "react-dom/client";
 
 import "reactflow/dist/style.css";
 
-import "@abstractuic/ui-kit/theme.css";
-import "@abstractuic/monitor-active-memory/styles.css";
-import "@abstractuic/panel-chat/panel_chat.css";
+import "@abstractframework/ui-kit/theme.css";
+import "@abstractframework/monitor-active-memory/styles.css";
+import "@abstractframework/panel-chat/panel_chat.css";
 
 import { App } from "./ui/app";
 import "./ui/styles.css";

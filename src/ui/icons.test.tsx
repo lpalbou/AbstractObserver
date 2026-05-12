@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { Icon, type IconName } from "@abstractuic/ui-kit";
+import { Icon, type IconName } from "@abstractframework/ui-kit";
 
 describe("AbstractObserver icons", () => {
   it("supports action icons used in the Backlog UI", () => {

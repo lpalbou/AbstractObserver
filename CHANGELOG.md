@@ -3,6 +3,10 @@
 ## Unreleased
 - Docs: align npm install/run commands with the scoped package name (`@abstractframework/observer`) and refresh core docs for ecosystem context and voice endpoints.
 
+## 0.1.7
+- Package: migrate source imports to the public `@abstractframework/*` UI package names while building against the sibling AbstractUIC source checkout.
+- CI/CD: add GitHub Actions CI and npm release workflow with trusted publishing/provenance support.
+
 ## 0.1.6 (2026-02-05)
 - Package: publish as `@abstractframework/observer` (CLI binary remains `abstractobserver`).
 - UI: Mindmap: layout toolbar (algorithm + spread + apply + force simulation play/pause), Search KG panel is inside the canvas, and blank/offscreen views auto-recover.

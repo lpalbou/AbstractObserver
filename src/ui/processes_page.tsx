@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import type { GatewayClient, ManagedEnvVarItem, ManagedProcessInfo } from "../lib/gateway_client";
 import { Modal } from "./modal";
-import { Icon } from "@abstractuic/ui-kit";
+import { Icon } from "@abstractframework/ui-kit";
 
 function clamp(text: string, max_chars: number): string {
   const s = String(text || "");
