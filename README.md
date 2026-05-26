@@ -80,7 +80,7 @@ All pages share the same gateway connection settings.
 - Changelog: `CHANGELOG.md`
 - Contributing: `CONTRIBUTING.md`
 - Security policy (vulnerability reporting): `SECURITY.md`
-- Acknowledgments: `ACKNOWLEDMENTS.md`
+- Acknowledgments: `ACKNOWLEDGMENTS.md`
 
 ## Development (from source)
 ```bash

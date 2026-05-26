@@ -12,7 +12,7 @@ const FILES = [
   "CHANGELOG.md",
   "CONTRIBUTING.md",
   "SECURITY.md",
-  "ACKNOWLEDMENTS.md",
+  "ACKNOWLEDGMENTS.md",
   "LICENSE",
   "docs/README.md",
   "docs/getting-started.md",

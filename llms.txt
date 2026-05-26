@@ -52,5 +52,5 @@ Notes:
 - [Changelog](CHANGELOG.md): Release notes
 - [Contributing](CONTRIBUTING.md): How to develop and submit changes
 - [Security policy](SECURITY.md): Responsible vulnerability reporting
-- [Acknowledgments](ACKNOWLEDMENTS.md): Credits
+- [Acknowledgments](ACKNOWLEDGMENTS.md): Credits
 - [License](LICENSE): MIT license

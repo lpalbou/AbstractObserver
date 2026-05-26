@@ -68,7 +68,7 @@ Notes:
 - [Changelog](CHANGELOG.md): Release notes
 - [Contributing](CONTRIBUTING.md): How to develop and submit changes
 - [Security policy](SECURITY.md): Responsible vulnerability reporting
-- [Acknowledgments](ACKNOWLEDMENTS.md): Credits
+- [Acknowledgments](ACKNOWLEDGMENTS.md): Credits
 - [License](LICENSE): MIT license
 
 ---
@@ -158,7 +158,7 @@ All pages share the same gateway connection settings.
 - Changelog: `CHANGELOG.md`
 - Contributing: `CONTRIBUTING.md`
 - Security policy (vulnerability reporting): `SECURITY.md`
-- Acknowledgments: `ACKNOWLEDMENTS.md`
+- Acknowledgments: `ACKNOWLEDGMENTS.md`
 
 ## Development (from source)
 ```bash
@@ -176,7 +176,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.1.6",
+  "version": "0.1.9",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -192,9 +192,9 @@ See `docs/development.md` for details.
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/lpalbou/abstractobserver.git"
+    "url": "https://github.com/lpalbou/AbstractObserver.git"
   },
-  "homepage": "https://github.com/lpalbou/abstractobserver#readme",
+  "homepage": "https://github.com/lpalbou/AbstractObserver#readme",
   "publishConfig": {
     "access": "public"
   },
@@ -255,9 +255,21 @@ const DIST_DIR = join(__dirname, '..', 'dist');
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const ARGV = process.argv.slice(2);
+function parse_bool_env(name) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === "") return undefined;
+  const normalized = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  console.warn(`#FALLBACK: ${name}="${raw}" is not a boolean; defaulting to false.`);
+  return false;
+}
+
 const MONITOR_GPU =
   ARGV.includes("--monitor-gpu") ||
   ["1", "true", "yes", "on"].includes(String(process.env.ABSTRACTOBSERVER_MONITOR_GPU || "").trim().toLowerCase());
+const ENABLE_BACKLOG = parse_bool_env("ABSTRACTOBSERVER_ENABLE_BACKLOG");
+const ENABLE_INBOX_TRIAGE = parse_bool_env("ABSTRACTOBSERVER_ENABLE_INBOX_TRIAGE");
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -280,10 +292,14 @@ function getMimeType(filePath) {
 }
 
 function inject_config_html(html) {
-  if (!MONITOR_GPU) return html;
+  const ui_config = {};
+  if (MONITOR_GPU) ui_config.monitor_gpu = true;
+  if (ENABLE_BACKLOG !== undefined) ui_config.enable_backlog = ENABLE_BACKLOG;
+  if (ENABLE_INBOX_TRIAGE !== undefined) ui_config.enable_inbox_triage = ENABLE_INBOX_TRIAGE;
+  if (!Object.keys(ui_config).length) return html;
   const marker = "window.__ABSTRACT_UI_CONFIG__";
   if (html.includes(marker)) return html;
-  const snippet = `<script>${marker}=Object.assign(${marker}||{}, { monitor_gpu: true });</script>`;
+  const snippet = `<script>${marker}=Object.assign(${marker}||{}, ${JSON.stringify(ui_config)});</script>`;
   if (html.includes("</head>")) return html.replace("</head>", `${snippet}\n</head>`);
   if (html.includes("</body>")) return html.replace("</body>", `${snippet}\n</body>`);
   return `${html}\n${snippet}\n`;
@@ -404,19 +420,12 @@ export default defineConfig({
       { find: /^reactflow\/dist\/style\.css$/, replacement: resolve(__dirname, "./node_modules/reactflow/dist/style.css") },
       { find: /^reactflow\/dist\/base\.css$/, replacement: resolve(__dirname, "./node_modules/reactflow/dist/base.css") },
 
-      { find: "@abstractuic/monitor-active-memory", replacement: resolve(__dirname, "../abstractuic/monitor-active-memory/src") },
-      { find: "@abstractuic/monitor-flow", replacement: resolve(__dirname, "../abstractuic/monitor-flow/src") },
-      { find: "@abstractuic/panel-chat", replacement: resolve(__dirname, "../abstractuic/panel-chat/src") },
-      { find: "@abstractuic/ui-kit", replacement: resolve(__dirname, "../abstractuic/ui-kit/src") },
-      { find: "@abstractutils/monitor-gpu", replacement: resolve(__dirname, "../abstractuic/monitor-gpu/src") },
-
-      // Support published package names too (some shared packages import each other
-      // via @abstractframework/* even when apps use @abstractuic/* workspace aliases).
       { find: "@abstractframework/monitor-active-memory", replacement: resolve(__dirname, "../abstractuic/monitor-active-memory/src") },
       { find: "@abstractframework/monitor-flow", replacement: resolve(__dirname, "../abstractuic/monitor-flow/src") },
       { find: "@abstractframework/panel-chat", replacement: resolve(__dirname, "../abstractuic/panel-chat/src") },
       { find: "@abstractframework/ui-kit", replacement: resolve(__dirname, "../abstractuic/ui-kit/src") },
       { find: "@abstractframework/monitor-gpu", replacement: resolve(__dirname, "../abstractuic/monitor-gpu/src") },
+
     ],
   },
   server: {
@@ -454,7 +463,17 @@ export default defineConfig({
 # Changelog
 
 ## Unreleased
+
+## 0.1.9 (2026-05-26)
+
+- UI: add scoped provider/model pin legend entries for text, image, and voice routes.
+- UI: treat `provider_text` and `model_text` launch fields like provider/model selectors in the Gateway observer launch form.
+
 - Docs: align npm install/run commands with the scoped package name (`@abstractframework/observer`) and refresh core docs for ecosystem context and voice endpoints.
+
+## 0.1.7
+- Package: migrate source imports to the public `@abstractframework/*` UI package names while building against the sibling AbstractUIC source checkout.
+- CI/CD: add GitHub Actions CI and npm release workflow with trusted publishing/provenance support.
 
 ## 0.1.6 (2026-02-05)
 - Package: publish as `@abstractframework/observer` (CLI binary remains `abstractobserver`).
@@ -582,7 +601,7 @@ Operational guidance for these features: `docs/security.md`.
 ---
 
 
-## ACKNOWLEDMENTS.md
+## ACKNOWLEDGMENTS.md
 
 # Acknowledgments
 
@@ -671,7 +690,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - Changelog: `../CHANGELOG.md`
 - Contributing: `../CONTRIBUTING.md`
 - Security policy (vulnerability reporting): `../SECURITY.md`
-- Acknowledgments: `../ACKNOWLEDMENTS.md`
+- Acknowledgments: `../ACKNOWLEDGMENTS.md`
 - License: `../LICENSE`
 
 ---
@@ -869,6 +888,16 @@ It’s an optional GPU usage widget in the header. Enable it by starting the CLI
 Evidence:
 - HTML config injection: `bin/cli.js`
 - UI feature gate: `monitor_gpu_enabled` in `src/ui/app.tsx`
+
+## How do I enable Backlog or Inbox triage?
+These are optional UI features gated by runtime flags injected by the CLI.
+
+- `ABSTRACTOBSERVER_ENABLE_BACKLOG=on` → enables Backlog + Process Manager
+- `ABSTRACTOBSERVER_ENABLE_INBOX_TRIAGE=on` → enables Inbox triage/reporting
+
+Evidence:
+- HTML config injection: `bin/cli.js`
+- UI feature gates: `enable_backlog`, `enable_inbox_triage` in `src/ui/app.tsx`
 
 ## Is this a PWA? Does it work offline?
 The app registers a service worker in production to cache the UI shell (installability + faster reloads), but run data still comes from the gateway.
@@ -1107,6 +1136,8 @@ Implemented in `bin/cli.js`.
 - `PORT` — HTTP port to listen on (default `3001`)
 - `HOST` — bind address (default `0.0.0.0`)
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
+- `ABSTRACTOBSERVER_ENABLE_BACKLOG=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.enable_backlog=true` to show Backlog + Process Manager
+- `ABSTRACTOBSERVER_ENABLE_INBOX_TRIAGE=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.enable_inbox_triage=true` to enable Inbox triage/reporting
 
 Examples:
 ```bash
@@ -1172,19 +1203,8 @@ npm install
 npm run dev
 ```
 
-### Workspace dependencies (important)
-The UI imports several “AbstractUIC” packages (examples in `src/ui/app.tsx`) and `vite.config.ts` aliases them to local source paths like `../abstractuic/*/src`.
-
-That means `npm run dev` / `npm run build` expect the following to exist **next to** this repo:
-- `../abstractuic/monitor-active-memory/src`
-- `../abstractuic/monitor-flow/src`
-- `../abstractuic/panel-chat/src`
-- `../abstractuic/ui-kit/src`
-- `../abstractuic/monitor-gpu/src`
-
-If you only cloned `abstractobserver`, you have two options:
-1) check out the required sibling repos under `../abstractuic`, or
-2) replace the Vite aliases and add proper package dependencies (if/when those packages are published).
+### Shared UI dependencies
+The UI imports the public `@abstractframework/*` UI package names, and Vite aliases them to sibling `../abstractuic/*/src` packages for source builds. GitHub Actions checks out `AbstractUIC` next to `AbstractObserver` before testing, building, and publishing.
 
 ## Tests
 ```bash
@@ -1201,6 +1221,7 @@ npm run build
 - Builds the SPA into `dist/` (Vite) and type-checks via `tsc`.
 - The published CLI serves `dist/` (see `bin/cli.js`).
 - `npm publish` runs `npm run build` via `prepublishOnly` (see `package.json`).
+- GitHub Actions publishes through `.github/workflows/release.yml` using npm trusted publishing/provenance. Configure the npm package trusted publisher for `lpalbou/abstractobserver` and the `npm` environment before running the workflow.
 
 ## Useful scripts
 - `npm run dev` — Vite dev server (defaults to port `3001`; proxies `/api` to `http://localhost:8081` per `vite.config.ts`)

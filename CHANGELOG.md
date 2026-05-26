@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+
+## 0.1.9 (2026-05-26)
+
+- UI: add scoped provider/model pin legend entries for text, image, and voice routes.
+- UI: treat `provider_text` and `model_text` launch fields like provider/model selectors in the Gateway observer launch form.
+
 - Docs: align npm install/run commands with the scoped package name (`@abstractframework/observer`) and refresh core docs for ecosystem context and voice endpoints.
 
 ## 0.1.7

@@ -4094,11 +4094,11 @@ export function App(): React.ReactElement {
                           const merged_options = Array.from(new Set([...available_tool_names, ...selected, ...default_tools])).sort();
                           return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><MultiSelect options={merged_options} value={selected} disabled={disabled} placeholder="(no tools selected)" onChange={(next) => update_input_data_field(pid, next)} /></div>);
                         }
-                        if (ptype === "provider") {
+                        if (ptype === "provider" || ptype === "provider_text") {
                           const sel = typeof cur === "string" ? String(cur) : "";
                           return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label><select value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}><option value="">{placeholder_default || "(select)"}</option>{available_providers.map((p) => (<option key={p} value={p}>{p}</option>))}</select></div>);
                         }
-                        if (ptype === "model") {
+                        if (ptype === "model" || ptype === "model_text") {
                           const sel = typeof cur === "string" ? String(cur) : "";
                           const prov = String((input_data_obj as any)?.provider || "").trim();
                           const found = prov ? discovered_models_by_provider[prov] : undefined;

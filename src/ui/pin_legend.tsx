@@ -10,6 +10,12 @@ type PinType =
   | "tools"
   | "provider"
   | "model"
+  | "provider_text"
+  | "model_text"
+  | "provider_image"
+  | "model_image"
+  | "provider_voice"
+  | "model_voice"
   | "agent"
   | "any";
 
@@ -23,6 +29,12 @@ const PIN_COLORS: Record<PinType, string> = {
   tools: "#FF8800",
   provider: "#00D2FF",
   model: "#9D4EDD",
+  provider_text: "#00D2FF",
+  model_text: "#9D4EDD",
+  provider_image: "#19D3B8",
+  model_image: "#8B5CF6",
+  provider_voice: "#22D3EE",
+  model_voice: "#A855F7",
   agent: "#4488FF",
   any: "#888888",
 };
@@ -42,8 +54,11 @@ const PIN_INFO: PinInfo[] = [
   { type: "object", label: "Object", shape: "●", description: "JSON objects" },
   { type: "array", label: "Array", shape: "■", description: "Collections" },
   { type: "tools", label: "Tools", shape: "■", description: "Tool allowlist (string[])" },
-  { type: "provider", label: "Provider", shape: "●", description: "LLM provider id/name (string-like)" },
-  { type: "model", label: "Model", shape: "●", description: "LLM model id/name (string-like)" },
+  { type: "provider_text", label: "Text Provider", shape: "●", description: "Text/LLM provider id/name" },
+  { type: "provider_image", label: "Image Provider", shape: "●", description: "Image-generation provider id" },
+  { type: "provider_voice", label: "Voice Provider", shape: "●", description: "Voice/TTS/STT provider id" },
+  { type: "provider", label: "Provider (legacy)", shape: "●", description: "Legacy unscoped provider id/name" },
+  { type: "model", label: "Model", shape: "●", description: "Model id/name scoped by the selected provider" },
   { type: "agent", label: "Agent", shape: "⬢", description: "Agent reference" },
   { type: "any", label: "Any", shape: "●", description: "Accepts any type" },
 ];
@@ -84,4 +99,3 @@ export function PinLegend(): React.ReactElement {
     </div>
   );
 }
-

@@ -32,5 +32,5 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - Changelog: `../CHANGELOG.md`
 - Contributing: `../CONTRIBUTING.md`
 - Security policy (vulnerability reporting): `../SECURITY.md`
-- Acknowledgments: `../ACKNOWLEDMENTS.md`
+- Acknowledgments: `../ACKNOWLEDGMENTS.md`
 - License: `../LICENSE`
