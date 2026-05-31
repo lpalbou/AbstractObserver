@@ -6,7 +6,7 @@ It serves a static single-page app (`dist/`) via a small Node.js CLI (`bin/cli.j
 ## Prerequisites
 - Node.js `>=18`
 - A running **AbstractGateway** (base URL, e.g. `http://localhost:8081`)
-- (Optional) a gateway auth token (sent as `Authorization: Bearer …`)
+- In hosted user-auth mode, a Gateway user id and that user's token
 
 ## Run AbstractObserver
 The npm package is `@abstractframework/observer` and the installed CLI binary is `abstractobserver`.
@@ -27,11 +27,13 @@ Open `http://localhost:3001`.
 In **Settings → Gateway** (implemented in `src/ui/app.tsx`):
 - **Gateway URL**: set it to your gateway base URL (for local dev commonly `http://localhost:8081`).
   - Leave it **blank** only if you deploy the UI and gateway **same-origin** (a reverse proxy routes `/api` to the gateway), or when using `npm run dev` (Vite dev proxy; see `vite.config.ts`).
-- **Gateway token**: optional.
+- **Gateway user** and **Gateway token**: use the user id and token assigned by
+  the Gateway admin. The token is exchanged for an app-scoped browser session
+  and is not persisted in browser settings.
 
 Click **Connect** (or keep **Auto-connect** enabled).
-
-If you run the CLI server and leave Gateway URL blank, the UI will call `/api/...` on the UI origin — the CLI does **not** proxy `/api` (same-origin requires a reverse proxy).
+Direct bearer-token mode remains available for local development when no
+Gateway user is set.
 
 ## Observe a run
 Go to **Observe**:

@@ -38,7 +38,18 @@ Note: the npm package is `@abstractframework/observer`, and the CLI binary is `a
 Open `http://localhost:3001`, then go to **Settings** and configure:
 - **Gateway URL** (usually your gateway base URL, e.g. `http://localhost:8081`)
   - Leave it blank only for same-origin deployments (reverse proxy routes `/api`) or when using `npm run dev` (Vite `/api` proxy).
-- optional **Auth token**, then click **Connect**
+- **Gateway user** and that user's **Gateway token** in hosted user-auth mode,
+  then click **Connect**
+
+In hosted mode, Observer exchanges the user token for an app-scoped Gateway
+browser session and does not persist the token in browser settings. Direct
+bearer-token mode remains available for local development. When Observer is
+served from a non-local hostname, the server-configured Gateway URL is
+authoritative; browser-supplied Gateway URL changes are rejected unless
+`ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is set behind your own
+access control. If a reverse proxy rewrites `Host`, set
+`ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` only when the proxy strips
+client-supplied forwarded headers.
 
 ## Install options
 ### Global install

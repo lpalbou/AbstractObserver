@@ -9,14 +9,28 @@ Guidance:
 - Prefer `HOST=127.0.0.1` for local development.
 - For shared deployments, put the UI behind an authenticated reverse proxy and use HTTPS.
 
-## Tokens and local storage
-The UI stores settings in your browser (see `load_settings()` / `save_settings()` in `src/ui/app.tsx`), including:
-- gateway auth token (`auth_token`)
-- optional MCP worker auth token (`worker_token`)
+## Tokens and browser sessions
+In hosted user-auth mode, the UI server exchanges Gateway user credentials for
+an app-scoped browser session. Browser settings persist the Gateway URL, Gateway
+user, preferences, and optional tool worker configuration, but strip the
+Gateway token (`auth_token`) when saving settings. The session id is kept in an
+HTTP-only app cookie and writes require a CSRF token.
+
+Direct bearer-token mode remains available for local development when no
+Gateway user is configured. The optional MCP worker token (`worker_token`) is
+still stored in browser settings.
+
+When Observer is served from a non-local hostname, the server-configured
+Gateway URL is authoritative. Browser-supplied Gateway URL changes are rejected
+unless `ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is enabled
+behind your own access control. If a reverse proxy rewrites `Host`, set
+`ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` only when the proxy strips
+client-supplied forwarded headers.
 
 Operational guidance:
-- Treat the browser profile as a secret-bearing environment.
-- Prefer private machines and locked-down profiles for production tokens.
+- Treat the browser profile as a sensitive environment because session cookies
+  and optional worker credentials are still present.
+- Prefer private machines and locked-down profiles for production access.
 - Prefer same-origin deployments and HTTPS to reduce leakage risk.
 
 ## Voice features (microphone + uploads)
@@ -45,7 +59,8 @@ Guidance:
 ## Cross-origin + CORS
 If the UI origin differs from the gateway origin:
 - the gateway must support browser access (CORS, TLS, auth)
-- tokens will be sent from the browser to the gateway (and potentially exposed to browser extensions)
+- direct bearer-token mode sends tokens from the browser to the gateway; hosted
+  user-auth mode should prefer the app server proxy and browser-session path
 
 Guidance:
 - Prefer a reverse proxy so the UI and gateway are same-origin (`configuration.md`).

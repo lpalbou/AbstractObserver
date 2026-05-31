@@ -65,10 +65,13 @@ Only if the UI origin and gateway origin differ.
 See `configuration.md`.
 
 ## How does authentication work?
-If you set a gateway token in Settings, the UI sends:
-`Authorization: Bearer <token>`
+In hosted user-auth mode, set Gateway URL, Gateway user, and that user's token.
+Observer exchanges the token for an app-scoped browser session, then proxies
+Gateway requests with `X-AbstractGateway-Session` and a CSRF header for writes.
+The token is not persisted in browser settings.
 
-Evidence: `_auth_headers()` in `src/lib/gateway_client.ts` and Settings storage in `src/ui/app.tsx` (`load_settings()` / `save_settings()`).
+Direct bearer-token mode remains available for local development when no
+Gateway user is configured.
 
 Operational guidance: `security.md`.
 

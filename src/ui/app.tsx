@@ -35,6 +35,9 @@ import { useGatewayVoice } from "./use_gateway_voice";
 type Settings = {
   gateway_url: string;
   auth_token: string;
+  gateway_user: string;
+  gateway_auth_mode: "session" | "direct";
+  gateway_remember: boolean;
   worker_url: string;
   worker_token: string;
   theme: string;
@@ -372,7 +375,10 @@ function load_settings(): Settings {
     const parsed = JSON.parse(raw);
     return {
       gateway_url: String(parsed?.gateway_url || ""),
-      auth_token: String(parsed?.auth_token || ""),
+      auth_token: "",
+      gateway_user: String(parsed?.gateway_user || ""),
+      gateway_auth_mode: parsed?.gateway_auth_mode === "direct" ? "direct" : "session",
+      gateway_remember: parsed?.gateway_remember === false ? false : true,
       worker_url: String(parsed?.worker_url || ""),
       worker_token: String(parsed?.worker_token || ""),
       theme: String(parsed?.theme || "dark"),
@@ -387,6 +393,9 @@ function load_settings(): Settings {
     return {
       gateway_url: "",
       auth_token: "",
+      gateway_user: "",
+      gateway_auth_mode: "session",
+      gateway_remember: true,
       worker_url: "",
       worker_token: "",
       theme: "dark",
@@ -401,7 +410,7 @@ function load_settings(): Settings {
 }
 
 function save_settings(s: Settings): void {
-  localStorage.setItem("abstractobserver_settings", JSON.stringify(s));
+  localStorage.setItem("abstractobserver_settings", JSON.stringify({ ...s, auth_token: "" }));
 }
 
 function format_step_summary(rec: StepRecord): string {
@@ -661,8 +670,8 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (!monitor_gpu_enabled) return;
     const el = monitor_gpu_ref.current as any;
-    if (el) el.token = settings.auth_token || "";
-  }, [monitor_gpu_enabled, settings.auth_token]);
+    if (el) el.token = settings.gateway_auth_mode === "direct" ? settings.auth_token || "" : "";
+  }, [monitor_gpu_enabled, settings.auth_token, settings.gateway_auth_mode]);
 
   const [log, set_log] = useState<UiLogItem[]>([]);
   const [log_open, set_log_open] = useState<Record<string, boolean>>({});
@@ -716,7 +725,14 @@ export function App(): React.ReactElement {
   const [summary_generating, set_summary_generating] = useState(false);
   const [summary_error, set_summary_error] = useState<string>("");
 
-  const gateway = useMemo(() => new GatewayClient({ base_url: settings.gateway_url, auth_token: settings.auth_token }), [settings]);
+  const gateway = useMemo(
+    () =>
+      new GatewayClient({
+        base_url: settings.gateway_auth_mode === "session" ? "" : settings.gateway_url,
+        auth_token: settings.gateway_auth_mode === "session" ? "" : settings.auth_token,
+      }),
+    [settings.gateway_auth_mode, settings.gateway_url, settings.auth_token]
+  );
   const worker = useMemo(
     () => (settings.worker_url.trim() ? new McpWorkerClient({ url: settings.worker_url.trim(), auth_token: settings.worker_token }) : null),
     [settings.worker_url, settings.worker_token]
@@ -1048,11 +1064,11 @@ export function App(): React.ReactElement {
     return out;
   }
 
-  async function refresh_runs(): Promise<void> {
+  async function refresh_runs(gateway_client: GatewayClient = gateway): Promise<void> {
     if (runs_loading) return;
     set_runs_loading(true);
     try {
-      const runs = await gateway.list_runs({ limit: 200, root_only: true });
+      const runs = await gateway_client.list_runs({ limit: 200, root_only: true });
       const items = Array.isArray((runs as any)?.items) ? ((runs as any).items as any[]) : [];
       const next: RunSummary[] = items
         .map((r) => ({
@@ -1079,6 +1095,38 @@ export function App(): React.ReactElement {
       push_log({ ts: now_iso(), kind: "error", title: "Refresh runs failed", preview: clamp_preview(String(e?.message || e || "")) });
     } finally {
       set_runs_loading(false);
+    }
+  }
+
+  async function sign_in_gateway_session(): Promise<void> {
+    const gateway_user = String(settings.gateway_user || "").trim();
+    const gateway_token = String(settings.auth_token || "").trim();
+    if (!gateway_user) {
+      throw new Error("Gateway user is required for hosted sign-in.");
+    }
+    if (!gateway_token) {
+      const response = await fetch("/api/connection/gateway", { headers: { Accept: "application/json" } });
+      const payload = await response.json().catch(async () => ({ detail: await response.text().catch(() => "") }));
+      const principal = payload?.gateway?.principal || payload?.principal || {};
+      const existing_user = String(principal?.user_id || "").trim();
+      if (response.ok && payload?.ok !== false && existing_user === gateway_user) {
+        return;
+      }
+      throw new Error("Gateway token is required to create a browser session.");
+    }
+    const response = await fetch("/api/connection/gateway", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        gateway_url: String(settings.gateway_url || "").trim(),
+        gateway_user_id: gateway_user,
+        gateway_token,
+        persist: settings.gateway_remember !== false,
+      }),
+    });
+    const payload = await response.json().catch(async () => ({ detail: await response.text().catch(() => "") }));
+    if (!response.ok || payload?.ok === false) {
+      throw new Error(String(payload?.detail || payload?.error || `Gateway sign-in failed (${response.status})`));
     }
   }
 
@@ -1112,18 +1160,30 @@ export function App(): React.ReactElement {
         }
       }
 
-      const bundles = await gateway.list_bundles();
+      const wants_session = Boolean(String(settings.gateway_user || "").trim());
+      const gateway_for_connect = wants_session ? new GatewayClient({ base_url: "", auth_token: "" }) : gateway;
+      if (wants_session) {
+        await sign_in_gateway_session();
+        set_settings((s) => ({ ...s, gateway_auth_mode: "session", auth_token: "" }));
+      } else {
+        set_settings((s) => ({ ...s, gateway_auth_mode: "direct" }));
+      }
+
+      const bundles = await gateway_for_connect.list_bundles();
       const opts = build_workflow_options_from_bundles(bundles);
       set_workflow_options(opts);
 
       try {
-        await refresh_runs();
+        await refresh_runs(gateway_for_connect);
       } catch (e: any) {
         set_run_options([]);
         push_log({ ts: now_iso(), kind: "error", title: "Discovery runs failed", preview: clamp_preview(String(e?.message || e || "")) });
       }
 
-      const [tools_res, providers_res] = await Promise.allSettled([gateway.discovery_tools(), gateway.discovery_providers({ include_models: false })]);
+      const [tools_res, providers_res] = await Promise.allSettled([
+        gateway_for_connect.discovery_tools(),
+        gateway_for_connect.discovery_providers({ include_models: false }),
+      ]);
       if (tools_res.status === "fulfilled") {
         const items = Array.isArray(tools_res.value?.items) ? tools_res.value.items : [];
         set_discovered_tool_specs(items);
@@ -1195,6 +1255,7 @@ export function App(): React.ReactElement {
   }
 
   function disconnect_gateway(): void {
+    void fetch("/api/connection/gateway", { method: "DELETE" }).catch(() => undefined);
     clear_run_view();
     set_bundle_id("");
     set_flow_id("");
@@ -1211,6 +1272,7 @@ export function App(): React.ReactElement {
 
     set_discovery_error("");
     set_gateway_connected(false);
+    set_settings((s) => ({ ...s, auth_token: "" }));
     push_log({ ts: now_iso(), kind: "info", title: "Gateway disconnected" });
   }
 
@@ -3883,13 +3945,34 @@ export function App(): React.ReactElement {
                   </select>
                 </div>
                 <div className="field">
-                  <label>Gateway token (Authorization: Bearer …)</label>
+                  <label>Gateway user</label>
+                  <input
+                    value={settings.gateway_user}
+                    onChange={(e) => set_settings((s) => ({ ...s, gateway_user: e.target.value, gateway_auth_mode: "session" }))}
+                    placeholder="user id for hosted sign-in"
+                  />
+                </div>
+                <div className="field">
+                  <label>Gateway token</label>
                   <input
                     type="password"
                     value={settings.auth_token}
                     onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value }))}
-                    placeholder="(optional for localhost dev)"
+                    placeholder={settings.gateway_user.trim() ? "user token for sign-in" : "optional direct dev token"}
                   />
+                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
+                    Hosted sign-in exchanges this token for a browser session and does not save it in localStorage.
+                  </div>
+                </div>
+                <div className="field">
+                  <label>Remember browser session</label>
+                  <select
+                    value={settings.gateway_remember ? "on" : "off"}
+                    onChange={(e) => set_settings((s) => ({ ...s, gateway_remember: e.target.value === "on" }))}
+                  >
+                    <option value="on">On</option>
+                    <option value="off">Off</option>
+                  </select>
                 </div>
 
                 <div className="section_title">Maintenance AI</div>
@@ -4355,7 +4438,7 @@ export function App(): React.ReactElement {
                       loading={runs_loading}
                       onSelect={(rid) => void attach_to_run(rid)}
                     />
-                <button className="btn btn_icon" onClick={refresh_runs} disabled={!gateway_connected || runs_loading || discovery_loading} title="Refresh runs">
+                <button className="btn btn_icon" onClick={() => void refresh_runs()} disabled={!gateway_connected || runs_loading || discovery_loading} title="Refresh runs">
                   <Icon name="refresh" size={14} />
                   {runs_loading ? "…" : "Refresh"}
                     </button>

@@ -3,8 +3,10 @@
 > Gateway-only observability UI (Web/PWA) for AbstractFramework runs: a browser SPA + tiny Node.js CLI that connects to an AbstractGateway HTTP API (HTTP fetch + SSE ledger streaming) and submits durable commands.
 
 This repository is UI-only:
-- The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and does **not** proxy `/api`.
-- The browser talks to the gateway via `src/lib/gateway_client.ts` (treat this file as the source of truth for HTTP endpoints and request shapes).
+- The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and proxies `/api` to Gateway after hosted browser-session sign-in.
+- The browser talks to same-origin `/api` in hosted mode; direct Gateway URLs remain available for local development via `src/lib/gateway_client.ts` (treat this file as the source of truth for HTTP endpoints and request shapes).
+- Hosted sign-in uses Gateway URL + user + token only to create an app-scoped browser session. Settings persistence strips Gateway bearer tokens.
+- On non-local hosted UI hostnames, the server-configured Gateway URL is authoritative; browser-supplied Gateway URL changes are rejected unless `ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is enabled behind access control. Forwarded host headers are trusted only when `ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` or `ABSTRACTGATEWAY_TRUST_PROXY_HEADERS=1`.
 
 ## Quickstart
 - Run packaged UI server (no build step): `npx --yes --package @abstractframework/observer -- abstractobserver`

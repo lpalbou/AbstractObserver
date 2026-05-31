@@ -298,8 +298,19 @@ function _join(base_url: string, path: string): string {
 
 function _auth_headers(token?: string): Record<string, string> {
   const t = (token || "").trim();
-  if (!t) return {};
-  return { Authorization: `Bearer ${t}` };
+  const out: Record<string, string> = {};
+  if (t) out.Authorization = `Bearer ${t}`;
+  try {
+    const csrf = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("abstractobserver_gateway_csrf="))
+      ?.slice("abstractobserver_gateway_csrf=".length);
+    if (csrf) out["X-AbstractObserver-CSRF"] = decodeURIComponent(csrf);
+  } catch {
+    // non-browser tests
+  }
+  return out;
 }
 
 async function _read_error(resp: Response): Promise<string> {

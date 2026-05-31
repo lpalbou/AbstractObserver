@@ -3,7 +3,11 @@
 This document lists the **HTTP endpoints AbstractObserver calls**, grouped by feature.
 The **source of truth** for paths, query params, and request bodies is `src/lib/gateway_client.ts`.
 
-> Authentication: when configured, the UI sends `Authorization: Bearer <token>` (see `_auth_headers()` in `src/lib/gateway_client.ts`).
+> Authentication: in hosted user-auth mode, the UI server exchanges Gateway
+> user credentials for an app-scoped browser session and proxies `/api/...`
+> with `X-AbstractGateway-Session` plus CSRF headers for writes. Direct
+> bearer-token mode remains available for local development when no Gateway user
+> is configured.
 >
 > Base URL: the UI’s **Gateway URL** setting is passed as `GatewayClientConfig.base_url`. When blank, requests are same-origin (`/api/...`). Evidence: `_join()` in `src/lib/gateway_client.ts`.
 

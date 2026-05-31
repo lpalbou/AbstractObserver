@@ -32,8 +32,19 @@ Implemented in `src/ui/app.tsx` (see `load_settings()` / `save_settings()`).
 - **Gateway URL** (`gateway_url`)
   - Blank means **same-origin** (calls `/api/...` on the same host serving the UI).
   - Set it to `http(s)://…` to target a remote gateway.
-  - Note: the packaged CLI (`bin/cli.js`) serves static files only. If you leave Gateway URL blank when using the CLI, `/api` must be provided by a reverse proxy.
-- **Auth token** (`auth_token`) — sent as `Authorization: Bearer …` to the gateway (see `src/lib/gateway_client.ts`).
+  - The packaged CLI (`bin/cli.js`) proxies same-origin `/api/...` calls to the
+    configured gateway after browser-session sign-in.
+  - On non-local hosted UI hostnames, the server-configured Gateway URL is
+    authoritative. Browser-supplied Gateway URL changes are rejected unless
+    `ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is enabled behind
+    your own access control. If a reverse proxy rewrites `Host`, set
+    `ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` only when the proxy strips
+    client-supplied forwarded headers.
+- **Gateway user** (`gateway_user`) and **Gateway token** (`auth_token`) —
+  hosted user-auth sign-in fields. The token is exchanged server-side for an
+  app-scoped browser session; settings persistence strips `auth_token`.
+  Direct bearer-token mode is retained for local development when
+  `gateway_user` is blank.
 - **Remote tool worker** (`worker_url`, `worker_token`) — optional MCP JSON-RPC over HTTP endpoint used to execute tool waits (see `src/lib/mcp_worker_client.ts`).
 - UI preferences: theme, font scale, header density, auto-connect.
 

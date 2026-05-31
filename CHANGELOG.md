@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.10 (2026-05-31)
+
+- Security: hosted mode now follows the Gateway URL/session policy used by Flow so remote browser clients cannot turn the app into a user-directed Gateway proxy.
+- Package hygiene: ignore and remove `.DS_Store` files from the published source tree.
+
 ## 0.1.9 (2026-05-26)
 
 - UI: add scoped provider/model pin legend entries for text, image, and voice routes.
