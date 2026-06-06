@@ -32,7 +32,6 @@ import { McpWorkerClient } from "../lib/mcp_worker_client";
 import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
 import { FlowGraph } from "./flow_graph";
-import { JsonViewer } from "./json_viewer";
 import { BacklogBrowserPage } from "./backlog_browser";
 import { MindmapPanel } from "./mindmap_panel";
 import { Modal } from "./modal";
@@ -278,6 +277,92 @@ function clamp_preview(text: string, opts?: { max_chars?: number; max_lines?: nu
   const trimmed = head.length > max_chars ? `${head.slice(0, Math.max(0, max_chars - 1))}…` : head;
   if (more_lines && trimmed === head) return `${head}…`;
   return trimmed;
+}
+
+function text_from_message_content(value: any): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value.map((item) => text_from_message_content(item)).filter(Boolean).join("\n").trim();
+  if (typeof value === "object") {
+    const direct = value.text ?? value.content ?? value.message ?? value.value;
+    if (direct !== value) {
+      const text = text_from_message_content(direct);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function extract_last_user_request(input: Record<string, any> | null): string {
+  if (!input) return "";
+  const direct = typeof input.prompt === "string" ? String(input.prompt).trim() : "";
+  if (direct) return direct;
+  const candidates = [input.context?.messages, input.messages, input.conversation, input.history].filter(Array.isArray) as any[][];
+  for (const messages of candidates) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      const role = String(msg?.role || msg?.speaker || "").trim().toLowerCase();
+      if (role && role !== "user" && role !== "human") continue;
+      const text = text_from_message_content(msg?.content ?? msg?.text ?? msg);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function tool_call_names(tool_calls: ToolCall[]): string {
+  const names = tool_calls.map((tc: any) => String(tc?.name || "tool").trim()).filter(Boolean);
+  if (!names.length) return "";
+  return `${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""}`;
+}
+
+function tool_risk_labels(tool_call: ToolCall): string[] {
+  const name = String((tool_call as any)?.name || "").trim().toLowerCase();
+  const args = (tool_call as any)?.arguments && typeof (tool_call as any).arguments === "object" ? (tool_call as any).arguments : {};
+  const command = String(args?.command || args?.cmd || args?.shell || "").trim().toLowerCase();
+  const labels: string[] = [];
+  if (name.includes("execute_command") || name.includes("terminal") || command) labels.push("Shell");
+  if (/[;&|]?\s*(rm|rmdir|mv|chmod|chown|sudo)\b/.test(command)) labels.push("Destructive risk");
+  if (/(^|\s)(curl|wget|scp|ssh|nc|ncat|ftp)\b/.test(command)) labels.push("Network");
+  if (/(^|\s)(cat|sed|rg|grep|ls|find|pwd)\b/.test(command) && !/[>|]\s*\S/.test(command)) labels.push("Read path");
+  if (/[>|]\s*\S|(^|\s)(tee|touch|mkdir|cp)\b/.test(command)) labels.push("Filesystem write");
+  if (!labels.length) labels.push("Tool call");
+  return Array.from(new Set(labels)).slice(0, 4);
+}
+
+function wait_blocker_title(wait: WaitState | null | undefined, tool_calls: ToolCall[]): string {
+  const reason = String(wait?.reason || "").trim().toLowerCase();
+  const names = tool_call_names(tool_calls);
+  if (tool_calls.length) return `Approval required: ${names || "tool call"}`;
+  if (reason === "user") return "Waiting for your answer";
+  if (reason === "event") return "Waiting for a user response event";
+  if (reason === "subworkflow") return "Waiting for a subworkflow";
+  if (reason === "until") return "Scheduled wait";
+  if (reason) return `Waiting: ${reason}`;
+  return "Waiting for input";
+}
+
+function wait_expected_action(wait: WaitState | null | undefined, tool_calls: ToolCall[]): string {
+  if (tool_calls.length) {
+    return "Review the requested tool call, then approve and execute it, approve without local execution, reject it, or cancel the whole run.";
+  }
+  const choices = Array.isArray(wait?.choices) ? wait?.choices || [] : [];
+  if (choices.length) return "Select one of the allowed responses, then submit it to resume this run.";
+  if (wait?.allow_free_text === false) return "This wait does not allow free text. Use the available response control or inspect the ledger.";
+  if (String(wait?.prompt || "").trim()) return "Answer the workflow question below. Submitting resumes only this wait.";
+  return "No explicit question was emitted. Inspect the original request and recent ledger context before responding.";
+}
+
+function wait_request_text(wait: WaitState | null | undefined, input: Record<string, any> | null): string {
+  const prompt = String(wait?.prompt || "").trim();
+  if (prompt) return prompt;
+  return extract_last_user_request(input);
+}
+
+function wait_json_value(parsed: Record<string, any> | null, raw: string): unknown {
+  if (parsed) return parsed;
+  const text = String(raw || "").trim();
+  return text || {};
 }
 
 function short_id(id: string, keep: number): string {
@@ -3476,6 +3561,11 @@ export function App(): React.ReactElement {
     ts: String((item.record as any)?.ended_at || (item.record as any)?.started_at || "").trim(),
     summary: format_step_summary(item.record as StepRecord),
   }));
+  const wait_blocker = wait_blocker_title(wait_state as WaitState | null, tool_calls_for_wait);
+  const wait_expected = wait_expected_action(wait_state as WaitState | null, tool_calls_for_wait);
+  const wait_request = wait_request_text(wait_state as WaitState | null, input_data_obj);
+  const wait_input_value = wait_json_value(input_data_obj, input_data_text);
+  const wait_has_input = Boolean(input_data_text.trim());
 
   const schedule_meta = run_state?.schedule && typeof run_state.schedule === "object" ? run_state.schedule : null;
   const schedule_interval = typeof schedule_meta?.interval === "string" ? String(schedule_meta.interval).trim() : "";
@@ -5838,7 +5928,7 @@ export function App(): React.ReactElement {
                           </summary>
                           <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
                             <div className="body mono">
-                              <JsonViewer value={digest as any} max_string_len={240} />
+                              <SharedJsonViewer value={digest as any} collapseAfterDepth={3} showCopy={true} />
                             </div>
                           </div>
                         </details>
@@ -6503,7 +6593,7 @@ export function App(): React.ReactElement {
         {show_wait_modal ? (
           <Modal
             open={show_wait_modal}
-            title={tool_calls_for_wait.length ? `Approval required for ${tool_calls_for_wait.length} tool call${tool_calls_for_wait.length === 1 ? "" : "s"}` : "Workflow needs your input"}
+            title={wait_blocker}
             onClose={() => {
               if (wait_key) set_dismissed_wait_key(wait_key);
             }}
@@ -6531,11 +6621,22 @@ export function App(): React.ReactElement {
             <div className="wait_context_panel">
               <div className="wait_context_header">
                 <div>
-                  <div className="run_hero_eyebrow">Why this is blocked</div>
-                  <strong>{has_tool_wait ? "The workflow is asking for a tool decision." : "The workflow is asking for your response."}</strong>
+                  <div className="run_hero_eyebrow">What you need to do</div>
+                  <strong>{wait_blocker}</strong>
+                  <p>{wait_expected}</p>
                 </div>
                 <RunStatusPill status={run_status || "waiting"} />
               </div>
+              {wait_request ? (
+                <div className="wait_request_card">
+                  <span>Request to answer</span>
+                  <Markdown text={wait_request} />
+                </div>
+              ) : (
+                <div className="warn_callout">
+                  This wait did not provide a clear prompt. Review the full run input and recent ledger context before submitting a response.
+                </div>
+              )}
               <div className="artifact_detail_grid">
                 <div><span>Workflow</span><strong>{run_workflow_label(wait_context_run, workflow_label_by_id)}</strong></div>
                 <div><span>Run</span><strong className="mono">{short_id(run_id.trim(), 24)}</strong></div>
@@ -6544,18 +6645,15 @@ export function App(): React.ReactElement {
                 <div><span>Session</span><strong className="mono">{wait_context_run.session_id ? short_id(String(wait_context_run.session_id), 18) : "—"}</strong></div>
                 <div><span>Wait key</span><strong className="mono">{short_id(wait_key, 28)}</strong></div>
               </div>
-              {prompt_value ? (
-                <div className="wait_context_block">
-                  <span>Original request</span>
-                  <Markdown text={prompt_value} />
-                </div>
-              ) : input_data_text.trim() ? (
-                <div className="wait_context_block">
-                  <span>Run input</span>
-                  <pre className="mono">{clamp_preview(input_data_text, { max_chars: 900, max_lines: 8 })}</pre>
-                </div>
+              {wait_has_input ? (
+                <details className="runtime_raw_details wait_full_input_details" open={!wait_request}>
+                  <summary className="mono muted">Full run input JSON</summary>
+                  <div className="wait_shared_json">
+                    <SharedJsonViewer value={wait_input_value} collapseAfterDepth={4} showCopy={true} />
+                  </div>
+                </details>
               ) : null}
-              <details className="runtime_raw_details" open>
+              <details className="runtime_raw_details">
                 <summary className="mono muted">Recent ledger context</summary>
                 <div className="wait_event_list">
                   {wait_recent_events.map((ev) => (
@@ -6572,16 +6670,23 @@ export function App(): React.ReactElement {
             {tool_calls_for_wait.length ? (
               <div className="wait_action_panel">
                 <div className="wait_action_intro">
-                  Approve resumes the wait with approval. Reject resumes with a denial; the workflow may fail or choose an alternate path depending on its flow logic.
+                  Approve and execute runs the listed tool request through your configured worker. Approve only sends approval without local execution. Reject returns a denial. Cancel run stops the whole workflow run.
                 </div>
                 <div className="wait_tool_list">
                   {tool_calls_for_wait.map((tc, idx) => (
                     <div key={`${String((tc as any)?.name || "tool")}:${idx}`} className="wait_tool_card">
                       <div className="wait_tool_header">
                         <strong>{String((tc as any)?.name || "tool")}</strong>
-                        <span className="chip mono warn">approval</span>
+                        <div className="wait_tool_badges">
+                          <span className="chip mono warn">approval</span>
+                          {tool_risk_labels(tc).map((label) => (
+                            <span key={label} className="chip mono muted">{label}</span>
+                          ))}
+                        </div>
                       </div>
-                      <pre className="mono wait_tool_args">{safe_json((tc as any)?.arguments || {})}</pre>
+                      <div className="wait_tool_args">
+                        <SharedJsonViewer value={(tc as any)?.arguments || {}} collapseAfterDepth={3} showCopy={true} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -6599,9 +6704,8 @@ export function App(): React.ReactElement {
                 </div>
                 <details className="runtime_raw_details">
                   <summary className="mono muted">Diagnostics</summary>
-                  <div className="overview_fact_list">
-                    <div><span>Wait key</span><strong className="mono">{String(wait_state?.wait_key || "")}</strong></div>
-                    <div><span>Reason</span><strong>{String(wait_state?.reason || "unknown")}</strong></div>
+                  <div className="wait_shared_json">
+                    <SharedJsonViewer value={wait_state || {}} collapseAfterDepth={3} showCopy={true} />
                   </div>
                 </details>
               </div>
@@ -6610,13 +6714,12 @@ export function App(): React.ReactElement {
                 <div className="wait_action_intro">
                   Submit response resumes only this wait. Cancel run attempts to stop the whole workflow and prevent further work.
                 </div>
-                <div className="wait_prompt_text">{String(wait_state?.prompt || "") || "No explicit prompt was provided. Open the ledger for context before responding."}</div>
+                <div className="wait_prompt_text">{wait_request || "No explicit prompt was provided. Open the ledger for context before responding."}</div>
                 <AskForm wait={wait_state as WaitState} disabled={resuming} on_submit={(val) => resume_wait({ response: val })} />
                 <details className="runtime_raw_details">
                   <summary className="mono muted">Diagnostics</summary>
-                  <div className="overview_fact_list">
-                    <div><span>Wait key</span><strong className="mono">{String(wait_state?.wait_key || "")}</strong></div>
-                    <div><span>Reason</span><strong>{String(wait_state?.reason || "unknown")}</strong></div>
+                  <div className="wait_shared_json">
+                    <SharedJsonViewer value={wait_state || {}} collapseAfterDepth={3} showCopy={true} />
                   </div>
                 </details>
               </div>
@@ -6634,12 +6737,13 @@ function AskForm(props: { wait: WaitState; disabled?: boolean; on_submit: (value
   const choices = Array.isArray(props.wait.choices) ? props.wait.choices : [];
   const allow_free_text = props.wait.allow_free_text !== false;
   const disabled = props.disabled === true;
+  const prompt = String(props.wait.prompt || "").trim();
 
   return (
     <>
       {choices.length ? (
         <div className="field">
-          <label>Choices</label>
+          <label>Expected response</label>
           <select className="mono" value={value} onChange={(e) => set_value(e.target.value)}>
             <option value="">(select)</option>
             {choices.map((c, idx) => (
@@ -6653,8 +6757,14 @@ function AskForm(props: { wait: WaitState; disabled?: boolean; on_submit: (value
 
       {allow_free_text ? (
         <div className="field">
-          <label>Response</label>
-          <input className="mono" value={value} onChange={(e) => set_value(e.target.value)} placeholder="Type response…" />
+          <label>{choices.length ? "Or type a response" : prompt ? "Your answer" : "Response to resume this wait"}</label>
+          <textarea
+            className="mono wait_response_input"
+            value={value}
+            onChange={(e) => set_value(e.target.value)}
+            placeholder={prompt ? "Type your answer to the request above…" : "Type the response the workflow is waiting for…"}
+            rows={4}
+          />
         </div>
       ) : null}
 
@@ -6693,11 +6803,9 @@ function run_wait_label(run: RunSummary | null | undefined): string {
   const waiting = run?.waiting && typeof run.waiting === "object" ? (run.waiting as any) : null;
   const reason = String(waiting?.reason || run?.waiting_reason || "").trim().toLowerCase();
   const tool_calls = Array.isArray(waiting?.details?.tool_calls) ? waiting.details.tool_calls : [];
-  if (tool_calls.length) {
-    const names = tool_calls.map((tc: any) => String(tc?.name || "tool").trim()).filter(Boolean);
-    return `Tool approval: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""}`;
-  }
-  if (reason === "user" || reason === "event") return "User response needed";
+  if (tool_calls.length) return wait_blocker_title(waiting as WaitState, tool_calls as ToolCall[]);
+  if (reason === "user") return "Waiting for your answer";
+  if (reason === "event") return "Waiting for a response event";
   if (reason === "subworkflow") return "Waiting for subworkflow";
   if (reason === "until") return "Scheduled wait";
   if (reason) return `Waiting: ${reason}`;
@@ -7362,6 +7470,10 @@ function RuntimeActivityConsole(props: {
     null;
   const selected_run_id = String(selected?.run_id || "").trim();
   const waiting = selected?.waiting && typeof selected.waiting === "object" ? (selected.waiting as any) : null;
+  const selected_tool_calls = waiting ? extract_tool_calls_from_wait(waiting as WaitState) : [];
+  const selected_wait_blocker = waiting ? wait_blocker_title(waiting as WaitState, selected_tool_calls) : "";
+  const selected_wait_expected = waiting ? wait_expected_action(waiting as WaitState, selected_tool_calls) : "";
+  const selected_wait_request = waiting ? wait_request_text(waiting as WaitState, null) : "";
   const selected_artifacts = selected_run_id ? artifact_counts[selected_run_id] || 0 : 0;
   const selected_terminal = terminal_run_status(selected?.status);
   const filters: Array<{ key: typeof filter; label: string; count: number }> = [
@@ -7504,10 +7616,39 @@ function RuntimeActivityConsole(props: {
               <div><span>Tokens</span><strong>{Number(selected.tokens_total || 0).toLocaleString()}</strong></div>
             </div>
             {waiting ? (
-              <details className="runtime_raw_details" open>
-                <summary className="mono muted">Wait details</summary>
-                <JsonViewer value={waiting} max_string_len={260} />
-              </details>
+              <div className="runtime_ops_wait_summary">
+                <div className="runtime_ops_wait_header">
+                  <span className="run_hero_eyebrow">Blocked on</span>
+                  <strong>{selected_wait_blocker}</strong>
+                </div>
+                <p>{selected_wait_expected}</p>
+                {selected_wait_request ? (
+                  <div className="runtime_ops_wait_request">
+                    <span>Request</span>
+                    <Markdown text={selected_wait_request} />
+                  </div>
+                ) : (
+                  <div className="runtime_ops_wait_request muted">
+                    No explicit prompt is attached to this wait. Open Observe or the ledger for full run context before responding.
+                  </div>
+                )}
+                {selected_tool_calls.length ? (
+                  <div className="runtime_ops_wait_tools">
+                    {selected_tool_calls.map((tc, idx) => (
+                      <React.Fragment key={`${String((tc as any)?.name || "tool")}:${idx}`}>
+                        <span className="chip mono warn">{String((tc as any)?.name || "tool")}</span>
+                        {tool_risk_labels(tc).map((label) => (
+                          <span key={`${idx}:${label}`} className="chip mono muted">{label}</span>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                ) : null}
+                <details className="runtime_raw_details">
+                  <summary className="mono muted">Raw wait payload</summary>
+                  <SharedJsonViewer value={waiting} collapseAfterDepth={3} showCopy={true} />
+                </details>
+              </div>
             ) : null}
             {run_error_label(selected) ? <div className="warn_callout">{run_error_label(selected)}</div> : null}
             <div className="runtime_detail_actions">
@@ -7638,13 +7779,20 @@ function RuntimeExplorerPage(props: {
         </div>
       </section>
 
-      <div className="runtime_mode_tabs">
+      <nav className="runtime_mode_tabs" role="tablist" aria-label="Runtime sections">
         {(["activity", "artifacts", "logs"] as RuntimeTab[]).map((tab) => (
-          <button key={tab} className={`runtime_mode_tab ${props.tab === tab ? "active" : ""}`} onClick={() => props.on_tab_change(tab)}>
-            {tab === "activity" ? "Activity" : tab === "artifacts" ? "Artifacts" : "Logs"}
+          <button
+            key={tab}
+            role="tab"
+            aria-selected={props.tab === tab}
+            className={`runtime_mode_tab ${props.tab === tab ? "active" : ""}`}
+            onClick={() => props.on_tab_change(tab)}
+          >
+            <Icon name={tab === "activity" ? "history" : tab === "artifacts" ? "download" : "terminal"} size={14} />
+            <span>{tab === "activity" ? "Activity" : tab === "artifacts" ? "Artifacts" : "Logs"}</span>
           </button>
         ))}
-      </div>
+      </nav>
 
       {props.error ? <div className="warn_callout">{props.error}</div> : null}
 
@@ -7838,7 +7986,7 @@ function RuntimeExplorerPage(props: {
                 </div>
                 <details className="runtime_raw_details">
                   <summary className="mono muted">Raw metadata</summary>
-                  <JsonViewer value={selected.raw} max_string_len={220} />
+                  <SharedJsonViewer value={selected.raw} collapseAfterDepth={3} showCopy={true} />
                 </details>
               </>
             )}
@@ -7949,7 +8097,7 @@ function LedgerCard(props: {
         <div className="lc_body"><Markdown text={String(response_text || "")} /></div>
       ) : null}
       {props.open && item.data ? (
-        <div className="lc_body lc_body_json mono"><JsonViewer value={item.data} max_string_len={220} /></div>
+        <div className="lc_body lc_body_json mono"><SharedJsonViewer value={item.data} collapseAfterDepth={3} showCopy={false} /></div>
       ) : null}
     </div>
   );

@@ -3763,31 +3763,47 @@ button.primary:hover:not(:disabled) {
 .runtime_mode_tabs {
   display: inline-flex;
   align-self: flex-start;
+  gap: 4px;
+  min-height: 44px;
+  padding: 4px;
   border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-  overflow: hidden;
-  background: rgba(0, 0, 0, 0.16);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.76);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .runtime_mode_tab {
   appearance: none;
-  border: none;
-  border-right: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid transparent;
+  border-radius: 9px;
   background: transparent;
-  color: var(--text-muted);
-  padding: 8px 14px;
+  color: var(--text-secondary);
+  min-height: 34px;
+  padding: 0 14px;
   cursor: pointer;
   font-size: var(--font-size-sm);
-  font-weight: 650;
-}
-
-.runtime_mode_tab:last-child {
-  border-right: none;
+  font-weight: 750;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  line-height: 1;
 }
 
 .runtime_mode_tab.active {
   color: var(--text-primary);
-  background: rgba(96, 165, 250, 0.16);
+  border-color: rgba(96, 165, 250, 0.38);
+  background: rgba(96, 165, 250, 0.18);
+}
+
+.runtime_mode_tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.runtime_mode_tab:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.75);
+  outline-offset: 2px;
 }
 
 .runtime_ops_layout {
@@ -3967,6 +3983,52 @@ button.primary:hover:not(:disabled) {
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   line-height: 1.45;
+}
+
+.runtime_ops_wait_summary {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  background: rgba(245, 158, 11, 0.055);
+  border-radius: 10px;
+}
+
+.runtime_ops_wait_header {
+  display: grid;
+  gap: 4px;
+}
+
+.runtime_ops_wait_header strong {
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  overflow-wrap: anywhere;
+}
+
+.runtime_ops_wait_summary > p {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.runtime_ops_wait_request.muted {
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.12);
+  border-color: rgba(148, 163, 184, 0.14);
+}
+
+.runtime_ops_wait_tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.runtime_ops_wait_summary .pc-json-viewer,
+.runtime_ops_wait_summary .pc-json-viewer__tree {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .runtime_activity_layout {
@@ -4325,6 +4387,56 @@ button.primary:hover:not(:disabled) {
   border-radius: 10px;
 }
 
+.wait_context_header p {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.wait_request_card,
+.runtime_ops_wait_request {
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  background: rgba(96, 165, 250, 0.065);
+  border-radius: 10px;
+  padding: 11px 12px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.wait_request_card > span,
+.runtime_ops_wait_request > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wait_full_input_details[open],
+.wait_shared_json {
+  min-width: 0;
+}
+
+.wait_shared_json {
+  max-height: 36vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.wait_shared_json .pc-json-viewer,
+.wait_shared_json .pc-json-viewer__tree {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
 .wait_context_block {
   border: 1px solid rgba(148, 163, 184, 0.14);
   background: rgba(0, 0, 0, 0.14);
@@ -4378,6 +4490,10 @@ button.primary:hover:not(:disabled) {
   padding: 10px 12px;
 }
 
+.wait_response_input {
+  min-height: 104px;
+}
+
 .wait_tool_list {
   display: grid;
   gap: 8px;
@@ -4397,13 +4513,27 @@ button.primary:hover:not(:disabled) {
   gap: 10px;
 }
 
+.wait_tool_badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
 .wait_tool_args {
   margin: 8px 0 0;
-  max-height: 12rem;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--text-secondary);
+  max-height: 15rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.wait_tool_args .pc-json-viewer,
+.wait_tool_args .pc-json-viewer__tree {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 @media (max-width: 1250px) {
