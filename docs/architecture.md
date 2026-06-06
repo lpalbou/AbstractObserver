@@ -1,6 +1,6 @@
 # AbstractObserver — Architecture
 
-> Last updated: 2026-02-09
+> Last updated: 2026-06-06
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
@@ -57,12 +57,25 @@ sequenceDiagram
 ## UI structure (pages → code)
 AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
-- **Observe** (runs, ledger, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/flow_graph.tsx`, `src/ui/run_picker.tsx`
+- **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/flow_graph.tsx`, `src/ui/run_picker.tsx`
+- **Runtime** (platform-level Activity, Artifacts, and Logs modes): `src/ui/app.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
 - **Mindmap** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog** (browse/edit/execute maintenance items): `src/ui/backlog_browser.tsx` + `GatewayClient.backlog_*()`
 - **Inbox** (bug/feature reports + triage decisions + email mailbox): `src/ui/report_inbox.tsx` + `src/ui/email_inbox.tsx` + `GatewayClient.list_*_reports()` / `triage_*()` / `email_*()`
 - **Processes** (process manager; high trust): `src/ui/processes_page.tsx` + `GatewayClient.list_processes()` / `process_log_tail()` / `*_process()`
+
+## Observe projections
+The raw ledger remains the authoritative record, but the default Observe experience now projects it into human-readable views:
+- a run tree grouped by status, workflow, or session, with subruns nested under their parent run;
+- a run overview showing start time, finish time when available, live duration, ledger volume, subrun count, provider-call count, token totals, waits, and generated summaries;
+- a timeline that translates ledger records into requested work and observed outcomes;
+- a provider panel derived from `llm_call` ledger effects, plus the gateway audit tail when available.
+
+The UI intentionally keeps a raw JSON path beside every projection so investigations can verify exactly which ledger record or artifact produced a summary.
+
+## Runtime Boundary
+Runtime is resource-centered, not a workflow narrative. It surfaces global active computation, artifact inventory, and gateway system logs. Runs and artifacts are cross-linked when metadata contains `run_id`, but the UI does not imply artifact provenance beyond the metadata it has. Gateway audit tail is labeled as global system activity and must not be displayed as if it explains a selected artifact.
 
 ## Trust boundaries (important)
 AbstractObserver can enable high-trust features depending on what your gateway exposes:

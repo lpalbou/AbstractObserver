@@ -5,7 +5,8 @@ Gateway-only observability UI (Web/PWA) for AbstractFramework runs.
 What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Discover** workflows/bundles exposed by an AbstractGateway
 - **Launch** or **schedule** runs (durable)
-- **Observe** runs by replaying + streaming the durable **ledger** (replay-first + SSE)
+- **Observe** runs and subruns by replaying + streaming the durable **ledger** (replay-first + SSE)
+- **Inspect runtime state** across active runs, generated artifacts, provider calls, and gateway audit logs
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
 - (Optional) **Voice** in run chat: gateway-based TTS + push-to-talk transcription (`src/ui/use_gateway_voice.ts`)
 
@@ -72,7 +73,8 @@ The CLI is a static file server implemented in `bin/cli.js`.
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
-- **Observe**: ledger, graph, digest, attachments, chat (optional voice: PTT + TTS)
+- **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
+- **Runtime**: Activity, Artifacts, and Logs modes for platform-level monitoring; artifact rows link back to producing runs when metadata is available
 - **Launch**: start runs, schedule runs, bundle upload/reload
 - **Mindmap**: knowledge-graph query UI (requires `POST /api/gateway/kg/query`)
 - **Backlog / Inbox (reports + email) / Processes**: maintainer tooling (high trust; requires additional gateway endpoints)

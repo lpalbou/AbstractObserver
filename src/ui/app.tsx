@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractframework/monitor-flow";
-import { ChatComposer, ChatThread, Markdown, chatToMarkdown, copyText, downloadTextFile, type ChatMessage } from "@abstractframework/panel-chat";
+import {
+  ChatComposer,
+  ChatThread,
+  JsonViewer as SharedJsonViewer,
+  Markdown,
+  chatToMarkdown,
+  copyText,
+  downloadTextFile,
+  tryParseJson,
+  type ChatMessage,
+} from "@abstractframework/panel-chat";
 import {
   AfSelect,
   FontScaleSelect,
@@ -99,6 +109,58 @@ type WorkflowOption = {
   label: string;
   description?: string;
 };
+
+type RunFilterMode = "all" | "active" | "waiting" | "terminal" | "failed";
+
+type RuntimeArtifact = {
+  artifact_id: string;
+  run_id: string;
+  content_type: string;
+  modality: string;
+  created_at: string;
+  size_bytes: number | null;
+  filename: string;
+  source_path: string;
+  sha256: string;
+  tags: Record<string, string>;
+  source: "search" | "run" | "session";
+  raw: any;
+};
+
+type RuntimeArtifactGroupMode = "type" | "run" | "time" | "turn" | "node" | "workflow" | "location" | "source";
+type RuntimeArtifactSortMode = "newest" | "oldest" | "size_desc" | "size_asc" | "turn" | "type";
+type ArtifactPreviewKind = "text" | "image" | "audio" | "video" | "binary";
+type ArtifactTextRenderKind = "json" | "markdown" | "text";
+type RuntimeTab = "activity" | "artifacts" | "logs";
+
+type RuntimeEmbeddedPreview = {
+  artifact_id: string;
+  kind: ArtifactPreviewKind;
+  text: string;
+  url: string;
+  loading: boolean;
+  error: string;
+};
+
+type ProviderActivity = {
+  id: string;
+  ts: string;
+  run_id: string;
+  node_id: string;
+  provider: string;
+  model: string;
+  prompt_preview: string;
+  response_preview: string;
+  missing_response: boolean;
+  tokens: { prompt: number; completion: number; total: number };
+  duration_ms: number | null;
+  status: string;
+  error: string;
+  raw: StepRecord;
+};
+
+type RunTreeRow = { run: RunSummary; children: RunSummary[] };
+type RunTreeSection = { key: string; label: string; rows: RunTreeRow[] };
 
 // === UI feature flags (runtime config injected by CLI) ===
 function read_ui_flag(key: string, default_value = false): boolean {
@@ -475,6 +537,222 @@ function format_time_until_from_ms(ms_until: number): string {
   return `${total_s}s`;
 }
 
+function format_duration_ms(ms: number | null | undefined): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "—";
+  const total_s = Math.floor(ms / 1000);
+  const s = total_s % 60;
+  const total_m = Math.floor(total_s / 60);
+  const m = total_m % 60;
+  const total_h = Math.floor(total_m / 60);
+  const h = total_h % 24;
+  const d = Math.floor(total_h / 24);
+  if (d > 0) return `${d}d ${h}h`;
+  if (total_h > 0) return `${total_h}h ${m}m`;
+  if (total_m > 0) return `${total_m}m ${s}s`;
+  return `${Math.max(0, total_s)}s`;
+}
+
+function terminal_run_status(status: any): boolean {
+  const s = String(status || "").trim().toLowerCase();
+  return s === "completed" || s === "failed" || s === "cancelled";
+}
+
+function active_run_status(status: any): boolean {
+  const s = String(status || "").trim().toLowerCase();
+  return s === "running" || s === "waiting";
+}
+
+function run_started_at(run: RunSummary | null | undefined): string {
+  return String((run as any)?.started_at || run?.created_at || "").trim();
+}
+
+function run_finished_at(run: RunSummary | null | undefined): string {
+  const st = String(run?.status || "").trim();
+  if (!terminal_run_status(st)) return "";
+  return String((run as any)?.finished_at || run?.updated_at || "").trim();
+}
+
+function run_duration_label(run: RunSummary | null | undefined, now_ms = Date.now()): string {
+  const ms = run_duration_ms(run, now_ms);
+  return format_duration_ms(ms);
+}
+
+function run_duration_ms(run: RunSummary | null | undefined, now_ms = Date.now()): number {
+  const start = parse_iso_ms(run_started_at(run));
+  if (start === null) return -1;
+  const end = parse_iso_ms(run_finished_at(run));
+  const stop = end !== null ? end : now_ms;
+  return Math.max(0, stop - start);
+}
+
+function display_datetime(ts: any): string {
+  const ms = parse_iso_ms(ts);
+  if (ms === null) return "—";
+  return new Date(ms).toLocaleString();
+}
+
+function infer_artifact_modality(item: any): string {
+  const explicit = String(item?.modality || item?.tags?.modality || "").trim().toLowerCase();
+  if (explicit) return explicit;
+  const ct = String(item?.content_type || "").trim().toLowerCase();
+  if (ct.startsWith("image/")) return "image";
+  if (ct.startsWith("audio/")) return "audio";
+  if (ct.startsWith("video/")) return "video";
+  if (ct.includes("pdf")) return "document";
+  if (ct.startsWith("text/") || ct.includes("json") || ct.includes("markdown") || ct.includes("csv")) return "text";
+  return "artifact";
+}
+
+function normalize_artifact_item(item: any, source: RuntimeArtifact["source"]): RuntimeArtifact | null {
+  if (!item || typeof item !== "object") return null;
+  const artifact_id = String(item.artifact_id || item.$artifact || item.ref?.artifact_id || item.ref?.$artifact || "").trim();
+  if (!artifact_id) return null;
+  const tags0 = item.tags && typeof item.tags === "object" ? (item.tags as Record<string, any>) : {};
+  const tags: Record<string, string> = {};
+  for (const [k, v] of Object.entries(tags0)) {
+    const key = String(k || "").trim();
+    if (!key) continue;
+    tags[key] = String(v ?? "");
+  }
+  const filename = String(item.filename || tags.filename || tags.name || "").trim();
+  const source_path = String(item.source_path || tags.path || tags.source_path || tags.file_path || "").trim();
+  const content_type = String(item.content_type || tags.content_type || "").trim();
+  return {
+    artifact_id,
+    run_id: String(item.run_id || tags.run_id || "").trim(),
+    content_type,
+    modality: infer_artifact_modality({ ...item, tags }),
+    created_at: String(item.created_at || tags.created_at || "").trim(),
+    size_bytes: typeof item.size_bytes === "number" ? Number(item.size_bytes) : null,
+    filename,
+    source_path,
+    sha256: String(item.sha256 || tags.sha256 || "").trim(),
+    tags,
+    source,
+    raw: item,
+  };
+}
+
+function artifact_label(a: RuntimeArtifact): string {
+  return a.filename || (a.source_path ? a.source_path.split("/").filter(Boolean).slice(-1)[0] : "") || short_id(a.artifact_id, 16);
+}
+
+function artifact_group_key(a: RuntimeArtifact, mode: RuntimeArtifactGroupMode): string {
+  if (mode === "type") return a.modality || "artifact";
+  if (mode === "run") return a.run_id || "(no run)";
+  if (mode === "turn") return artifact_turn_label(a);
+  if (mode === "node") return artifact_node_label(a) || "(node unknown)";
+  if (mode === "workflow") return artifact_workflow_ref(a) || "(workflow unknown)";
+  if (mode === "location") {
+    const p = a.source_path || a.filename || "";
+    const parts = p.split("/").filter(Boolean);
+    return parts.length > 1 ? parts.slice(0, -1).join("/") : "(root)";
+  }
+  if (mode === "source") return a.tags.source || a.tags.kind || a.source || "artifact";
+  const ms = parse_iso_ms(a.created_at);
+  if (ms === null) return "(unknown time)";
+  return new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function artifact_workflow_ref(a: RuntimeArtifact | null | undefined): string {
+  const tags = a?.tags || {};
+  return String(tags.workflow_id || tags.workflow || "").trim();
+}
+
+function artifact_node_label(a: RuntimeArtifact | null | undefined): string {
+  const tags = a?.tags || {};
+  const explicit = String(tags.node_id || tags.node || tags.step_id || "").trim();
+  if (explicit) return explicit;
+  const p = String(a?.source_path || tags.path || "").trim();
+  const m = p.match(/(?:^|[._:/-])(node-[A-Za-z0-9_-]+)/);
+  return m?.[1] ? String(m[1]) : "";
+}
+
+function artifact_turn_label(a: RuntimeArtifact | null | undefined): string {
+  const tags = a?.tags || {};
+  const explicit = String(tags.turn_id || tags.turn || tags.cycle || tags.ledger_cursor || tags.step_cursor || "").trim();
+  if (explicit) return `turn ${explicit}`;
+  const node = artifact_node_label(a);
+  const ms = parse_iso_ms(a?.created_at);
+  const time = ms === null ? "unknown time" : new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const run = a?.run_id ? short_id(String(a.run_id), 10) : "unknown run";
+  return node ? `${run} · ${node} · ${time}` : `${run} · ${time}`;
+}
+
+function artifact_provenance_label(a: RuntimeArtifact | null | undefined): string {
+  if (!a) return "provenance unavailable";
+  const bits: string[] = [];
+  const workflow = artifact_workflow_ref(a);
+  const node = artifact_node_label(a);
+  const source = artifact_origin_label(a);
+  if (workflow) bits.push(workflow);
+  if (node) bits.push(node);
+  if (source) bits.push(source);
+  if (!bits.length) return "provenance unavailable";
+  return bits.join(" · ");
+}
+
+function format_bytes(size: number | null | undefined): string {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let n = size;
+  let idx = 0;
+  while (n >= 1024 && idx < units.length - 1) {
+    n /= 1024;
+    idx += 1;
+  }
+  const digits = idx === 0 ? 0 : n >= 10 ? 1 : 2;
+  return `${n.toFixed(digits)} ${units[idx]}`;
+}
+
+function artifact_preview_kind(a: RuntimeArtifact | null | undefined): ArtifactPreviewKind {
+  const modality = String(a?.modality || "").trim().toLowerCase();
+  const ct = String(a?.content_type || "").trim().toLowerCase();
+  if (modality === "image" || ct.startsWith("image/")) return "image";
+  if (modality === "audio" || ct.startsWith("audio/")) return "audio";
+  if (modality === "video" || ct.startsWith("video/")) return "video";
+  if (
+    !ct ||
+    modality === "text" ||
+    ct.startsWith("text/") ||
+    ct.includes("json") ||
+    ct.includes("yaml") ||
+    ct.includes("toml") ||
+    ct.includes("xml") ||
+    ct.includes("markdown") ||
+    ct.includes("csv")
+  ) {
+    return "text";
+  }
+  return "binary";
+}
+
+function artifact_type_label(a: RuntimeArtifact | null | undefined): string {
+  const k = artifact_preview_kind(a);
+  if (k === "binary") return String(a?.modality || "artifact").trim() || "artifact";
+  return k;
+}
+
+function artifact_text_render_kind(a: RuntimeArtifact | null | undefined, text: string): ArtifactTextRenderKind {
+  const content_type = String(a?.content_type || "").trim().toLowerCase();
+  const name = `${a?.filename || ""} ${a?.source_path || ""}`.trim().toLowerCase();
+  const trimmed = String(text || "").trim();
+
+  if (content_type.includes("markdown") || name.endsWith(".md") || name.endsWith(".markdown")) return "markdown";
+  if (content_type.includes("json") || name.endsWith(".json") || name.endsWith(".jsonl")) return "json";
+  if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && tryParseJson(trimmed) !== null) return "json";
+  return "text";
+}
+
+function artifact_origin_label(a: RuntimeArtifact): string {
+  const tags = a.tags || {};
+  return String(tags.task || tags.kind || tags.source || a.source || "").trim();
+}
+
+function artifact_path_label(a: RuntimeArtifact): string {
+  return a.source_path || a.filename || "";
+}
+
 /* short_run_id, extract_workflow_label: removed — info is now in the run picker. */
 
 function is_uuid(s: string): boolean {
@@ -523,7 +801,7 @@ function getOrCreateStableSessionId(): string {
 }
 
 export function App(): React.ReactElement {
-  const [page, set_page] = useState<"observe" | "launch" | "mindmap" | "backlog" | "inbox" | "processes" | "settings">("observe");
+  const [page, set_page] = useState<"observe" | "launch" | "runtime" | "mindmap" | "backlog" | "inbox" | "processes" | "settings">("observe");
 
   useEffect(() => {
     if (!ENABLE_BACKLOG && (page === "backlog" || page === "processes")) set_page("observe");
@@ -549,6 +827,7 @@ export function App(): React.ReactElement {
   const [gateway_connected, set_gateway_connected] = useState(false);
   const [workflow_options, set_workflow_options] = useState<WorkflowOption[]>([]);
   const [run_options, set_run_options] = useState<RunSummary[]>([]);
+  const [all_run_options, set_all_run_options] = useState<RunSummary[]>([]);
   const [runs_loading, set_runs_loading] = useState(false);
   const [bundles_reloading, set_bundles_reloading] = useState(false);
   const [discovered_tool_specs, set_discovered_tool_specs] = useState<any[]>([]);
@@ -678,7 +957,10 @@ export function App(): React.ReactElement {
   const [log_response_open, set_log_response_open] = useState<Record<string, boolean>>({});
   const [error_text, set_error_text] = useState<string>("");
 
-  const [right_tab, set_right_tab] = useState<"ledger" | "mindmap" | "graph" | "digest" | "attachments" | "chat">("ledger");
+  const [observe_search, set_observe_search] = useState("");
+  const [observe_filter, set_observe_filter] = useState<RunFilterMode>("all");
+  const [observe_group_by, set_observe_group_by] = useState<"status" | "workflow" | "session">("status");
+  const [right_tab, set_right_tab] = useState<"overview" | "timeline" | "ledger" | "providers" | "graph" | "digest" | "attachments" | "chat">("overview");
   const [ledger_condensed, set_ledger_condensed] = useState(true);
   const [ledger_view, set_ledger_view] = useState<"steps" | "cycles">("steps");
   const [ledger_cycles_run_id, set_ledger_cycles_run_id] = useState<string>("");
@@ -724,6 +1006,40 @@ export function App(): React.ReactElement {
   const follow_run_ref = useRef<string>("");
   const [summary_generating, set_summary_generating] = useState(false);
   const [summary_error, set_summary_error] = useState<string>("");
+
+  const empty_runtime_preview = (): RuntimeEmbeddedPreview => ({
+    artifact_id: "",
+    kind: "binary",
+    text: "",
+    url: "",
+    loading: false,
+    error: "",
+  });
+
+  const [runtime_tab, set_runtime_tab] = useState<RuntimeTab>("activity");
+  const [runtime_artifacts, set_runtime_artifacts] = useState<RuntimeArtifact[]>([]);
+  const [runtime_artifacts_loading, set_runtime_artifacts_loading] = useState(false);
+  const [runtime_artifacts_error, set_runtime_artifacts_error] = useState<string>("");
+  const [runtime_query, set_runtime_query] = useState("");
+  const [runtime_scope, set_runtime_scope] = useState<"all" | "session" | "run">("all");
+  const [runtime_modality, set_runtime_modality] = useState("");
+  const [runtime_group_by, set_runtime_group_by] = useState<RuntimeArtifactGroupMode>("type");
+  const [runtime_sort_by, set_runtime_sort_by] = useState<RuntimeArtifactSortMode>("newest");
+  const [runtime_artifact_run_filter, set_runtime_artifact_run_filter] = useState("");
+  const [runtime_selected_artifact_id, set_runtime_selected_artifact_id] = useState("");
+  const [runtime_embedded_preview, set_runtime_embedded_preview] = useState<RuntimeEmbeddedPreview>(() => empty_runtime_preview());
+  const [runtime_preview_open, set_runtime_preview_open] = useState(false);
+  const [runtime_preview_title, set_runtime_preview_title] = useState("");
+  const [runtime_preview_text, set_runtime_preview_text] = useState("");
+  const [runtime_preview_url, set_runtime_preview_url] = useState("");
+  const [runtime_preview_kind, set_runtime_preview_kind] = useState<"text" | "image" | "audio" | "video" | "binary">("text");
+  const [runtime_preview_artifact, set_runtime_preview_artifact] = useState<RuntimeArtifact | null>(null);
+  const [runtime_preview_loading, set_runtime_preview_loading] = useState(false);
+  const [runtime_preview_error, set_runtime_preview_error] = useState("");
+  const [audit_log_text, set_audit_log_text] = useState("");
+  const [audit_log_meta, set_audit_log_meta] = useState("");
+  const [audit_log_loading, set_audit_log_loading] = useState(false);
+  const [audit_log_error, set_audit_log_error] = useState("");
 
   const gateway = useMemo(
     () =>
@@ -1064,13 +1380,12 @@ export function App(): React.ReactElement {
     return out;
   }
 
-  async function refresh_runs(gateway_client: GatewayClient = gateway): Promise<void> {
-    if (runs_loading) return;
+  async function refresh_runs(gateway_client: GatewayClient = gateway, opts?: { force?: boolean }): Promise<void> {
+    if (runs_loading && !opts?.force) return;
     set_runs_loading(true);
     try {
-      const runs = await gateway_client.list_runs({ limit: 200, root_only: true });
-      const items = Array.isArray((runs as any)?.items) ? ((runs as any).items as any[]) : [];
-      const next: RunSummary[] = items
+      const normalize_runs = (items: any[]): RunSummary[] =>
+        items
         .map((r) => ({
           run_id: String(r?.run_id || "").trim(),
           workflow_id: typeof r?.workflow_id === "string" ? String(r.workflow_id) : r?.workflow_id ?? null,
@@ -1086,11 +1401,26 @@ export function App(): React.ReactElement {
           schedule_interval: typeof r?.schedule?.interval === "string" ? String(r.schedule.interval).trim() : r?.schedule?.interval ?? null,
           schedule_target_workflow_id:
             typeof r?.schedule?.target_workflow_id === "string" ? String(r.schedule.target_workflow_id).trim() : r?.schedule?.target_workflow_id ?? null,
+          current_node: typeof r?.current_node === "string" ? String(r.current_node).trim() : r?.current_node ?? null,
+          llm_calls: typeof r?.llm_calls === "number" ? Number(r.llm_calls) : r?.llm_calls ?? null,
+          tool_calls: typeof r?.tool_calls === "number" ? Number(r.tool_calls) : r?.tool_calls ?? null,
+          tokens_total: typeof r?.tokens_total === "number" ? Number(r.tokens_total) : r?.tokens_total ?? null,
+          error: r?.error ?? null,
+          waiting: r?.waiting ?? null,
         }))
-        .filter((r) => Boolean(r.run_id))
+        .filter((r) => Boolean(r.run_id));
+
+      const [root_runs, all_runs] = await Promise.all([
+        gateway_client.list_runs({ limit: 200, root_only: true, include_metrics: true }),
+        gateway_client.list_runs({ limit: 500, root_only: false, include_metrics: true }),
+      ]);
+      const root_items = Array.isArray((root_runs as any)?.items) ? ((root_runs as any).items as any[]) : [];
+      const all_items = Array.isArray((all_runs as any)?.items) ? ((all_runs as any).items as any[]) : [];
+      const next: RunSummary[] = normalize_runs(root_items)
         // Observability UX: show only parent/root runs (subruns are observable via the parent’s ledger).
         .filter((r) => !String(r.parent_run_id || "").trim());
       set_run_options(next);
+      set_all_run_options(normalize_runs(all_items).filter((r) => Boolean(r.run_id)));
     } catch (e: any) {
       push_log({ ts: now_iso(), kind: "error", title: "Refresh runs failed", preview: clamp_preview(String(e?.message || e || "")) });
     } finally {
@@ -1498,6 +1828,150 @@ export function App(): React.ReactElement {
       set_attachment_preview_error(String(e?.message || e || "Preview failed"));
     } finally {
       set_attachment_preview_loading(false);
+    }
+  }
+
+  async function download_runtime_artifact(item: RuntimeArtifact): Promise<void> {
+    const rid = String(item?.run_id || "").trim();
+    const artifact_id = String(item?.artifact_id || "").trim();
+    if (!rid || !artifact_id) {
+      set_status("Artifact download needs a run id", 3);
+      return;
+    }
+    const fallback = artifact_label(item) || artifact_id;
+    try {
+      const blob = await gateway.download_run_artifact_content(rid, artifact_id);
+      _download_blob(blob, sanitize_filename_part(fallback));
+      set_status("Downloaded artifact", 2);
+    } catch (e: any) {
+      set_status(String(e?.message || e || "Download failed"), 3);
+    }
+  }
+
+  async function preview_runtime_artifact(item: RuntimeArtifact): Promise<void> {
+    const rid = String(item?.run_id || "").trim();
+    const artifact_id = String(item?.artifact_id || "").trim();
+    if (!rid || !artifact_id) {
+      set_status("Artifact preview needs a run id", 3);
+      return;
+    }
+
+    const label = artifact_label(item);
+    const content_type = String(item?.content_type || "").trim().toLowerCase();
+    const kind = artifact_preview_kind(item);
+
+    set_runtime_preview_title(label || artifact_id);
+    set_runtime_preview_text("");
+    set_runtime_preview_error("");
+    set_runtime_preview_kind(kind);
+    set_runtime_preview_artifact(item);
+    set_runtime_preview_open(true);
+    if (runtime_preview_url) {
+      URL.revokeObjectURL(runtime_preview_url);
+      set_runtime_preview_url("");
+    }
+
+    if (kind === "binary") {
+      set_runtime_preview_text(`(Binary artifact: ${content_type || "unknown"}; download to view.)`);
+      return;
+    }
+    if (kind === "text" && typeof item.size_bytes === "number" && item.size_bytes > 1_500_000) {
+      set_runtime_preview_text(`(Text artifact is ${item.size_bytes.toLocaleString()} bytes; download to view.)`);
+      return;
+    }
+
+    set_runtime_preview_loading(true);
+    try {
+      const blob = await gateway.download_run_artifact_content(rid, artifact_id);
+      if (kind === "text") {
+        const raw = await blob.text();
+        const render_kind = artifact_text_render_kind(item, raw);
+        const max_chars = render_kind === "json" ? 1_500_000 : render_kind === "markdown" ? 250_000 : 22000;
+        set_runtime_preview_text(
+          raw.length > max_chars && render_kind !== "text"
+            ? `${format_bytes(item.size_bytes ?? raw.length)} ${render_kind.toUpperCase()} artifact. Download to inspect it.`
+            : raw.length > max_chars
+              ? `${raw.slice(0, Math.max(0, max_chars - 1))}…`
+              : raw
+        );
+      } else {
+        set_runtime_preview_url(URL.createObjectURL(blob));
+      }
+    } catch (e: any) {
+      set_runtime_preview_error(String(e?.message || e || "Preview failed"));
+    } finally {
+      set_runtime_preview_loading(false);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (runtime_preview_url) URL.revokeObjectURL(runtime_preview_url);
+    };
+  }, [runtime_preview_url]);
+
+  async function load_runtime_embedded_preview(item: RuntimeArtifact | null): Promise<void> {
+    if (runtime_embedded_preview.url) URL.revokeObjectURL(runtime_embedded_preview.url);
+    if (!item) {
+      set_runtime_embedded_preview(empty_runtime_preview());
+      return;
+    }
+    const artifact_id = String(item.artifact_id || "").trim();
+    const rid = String(item.run_id || "").trim();
+    const kind = artifact_preview_kind(item);
+    set_runtime_embedded_preview({ artifact_id, kind, text: "", url: "", loading: true, error: "" });
+
+    if (!rid || !artifact_id) {
+      set_runtime_embedded_preview({ artifact_id, kind, text: "Preview needs artifact run metadata.", url: "", loading: false, error: "" });
+      return;
+    }
+    if (kind === "binary") {
+      set_runtime_embedded_preview({
+        artifact_id,
+        kind,
+        text: `Preview unavailable for ${item.content_type || item.modality || "this artifact"}. Download to inspect it.`,
+        url: "",
+        loading: false,
+        error: "",
+      });
+      return;
+    }
+    if (kind === "text" && typeof item.size_bytes === "number" && item.size_bytes > 500_000) {
+      set_runtime_embedded_preview({
+        artifact_id,
+        kind,
+        text: `${format_bytes(item.size_bytes)} text artifact. Use Preview for a larger view or Download to inspect locally.`,
+        url: "",
+        loading: false,
+        error: "",
+      });
+      return;
+    }
+
+    try {
+      const blob = await gateway.download_run_artifact_content(rid, artifact_id);
+      if (kind === "text") {
+        const raw = await blob.text();
+        const render_kind = artifact_text_render_kind(item, raw);
+        const max_chars = render_kind === "json" ? 500_000 : render_kind === "markdown" ? 80_000 : 8000;
+        set_runtime_embedded_preview({
+          artifact_id,
+          kind,
+          text:
+            raw.length > max_chars && render_kind !== "text"
+              ? `${format_bytes(item.size_bytes ?? raw.length)} ${render_kind.toUpperCase()} artifact. Use Larger preview or Download to inspect it.`
+              : raw.length > max_chars
+                ? `${raw.slice(0, Math.max(0, max_chars - 1))}…`
+                : raw,
+          url: "",
+          loading: false,
+          error: "",
+        });
+      } else {
+        set_runtime_embedded_preview({ artifact_id, kind, text: "", url: URL.createObjectURL(blob), loading: false, error: "" });
+      }
+    } catch (e: any) {
+      set_runtime_embedded_preview({ artifact_id, kind, text: "", url: "", loading: false, error: String(e?.message || e || "Preview failed") });
     }
   }
 
@@ -2267,11 +2741,12 @@ export function App(): React.ReactElement {
     if (err) set_new_run_error(err);
   }
 
-  async function attach_to_run(rid: string): Promise<void> {
+  async function attach_to_run(rid: string, opts?: { root_run_id?: string }): Promise<void> {
     const run = String(rid || "").trim();
     if (!run) return;
     set_error_text("");
-    set_root_run_id(run);
+    const root = String(opts?.root_run_id || run).trim() || run;
+    set_root_run_id(root);
     set_run_id(run);
     await connect_to_run(run);
   }
@@ -2385,8 +2860,8 @@ export function App(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [right_tab, run_id, gateway_connected, run_state?.workflow_id]);
 
-  async function submit_run_control(type: "pause" | "resume" | "cancel", opts?: { reason?: string }): Promise<string | null> {
-    const rid = run_id.trim();
+  async function submit_run_control_for_run(target_run_id: string, type: "pause" | "resume" | "cancel", opts?: { reason?: string }): Promise<string | null> {
+    const rid = String(target_run_id || "").trim();
     if (!rid) {
       set_error_text("Missing run_id");
       return "Missing run_id";
@@ -2403,20 +2878,38 @@ export function App(): React.ReactElement {
         payload,
         client_id: "web_pwa",
       });
-      push_log({ ts: now_iso(), kind: "info", title: `${type} submitted`, preview: reason ? `reason: ${reason}` : "", data: { type, reason } });
+      push_log({ ts: now_iso(), kind: "info", title: `${type} submitted`, preview: reason ? `reason: ${reason}` : "", data: { run_id: rid, type, reason } });
       // Refresh run state quickly.
       try {
-        const st = await gateway.get_run(rid);
-        set_run_state(st);
+        if (rid === run_id.trim()) {
+          const st = await gateway.get_run(rid);
+          set_run_state(st);
+        }
       } catch {
         // ignore
       }
+      void refresh_runs(gateway, { force: true });
+      window.setTimeout(() => void refresh_runs(gateway, { force: true }), 900);
+      window.setTimeout(() => void refresh_runs(gateway, { force: true }), 2400);
       return null;
     } catch (e: any) {
       const msg = String(e?.message || e || `${type} failed`);
       set_error_text(msg);
       return msg;
     }
+  }
+
+  async function submit_run_control(type: "pause" | "resume" | "cancel", opts?: { reason?: string }): Promise<string | null> {
+    return submit_run_control_for_run(run_id.trim(), type, opts);
+  }
+
+  async function cancel_visible_run(target_run_id: string, reason = "Stopped from AbstractObserver"): Promise<void> {
+    const rid = String(target_run_id || "").trim();
+    if (!rid) return;
+    const ok = window.confirm(`Cancel run ${short_id(rid, 24)}?`);
+    if (!ok) return;
+    const err = await submit_run_control_for_run(rid, "cancel", { reason });
+    if (!err) set_status("Cancel submitted", 2);
   }
 
   async function run_scheduled_now(): Promise<void> {
@@ -2907,6 +3400,15 @@ export function App(): React.ReactElement {
       });
       push_log({ ts: now_iso(), kind: "info", title: "Resume submitted", preview: clamp_preview(`wait_key: ${wk}`), data: { wait_key: wk, payload: payload_obj || {} } });
       set_dismissed_wait_key(wk);
+      try {
+        const st = await gateway.get_run(rid);
+        set_run_state(st);
+      } catch {
+        // ignore
+      }
+      void refresh_runs(gateway, { force: true });
+      window.setTimeout(() => void refresh_runs(gateway, { force: true }), 900);
+      window.setTimeout(() => void refresh_runs(gateway, { force: true }), 2400);
       if (dismiss_timer_ref.current) window.clearTimeout(dismiss_timer_ref.current);
       dismiss_timer_ref.current = window.setTimeout(() => {
         set_dismissed_wait_key((prev) => (prev === wk ? "" : prev));
@@ -2946,18 +3448,34 @@ export function App(): React.ReactElement {
   const wait_key = String(wait_state?.wait_key || "").trim();
   const wait_reason = String(wait_state?.reason || "").trim();
   const wait_until = typeof (wait_state as any)?.until === "string" ? String((wait_state as any).until) : "";
+  const run_status = typeof run_state?.status === "string" ? String(run_state.status) : "";
+  const run_paused = Boolean(run_state?.paused);
+  const run_terminal = run_status === "completed" || run_status === "failed" || run_status === "cancelled";
   const is_until_wait = wait_reason === "until" && Boolean(wait_until);
-  const is_waiting = is_waiting_status(last_record) && (Boolean(wait_key) || is_until_wait);
+  const is_waiting = !run_terminal && is_waiting_status(last_record) && (Boolean(wait_key) || is_until_wait);
   const is_user_wait = wait_reason === "user";
   const wait_event_name = wait_reason === "event" ? normalize_ui_event_name(event_name_from_wait_key(wait_key)) : "";
   const is_ask_event_wait = wait_reason === "event" && wait_event_name === "abstract.ask";
   const has_tool_wait = tool_calls_for_wait.length > 0;
   const show_wait_modal = is_waiting && wait_key && (is_user_wait || is_ask_event_wait || has_tool_wait) && dismissed_wait_key !== wait_key;
   const sub_run_id = typeof (wait_state as any)?.details?.sub_run_id === "string" ? String((wait_state as any).details.sub_run_id) : "";
-
-  const run_status = typeof run_state?.status === "string" ? String(run_state.status) : "";
-  const run_paused = Boolean(run_state?.paused);
-  const run_terminal = run_status === "completed" || run_status === "failed" || run_status === "cancelled";
+  const wait_context_run: RunSummary = {
+    run_id: run_id.trim(),
+    workflow_id: typeof run_state?.workflow_id === "string" ? String(run_state.workflow_id) : null,
+    status: run_status,
+    created_at: typeof run_state?.created_at === "string" ? String(run_state.created_at) : null,
+    updated_at: typeof run_state?.updated_at === "string" ? String(run_state.updated_at) : null,
+    session_id: typeof run_state?.session_id === "string" ? String(run_state.session_id) : null,
+    current_node: typeof run_state?.current_node === "string" ? String(run_state.current_node) : null,
+  };
+  const wait_recent_events = records.slice(-5).map((item) => ({
+    cursor: item.cursor,
+    node_id: String((item.record as any)?.node_id || "").trim(),
+    status: String((item.record as any)?.status || "").trim(),
+    effect_type: String((item.record as any)?.effect?.type || "").trim(),
+    ts: String((item.record as any)?.ended_at || (item.record as any)?.started_at || "").trim(),
+    summary: format_step_summary(item.record as StepRecord),
+  }));
 
   const schedule_meta = run_state?.schedule && typeof run_state.schedule === "object" ? run_state.schedule : null;
   const schedule_interval = typeof schedule_meta?.interval === "string" ? String(schedule_meta.interval).trim() : "";
@@ -3782,8 +4300,8 @@ export function App(): React.ReactElement {
   const selected_run_summary = useMemo(() => {
     const rid = run_id.trim();
     if (!rid) return null;
-    return run_options.find((r) => String(r.run_id || "").trim() === rid) || null;
-  }, [run_options, run_id]);
+    return all_run_options.find((r) => String(r.run_id || "").trim() === rid) || run_options.find((r) => String(r.run_id || "").trim() === rid) || null;
+  }, [all_run_options, run_options, run_id]);
 
   const selected_run_status_raw = String(run_state?.status || selected_run_summary?.status || "").trim();
   const selected_run_wait_reason = String(wait_reason || run_state?.waiting?.reason || selected_run_summary?.waiting_reason || "").trim().toLowerCase();
@@ -3796,8 +4314,353 @@ export function App(): React.ReactElement {
     selected_run_is_scheduled_until && selected_next_ms !== null ? format_time_until_from_ms(selected_next_ms - Date.now()) : "";
   const selected_run_status_label = selected_run_is_scheduled && selected_run_is_paused ? "Suspended" : selected_run_is_scheduled_waiting ? "Scheduled" : selected_run_status_raw;
 
+  async function refresh_runtime_artifacts(): Promise<void> {
+    if (!gateway_connected) return;
+    set_runtime_artifacts_loading(true);
+    set_runtime_artifacts_error("");
+    try {
+      const scope = runtime_scope;
+      const session_id = scope === "session" ? String(session_id_for_run || start_session_id || "").trim() : "";
+      const scoped_run_id = scope === "run" ? String(runtime_artifact_run_filter || run_id || "").trim() : "";
+      const rows: RuntimeArtifact[] = [];
+      const seen = new Set<string>();
+      const add_items = (items: any[], source: RuntimeArtifact["source"]) => {
+        for (const raw of items || []) {
+          const art = normalize_artifact_item(raw, source);
+          if (!art || seen.has(art.artifact_id)) continue;
+          seen.add(art.artifact_id);
+          rows.push(art);
+        }
+      };
+
+      const search_res = await gateway.search_artifacts({
+        scope,
+        session_id: session_id || undefined,
+        run_id: scoped_run_id || undefined,
+        modality: runtime_modality || undefined,
+        query: runtime_query || undefined,
+        limit: 500,
+      });
+      add_items(Array.isArray(search_res?.items) ? search_res.items : [], "search");
+
+      if (scope === "run" && scoped_run_id) {
+        const run_res = await gateway.list_run_artifacts(scoped_run_id, { limit: 500 });
+        add_items(Array.isArray(run_res?.items) ? run_res.items : [], "run");
+      } else if (scope === "session" && session_id) {
+        const session_res = await gateway.list_session_artifacts(session_id, { limit: 500 });
+        add_items(Array.isArray(session_res?.items) ? session_res.items : [], "session");
+      }
+
+      rows.sort((a, b) => (parse_iso_ms(b.created_at) ?? 0) - (parse_iso_ms(a.created_at) ?? 0));
+      set_runtime_artifacts(rows);
+      set_runtime_selected_artifact_id((prev) => (prev && rows.some((a) => a.artifact_id === prev) ? prev : rows[0]?.artifact_id || ""));
+    } catch (e: any) {
+      set_runtime_artifacts_error(String(e?.message || e || "Failed to load artifacts"));
+      set_runtime_artifacts([]);
+      set_runtime_selected_artifact_id("");
+    } finally {
+      set_runtime_artifacts_loading(false);
+    }
+  }
+
+  async function refresh_audit_log(): Promise<void> {
+    if (!gateway_connected) return;
+    set_audit_log_loading(true);
+    set_audit_log_error("");
+    try {
+      const body = await gateway.audit_log_tail({ max_bytes: 160000 });
+      const bytes = typeof body?.bytes === "number" ? Number(body.bytes) : 0;
+      const truncated = Boolean(body?.truncated);
+      set_audit_log_text(String(body?.content || ""));
+      set_audit_log_meta(`${bytes.toLocaleString()} bytes${truncated ? " (tail)" : ""}`);
+    } catch (e: any) {
+      set_audit_log_error(String(e?.message || e || "Failed to load audit log"));
+      set_audit_log_text("");
+      set_audit_log_meta("");
+    } finally {
+      set_audit_log_loading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!gateway_connected) return;
+    if (page !== "runtime") return;
+    void refresh_runtime_artifacts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gateway_connected, page, runtime_scope, runtime_modality, runtime_artifact_run_filter]);
+
+  useEffect(() => {
+    if (!gateway_connected) return;
+    if (audit_log_loading || audit_log_text) return;
+    if (page === "runtime" || (page === "observe" && right_tab === "providers")) void refresh_audit_log();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gateway_connected, page, right_tab]);
+
+  const runtime_run_rows = useMemo(() => {
+    const by_id = new Map<string, RunSummary>();
+    for (const r of [...run_options, ...all_run_options]) {
+      const rid = String(r.run_id || "").trim();
+      if (rid) by_id.set(rid, r);
+    }
+    for (const rid0 of subrun_ids) {
+      const rid = String(rid0 || "").trim();
+      if (!rid || by_id.has(rid)) continue;
+      by_id.set(rid, {
+        run_id: rid,
+        workflow_id: null,
+        status: "",
+        created_at: null,
+        updated_at: null,
+        ledger_len: null,
+        parent_run_id: subrun_parent_ref.current[rid] || null,
+        session_id: session_id_for_run || null,
+      });
+    }
+    if (run_id.trim() && !by_id.has(run_id.trim())) {
+      by_id.set(run_id.trim(), {
+        run_id: run_id.trim(),
+        workflow_id: typeof run_state?.workflow_id === "string" ? String(run_state.workflow_id) : null,
+        status: typeof run_state?.status === "string" ? String(run_state.status) : "",
+        created_at: typeof run_state?.created_at === "string" ? String(run_state.created_at) : null,
+        updated_at: typeof run_state?.updated_at === "string" ? String(run_state.updated_at) : null,
+        ledger_len: records.length || null,
+        parent_run_id: typeof run_state?.parent_run_id === "string" ? String(run_state.parent_run_id) : null,
+        session_id: typeof run_state?.session_id === "string" ? String(run_state.session_id) : session_id_for_run || null,
+      });
+    }
+    return Array.from(by_id.values()).sort((a, b) => {
+      const am = parse_iso_ms(a.updated_at || a.created_at) ?? 0;
+      const bm = parse_iso_ms(b.updated_at || b.created_at) ?? 0;
+      return bm - am;
+    });
+  }, [all_run_options, run_options, run_id, run_state, records.length, subrun_ids, session_id_for_run]);
+
+  const observe_sections = useMemo<RunTreeSection[]>(() => {
+    const q = observe_search.trim().toLowerCase();
+    const rows = runtime_run_rows;
+    const children_by_parent: Record<string, RunSummary[]> = {};
+    const by_id: Record<string, RunSummary> = {};
+    for (const r of rows) {
+      const rid = String(r.run_id || "").trim();
+      if (!rid) continue;
+      by_id[rid] = r;
+      const parent = String(r.parent_run_id || subrun_parent_ref.current[rid] || "").trim();
+      if (parent) {
+        if (!children_by_parent[parent]) children_by_parent[parent] = [];
+        children_by_parent[parent].push(r);
+      }
+    }
+
+    const matches_status = (r: RunSummary): boolean => {
+      const st = String(r.status || "").trim().toLowerCase();
+      if (observe_filter === "all") return true;
+      if (observe_filter === "active") return active_run_status(st);
+      if (observe_filter === "waiting") return st === "waiting";
+      if (observe_filter === "terminal") return terminal_run_status(st);
+      if (observe_filter === "failed") return st === "failed";
+      return true;
+    };
+    const matches_query = (r: RunSummary): boolean => {
+      if (!q) return true;
+      const wid = String(r.workflow_id || r.schedule_target_workflow_id || "").trim();
+      const label = wid ? workflow_label_by_id[wid] || wid : "";
+      const hay = [r.run_id, wid, label, r.session_id, r.status].join(" ").toLowerCase();
+      return hay.includes(q);
+    };
+    const root_ids = new Set<string>();
+    for (const r of rows) {
+      const rid = String(r.run_id || "").trim();
+      if (!rid) continue;
+      const parent = String(r.parent_run_id || subrun_parent_ref.current[rid] || "").trim();
+      if (!parent || !by_id[parent]) root_ids.add(rid);
+    }
+
+    const section_map: Record<string, RunTreeSection> = {};
+    const group_for = (r: RunSummary): { key: string; label: string } => {
+      if (observe_group_by === "workflow") {
+        const wid = String(r.schedule_target_workflow_id || r.workflow_id || "").trim() || "(unknown workflow)";
+        return { key: wid, label: workflow_label_by_id[wid] || wid };
+      }
+      if (observe_group_by === "session") {
+        const sid = String(r.session_id || "").trim() || "(no session)";
+        return { key: sid, label: sid };
+      }
+      const st = String(r.status || "").trim().toLowerCase() || "unknown";
+      if (active_run_status(st)) return { key: "active", label: "Active" };
+      if (st === "failed") return { key: "failed", label: "Failed" };
+      if (terminal_run_status(st)) return { key: "finished", label: "Finished" };
+      return { key: st, label: st };
+    };
+
+    for (const rid of root_ids) {
+      const root = by_id[rid];
+      if (!root) continue;
+      const children = [...(children_by_parent[rid] || [])].sort((a, b) => {
+        const am = parse_iso_ms(a.updated_at || a.created_at) ?? 0;
+        const bm = parse_iso_ms(b.updated_at || b.created_at) ?? 0;
+        return bm - am;
+      });
+      const child_matches = children.some((c) => matches_status(c) && matches_query(c));
+      if (!(matches_status(root) && matches_query(root)) && !child_matches) continue;
+      const g = group_for(root);
+      if (!section_map[g.key]) section_map[g.key] = { key: g.key, label: g.label, rows: [] };
+      section_map[g.key].rows.push({ run: root, children });
+    }
+
+    return Object.values(section_map).sort((a, b) => {
+      const order: Record<string, number> = { active: 0, waiting: 1, failed: 2, finished: 3 };
+      const ao = order[a.key] ?? 10;
+      const bo = order[b.key] ?? 10;
+      if (ao !== bo) return ao - bo;
+      return a.label.localeCompare(b.label);
+    });
+  }, [runtime_run_rows, observe_search, observe_filter, observe_group_by, workflow_label_by_id]);
+
+  const provider_activities = useMemo<ProviderActivity[]>(() => {
+    const out: ProviderActivity[] = [];
+    for (const item of ledger_record_items) {
+      const rec: any = item.record as any;
+      const eff_type = String(rec?.effect?.type || "").trim();
+      if (eff_type !== "llm_call") continue;
+      const payload = rec?.effect?.payload && typeof rec.effect.payload === "object" ? (rec.effect.payload as any) : {};
+      const result = rec?.result && typeof rec.result === "object" ? (rec.result as any) : {};
+      const usage = result?.usage || result?.token_usage || {};
+      const prompt = typeof payload.prompt === "string" ? payload.prompt : Array.isArray(payload.messages) ? safe_json_inline(payload.messages, 1800) : "";
+      const content =
+        typeof result.content === "string"
+          ? result.content
+          : typeof result.response === "string"
+            ? result.response
+            : typeof rec.result === "string"
+              ? String(rec.result)
+              : "";
+      const start = parse_iso_ms(rec.started_at);
+      const end = parse_iso_ms(rec.ended_at);
+      out.push({
+        id: `${String(item.run_id || rec.run_id || "")}:${item.cursor}`,
+        ts: String(rec.ended_at || rec.started_at || ""),
+        run_id: String(item.run_id || rec.run_id || "").trim(),
+        node_id: String(rec.node_id || "").trim(),
+        provider: String(payload.provider || result.provider || result.runtime_provider || "").trim(),
+        model: String(payload.model || result.model || result.runtime_model || "").trim(),
+        prompt_preview: clamp_preview(prompt, { max_chars: 1200, max_lines: 10 }),
+        response_preview: clamp_preview(content, { max_chars: 1200, max_lines: 10 }),
+        missing_response: !String(content || "").trim(),
+        tokens: {
+          prompt: Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0,
+          completion: Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0,
+          total: Number(usage.total_tokens ?? 0) || 0,
+        },
+        duration_ms: start !== null && end !== null ? Math.max(0, end - start) : typeof result.gen_time === "number" ? Number(result.gen_time) * 1000 : null,
+        status: String(rec.status || "").trim(),
+        error: rec.error ? safe_json_inline(rec.error, 500) : "",
+        raw: rec as StepRecord,
+      });
+    }
+    return out.sort((a, b) => (parse_iso_ms(b.ts) ?? 0) - (parse_iso_ms(a.ts) ?? 0));
+  }, [ledger_record_items]);
+
+  const timeline_items = useMemo(() => {
+    const out = [...ledger_record_items];
+    out.sort((a, b) => {
+      const at = parse_iso_ms(a.record?.ended_at || a.record?.started_at) ?? 0;
+      const bt = parse_iso_ms(b.record?.ended_at || b.record?.started_at) ?? 0;
+      return at - bt;
+    });
+    return out.slice(-240);
+  }, [ledger_record_items]);
+
+  const runtime_visible_artifacts = useMemo(() => {
+    const q = runtime_query.trim().toLowerCase();
+    const run_filter = runtime_artifact_run_filter.trim();
+    const filtered = runtime_artifacts.filter((a) => {
+      if (run_filter && a.run_id !== run_filter) return false;
+      if (runtime_modality && a.modality !== runtime_modality) return false;
+      if (!q) return true;
+      const hay = [
+        a.artifact_id,
+        a.run_id,
+        a.content_type,
+        a.modality,
+        a.filename,
+        a.source_path,
+        a.sha256,
+        ...Object.entries(a.tags || {}).map(([k, v]) => `${k} ${v}`),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      if (runtime_sort_by === "oldest") return (parse_iso_ms(a.created_at) ?? 0) - (parse_iso_ms(b.created_at) ?? 0);
+      if (runtime_sort_by === "size_desc") return (b.size_bytes ?? -1) - (a.size_bytes ?? -1);
+      if (runtime_sort_by === "size_asc") return (a.size_bytes ?? Number.MAX_SAFE_INTEGER) - (b.size_bytes ?? Number.MAX_SAFE_INTEGER);
+      if (runtime_sort_by === "turn") {
+        const ak = `${artifact_turn_label(a)} ${parse_iso_ms(a.created_at) ?? 0} ${a.artifact_id}`;
+        const bk = `${artifact_turn_label(b)} ${parse_iso_ms(b.created_at) ?? 0} ${b.artifact_id}`;
+        return ak.localeCompare(bk);
+      }
+      if (runtime_sort_by === "type") {
+        const type_cmp = artifact_type_label(a).localeCompare(artifact_type_label(b));
+        if (type_cmp !== 0) return type_cmp;
+        return (parse_iso_ms(b.created_at) ?? 0) - (parse_iso_ms(a.created_at) ?? 0);
+      }
+      return (parse_iso_ms(b.created_at) ?? 0) - (parse_iso_ms(a.created_at) ?? 0);
+    });
+    return sorted;
+  }, [runtime_artifacts, runtime_query, runtime_modality, runtime_artifact_run_filter, runtime_sort_by]);
+
+  const runtime_artifact_groups = useMemo(() => {
+    const groups: Record<string, RuntimeArtifact[]> = {};
+    for (const a of runtime_visible_artifacts) {
+      const key = artifact_group_key(a, runtime_group_by);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(a);
+    }
+    return Object.entries(groups)
+      .map(([key, items]) => ({ key, items }))
+      .sort((a, b) => {
+        if (runtime_group_by === "time") {
+          const am = parse_iso_ms(a.items[0]?.created_at) ?? 0;
+          const bm = parse_iso_ms(b.items[0]?.created_at) ?? 0;
+          if (am !== bm) return bm - am;
+        }
+        return a.key.localeCompare(b.key);
+      });
+  }, [runtime_visible_artifacts, runtime_group_by]);
+
+  const runtime_selected_artifact = useMemo(() => {
+    const aid = runtime_selected_artifact_id.trim();
+    if (aid) return runtime_visible_artifacts.find((a) => a.artifact_id === aid) || runtime_visible_artifacts[0] || null;
+    return runtime_visible_artifacts[0] || null;
+  }, [runtime_visible_artifacts, runtime_selected_artifact_id]);
+
+  useEffect(() => {
+    if (page !== "runtime" || runtime_tab !== "artifacts") return;
+    void load_runtime_embedded_preview(runtime_selected_artifact);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, runtime_tab, runtime_selected_artifact?.artifact_id]);
+
+  useEffect(() => {
+    return () => {
+      if (runtime_embedded_preview.url) URL.revokeObjectURL(runtime_embedded_preview.url);
+    };
+  }, [runtime_embedded_preview.url]);
+
+  const runtime_run_by_id = useMemo(() => {
+    const out: Record<string, RunSummary> = {};
+    for (const r of runtime_run_rows) {
+      const rid = String(r.run_id || "").trim();
+      if (rid) out[rid] = r;
+    }
+    return out;
+  }, [runtime_run_rows]);
+
+  const active_runtime_runs = useMemo(() => runtime_run_rows.filter((r) => active_run_status(r.status)), [runtime_run_rows]);
+
   return (
-      <div className="app-shell">
+    <div className="app-shell">
       <div className="app-header">
         <div className="logo" title="AbstractObserver (Web/PWA)">
           <span className="logo-icon" aria-hidden="true">
@@ -3823,6 +4686,9 @@ export function App(): React.ReactElement {
         <div className="app_nav">
           <button className={`nav_tab ${page === "observe" ? "active" : ""}`} onClick={() => set_page("observe")}>
             Observe
+          </button>
+          <button className={`nav_tab ${page === "runtime" ? "active" : ""}`} onClick={() => set_page("runtime")}>
+            Runtime
           </button>
           <button className={`nav_tab ${page === "launch" ? "active" : ""}`} onClick={() => set_page("launch")}>
             Launch
@@ -4425,8 +5291,83 @@ export function App(): React.ReactElement {
           </div>
         ) : null}
 
+        {page === "runtime" ? (
+          <RuntimeExplorerPage
+            gateway_connected={gateway_connected}
+            tab={runtime_tab}
+            runs={runtime_run_rows}
+            active_runs={active_runtime_runs}
+            artifacts={runtime_visible_artifacts}
+            artifact_groups={runtime_artifact_groups}
+            selected_artifact={runtime_selected_artifact}
+            embedded_preview={runtime_embedded_preview}
+            loading={runtime_artifacts_loading}
+            error={runtime_artifacts_error}
+            query={runtime_query}
+            scope={runtime_scope}
+            modality={runtime_modality}
+            group_by={runtime_group_by}
+            sort_by={runtime_sort_by}
+            artifact_run_filter={runtime_artifact_run_filter}
+            audit_log_text={audit_log_text}
+            audit_log_meta={audit_log_meta}
+            audit_log_loading={audit_log_loading}
+            audit_log_error={audit_log_error}
+            workflow_label_by_id={workflow_label_by_id}
+            run_by_id={runtime_run_by_id}
+            selected_run_id={run_id}
+            session_id={session_id_for_run || start_session_id}
+            on_tab_change={set_runtime_tab}
+            on_query_change={set_runtime_query}
+            on_scope_change={set_runtime_scope}
+            on_modality_change={set_runtime_modality}
+            on_group_by_change={set_runtime_group_by}
+            on_sort_by_change={set_runtime_sort_by}
+            on_artifact_run_filter_change={(rid) => {
+              const next = String(rid || "").trim();
+              set_runtime_artifact_run_filter(next);
+              if (next && runtime_scope !== "run") set_runtime_scope("run");
+            }}
+            on_refresh_artifacts={() => void refresh_runtime_artifacts()}
+            on_refresh_audit={() => void refresh_audit_log()}
+            on_select_artifact={set_runtime_selected_artifact_id}
+            on_preview_artifact={(a) => void preview_runtime_artifact(a)}
+            on_download_artifact={(a) => void download_runtime_artifact(a)}
+            on_cancel_run={(rid) => void cancel_visible_run(rid, "Stopped from Runtime Explorer")}
+            on_open_run={(rid) => {
+              set_page("observe");
+              set_right_tab("overview");
+              void attach_to_run(rid);
+            }}
+            on_open_ledger={(rid) => {
+              set_page("observe");
+              set_right_tab("ledger");
+              void attach_to_run(rid);
+            }}
+            on_refresh_runs={() => void refresh_runs(gateway, { force: true })}
+          />
+        ) : null}
+
         {page === "observe" ? (
           <div className="page observe_page">
+            <div className="observatory_layout">
+              <WorkflowRunNavigator
+                sections={observe_sections}
+                selected_run_id={run_id}
+                root_run_id={root_run_id}
+                search={observe_search}
+                filter={observe_filter}
+                group_by={observe_group_by}
+                loading={runs_loading}
+                total_runs={runtime_run_rows.length}
+                workflow_label_by_id={workflow_label_by_id}
+                on_search={set_observe_search}
+                on_filter={set_observe_filter}
+                on_group_by={set_observe_group_by}
+                on_refresh={() => void refresh_runs()}
+                on_select={(rid, root) => void attach_to_run(rid, { root_run_id: root || rid })}
+              />
+              <div className="observatory_main">
             {/* ── Observe toolbar: run picker + controls ── */}
             <div className="observe_toolbar">
               <div className="observe_toolbar_row">
@@ -4563,8 +5504,17 @@ export function App(): React.ReactElement {
               {/* Content tabs + inline contextual controls */}
                 <div className="tab_bar" style={{ justifyContent: "space-between" }}>
                   <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                  <button className={`tab mono ${right_tab === "overview" ? "active" : ""}`} onClick={() => set_right_tab("overview")}>
+                    Overview
+                  </button>
+                  <button className={`tab mono ${right_tab === "timeline" ? "active" : ""}`} onClick={() => set_right_tab("timeline")}>
+                    Timeline
+                  </button>
                   <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
                     Ledger
+                  </button>
+                  <button className={`tab mono ${right_tab === "providers" ? "active" : ""}`} onClick={() => set_right_tab("providers")}>
+                    Providers
                   </button>
                   <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
                     Graph
@@ -4676,6 +5626,51 @@ export function App(): React.ReactElement {
                     </div>
                   ) : null}
                 </div>
+
+                {right_tab === "overview" ? (
+                  <RunOverviewPanel
+                    run_id={run_id}
+                    run={selected_run_summary}
+                    run_state={run_state}
+                    status_label={selected_run_status_label || selected_run_status_raw || "unknown"}
+                    workflow_label_by_id={workflow_label_by_id}
+                    root_run_id={root_run_id}
+                    subrun_ids={subrun_ids}
+                    session_id={session_id_for_run}
+                    records_count={records.length}
+                    child_records_count={child_records_for_digest.length}
+                    provider_activities={provider_activities}
+                    attachments_count={session_attachments.length}
+                    digest={digest}
+                    wait_state={wait_state}
+                    summary_generating={summary_generating}
+                    summary_error={summary_error}
+                    on_generate_summary={() => void generate_summary()}
+                    on_open_runtime={() => set_page("runtime")}
+                    on_open_subrun={(rid) => void attach_to_run(rid, { root_run_id: root_run_id || run_id || rid })}
+                  />
+                ) : null}
+
+                {right_tab === "timeline" ? (
+                  <HumanTimelinePanel
+                    items={timeline_items}
+                    node_index={node_index_for_run}
+                    workflow_label_by_id={workflow_label_by_id}
+                    on_copy={(text) => void copy_to_clipboard(text)}
+                  />
+                ) : null}
+
+                {right_tab === "providers" ? (
+                  <ProviderActivityPanel
+                    activities={provider_activities}
+                    audit_log_text={audit_log_text}
+                    audit_log_meta={audit_log_meta}
+                    audit_log_loading={audit_log_loading}
+                    audit_log_error={audit_log_error}
+                    on_refresh_audit={() => void refresh_audit_log()}
+                    on_copy={(text) => void copy_to_clipboard(text)}
+                  />
+                ) : null}
 
                 {right_tab === "ledger" ? (
                   <>
@@ -5207,8 +6202,64 @@ export function App(): React.ReactElement {
                   {status_text ? <span className="mono muted"> • {status_text}</span> : null}
               </div>
             </div>
+              </div>
+            </div>
           </div>
         ) : null}
+
+        <Modal
+          open={runtime_preview_open}
+          title={runtime_preview_title || "Artifact"}
+          onClose={() => {
+            set_runtime_preview_open(false);
+            set_runtime_preview_text("");
+            set_runtime_preview_error("");
+            set_runtime_preview_loading(false);
+            set_runtime_preview_artifact(null);
+            if (runtime_preview_url) {
+              URL.revokeObjectURL(runtime_preview_url);
+              set_runtime_preview_url("");
+            }
+          }}
+          actions={
+            <button
+              className="btn"
+              onClick={() => {
+                set_runtime_preview_open(false);
+                set_runtime_preview_text("");
+                set_runtime_preview_error("");
+                set_runtime_preview_loading(false);
+                set_runtime_preview_artifact(null);
+                if (runtime_preview_url) {
+                  URL.revokeObjectURL(runtime_preview_url);
+                  set_runtime_preview_url("");
+                }
+              }}
+            >
+              Close
+            </button>
+          }
+        >
+          {runtime_preview_loading ? (
+            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
+              Loading…
+            </div>
+          ) : null}
+          {runtime_preview_error ? (
+            <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
+              {runtime_preview_error}
+            </div>
+          ) : null}
+          {runtime_preview_kind === "image" && runtime_preview_url ? (
+            <img className="runtime_preview_media" src={runtime_preview_url} alt={runtime_preview_title || "Artifact preview"} />
+          ) : runtime_preview_kind === "audio" && runtime_preview_url ? (
+            <audio className="runtime_preview_media" controls src={runtime_preview_url} />
+          ) : runtime_preview_kind === "video" && runtime_preview_url ? (
+            <video className="runtime_preview_media" controls src={runtime_preview_url} />
+          ) : (
+            <RuntimeStructuredTextPreview artifact={runtime_preview_artifact} text={runtime_preview_text || "(empty)"} className="runtime_preview_text" />
+          )}
+        </Modal>
 
         {schedule_edit_open ? (
           <Modal
@@ -5450,38 +6501,127 @@ export function App(): React.ReactElement {
         ) : null}
 
         {show_wait_modal ? (
-          <div className="overlay">
-            <div className="modal">
-              <h2 className="mono">Run is waiting ({String(wait_state?.reason || "unknown")})</h2>
-              <p className="mono">wait_key: {String(wait_state?.wait_key || "")}</p>
-
-              {tool_calls_for_wait.length ? (
-                <>
-                  <div className="field">
-                    <label>Tool calls (from wait.details.tool_calls)</label>
-                    <textarea className="mono" readOnly value={safe_json(tool_calls_for_wait)} />
-                  </div>
-                  <div className="actions">
-                    <button className="btn primary" disabled={!worker || resuming} onClick={() => execute_tools_via_worker(tool_calls_for_wait)}>
-                      Execute via tool worker + resume
-                    </button>
-                    <button className="btn" disabled={resuming} onClick={() => resume_wait({ approved: true })}>
-                      Resume (manual / advanced)
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="field">
-                    <label>Prompt</label>
-                    <textarea className="mono" readOnly value={String(wait_state?.prompt || "") || "(no prompt provided)"} />
-                  </div>
-
-                  <AskForm wait={wait_state as WaitState} disabled={resuming} on_submit={(val) => resume_wait({ response: val })} />
-                </>
-              )}
+          <Modal
+            open={show_wait_modal}
+            title={tool_calls_for_wait.length ? `Approval required for ${tool_calls_for_wait.length} tool call${tool_calls_for_wait.length === 1 ? "" : "s"}` : "Workflow needs your input"}
+            onClose={() => {
+              if (wait_key) set_dismissed_wait_key(wait_key);
+            }}
+            actions={
+              <>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    set_right_tab("ledger");
+                    set_page("observe");
+                  }}
+                  disabled={!run_id.trim()}
+                >
+                  Open ledger
+                </button>
+                <button className="btn" onClick={() => wait_key && set_dismissed_wait_key(wait_key)} disabled={resuming}>
+                  Dismiss
+                </button>
+                <button className="btn danger" onClick={() => void cancel_visible_run(run_id.trim(), "Cancelled from wait prompt")} disabled={!run_id.trim() || resuming}>
+                  Cancel run
+                </button>
+              </>
+            }
+          >
+            <div className="wait_context_panel">
+              <div className="wait_context_header">
+                <div>
+                  <div className="run_hero_eyebrow">Why this is blocked</div>
+                  <strong>{has_tool_wait ? "The workflow is asking for a tool decision." : "The workflow is asking for your response."}</strong>
+                </div>
+                <RunStatusPill status={run_status || "waiting"} />
+              </div>
+              <div className="artifact_detail_grid">
+                <div><span>Workflow</span><strong>{run_workflow_label(wait_context_run, workflow_label_by_id)}</strong></div>
+                <div><span>Run</span><strong className="mono">{short_id(run_id.trim(), 24)}</strong></div>
+                <div><span>Node</span><strong className="mono">{wait_context_run.current_node || String(last_record?.node_id || "—")}</strong></div>
+                <div><span>Elapsed</span><strong>{run_duration_label(wait_context_run)}</strong></div>
+                <div><span>Session</span><strong className="mono">{wait_context_run.session_id ? short_id(String(wait_context_run.session_id), 18) : "—"}</strong></div>
+                <div><span>Wait key</span><strong className="mono">{short_id(wait_key, 28)}</strong></div>
+              </div>
+              {prompt_value ? (
+                <div className="wait_context_block">
+                  <span>Original request</span>
+                  <Markdown text={prompt_value} />
+                </div>
+              ) : input_data_text.trim() ? (
+                <div className="wait_context_block">
+                  <span>Run input</span>
+                  <pre className="mono">{clamp_preview(input_data_text, { max_chars: 900, max_lines: 8 })}</pre>
+                </div>
+              ) : null}
+              <details className="runtime_raw_details" open>
+                <summary className="mono muted">Recent ledger context</summary>
+                <div className="wait_event_list">
+                  {wait_recent_events.map((ev) => (
+                    <div key={`${ev.cursor}:${ev.node_id}:${ev.status}`} className="wait_event_row">
+                      <span className="mono">#{ev.cursor}</span>
+                      <strong>{ev.summary || ev.effect_type || ev.status || "event"}</strong>
+                      <span className="mono muted">{[ev.node_id, ev.status, format_time_ago(ev.ts)].filter(Boolean).join(" · ")}</span>
+                    </div>
+                  ))}
+                  {!wait_recent_events.length ? <div className="empty_state_inline">No ledger context is loaded. Open the ledger before deciding.</div> : null}
+                </div>
+              </details>
             </div>
-          </div>
+            {tool_calls_for_wait.length ? (
+              <div className="wait_action_panel">
+                <div className="wait_action_intro">
+                  Approve resumes the wait with approval. Reject resumes with a denial; the workflow may fail or choose an alternate path depending on its flow logic.
+                </div>
+                <div className="wait_tool_list">
+                  {tool_calls_for_wait.map((tc, idx) => (
+                    <div key={`${String((tc as any)?.name || "tool")}:${idx}`} className="wait_tool_card">
+                      <div className="wait_tool_header">
+                        <strong>{String((tc as any)?.name || "tool")}</strong>
+                        <span className="chip mono warn">approval</span>
+                      </div>
+                      <pre className="mono wait_tool_args">{safe_json((tc as any)?.arguments || {})}</pre>
+                    </div>
+                  ))}
+                </div>
+                {!worker ? <div className="warn_callout">No tool worker is configured, so Observer cannot execute these calls directly.</div> : null}
+                <div className="actions">
+                  <button className="btn primary" disabled={!worker || resuming} onClick={() => execute_tools_via_worker(tool_calls_for_wait)}>
+                    Approve and execute
+                  </button>
+                  <button className="btn" disabled={resuming} onClick={() => resume_wait({ approved: true })}>
+                    Approve only
+                  </button>
+                  <button className="btn danger" disabled={resuming} onClick={() => resume_wait({ approved: false })}>
+                    Reject
+                  </button>
+                </div>
+                <details className="runtime_raw_details">
+                  <summary className="mono muted">Diagnostics</summary>
+                  <div className="overview_fact_list">
+                    <div><span>Wait key</span><strong className="mono">{String(wait_state?.wait_key || "")}</strong></div>
+                    <div><span>Reason</span><strong>{String(wait_state?.reason || "unknown")}</strong></div>
+                  </div>
+                </details>
+              </div>
+            ) : (
+              <div className="wait_action_panel">
+                <div className="wait_action_intro">
+                  Submit response resumes only this wait. Cancel run attempts to stop the whole workflow and prevent further work.
+                </div>
+                <div className="wait_prompt_text">{String(wait_state?.prompt || "") || "No explicit prompt was provided. Open the ledger for context before responding."}</div>
+                <AskForm wait={wait_state as WaitState} disabled={resuming} on_submit={(val) => resume_wait({ response: val })} />
+                <details className="runtime_raw_details">
+                  <summary className="mono muted">Diagnostics</summary>
+                  <div className="overview_fact_list">
+                    <div><span>Wait key</span><strong className="mono">{String(wait_state?.wait_key || "")}</strong></div>
+                    <div><span>Reason</span><strong>{String(wait_state?.reason || "unknown")}</strong></div>
+                  </div>
+                </details>
+              </div>
+            )}
+          </Modal>
         ) : null}
       </div>
     </div>
@@ -5524,6 +6664,1210 @@ function AskForm(props: { wait: WaitState; disabled?: boolean; on_submit: (value
         </button>
       </div>
     </>
+  );
+}
+
+function run_status_class(status: any): string {
+  const s = String(status || "").trim().toLowerCase();
+  if (s === "completed") return "ok";
+  if (s === "failed" || s === "cancelled") return "danger";
+  if (s === "waiting") return "warn";
+  if (s === "running") return "info";
+  return "muted";
+}
+
+function run_workflow_label(run: RunSummary | null | undefined, labels: Record<string, string>): string {
+  const wid = String(run?.schedule_target_workflow_id || run?.workflow_id || "").trim();
+  if (!wid) return "(workflow unknown)";
+  return labels[wid] || wid;
+}
+
+function RunStatusPill(props: { status: any }): React.ReactElement {
+  const status = String(props.status || "unknown").trim() || "unknown";
+  return <span className={`run_status_pill ${run_status_class(status)}`}>{status}</span>;
+}
+
+function run_wait_label(run: RunSummary | null | undefined): string {
+  const st = String(run?.status || "").trim().toLowerCase();
+  if (terminal_run_status(st)) return "";
+  const waiting = run?.waiting && typeof run.waiting === "object" ? (run.waiting as any) : null;
+  const reason = String(waiting?.reason || run?.waiting_reason || "").trim().toLowerCase();
+  const tool_calls = Array.isArray(waiting?.details?.tool_calls) ? waiting.details.tool_calls : [];
+  if (tool_calls.length) {
+    const names = tool_calls.map((tc: any) => String(tc?.name || "tool").trim()).filter(Boolean);
+    return `Tool approval: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""}`;
+  }
+  if (reason === "user" || reason === "event") return "User response needed";
+  if (reason === "subworkflow") return "Waiting for subworkflow";
+  if (reason === "until") return "Scheduled wait";
+  if (reason) return `Waiting: ${reason}`;
+  return st === "waiting" ? "Waiting, reason unknown" : "";
+}
+
+function run_error_label(run: RunSummary | null | undefined): string {
+  const err: any = run?.error;
+  if (!err) return "";
+  if (typeof err === "string") return clamp_preview(err, { max_chars: 220, max_lines: 2 });
+  return clamp_preview(safe_json_inline(err, 400), { max_chars: 220, max_lines: 2 });
+}
+
+function run_activity_label(run: RunSummary | null | undefined): string {
+  const wait = run_wait_label(run);
+  if (wait) return wait;
+  const err = run_error_label(run);
+  if (err) return err;
+  const node = String(run?.current_node || "").trim();
+  if (node) return `Current node: ${node}`;
+  const st = String(run?.status || "").trim().toLowerCase();
+  if (st === "running") return "Running";
+  if (terminal_run_status(st)) return "Terminal";
+  return "No current activity reported";
+}
+
+function run_attention_rank(run: RunSummary): number {
+  const st = String(run.status || "").trim().toLowerCase();
+  if (st === "waiting" && run_wait_label(run)) return 0;
+  if (st === "waiting") return 1;
+  if (st === "running") return 2;
+  if (st === "failed") return 3;
+  if (st === "cancelled") return 4;
+  if (st === "completed") return 5;
+  return 6;
+}
+
+function WorkflowRunNavigator(props: {
+  sections: RunTreeSection[];
+  selected_run_id: string;
+  root_run_id: string;
+  search: string;
+  filter: RunFilterMode;
+  group_by: "status" | "workflow" | "session";
+  loading: boolean;
+  total_runs: number;
+  workflow_label_by_id: Record<string, string>;
+  on_search: (value: string) => void;
+  on_filter: (value: RunFilterMode) => void;
+  on_group_by: (value: "status" | "workflow" | "session") => void;
+  on_refresh: () => void;
+  on_select: (run_id: string, root_run_id?: string) => void;
+}): React.ReactElement {
+  const selected = props.selected_run_id.trim();
+  const root_selected = props.root_run_id.trim() || selected;
+  const active_count = props.sections.reduce(
+    (count, section) =>
+      count +
+      section.rows.reduce((inner, row) => {
+        const rows = [row.run, ...row.children];
+        return inner + rows.filter((r) => active_run_status(r.status)).length;
+      }, 0),
+    0
+  );
+
+  return (
+    <aside className="observatory_sidebar">
+      <div className="run_nav_header">
+        <div>
+          <div className="run_nav_title">Workflows</div>
+          <div className="run_nav_subtitle">
+            {props.total_runs.toLocaleString()} runs • {active_count.toLocaleString()} active
+          </div>
+        </div>
+        <button className="btn btn_icon" onClick={props.on_refresh} disabled={props.loading} title="Refresh workflow runs">
+          <Icon name="refresh" size={14} />
+          {props.loading ? "…" : ""}
+        </button>
+      </div>
+
+      <div className="run_nav_controls">
+        <input
+          className="mono"
+          value={props.search}
+          onChange={(e) => props.on_search(e.target.value)}
+          placeholder="Search runs, sessions, workflows"
+        />
+        <div className="seg_toggle mono run_nav_segments">
+          {(["active", "waiting", "terminal", "failed", "all"] as RunFilterMode[]).map((mode) => (
+            <button key={mode} className={`seg_btn ${props.filter === mode ? "active" : ""}`} onClick={() => props.on_filter(mode)}>
+              {mode}
+            </button>
+          ))}
+        </div>
+        <select
+          className="mono seg_select"
+          value={props.group_by}
+          onChange={(e) => props.on_group_by(e.target.value as "status" | "workflow" | "session")}
+          title="Group workflow runs"
+        >
+          <option value="status">Group by status</option>
+          <option value="workflow">Group by workflow</option>
+          <option value="session">Group by session</option>
+        </select>
+      </div>
+
+      <div className="run_tree">
+        {!props.sections.length ? <div className="run_tree_empty">No runs match the current filters.</div> : null}
+        {props.sections.map((section) => (
+          <section key={section.key} className="run_tree_section">
+            <div className="run_tree_section_header">
+              <span>{section.label}</span>
+              <span className="mono">{section.rows.length}</span>
+            </div>
+            {section.rows.map((row) => {
+              const root = row.run;
+              const root_id = String(root.run_id || "").trim();
+              const root_selected_here = root_id === selected;
+              return (
+                <div key={root_id} className="run_tree_group">
+                  <button
+                    className={`run_tree_item ${root_selected_here ? "selected" : ""} ${root_id === root_selected ? "root_context" : ""}`}
+                    onClick={() => props.on_select(root_id, root_id)}
+                    title={root_id}
+                  >
+                    <div className="run_tree_item_top">
+                      <span className="run_tree_label">{run_workflow_label(root, props.workflow_label_by_id)}</span>
+                      <RunStatusPill status={root.status} />
+                    </div>
+                    <div className="run_tree_meta">
+                      <span className="mono">{short_id(root_id, 13)}</span>
+                      <span>{run_started_at(root) ? format_time_ago(run_started_at(root)) : "no start"}</span>
+                      <span>{run_duration_label(root)}</span>
+                    </div>
+                  </button>
+                  {row.children.length ? (
+                    <div className="run_tree_children">
+                      {row.children.map((child) => {
+                        const child_id = String(child.run_id || "").trim();
+                        return (
+                          <button
+                            key={child_id}
+                            className={`run_tree_item run_tree_child ${child_id === selected ? "selected" : ""}`}
+                            onClick={() => props.on_select(child_id, root_id)}
+                            title={child_id}
+                          >
+                            <div className="run_tree_item_top">
+                              <span className="run_tree_label">{run_workflow_label(child, props.workflow_label_by_id)}</span>
+                              <RunStatusPill status={child.status} />
+                            </div>
+                            <div className="run_tree_meta">
+                              <span className="mono">{short_id(child_id, 13)}</span>
+                              <span>{run_started_at(child) ? format_time_ago(run_started_at(child)) : "child"}</span>
+                              <span>{run_duration_label(child)}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </section>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function RunOverviewPanel(props: {
+  run_id: string;
+  run: RunSummary | null;
+  run_state: any;
+  status_label: string;
+  workflow_label_by_id: Record<string, string>;
+  root_run_id: string;
+  subrun_ids: string[];
+  session_id: string;
+  records_count: number;
+  child_records_count: number;
+  provider_activities: ProviderActivity[];
+  attachments_count: number;
+  digest: any;
+  wait_state: WaitState | null;
+  summary_generating: boolean;
+  summary_error: string;
+  on_generate_summary: () => void;
+  on_open_runtime: () => void;
+  on_open_subrun: (run_id: string) => void;
+}): React.ReactElement {
+  const run_id = props.run_id.trim();
+  const title = run_workflow_label(props.run, props.workflow_label_by_id);
+  const started = run_started_at(props.run) || String(props.run_state?.started_at || props.run_state?.created_at || "").trim();
+  const finished = run_finished_at(props.run) || (terminal_run_status(props.status_label) ? String(props.run_state?.updated_at || "").trim() : "");
+  const duration = props.run ? run_duration_label(props.run) : started ? format_duration_ms((parse_iso_ms(finished) ?? Date.now()) - (parse_iso_ms(started) ?? Date.now())) : "—";
+  const llm_count = props.provider_activities.length;
+  const token_total = props.provider_activities.reduce((n, a) => n + (Number(a.tokens.total) || 0), 0);
+  const missing = props.provider_activities.filter((a) => a.missing_response || a.error).length;
+  const summary_text = String(props.digest?.latest_summary?.text || "").trim();
+  const wait = props.wait_state;
+
+  return (
+    <div className="run_overview">
+      <section className="run_hero">
+        <div className="run_hero_main">
+          <div className="run_hero_eyebrow">Selected workflow</div>
+          <h2>{title}</h2>
+          <div className="run_hero_meta">
+            <RunStatusPill status={props.status_label} />
+            {run_id ? <span className="mono" title={run_id}>{short_id(run_id, 22)}</span> : <span className="mono">(no run selected)</span>}
+            {props.root_run_id && props.root_run_id !== run_id ? <span className="mono">root {short_id(props.root_run_id, 14)}</span> : null}
+          </div>
+        </div>
+        <div className="run_hero_actions">
+          <button className="btn primary" onClick={props.on_generate_summary} disabled={!run_id || props.summary_generating}>
+            {props.summary_generating ? "Summarizing…" : summary_text ? "Refresh Summary" : "Summarize"}
+          </button>
+          <button className="btn" onClick={props.on_open_runtime}>
+            Runtime
+          </button>
+        </div>
+      </section>
+
+      <div className="metric_grid">
+        <div className="metric_tile">
+          <span>Started</span>
+          <strong>{display_datetime(started)}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>{finished ? "Finished" : "Running for"}</span>
+          <strong>{finished ? display_datetime(finished) : duration}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Total duration</span>
+          <strong>{duration}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Ledger</span>
+          <strong>{(props.records_count + props.child_records_count).toLocaleString()}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Subworkflows</span>
+          <strong>{props.subrun_ids.length.toLocaleString()}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Provider calls</span>
+          <strong>{llm_count.toLocaleString()}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Tokens</span>
+          <strong>{token_total ? token_total.toLocaleString() : "—"}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Assets</span>
+          <strong>{props.attachments_count.toLocaleString()}</strong>
+        </div>
+      </div>
+
+      <div className="overview_columns">
+        <section className="overview_panel">
+          <div className="overview_panel_header">
+            <h3>What Is Happening</h3>
+            {wait ? <span className="chip mono info">waiting</span> : null}
+          </div>
+          {wait ? (
+            <div className="overview_fact_list">
+              <div><span>Reason</span><strong>{String(wait.reason || "unknown")}</strong></div>
+              {wait.wait_key ? <div><span>Wait key</span><strong className="mono">{short_id(String(wait.wait_key), 34)}</strong></div> : null}
+              {(wait as any)?.details?.sub_run_id ? (
+                <div><span>Subworkflow</span><strong className="mono">{short_id(String((wait as any).details.sub_run_id), 24)}</strong></div>
+              ) : null}
+              {wait.prompt ? <div><span>Prompt</span><strong>{clamp_preview(String(wait.prompt), { max_chars: 260, max_lines: 3 })}</strong></div> : null}
+            </div>
+          ) : (
+            <div className="empty_state_inline">No active wait is reported for this run.</div>
+          )}
+          {missing ? <div className="warn_callout">{missing} provider call(s) have missing responses or errors.</div> : null}
+        </section>
+
+        <section className="overview_panel">
+          <div className="overview_panel_header">
+            <h3>Summary</h3>
+            {props.digest?.latest_summary ? <span className="chip mono ok">saved</span> : <span className="chip mono muted">none</span>}
+          </div>
+          {props.summary_error ? <div className="warn_callout">{props.summary_error}</div> : null}
+          {summary_text ? <Markdown text={summary_text} /> : <div className="empty_state_inline">Generate a grounded summary from the root run and its subflows.</div>}
+        </section>
+      </div>
+
+      {props.subrun_ids.length ? (
+        <section className="overview_panel">
+          <div className="overview_panel_header">
+            <h3>Subworkflows</h3>
+            <span className="mono muted">{props.subrun_ids.length}</span>
+          </div>
+          <div className="subrun_chip_list">
+            {props.subrun_ids.map((rid) => (
+              <button key={rid} className="subrun_chip mono" onClick={() => props.on_open_subrun(rid)} title={rid}>
+                {short_id(rid, 22)}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function HumanTimelinePanel(props: {
+  items: LedgerRecordItem[];
+  node_index: Record<string, any>;
+  workflow_label_by_id: Record<string, string>;
+  on_copy: (text: string) => void;
+}): React.ReactElement {
+  const humanize = (item: LedgerRecordItem): { title: string; subtitle: string; request: string; outcome: string; cls: string } => {
+    const extra: any = item as any;
+    const rec: any = item.record || {};
+    const effect_type = String(rec?.effect?.type || extra.effect_type || "").trim();
+    const status = String(rec?.status || extra.status || "").trim();
+    const node_id = String(rec?.node_id || extra.node_id || "").trim();
+    const node = node_id && props.node_index ? (props.node_index as any)[node_id] : null;
+    const node_label = String(node?.label || node_id || extra.title || "Step").trim();
+    const wait = extract_wait_from_record(rec);
+    const payload = rec?.effect?.payload;
+    const result = rec?.result;
+    const response = extract_response_text_from_record(rec);
+    const request = effect_type ? safe_json_inline(payload ?? {}, 900) : clamp_preview(String(extra.preview || ""), { max_chars: 900, max_lines: 8 });
+    const outcome =
+      response ||
+      (wait ? `Waiting for ${String(wait.reason || "input")}${wait.wait_key ? ` (${short_id(String(wait.wait_key), 18)})` : ""}` : "") ||
+      (result !== undefined ? safe_json_inline(result, 900) : "");
+    const title =
+      effect_type === "llm_call"
+        ? "Model call"
+        : effect_type === "tool_calls"
+          ? "Tool execution"
+          : effect_type === "answer_user"
+            ? "User-facing response"
+            : effect_type === "start_subworkflow"
+              ? "Subworkflow launched"
+              : effect_type === "ask_user"
+                ? "User input requested"
+                : effect_type || extra.title || "Ledger event";
+    return {
+      title,
+      subtitle: node_label,
+      request: clamp_preview(request, { max_chars: 900, max_lines: 7 }),
+      outcome: clamp_preview(outcome, { max_chars: 1100, max_lines: 9 }),
+      cls: run_status_class(status),
+    };
+  };
+
+  return (
+    <div className="human_timeline">
+      {!props.items.length ? <div className="empty_state_inline">No ledger records yet.</div> : null}
+      {props.items.map((item) => {
+        const rec: any = item.record || {};
+        const h = humanize(item);
+        const ts = String(rec.ended_at || rec.started_at || (item as any).ts || "").trim();
+        return (
+          <article key={`${String(item.run_id || rec.run_id || "")}:${item.cursor}`} className={`timeline_event ${h.cls}`}>
+            <div className="timeline_marker" />
+            <div className="timeline_event_body">
+              <div className="timeline_event_header">
+                <div>
+                  <h3>{h.title}</h3>
+                  <div className="timeline_subtitle">
+                    <span>{h.subtitle}</span>
+                    {item.run_id ? <span className="mono">{short_id(String(item.run_id), 13)}</span> : null}
+                  </div>
+                </div>
+                <div className="timeline_time">
+                  <span>{format_time_ago(ts)}</span>
+                  <span className="mono" title={ts}>{display_datetime(ts)}</span>
+                </div>
+              </div>
+              <div className="timeline_payload_grid">
+                <div>
+                  <span>Requested</span>
+                  <p className="mono">{h.request || "—"}</p>
+                </div>
+                <div>
+                  <span>Outcome</span>
+                  <p>{h.outcome || "—"}</p>
+                </div>
+              </div>
+              <div className="timeline_actions">
+                <button className="btn btn_icon" onClick={() => props.on_copy(JSON.stringify(rec, null, 2))}>
+                  <Icon name="copy" size={14} />
+                  JSON
+                </button>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProviderActivityPanel(props: {
+  activities: ProviderActivity[];
+  audit_log_text: string;
+  audit_log_meta: string;
+  audit_log_loading: boolean;
+  audit_log_error: string;
+  on_refresh_audit: () => void;
+  on_copy: (text: string) => void;
+}): React.ReactElement {
+  const total_tokens = props.activities.reduce((n, a) => n + (Number(a.tokens.total) || 0), 0);
+  const missing = props.activities.filter((a) => a.missing_response || a.error).length;
+  const providers = Array.from(new Set(props.activities.map((a) => [a.provider, a.model].filter(Boolean).join("/")).filter(Boolean))).slice(0, 8);
+
+  return (
+    <div className="provider_panel">
+      <div className="metric_grid compact">
+        <div className="metric_tile">
+          <span>Calls</span>
+          <strong>{props.activities.length.toLocaleString()}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Tokens</span>
+          <strong>{total_tokens ? total_tokens.toLocaleString() : "—"}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Issues</span>
+          <strong>{missing.toLocaleString()}</strong>
+        </div>
+        <div className="metric_tile">
+          <span>Providers</span>
+          <strong>{providers.length ? providers.length.toLocaleString() : "—"}</strong>
+        </div>
+      </div>
+
+      <section className="overview_panel">
+        <div className="overview_panel_header">
+          <h3>Provider Calls In This Run</h3>
+          <span className="mono muted">{providers.join(", ") || "no model calls detected"}</span>
+        </div>
+        {!props.activities.length ? <div className="empty_state_inline">No LLM provider activity is present in the loaded ledger.</div> : null}
+        <div className="provider_activity_list">
+          {props.activities.map((a) => (
+            <article key={a.id} className={`provider_activity ${a.error || a.missing_response ? "danger" : ""}`}>
+              <div className="provider_activity_header">
+                <div>
+                  <h4>{[a.provider || "provider?", a.model || "model?"].join(" / ")}</h4>
+                  <div className="timeline_subtitle">
+                    <span className="mono">{short_id(a.run_id, 13)}</span>
+                    {a.node_id ? <span className="mono">{a.node_id}</span> : null}
+                    <span>{format_duration_ms(a.duration_ms)}</span>
+                  </div>
+                </div>
+                <div className="provider_tokens mono">
+                  {a.tokens.total ? a.tokens.total.toLocaleString() : "—"} tokens
+                </div>
+              </div>
+              <div className="provider_preview_grid">
+                <div>
+                  <span>Prompt</span>
+                  <p>{a.prompt_preview || "—"}</p>
+                </div>
+                <div>
+                  <span>Response</span>
+                  <p>{a.response_preview || (a.error ? a.error : "No response captured")}</p>
+                </div>
+              </div>
+              <div className="timeline_actions">
+                <button className="btn btn_icon" onClick={() => props.on_copy(a.prompt_preview)} disabled={!a.prompt_preview}>
+                  <Icon name="copy" size={14} />
+                  Prompt
+                </button>
+                <button className="btn btn_icon" onClick={() => props.on_copy(a.response_preview)} disabled={!a.response_preview}>
+                  <Icon name="copy" size={14} />
+                  Response
+                </button>
+                <button className="btn btn_icon" onClick={() => props.on_copy(JSON.stringify(a.raw, null, 2))}>
+                  <Icon name="copy" size={14} />
+                  JSON
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="overview_panel">
+        <div className="overview_panel_header">
+          <h3>Gateway Audit Tail</h3>
+          <div className="actions" style={{ marginTop: 0 }}>
+            {props.audit_log_meta ? <span className="mono muted">{props.audit_log_meta}</span> : null}
+            <button className="btn btn_icon" onClick={props.on_refresh_audit} disabled={props.audit_log_loading}>
+              <Icon name="refresh" size={14} />
+              {props.audit_log_loading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
+        </div>
+        {props.audit_log_error ? <div className="warn_callout">{props.audit_log_error}</div> : null}
+        <pre className="mono audit_log_tail">{props.audit_log_text || "(audit tail not loaded)"}</pre>
+      </section>
+    </div>
+  );
+}
+
+function ArtifactGlyph(props: { artifact: RuntimeArtifact | null; size?: number }): React.ReactElement {
+  const size = props.size || 18;
+  const kind = artifact_preview_kind(props.artifact);
+  const cls = `artifact_glyph ${kind}`;
+  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" } as any;
+  if (kind === "image") {
+    return (
+      <span className={cls}>
+        <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 15l3-3 3 3 2-2 4 4" /><circle cx="8" cy="9" r="1.4" /></svg>
+      </span>
+    );
+  }
+  if (kind === "audio") {
+    return (
+      <span className={cls}>
+        <svg {...common}><path d="M4 12h2" /><path d="M8 8v8" /><path d="M12 5v14" /><path d="M16 8v8" /><path d="M20 12h-2" /></svg>
+      </span>
+    );
+  }
+  if (kind === "video") {
+    return (
+      <span className={cls}>
+        <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M9 9l6 3-6 3V9z" fill="currentColor" stroke="none" /></svg>
+      </span>
+    );
+  }
+  if (kind === "text") {
+    return (
+      <span className={cls}>
+        <svg {...common}><path d="M7 3h7l5 5v13H7z" /><path d="M14 3v6h6" /><path d="M10 13h7" /><path d="M10 17h5" /></svg>
+      </span>
+    );
+  }
+  return (
+    <span className={cls}>
+      <svg {...common}><path d="M7 3h7l5 5v13H7z" /><path d="M14 3v6h6" /><path d="M9 14h8" /></svg>
+    </span>
+  );
+}
+
+function RuntimeStructuredTextPreview(props: { artifact: RuntimeArtifact | null; text: string; className: string }): React.ReactElement {
+  const text = String(props.text || "");
+  const render_kind = artifact_text_render_kind(props.artifact, text);
+
+  if (render_kind === "json") {
+    const parsed = tryParseJson(text);
+    if (parsed !== null) {
+      return (
+        <div className={`${props.className} structured`}>
+          <SharedJsonViewer value={parsed} collapseAfterDepth={4} showCopy={false} />
+        </div>
+      );
+    }
+  }
+
+  if (render_kind === "markdown") {
+    return (
+      <div className={`${props.className} structured markdown_preview`}>
+        <Markdown text={text} />
+      </div>
+    );
+  }
+
+  return <pre className={`mono ${props.className}`}>{text}</pre>;
+}
+
+function RuntimeInlinePreview(props: { artifact: RuntimeArtifact | null; preview: RuntimeEmbeddedPreview }): React.ReactElement {
+  const preview = props.preview;
+  const artifact = props.artifact;
+  if (!artifact) return <div className="runtime_inline_preview empty">Select an artifact to preview it here.</div>;
+  if (preview.loading) return <div className="runtime_inline_preview empty">Loading preview…</div>;
+  if (preview.error) return <div className="runtime_inline_preview empty danger">{preview.error}</div>;
+  if (preview.kind === "image" && preview.url) return <img className="runtime_inline_preview media" src={preview.url} alt={artifact_label(artifact)} />;
+  if (preview.kind === "audio" && preview.url) return <audio className="runtime_inline_preview audio" src={preview.url} controls />;
+  if (preview.kind === "video" && preview.url) return <video className="runtime_inline_preview media" src={preview.url} controls />;
+  return <RuntimeStructuredTextPreview artifact={artifact} text={preview.text || "Preview unavailable. Use Preview or Download."} className="runtime_inline_preview text" />;
+}
+
+function RuntimeActivityConsole(props: {
+  runs: RunSummary[];
+  artifacts: RuntimeArtifact[];
+  selected_run_id: string;
+  workflow_label_by_id: Record<string, string>;
+  on_open_run: (run_id: string) => void;
+  on_open_ledger: (run_id: string) => void;
+  on_filter_artifacts: (run_id: string) => void;
+  on_open_logs: () => void;
+  on_cancel_run: (run_id: string) => void;
+  on_refresh_runs: () => void;
+}): React.ReactElement {
+  const [filter, set_filter] = useState<"attention" | "waiting" | "running" | "failed" | "finished" | "all">("attention");
+  const [query, set_query] = useState("");
+  const [sort, set_sort] = useState<"attention" | "recent" | "oldest" | "duration" | "tokens">("attention");
+  const [selected_id, set_selected_id] = useState("");
+
+  const artifact_counts = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const a of props.artifacts) {
+      const rid = String(a.run_id || "").trim();
+      if (rid) out[rid] = (out[rid] || 0) + 1;
+    }
+    return out;
+  }, [props.artifacts]);
+
+  const counts = useMemo(() => {
+    const c = { attention: 0, waiting: 0, running: 0, failed: 0, finished: 0, all: props.runs.length };
+    for (const r of props.runs) {
+      const st = String(r.status || "").trim().toLowerCase();
+      if (st === "waiting") c.waiting += 1;
+      if (st === "running") c.running += 1;
+      if (st === "failed") c.failed += 1;
+      if (terminal_run_status(st)) c.finished += 1;
+      if (st === "waiting" || st === "running" || st === "failed") c.attention += 1;
+    }
+    return c;
+  }, [props.runs]);
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = props.runs.filter((r) => {
+      const st = String(r.status || "").trim().toLowerCase();
+      if (filter === "attention" && !(st === "waiting" || st === "running" || st === "failed")) return false;
+      if (filter === "waiting" && st !== "waiting") return false;
+      if (filter === "running" && st !== "running") return false;
+      if (filter === "failed" && st !== "failed") return false;
+      if (filter === "finished" && !terminal_run_status(st)) return false;
+      if (!q) return true;
+      const hay = [
+        r.run_id,
+        r.workflow_id,
+        r.session_id,
+        r.status,
+        r.current_node,
+        run_workflow_label(r, props.workflow_label_by_id),
+        run_activity_label(r),
+        run_error_label(r),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+    filtered.sort((a, b) => {
+      if (sort === "recent") return (parse_iso_ms(b.updated_at || b.created_at) ?? 0) - (parse_iso_ms(a.updated_at || a.created_at) ?? 0);
+      if (sort === "oldest") return (parse_iso_ms(a.updated_at || a.created_at) ?? 0) - (parse_iso_ms(b.updated_at || b.created_at) ?? 0);
+      if (sort === "duration") return run_duration_ms(b) - run_duration_ms(a);
+      if (sort === "tokens") return (Number(b.tokens_total || 0) || 0) - (Number(a.tokens_total || 0) || 0);
+      const rank = run_attention_rank(a) - run_attention_rank(b);
+      if (rank !== 0) return rank;
+      return (parse_iso_ms(b.updated_at || b.created_at) ?? 0) - (parse_iso_ms(a.updated_at || a.created_at) ?? 0);
+    });
+    return filtered;
+  }, [props.runs, props.workflow_label_by_id, filter, query, sort]);
+
+  const selected =
+    rows.find((r) => String(r.run_id || "") === selected_id) ||
+    rows.find((r) => String(r.run_id || "") === props.selected_run_id) ||
+    rows[0] ||
+    null;
+  const selected_run_id = String(selected?.run_id || "").trim();
+  const waiting = selected?.waiting && typeof selected.waiting === "object" ? (selected.waiting as any) : null;
+  const selected_artifacts = selected_run_id ? artifact_counts[selected_run_id] || 0 : 0;
+  const selected_terminal = terminal_run_status(selected?.status);
+  const filters: Array<{ key: typeof filter; label: string; count: number }> = [
+    { key: "attention", label: "Needs attention", count: counts.attention },
+    { key: "waiting", label: "Waiting for me", count: counts.waiting },
+    { key: "running", label: "Running now", count: counts.running },
+    { key: "failed", label: "Failed", count: counts.failed },
+    { key: "finished", label: "Finished", count: counts.finished },
+    { key: "all", label: "All runs", count: counts.all },
+  ];
+
+  return (
+    <div className="runtime_ops_layout">
+      <aside className="runtime_ops_filters">
+        <div className="runtime_ops_filter_header">
+          <strong>Queues</strong>
+          <button className="btn btn_icon" onClick={props.on_refresh_runs}>
+            <Icon name="refresh" size={14} />
+            Refresh
+          </button>
+        </div>
+        {filters.map((f) => (
+          <button key={f.key} className={`runtime_ops_filter ${filter === f.key ? "selected" : ""}`} onClick={() => set_filter(f.key)}>
+            <span>{f.label}</span>
+            <strong className="mono">{f.count.toLocaleString()}</strong>
+          </button>
+        ))}
+        <div className="runtime_ops_hint">
+          Runtime is for platform triage. Open a run in Observe when you need the narrative ledger.
+        </div>
+      </aside>
+
+      <section className="runtime_ops_table_panel">
+        <div className="runtime_ops_toolbar">
+          <input className="mono" value={query} onChange={(e) => set_query(e.target.value)} placeholder="Search workflow, run, node, status, error" />
+          <select className="mono seg_select" value={sort} onChange={(e) => set_sort(e.target.value as any)}>
+            <option value="attention">Attention order</option>
+            <option value="recent">Latest event</option>
+            <option value="oldest">Oldest event</option>
+            <option value="duration">Longest duration</option>
+            <option value="tokens">Most tokens</option>
+          </select>
+        </div>
+        <div className="runtime_ops_table_scroll">
+          <table className="runtime_ops_table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Workflow / Run</th>
+                <th>Blocking / Current Activity</th>
+                <th>Age</th>
+                <th>Last Event</th>
+                <th>Calls</th>
+                <th>Artifacts</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!rows.length ? (
+                <tr>
+                  <td colSpan={8} className="runtime_ops_empty">No runs match this queue.</td>
+                </tr>
+              ) : null}
+              {rows.slice(0, 300).map((r) => {
+                const rid = String(r.run_id || "").trim();
+                const terminal = terminal_run_status(r.status);
+                const artifact_count = artifact_counts[rid] || 0;
+                return (
+                  <tr key={rid} className={rid === selected_run_id ? "selected" : ""} onClick={() => set_selected_id(rid)}>
+                    <td><RunStatusPill status={r.status} /></td>
+                    <td>
+                      <strong>{run_workflow_label(r, props.workflow_label_by_id)}</strong>
+                      <span className="mono">{short_id(rid, 18)}</span>
+                      {r.parent_run_id ? <span className="mono muted">child of {short_id(String(r.parent_run_id), 10)}</span> : null}
+                    </td>
+                    <td>
+                      <span>{run_activity_label(r)}</span>
+                      {r.current_node ? <span className="mono muted">{String(r.current_node)}</span> : null}
+                    </td>
+                    <td>
+                      <span>{run_duration_label(r)}</span>
+                      <span className="muted">{display_datetime(run_started_at(r))}</span>
+                    </td>
+                    <td>{format_time_ago(r.updated_at || r.created_at)}</td>
+                    <td>
+                      <span className="mono">{Number(r.llm_calls || 0).toLocaleString()} llm</span>
+                      <span className="mono">{Number(r.tool_calls || 0).toLocaleString()} tools</span>
+                      <span className="mono">{Number(r.tokens_total || 0).toLocaleString()} tok</span>
+                    </td>
+                    <td className="mono">{artifact_count.toLocaleString()}</td>
+                    <td>
+                      <div className="runtime_ops_actions">
+                        {String(r.status || "").toLowerCase() === "waiting" ? (
+                          <button className="btn primary" onClick={(e) => { e.stopPropagation(); props.on_open_run(rid); }}>Respond</button>
+                        ) : null}
+                        <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_open_ledger(rid); }}>Ledger</button>
+                        <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_filter_artifacts(rid); }}>Artifacts</button>
+                        <button className="btn danger" onClick={(e) => { e.stopPropagation(); props.on_cancel_run(rid); }} disabled={terminal}>
+                          Cancel run
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {rows.length > 300 ? <div className="mono muted runtime_truncated">Showing first 300 rows; refine the queue or search.</div> : null}
+      </section>
+
+      <aside className="runtime_ops_inspector">
+        {!selected ? (
+          <div className="empty_state_inline">Select a run to inspect why it is active or blocked.</div>
+        ) : (
+          <>
+            <div className="runtime_ops_inspector_head">
+              <RunStatusPill status={selected.status} />
+              <h3>{run_workflow_label(selected, props.workflow_label_by_id)}</h3>
+              <span className="mono">{short_id(selected_run_id, 28)}</span>
+            </div>
+            <div className="runtime_ops_decision">
+              <strong>{run_activity_label(selected)}</strong>
+              <span>
+                {String(selected.status || "").toLowerCase() === "waiting"
+                  ? "This run is paused until the pending wait is resolved or the run is cancelled."
+                  : selected_terminal
+                    ? "This run is terminal. Open the ledger for the narrative and final error/output."
+                    : "This run is active or recently updated. Use ledger/provider logs to inspect live work."}
+              </span>
+            </div>
+            <div className="artifact_detail_grid">
+              <div><span>Started</span><strong>{display_datetime(run_started_at(selected))}</strong></div>
+              <div><span>Elapsed</span><strong>{run_duration_label(selected)}</strong></div>
+              <div><span>Last event</span><strong>{display_datetime(selected.updated_at || selected.created_at)}</strong></div>
+              <div><span>Session</span><strong className="mono">{selected.session_id ? short_id(String(selected.session_id), 18) : "—"}</strong></div>
+              <div><span>Node</span><strong className="mono">{selected.current_node || "—"}</strong></div>
+              <div><span>Artifacts</span><strong>{selected_artifacts.toLocaleString()}</strong></div>
+              <div><span>Provider calls</span><strong>{Number(selected.llm_calls || 0).toLocaleString()}</strong></div>
+              <div><span>Tokens</span><strong>{Number(selected.tokens_total || 0).toLocaleString()}</strong></div>
+            </div>
+            {waiting ? (
+              <details className="runtime_raw_details" open>
+                <summary className="mono muted">Wait details</summary>
+                <JsonViewer value={waiting} max_string_len={260} />
+              </details>
+            ) : null}
+            {run_error_label(selected) ? <div className="warn_callout">{run_error_label(selected)}</div> : null}
+            <div className="runtime_detail_actions">
+              <button className="btn primary" onClick={() => props.on_open_run(selected_run_id)}>Open Observe</button>
+              <button className="btn" onClick={() => props.on_open_ledger(selected_run_id)}>Open ledger</button>
+              <button className="btn" onClick={() => props.on_filter_artifacts(selected_run_id)}>Open artifacts</button>
+              <button className="btn" onClick={props.on_open_logs}>Open logs</button>
+              <button className="btn" onClick={() => void copyText(selected_run_id)}>Copy run id</button>
+              <button className="btn danger" onClick={() => props.on_cancel_run(selected_run_id)} disabled={selected_terminal}>Cancel run</button>
+            </div>
+          </>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function RuntimeExplorerPage(props: {
+  gateway_connected: boolean;
+  tab: RuntimeTab;
+  runs: RunSummary[];
+  active_runs: RunSummary[];
+  artifacts: RuntimeArtifact[];
+  artifact_groups: Array<{ key: string; items: RuntimeArtifact[] }>;
+  selected_artifact: RuntimeArtifact | null;
+  embedded_preview: RuntimeEmbeddedPreview;
+  loading: boolean;
+  error: string;
+  query: string;
+  scope: "all" | "session" | "run";
+  modality: string;
+  group_by: RuntimeArtifactGroupMode;
+  sort_by: RuntimeArtifactSortMode;
+  artifact_run_filter: string;
+  audit_log_text: string;
+  audit_log_meta: string;
+  audit_log_loading: boolean;
+  audit_log_error: string;
+  workflow_label_by_id: Record<string, string>;
+  run_by_id: Record<string, RunSummary>;
+  selected_run_id: string;
+  session_id: string;
+  on_tab_change: (tab: RuntimeTab) => void;
+  on_query_change: (value: string) => void;
+  on_scope_change: (value: "all" | "session" | "run") => void;
+  on_modality_change: (value: string) => void;
+  on_group_by_change: (value: RuntimeArtifactGroupMode) => void;
+  on_sort_by_change: (value: RuntimeArtifactSortMode) => void;
+  on_artifact_run_filter_change: (run_id: string) => void;
+  on_refresh_artifacts: () => void;
+  on_refresh_audit: () => void;
+  on_select_artifact: (artifact_id: string) => void;
+  on_preview_artifact: (artifact: RuntimeArtifact) => void;
+  on_download_artifact: (artifact: RuntimeArtifact) => void;
+  on_cancel_run: (run_id: string) => void;
+  on_open_run: (run_id: string) => void;
+  on_open_ledger: (run_id: string) => void;
+  on_refresh_runs: () => void;
+}): React.ReactElement {
+  const selected = props.selected_artifact;
+  const run_groups = useMemo(() => {
+    const groups: Record<string, RunSummary[]> = { waiting: [], running: [], failed: [], cancelled: [], completed: [], other: [] };
+    for (const r of props.runs) {
+      const st = String(r.status || "").trim().toLowerCase();
+      if (st === "waiting") groups.waiting.push(r);
+      else if (st === "running") groups.running.push(r);
+      else if (st === "failed") groups.failed.push(r);
+      else if (st === "cancelled") groups.cancelled.push(r);
+      else if (st === "completed") groups.completed.push(r);
+      else groups.other.push(r);
+    }
+    return groups;
+  }, [props.runs]);
+  const selected_run_for_artifact = selected?.run_id ? props.run_by_id[selected.run_id] || null : null;
+  const run_filter_label = props.artifact_run_filter
+    ? run_workflow_label(props.run_by_id[props.artifact_run_filter], props.workflow_label_by_id)
+    : "";
+  const artifact_filter_runs = useMemo(() => {
+    const ids = new Set<string>();
+    for (const a of props.artifacts) if (a.run_id) ids.add(a.run_id);
+    for (const r of props.active_runs) if (r.run_id) ids.add(String(r.run_id));
+    return Array.from(ids)
+      .map((rid) => props.run_by_id[rid] || ({ run_id: rid, workflow_id: null, status: "", created_at: null, updated_at: null } as RunSummary))
+      .sort((a, b) => {
+        const active_a = active_run_status(a.status) ? 0 : 1;
+        const active_b = active_run_status(b.status) ? 0 : 1;
+        if (active_a !== active_b) return active_a - active_b;
+        const am = parse_iso_ms(a.updated_at || a.created_at) ?? 0;
+        const bm = parse_iso_ms(b.updated_at || b.created_at) ?? 0;
+        return bm - am;
+      })
+      .slice(0, 160);
+  }, [props.artifacts, props.active_runs, props.run_by_id]);
+  const set_run_artifact_filter = (rid: string) => {
+    props.on_artifact_run_filter_change(rid);
+    props.on_scope_change(rid ? "run" : "all");
+  };
+
+  return (
+    <div className="page runtime_page">
+      <section className="runtime_header">
+        <div>
+          <div className="run_hero_eyebrow">Runtime explorer</div>
+          <h2>{props.tab === "activity" ? "Activity monitor" : props.tab === "artifacts" ? "Artifact explorer" : "Gateway system logs"}</h2>
+          <div className="run_hero_meta">
+            <span className={`status_pill ${props.gateway_connected ? "ok" : "warn"}`}>{props.gateway_connected ? "gateway connected" : "gateway offline"}</span>
+            {props.tab === "artifacts" && props.artifact_run_filter ? <span className="mono">filtered run {short_id(props.artifact_run_filter, 18)}</span> : null}
+            {props.session_id ? <span className="mono">session {short_id(props.session_id, 18)}</span> : null}
+          </div>
+        </div>
+        <div className="metric_grid compact runtime_header_metrics">
+          <div className="metric_tile">
+            <span>Waiting</span>
+            <strong>{run_groups.waiting.length.toLocaleString()}</strong>
+          </div>
+          <div className="metric_tile">
+            <span>Running</span>
+            <strong>{run_groups.running.length.toLocaleString()}</strong>
+          </div>
+          <div className="metric_tile">
+            <span>Failed</span>
+            <strong>{run_groups.failed.length.toLocaleString()}</strong>
+          </div>
+          <div className="metric_tile">
+            <span>Artifacts</span>
+            <strong>{props.artifacts.length.toLocaleString()}</strong>
+          </div>
+        </div>
+      </section>
+
+      <div className="runtime_mode_tabs">
+        {(["activity", "artifacts", "logs"] as RuntimeTab[]).map((tab) => (
+          <button key={tab} className={`runtime_mode_tab ${props.tab === tab ? "active" : ""}`} onClick={() => props.on_tab_change(tab)}>
+            {tab === "activity" ? "Activity" : tab === "artifacts" ? "Artifacts" : "Logs"}
+          </button>
+        ))}
+      </div>
+
+      {props.error ? <div className="warn_callout">{props.error}</div> : null}
+
+      {props.tab === "activity" ? (
+        <RuntimeActivityConsole
+          runs={props.runs}
+          artifacts={props.artifacts}
+          selected_run_id={props.selected_run_id}
+          workflow_label_by_id={props.workflow_label_by_id}
+          on_open_run={props.on_open_run}
+          on_open_ledger={props.on_open_ledger}
+          on_cancel_run={props.on_cancel_run}
+          on_refresh_runs={props.on_refresh_runs}
+          on_open_logs={() => props.on_tab_change("logs")}
+          on_filter_artifacts={(rid) => {
+            set_run_artifact_filter(rid);
+            props.on_tab_change("artifacts");
+          }}
+        />
+      ) : null}
+
+      {props.tab === "artifacts" ? (
+        <>
+          <div className="runtime_controls">
+            <input className="mono" value={props.query} onChange={(e) => props.on_query_change(e.target.value)} placeholder="Search artifact id, path, hash, tags" />
+            <select
+              className="mono seg_select"
+              value={props.scope}
+              onChange={(e) => {
+                const next = e.target.value as "all" | "session" | "run";
+                if (next !== "run") props.on_artifact_run_filter_change("");
+                props.on_scope_change(next);
+              }}
+            >
+              <option value="all">All runtime artifacts</option>
+              <option value="session">Current session</option>
+              <option value="run">Selected run filter</option>
+            </select>
+            <select className="mono seg_select" value={props.modality} onChange={(e) => props.on_modality_change(String(e.target.value || ""))}>
+              <option value="">All artifact types</option>
+              <option value="text">Text</option>
+              <option value="image">Image</option>
+              <option value="audio">Audio</option>
+              <option value="video">Video</option>
+              <option value="document">Document</option>
+              <option value="artifact">Other</option>
+            </select>
+            <select className="mono seg_select" value={props.group_by} onChange={(e) => props.on_group_by_change(e.target.value as RuntimeArtifactGroupMode)}>
+              <option value="type">Group by type</option>
+              <option value="time">Group by time</option>
+              <option value="turn">Group by turn</option>
+              <option value="node">Group by node</option>
+              <option value="workflow">Group by workflow</option>
+              <option value="run">Group by run</option>
+              <option value="location">Group by location</option>
+              <option value="source">Group by source</option>
+            </select>
+            <select className="mono seg_select" value={props.sort_by} onChange={(e) => props.on_sort_by_change(e.target.value as RuntimeArtifactSortMode)}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="turn">Turn order</option>
+              <option value="type">Type order</option>
+              <option value="size_desc">Largest first</option>
+              <option value="size_asc">Smallest first</option>
+            </select>
+            <button className="btn btn_icon" onClick={props.on_refresh_artifacts} disabled={!props.gateway_connected || props.loading}>
+              <Icon name="refresh" size={14} />
+              {props.loading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
+          <div className="artifact_scope_banner">
+            {props.artifact_run_filter ? (
+              <>
+                Showing artifacts for <strong>{run_filter_label || short_id(props.artifact_run_filter, 18)}</strong>.
+                <button className="btn" onClick={() => set_run_artifact_filter("")}>Show all</button>
+              </>
+            ) : (
+              <>Showing artifacts across the selected runtime scope. Select a run to filter the inventory.</>
+            )}
+          </div>
+          <div className="runtime_artifacts_layout">
+            <aside className="artifact_filter_rail">
+              <button className={`artifact_filter_run ${!props.artifact_run_filter ? "selected" : ""}`} onClick={() => set_run_artifact_filter("")}>
+                <strong>All artifacts</strong>
+                <span>{props.artifacts.length.toLocaleString()} visible</span>
+              </button>
+              {artifact_filter_runs.map((r) => {
+                const rid = String(r.run_id || "").trim();
+                const highlighted = rid === props.artifact_run_filter || rid === selected?.run_id;
+                return (
+                  <button key={rid} className={`artifact_filter_run ${highlighted ? "selected" : ""}`} onClick={() => set_run_artifact_filter(rid)} title={rid}>
+                    <strong>{run_workflow_label(r, props.workflow_label_by_id)}</strong>
+                    <span className="mono">{short_id(rid, 15)}</span>
+                    <span>{run_duration_label(r)}</span>
+                  </button>
+                );
+              })}
+            </aside>
+            <section className="runtime_artifact_browser">
+          <div className="overview_panel_header">
+            <h3>Artifact Explorer</h3>
+            <span className="mono muted">{props.artifacts.length.toLocaleString()} items</span>
+          </div>
+          {!props.artifact_groups.length ? <div className="empty_state_inline">No artifacts match the current filters.</div> : null}
+          <div className="artifact_group_list">
+            {props.artifact_groups.map((group) => (
+              <section key={group.key} className="artifact_group">
+                <div className="artifact_group_header">
+                  <span>{group.key}</span>
+                  <span className="mono">{group.items.length}</span>
+                </div>
+                {group.items.map((a) => (
+                  <button
+                    key={a.artifact_id}
+                    className={`artifact_row ${selected?.artifact_id === a.artifact_id ? "selected" : ""}`}
+                    onClick={() => props.on_select_artifact(a.artifact_id)}
+                    title={a.artifact_id}
+                  >
+                    <ArtifactGlyph artifact={a} size={18} />
+                    <div className="artifact_row_main">
+                      <div className="artifact_row_title">
+                        <strong>{artifact_label(a)}</strong>
+                        <span className="mono">{short_id(a.artifact_id, 18)}</span>
+                      </div>
+                      <div className="artifact_row_meta">
+                        <span>{artifact_type_label(a)}</span>
+                        <span>{format_bytes(a.size_bytes)}</span>
+                        <span title={a.created_at}>{format_time_ago(a.created_at)}</span>
+                        {a.run_id ? <span className="mono">run {short_id(a.run_id, 11)}</span> : null}
+                        {artifact_node_label(a) ? <span className="mono">node {artifact_node_label(a)}</span> : null}
+                        {artifact_origin_label(a) ? <span>{artifact_origin_label(a)}</span> : null}
+                      </div>
+                      <div className="artifact_row_meta subtle">
+                        <span>{artifact_turn_label(a)}</span>
+                        <span>{artifact_provenance_label(a)}</span>
+                      </div>
+                      {artifact_path_label(a) ? <div className="artifact_row_path mono">{artifact_path_label(a)}</div> : null}
+                    </div>
+                  </button>
+                ))}
+              </section>
+            ))}
+          </div>
+            </section>
+
+            <aside className="runtime_detail">
+              <section className="overview_panel runtime_artifact_detail">
+            <div className="overview_panel_header">
+              <h3>Artifact Detail</h3>
+              {selected ? <span className="chip mono muted">{artifact_type_label(selected)}</span> : null}
+            </div>
+            {!selected ? (
+              <div className="empty_state_inline">Select an artifact to inspect metadata, preview, or download content.</div>
+            ) : (
+              <>
+                <div className="artifact_detail_header">
+                  <ArtifactGlyph artifact={selected} size={22} />
+                  <div>
+                    <div className="artifact_detail_title">{artifact_label(selected)}</div>
+                    <div className="artifact_detail_subtitle">
+                      {selected.content_type || selected.modality || "artifact"} • {format_bytes(selected.size_bytes)}
+                    </div>
+                  </div>
+                </div>
+                <RuntimeInlinePreview artifact={selected} preview={props.embedded_preview} />
+                <div className="artifact_detail_grid">
+                  <div><span>Created</span><strong>{display_datetime(selected.created_at)}</strong></div>
+                  <div><span>Size</span><strong>{format_bytes(selected.size_bytes)}</strong></div>
+                  <div><span>Run</span><strong className="mono">{selected.run_id ? short_id(selected.run_id, 24) : "—"}</strong></div>
+                  <div><span>Workflow</span><strong>{selected_run_for_artifact ? run_workflow_label(selected_run_for_artifact, props.workflow_label_by_id) : "—"}</strong></div>
+                  <div><span>Turn</span><strong>{artifact_turn_label(selected)}</strong></div>
+                  <div><span>Node</span><strong className="mono">{artifact_node_label(selected) || "—"}</strong></div>
+                  <div><span>Provenance</span><strong>{artifact_provenance_label(selected)}</strong></div>
+                  <div><span>Artifact id</span><strong className="mono">{short_id(selected.artifact_id, 30)}</strong></div>
+                  {selected.sha256 ? <div><span>sha256</span><strong className="mono">{short_id(selected.sha256, 30)}</strong></div> : null}
+                </div>
+                {selected.source_path ? <div className="artifact_detail_path mono">{selected.source_path}</div> : null}
+                <div className="runtime_detail_actions">
+                  <button className="btn primary" onClick={() => props.on_preview_artifact(selected)} disabled={!selected.run_id}>
+                    Larger preview
+                  </button>
+                  <button className="btn" onClick={() => props.on_download_artifact(selected)} disabled={!selected.run_id}>
+                    Download
+                  </button>
+                  <button className="btn" onClick={() => set_run_artifact_filter(selected.run_id)} disabled={!selected.run_id}>
+                    Show run artifacts
+                  </button>
+                  <button className="btn" onClick={() => props.on_open_run(selected.run_id)} disabled={!selected.run_id}>
+                    Open in Observe
+                  </button>
+                </div>
+                <details className="runtime_raw_details">
+                  <summary className="mono muted">Raw metadata</summary>
+                  <JsonViewer value={selected.raw} max_string_len={220} />
+                </details>
+              </>
+            )}
+              </section>
+            </aside>
+          </div>
+        </>
+      ) : null}
+
+      {props.tab === "logs" ? (
+        <section className="overview_panel runtime_logs_panel">
+          <div className="overview_panel_header">
+            <div>
+              <h3>Gateway System Audit Tail</h3>
+              <div className="mono muted">Global gateway activity. This is not artifact provenance and is not scoped to the selected artifact.</div>
+            </div>
+            <div className="actions" style={{ marginTop: 0 }}>
+              {props.audit_log_meta ? <span className="mono muted">{props.audit_log_meta}</span> : null}
+              <button className="btn btn_icon" onClick={props.on_refresh_audit} disabled={props.audit_log_loading}>
+                <Icon name="refresh" size={14} />
+                {props.audit_log_loading ? "Loading…" : "Refresh"}
+              </button>
+            </div>
+          </div>
+          {props.audit_log_error ? <div className="warn_callout">{props.audit_log_error}</div> : null}
+          <pre className="mono audit_log_tail">{props.audit_log_text || "(audit tail not loaded)"}</pre>
+        </section>
+      ) : null}
+    </div>
   );
 }
 

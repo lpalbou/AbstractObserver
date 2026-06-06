@@ -272,6 +272,12 @@ export type ProcessLogTailResponse = {
   content: string;
 };
 
+export type AuditLogTailResponse = {
+  bytes: number;
+  truncated: boolean;
+  content: string;
+};
+
 export type ManagedEnvVarItem = {
   key: string;
   label: string;
@@ -436,7 +442,16 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async list_runs(opts?: { limit?: number; status?: string; workflow_id?: string; session_id?: string; root_only?: boolean }): Promise<any> {
+  async list_runs(opts?: {
+    limit?: number;
+    status?: string;
+    workflow_id?: string;
+    session_id?: string;
+    root_only?: boolean;
+    include_ledger_len?: boolean;
+    include_metrics?: boolean;
+    include_drafts?: boolean;
+  }): Promise<any> {
     const limit = typeof opts?.limit === "number" ? opts.limit : 50;
     const status = String(opts?.status || "").trim();
     const workflow_id = String(opts?.workflow_id || "").trim();
@@ -448,6 +463,9 @@ export class GatewayClient {
     if (workflow_id) qs.set("workflow_id", workflow_id);
     if (session_id) qs.set("session_id", session_id);
     if (root_only) qs.set("root_only", "true");
+    if (typeof opts?.include_ledger_len === "boolean") qs.set("include_ledger_len", String(opts.include_ledger_len));
+    if (typeof opts?.include_metrics === "boolean") qs.set("include_metrics", String(opts.include_metrics));
+    if (typeof opts?.include_drafts === "boolean") qs.set("include_drafts", String(opts.include_drafts));
     const url = _join(this._cfg.base_url, `/api/gateway/runs?${qs.toString()}`);
     const r = await fetch(url, {
       headers: {
@@ -558,6 +576,18 @@ export class GatewayClient {
     return (await r.json()) as ProcessLogTailResponse;
   }
 
+  async audit_log_tail(opts?: { max_bytes?: number }): Promise<AuditLogTailResponse> {
+    const max_bytes = typeof opts?.max_bytes === "number" ? Math.max(1024, Math.min(400000, Math.floor(opts.max_bytes))) : 80000;
+    const url = _join(this._cfg.base_url, `/api/gateway/audit/tail?max_bytes=${encodeURIComponent(String(max_bytes))}`);
+    const r = await fetch(url, {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`audit_log_tail failed: ${await _read_error(r)}`);
+    return (await r.json()) as AuditLogTailResponse;
+  }
+
   async get_run_input_data(run_id: string): Promise<any> {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("get_run_input_data: run_id is required");
@@ -584,6 +614,59 @@ export class GatewayClient {
       },
     });
     if (!r.ok) throw new Error(`list_run_artifacts failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async list_session_artifacts(session_id: string, opts?: { limit?: number }): Promise<any> {
+    const sid = String(session_id || "").trim();
+    if (!sid) throw new Error("list_session_artifacts: session_id is required");
+    const limit = typeof opts?.limit === "number" ? opts.limit : 200;
+    const url = _join(
+      this._cfg.base_url,
+      `/api/gateway/sessions/${encodeURIComponent(sid)}/artifacts?limit=${encodeURIComponent(String(limit))}`
+    );
+    const r = await fetch(url, {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`list_session_artifacts failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async search_artifacts(opts?: {
+    scope?: "all" | "session" | "run" | string;
+    session_id?: string | null;
+    run_id?: string | null;
+    modality?: string | null;
+    content_type?: string | null;
+    query?: string | null;
+    tags?: string | null;
+    limit?: number;
+  }): Promise<any> {
+    const params = new URLSearchParams();
+    params.set("scope", String(opts?.scope || "all").trim() || "all");
+    const session_id = String(opts?.session_id || "").trim();
+    const run_id = String(opts?.run_id || "").trim();
+    const modality = String(opts?.modality || "").trim();
+    const content_type = String(opts?.content_type || "").trim();
+    const query = String(opts?.query || "").trim();
+    const tags = String(opts?.tags || "").trim();
+    const limit = typeof opts?.limit === "number" ? opts.limit : 200;
+    if (session_id) params.set("session_id", session_id);
+    if (run_id) params.set("run_id", run_id);
+    if (modality) params.set("modality", modality);
+    if (content_type) params.set("content_type", content_type);
+    if (query) params.set("query", query);
+    if (tags) params.set("tags", tags);
+    params.set("limit", String(limit));
+
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/artifacts/search?${params.toString()}`), {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`search_artifacts failed: ${await _read_error(r)}`);
     return await r.json();
   }
 

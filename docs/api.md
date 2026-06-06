@@ -29,6 +29,7 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs/{run_id}/ledger?after=…&limit=…` — paged replay
   - `GET /api/gateway/runs/{run_id}/ledger/stream?after=…` — SSE stream of `"step"` events
   - `POST /api/gateway/runs/ledger/batch` — fetch ledgers for multiple runs (digest/subrun support)
+  - LLM/provider activity in the Observe UI is derived from `effect.type == "llm_call"` records in this ledger.
 - **Run control**
   - `POST /api/gateway/commands` — submit durable commands (at minimum `pause`, `resume`, `cancel`; also used for schedule updates and wait/tool resume flows)
 
@@ -51,9 +52,12 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/processes/env` — set/unset managed environment variables
   - `POST /api/gateway/processes/{id}/start|stop|restart|redeploy`
   - `GET /api/gateway/processes/{id}/logs/tail?max_bytes=…`
-- **Run artifacts (attachments + saved chat threads)**
+- **Runtime explorer, artifacts, and audit tail**
+  - `GET /api/gateway/artifacts/search?scope=all|session|run&session_id=…&run_id=…&modality=…&content_type=…&query=…&tags=…&limit=…` — artifact search used by the Runtime tab
+  - `GET /api/gateway/sessions/{session_id}/artifacts?limit=…` — session-scoped artifact listing
   - `GET /api/gateway/runs/{run_id}/artifacts?limit=…`
   - `GET /api/gateway/runs/{run_id}/artifacts/{artifact_id}/content`
+  - `GET /api/gateway/audit/tail?max_bytes=…` — gateway audit/log tail used by Runtime and Observe → Providers
 - **Run summaries + run-scoped chat**
   - `POST /api/gateway/runs/{run_id}/summary`
   - `POST /api/gateway/runs/{run_id}/chat`

@@ -14,6 +14,12 @@ export type RunSummary = {
   waiting_reason?: string | null;
   schedule_interval?: string | null;
   schedule_target_workflow_id?: string | null;
+  current_node?: string | null;
+  llm_calls?: number | null;
+  tool_calls?: number | null;
+  tokens_total?: number | null;
+  error?: any;
+  waiting?: any;
 };
 
 function parse_iso_ms(ts: any): number | null {
