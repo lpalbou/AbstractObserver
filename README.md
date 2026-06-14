@@ -74,7 +74,7 @@ The CLI is a static file server implemented in `bin/cli.js`.
 All pages share the same gateway connection settings.
 
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
-- **Runtime**: Activity, Artifacts, and Logs modes for platform-level monitoring; artifact rows link back to producing runs when metadata is available
+- **Runtime**: Activity, Artifacts, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: start runs, schedule runs, bundle upload/reload
 - **Mindmap**: knowledge-graph query UI (requires `POST /api/gateway/kg/query`)
 - **Backlog / Inbox (reports + email) / Processes**: maintainer tooling (high trust; requires additional gateway endpoints)

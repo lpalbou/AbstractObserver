@@ -75,7 +75,42 @@ The raw ledger remains the authoritative record, but the default Observe experie
 The UI intentionally keeps a raw JSON path beside every projection so investigations can verify exactly which ledger record or artifact produced a summary.
 
 ## Runtime Boundary
-Runtime is resource-centered, not a workflow narrative. It surfaces global active computation, artifact inventory, and gateway system logs. Runs and artifacts are cross-linked when metadata contains `run_id`, but the UI does not imply artifact provenance beyond the metadata it has. Gateway audit tail is labeled as global system activity and must not be displayed as if it explains a selected artifact.
+Runtime is resource-centered, not a workflow narrative. It surfaces global active
+computation, artifact inventory, and gateway system logs. Runs and artifacts are
+cross-linked when metadata contains `run_id`, but the UI does not imply artifact
+provenance beyond Gateway's canonical artifact envelope.
+
+Runtime Activity is the operational supervision view. It separates queues for
+items needing attention, user responses, tool approvals, running work, failed
+runs, scheduled/subworkflow waits, finished runs, and all loaded runs. Rows are
+keyboard-selectable, searchable, and sortable by attention, time, duration,
+token usage, and workflow. Counts in this view are scoped to the loaded run page
+unless Gateway provides a broader run-stats endpoint.
+
+Waiting rows explain the expected action before showing raw diagnostics: answer
+a prompt, choose from choices, review a tool approval, wait for a schedule or
+subworkflow, inspect an external event, or review the ledger when context is
+unclear. The UI uses Gateway commands for run control; Gateway remains the
+authorization boundary for cancel/stop/resume and wait-resolution actions.
+
+The Artifact Explorer consumes `artifact_envelope_v1` rows from
+`GET /api/gateway/artifacts/search` and requests `include_stats=true` so filter
+chips and totals are exact for the selected scope instead of inferred from the
+current page. It separates semantic kind (`voice`, `music`, `sound`,
+unclassified `audio`) from render kind (`image`, `markdown`, `html`, `json`,
+and similar display formats). The detail view prioritizes embedded preview,
+creation summary, prompt/provider/media facts when recorded, run and ledger
+links, provider trace/audit actions, and then raw metadata.
+
+Artifact Explorer intentionally inventories only `Artifact` records: durable
+Runtime-owned payloads exposed through Gateway envelopes. It does not claim to
+inventory live `Server File` / `Server Folder` workspace paths or browser-local
+`Local File` / `Local Folder` sources unless another product surface has first
+materialized them into artifacts.
+
+Gateway audit tail is labeled as global system activity and must not be
+displayed as if it explains a selected artifact. Artifact-specific provider
+trace and audit links are shown only when the envelope reports them.
 
 ## Trust boundaries (important)
 AbstractObserver can enable high-trust features depending on what your gateway exposes:

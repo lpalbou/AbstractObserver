@@ -27,7 +27,7 @@ Notes:
 - [Docs index](docs/README.md): What to read next
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): CLI env vars, UI settings, deployment patterns
-- [API](docs/api.md): Gateway endpoints used by the UI (grounded in code)
+- [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes

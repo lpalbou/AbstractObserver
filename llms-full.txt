@@ -43,7 +43,7 @@ Notes:
 - [Docs index](docs/README.md): What to read next
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): CLI env vars, UI settings, deployment patterns
-- [API](docs/api.md): Gateway endpoints used by the UI (grounded in code)
+- [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes
@@ -85,7 +85,8 @@ Gateway-only observability UI (Web/PWA) for AbstractFramework runs.
 What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Discover** workflows/bundles exposed by an AbstractGateway
 - **Launch** or **schedule** runs (durable)
-- **Observe** runs by replaying + streaming the durable **ledger** (replay-first + SSE)
+- **Observe** runs and subruns by replaying + streaming the durable **ledger** (replay-first + SSE)
+- **Inspect runtime state** across active runs, generated artifacts, provider calls, and gateway audit logs
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
 - (Optional) **Voice** in run chat: gateway-based TTS + push-to-talk transcription (`src/ui/use_gateway_voice.ts`)
 
@@ -152,7 +153,8 @@ The CLI is a static file server implemented in `bin/cli.js`.
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
-- **Observe**: ledger, graph, digest, attachments, chat (optional voice: PTT + TTS)
+- **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
+- **Runtime**: Activity, Artifacts, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: start runs, schedule runs, bundle upload/reload
 - **Mindmap**: knowledge-graph query UI (requires `POST /api/gateway/kg/query`)
 - **Backlog / Inbox (reports + email) / Processes**: maintainer tooling (high trust; requires additional gateway endpoints)
@@ -189,7 +191,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -801,6 +803,12 @@ export default defineConfig({
 
 ## Unreleased
 
+## 0.1.11 (2026-06-14)
+
+- UI: redesign runtime monitoring around explicit overview/timeline/replay/ledger/providers/graph/digest/attachments/chat surfaces, with clearer wait-state rendering and richer runtime metadata display.
+- UI: add reusable runtime artifact rendering, activity, and metadata helpers so reports, HTML/Markdown/text payloads, and generated media previews render consistently from Gateway artifact descriptors.
+- Gateway client: extend artifact listing/search/download support with pagination, richer filters, stats, and access modes so the observer can inspect larger artifact inventories without lossy client-side assumptions.
+
 ## 0.1.10 (2026-05-31)
 
 - Security: hosted mode now follows the Gateway URL/session policy used by Flow so remote browser clients cannot turn the app into a user-directed Gateway proxy.
@@ -1013,6 +1021,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Connect to a remote gateway (cross-origin/CORS)** → `configuration.md` + `troubleshooting.md`
 - **See which gateway endpoints are required for each UI feature** → `api.md`
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
+- **Understand Runtime Activity vs Artifact Explorer vs Observe** → `architecture.md` → "Runtime Boundary"
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
 - **Contribute changes** → `../CONTRIBUTING.md`
@@ -1021,6 +1030,18 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - `architecture.md` — component view + data flow diagrams
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
+
+Observer’s Runtime views work with Gateway/Runtime artifact inventories, not
+with browser-local files or arbitrary server filesystem browsing:
+
+- `Artifact`: a saved runtime-owned payload that Runtime Activity / Artifact
+  Explorer can inventory and open through Gateway.
+- `Server File` / `Server Folder`: user-facing Gateway workspace paths used by
+  import/export or file-helper flows elsewhere in the product. Observer does not
+  treat them as artifacts until Gateway/Runtime actually store an artifact.
+- `Local File` / `Local Folder`: client-device sources that higher apps may
+  upload before a run. Observer inspects the resulting artifacts, not the local
+  browser handle.
 
 ## Operate and extend
 - `configuration.md` — CLI env vars, UI settings, deployment patterns
@@ -1118,6 +1139,17 @@ AbstractObserver is a **gateway-only** observability UI (Web/PWA) for AbstractFr
 - it runs in the browser (`src/ui/app.tsx`)
 - it fetches/streams run data from an AbstractGateway (`src/lib/gateway_client.ts`)
 - it serves the built SPA from `dist/` via a small Node.js CLI (`bin/cli.js`)
+
+## What is the difference between an Artifact, a Server File, and a Local File?
+- `Artifact`: a durable Runtime-owned payload already stored by the platform.
+  Observer can search, preview, and inspect these through Gateway artifact
+  envelopes.
+- `Server File` / `Server Folder`: user-facing wording for a Gateway
+  workspace-scoped path. Observer does not inventory these as artifacts unless a
+  workflow or helper first imports/stores them.
+- `Local File` / `Local Folder`: a client-device source handled by other apps
+  such as Flow or Assistant before execution. Observer sees the resulting stored
+  artifacts, not the original browser-local handle.
 
 ## Does AbstractObserver execute workflows?
 No. It is a UI client. Execution happens behind the gateway.
@@ -1277,7 +1309,7 @@ Evidence: `vite.config.ts`. See `development.md`.
 
 # AbstractObserver — Architecture
 
-> Last updated: 2026-02-09
+> Last updated: 2026-06-06
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
@@ -1334,12 +1366,60 @@ sequenceDiagram
 ## UI structure (pages → code)
 AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
-- **Observe** (runs, ledger, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/flow_graph.tsx`, `src/ui/run_picker.tsx`
+- **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/flow_graph.tsx`, `src/ui/run_picker.tsx`
+- **Runtime** (platform-level Activity, Artifacts, and Logs modes): `src/ui/app.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
 - **Mindmap** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog** (browse/edit/execute maintenance items): `src/ui/backlog_browser.tsx` + `GatewayClient.backlog_*()`
 - **Inbox** (bug/feature reports + triage decisions + email mailbox): `src/ui/report_inbox.tsx` + `src/ui/email_inbox.tsx` + `GatewayClient.list_*_reports()` / `triage_*()` / `email_*()`
 - **Processes** (process manager; high trust): `src/ui/processes_page.tsx` + `GatewayClient.list_processes()` / `process_log_tail()` / `*_process()`
+
+## Observe projections
+The raw ledger remains the authoritative record, but the default Observe experience now projects it into human-readable views:
+- a run tree grouped by status, workflow, or session, with subruns nested under their parent run;
+- a run overview showing start time, finish time when available, live duration, ledger volume, subrun count, provider-call count, token totals, waits, and generated summaries;
+- a timeline that translates ledger records into requested work and observed outcomes;
+- a provider panel derived from `llm_call` ledger effects, plus the gateway audit tail when available.
+
+The UI intentionally keeps a raw JSON path beside every projection so investigations can verify exactly which ledger record or artifact produced a summary.
+
+## Runtime Boundary
+Runtime is resource-centered, not a workflow narrative. It surfaces global active
+computation, artifact inventory, and gateway system logs. Runs and artifacts are
+cross-linked when metadata contains `run_id`, but the UI does not imply artifact
+provenance beyond Gateway's canonical artifact envelope.
+
+Runtime Activity is the operational supervision view. It separates queues for
+items needing attention, user responses, tool approvals, running work, failed
+runs, scheduled/subworkflow waits, finished runs, and all loaded runs. Rows are
+keyboard-selectable, searchable, and sortable by attention, time, duration,
+token usage, and workflow. Counts in this view are scoped to the loaded run page
+unless Gateway provides a broader run-stats endpoint.
+
+Waiting rows explain the expected action before showing raw diagnostics: answer
+a prompt, choose from choices, review a tool approval, wait for a schedule or
+subworkflow, inspect an external event, or review the ledger when context is
+unclear. The UI uses Gateway commands for run control; Gateway remains the
+authorization boundary for cancel/stop/resume and wait-resolution actions.
+
+The Artifact Explorer consumes `artifact_envelope_v1` rows from
+`GET /api/gateway/artifacts/search` and requests `include_stats=true` so filter
+chips and totals are exact for the selected scope instead of inferred from the
+current page. It separates semantic kind (`voice`, `music`, `sound`,
+unclassified `audio`) from render kind (`image`, `markdown`, `html`, `json`,
+and similar display formats). The detail view prioritizes embedded preview,
+creation summary, prompt/provider/media facts when recorded, run and ledger
+links, provider trace/audit actions, and then raw metadata.
+
+Artifact Explorer intentionally inventories only `Artifact` records: durable
+Runtime-owned payloads exposed through Gateway envelopes. It does not claim to
+inventory live `Server File` / `Server Folder` workspace paths or browser-local
+`Local File` / `Local Folder` sources unless another product surface has first
+materialized them into artifacts.
+
+Gateway audit tail is labeled as global system activity and must not be
+displayed as if it explains a selected artifact. Artifact-specific provider
+trace and audit links are shown only when the envelope reports them.
 
 ## Trust boundaries (important)
 AbstractObserver can enable high-trust features depending on what your gateway exposes:
@@ -1392,6 +1472,7 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs/{run_id}/ledger?after=…&limit=…` — paged replay
   - `GET /api/gateway/runs/{run_id}/ledger/stream?after=…` — SSE stream of `"step"` events
   - `POST /api/gateway/runs/ledger/batch` — fetch ledgers for multiple runs (digest/subrun support)
+  - LLM/provider activity in the Observe UI is derived from `effect.type == "llm_call"` records in this ledger.
 - **Run control**
   - `POST /api/gateway/commands` — submit durable commands (at minimum `pause`, `resume`, `cancel`; also used for schedule updates and wait/tool resume flows)
 
@@ -1414,9 +1495,13 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/processes/env` — set/unset managed environment variables
   - `POST /api/gateway/processes/{id}/start|stop|restart|redeploy`
   - `GET /api/gateway/processes/{id}/logs/tail?max_bytes=…`
-- **Run artifacts (attachments + saved chat threads)**
+- **Runtime explorer, artifacts, and audit tail**
+  - `GET /api/gateway/runs?limit=…&status=…&workflow_id=…&session_id=…&root_only=true|false` — loaded run page used by Runtime Activity queues. Activity counts are displayed as loaded-scope counts unless a future Gateway run-stats endpoint provides exact global queue totals.
+  - `GET /api/gateway/artifacts/search?scope=all|session|run&session_id=…&run_id=…&artifact_kind=…&semantic_kind=…&render_kind=…&modality=…&content_type=…&query=…&tags=…&created_after=…&order_by=…&order=…&include_stats=true&limit=…&offset=…` — canonical artifact search used by the Runtime tab. Rows include legacy fields plus `artifact_envelope_v1`; stats/facets are used for exact filter chips and totals.
+  - `GET /api/gateway/sessions/{session_id}/artifacts?limit=…` — session-scoped artifact listing
   - `GET /api/gateway/runs/{run_id}/artifacts?limit=…`
-  - `GET /api/gateway/runs/{run_id}/artifacts/{artifact_id}/content`
+  - `GET /api/gateway/runs/{run_id}/artifacts/{artifact_id}/content?access_action=preview|download|content` — content/preview/download route; Observer labels access type so Runtime access stats remain useful
+  - `GET /api/gateway/audit/tail?max_bytes=…` — gateway audit/log tail used by Runtime and Observe → Providers
 - **Run summaries + run-scoped chat**
   - `POST /api/gateway/runs/{run_id}/summary`
   - `POST /api/gateway/runs/{run_id}/chat`

@@ -8,6 +8,17 @@ AbstractObserver is a **gateway-only** observability UI (Web/PWA) for AbstractFr
 - it fetches/streams run data from an AbstractGateway (`src/lib/gateway_client.ts`)
 - it serves the built SPA from `dist/` via a small Node.js CLI (`bin/cli.js`)
 
+## What is the difference between an Artifact, a Server File, and a Local File?
+- `Artifact`: a durable Runtime-owned payload already stored by the platform.
+  Observer can search, preview, and inspect these through Gateway artifact
+  envelopes.
+- `Server File` / `Server Folder`: user-facing wording for a Gateway
+  workspace-scoped path. Observer does not inventory these as artifacts unless a
+  workflow or helper first imports/stores them.
+- `Local File` / `Local Folder`: a client-device source handled by other apps
+  such as Flow or Assistant before execution. Observer sees the resulting stored
+  artifacts, not the original browser-local handle.
+
 ## Does AbstractObserver execute workflows?
 No. It is a UI client. Execution happens behind the gateway.
 

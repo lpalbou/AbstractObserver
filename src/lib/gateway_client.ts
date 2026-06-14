@@ -600,13 +600,14 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async list_run_artifacts(run_id: string, opts?: { limit?: number }): Promise<any> {
+  async list_run_artifacts(run_id: string, opts?: { limit?: number; offset?: number }): Promise<any> {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("list_run_artifacts: run_id is required");
     const limit = typeof opts?.limit === "number" ? opts.limit : 200;
+    const offset = typeof opts?.offset === "number" ? Math.max(0, Math.floor(opts.offset)) : 0;
     const url = _join(
       this._cfg.base_url,
-      `/api/gateway/runs/${encodeURIComponent(rid)}/artifacts?limit=${encodeURIComponent(String(limit))}`
+      `/api/gateway/runs/${encodeURIComponent(rid)}/artifacts?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`
     );
     const r = await fetch(url, {
       headers: {
@@ -617,13 +618,14 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async list_session_artifacts(session_id: string, opts?: { limit?: number }): Promise<any> {
+  async list_session_artifacts(session_id: string, opts?: { limit?: number; offset?: number }): Promise<any> {
     const sid = String(session_id || "").trim();
     if (!sid) throw new Error("list_session_artifacts: session_id is required");
     const limit = typeof opts?.limit === "number" ? opts.limit : 200;
+    const offset = typeof opts?.offset === "number" ? Math.max(0, Math.floor(opts.offset)) : 0;
     const url = _join(
       this._cfg.base_url,
-      `/api/gateway/sessions/${encodeURIComponent(sid)}/artifacts?limit=${encodeURIComponent(String(limit))}`
+      `/api/gateway/sessions/${encodeURIComponent(sid)}/artifacts?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`
     );
     const r = await fetch(url, {
       headers: {
@@ -639,27 +641,62 @@ export class GatewayClient {
     session_id?: string | null;
     run_id?: string | null;
     modality?: string | null;
+    artifact_kind?: string | null;
+    semantic_kind?: string | null;
+    render_kind?: string | null;
+    workflow_id?: string | null;
+    node_id?: string | null;
     content_type?: string | null;
     query?: string | null;
     tags?: string | null;
     limit?: number;
+    offset?: number;
+    cursor?: string | null;
+    order_by?: string | null;
+    order?: string | null;
+    created_after?: string | null;
+    created_before?: string | null;
+    include_stats?: boolean;
   }): Promise<any> {
     const params = new URLSearchParams();
     params.set("scope", String(opts?.scope || "all").trim() || "all");
     const session_id = String(opts?.session_id || "").trim();
     const run_id = String(opts?.run_id || "").trim();
     const modality = String(opts?.modality || "").trim();
+    const artifact_kind = String(opts?.artifact_kind || "").trim();
+    const semantic_kind = String(opts?.semantic_kind || "").trim();
+    const render_kind = String(opts?.render_kind || "").trim();
+    const workflow_id = String(opts?.workflow_id || "").trim();
+    const node_id = String(opts?.node_id || "").trim();
     const content_type = String(opts?.content_type || "").trim();
     const query = String(opts?.query || "").trim();
     const tags = String(opts?.tags || "").trim();
-    const limit = typeof opts?.limit === "number" ? opts.limit : 200;
+    const cursor = String(opts?.cursor || "").trim();
+    const order_by = String(opts?.order_by || "").trim();
+    const order = String(opts?.order || "").trim();
+    const created_after = String(opts?.created_after || "").trim();
+    const created_before = String(opts?.created_before || "").trim();
+    const limit = typeof opts?.limit === "number" ? opts.limit : 500;
+    const offset = typeof opts?.offset === "number" ? Math.max(0, Math.floor(opts.offset)) : 0;
     if (session_id) params.set("session_id", session_id);
     if (run_id) params.set("run_id", run_id);
     if (modality) params.set("modality", modality);
+    if (artifact_kind) params.set("artifact_kind", artifact_kind);
+    if (semantic_kind) params.set("semantic_kind", semantic_kind);
+    if (render_kind) params.set("render_kind", render_kind);
+    if (workflow_id) params.set("workflow_id", workflow_id);
+    if (node_id) params.set("node_id", node_id);
     if (content_type) params.set("content_type", content_type);
     if (query) params.set("query", query);
     if (tags) params.set("tags", tags);
+    if (cursor) params.set("cursor", cursor);
+    if (order_by) params.set("order_by", order_by);
+    if (order) params.set("order", order);
+    if (created_after) params.set("created_after", created_after);
+    if (created_before) params.set("created_before", created_before);
+    if (opts?.include_stats) params.set("include_stats", "true");
     params.set("limit", String(limit));
+    params.set("offset", String(offset));
 
     const r = await fetch(_join(this._cfg.base_url, `/api/gateway/artifacts/search?${params.toString()}`), {
       headers: {
@@ -670,12 +707,44 @@ export class GatewayClient {
     return await r.json();
   }
 
-  async download_run_artifact_content(run_id: string, artifact_id: string): Promise<Blob> {
+  async artifact_stats(opts?: {
+    scope?: "all" | "session" | "run" | string;
+    session_id?: string | null;
+    run_id?: string | null;
+    modality?: string | null;
+    semantic_kind?: string | null;
+    render_kind?: string | null;
+    workflow_id?: string | null;
+    node_id?: string | null;
+    content_type?: string | null;
+    query?: string | null;
+    tags?: string | null;
+    created_after?: string | null;
+    created_before?: string | null;
+  }): Promise<any> {
+    const params = new URLSearchParams();
+    params.set("scope", String(opts?.scope || "all").trim() || "all");
+    for (const key of ["session_id", "run_id", "modality", "semantic_kind", "render_kind", "workflow_id", "node_id", "content_type", "query", "tags", "created_after", "created_before"] as const) {
+      const value = String(opts?.[key] || "").trim();
+      if (value) params.set(key, value);
+    }
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/artifacts/stats?${params.toString()}`), {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (!r.ok) throw new Error(`artifact_stats failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  async download_run_artifact_content(run_id: string, artifact_id: string, opts?: { access?: "content" | "preview" | "download" | string }): Promise<Blob> {
     const rid = String(run_id || "").trim();
     const aid = String(artifact_id || "").trim();
     if (!rid) throw new Error("download_run_artifact_content: run_id is required");
     if (!aid) throw new Error("download_run_artifact_content: artifact_id is required");
-    const url = _join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/artifacts/${encodeURIComponent(aid)}/content`);
+    const access = String(opts?.access || "").trim();
+    const qs = access ? `?access=${encodeURIComponent(access)}` : "";
+    const url = _join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/artifacts/${encodeURIComponent(aid)}/content${qs}`);
     const r = await fetch(url, {
       headers: {
         ..._auth_headers(this._cfg.auth_token),

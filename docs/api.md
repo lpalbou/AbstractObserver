@@ -53,10 +53,11 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/processes/{id}/start|stop|restart|redeploy`
   - `GET /api/gateway/processes/{id}/logs/tail?max_bytes=…`
 - **Runtime explorer, artifacts, and audit tail**
-  - `GET /api/gateway/artifacts/search?scope=all|session|run&session_id=…&run_id=…&modality=…&content_type=…&query=…&tags=…&limit=…` — artifact search used by the Runtime tab
+  - `GET /api/gateway/runs?limit=…&status=…&workflow_id=…&session_id=…&root_only=true|false` — loaded run page used by Runtime Activity queues. Activity counts are displayed as loaded-scope counts unless a future Gateway run-stats endpoint provides exact global queue totals.
+  - `GET /api/gateway/artifacts/search?scope=all|session|run&session_id=…&run_id=…&artifact_kind=…&semantic_kind=…&render_kind=…&modality=…&content_type=…&query=…&tags=…&created_after=…&order_by=…&order=…&include_stats=true&limit=…&offset=…` — canonical artifact search used by the Runtime tab. Rows include legacy fields plus `artifact_envelope_v1`; stats/facets are used for exact filter chips and totals.
   - `GET /api/gateway/sessions/{session_id}/artifacts?limit=…` — session-scoped artifact listing
   - `GET /api/gateway/runs/{run_id}/artifacts?limit=…`
-  - `GET /api/gateway/runs/{run_id}/artifacts/{artifact_id}/content`
+  - `GET /api/gateway/runs/{run_id}/artifacts/{artifact_id}/content?access_action=preview|download|content` — content/preview/download route; Observer labels access type so Runtime access stats remain useful
   - `GET /api/gateway/audit/tail?max_bytes=…` — gateway audit/log tail used by Runtime and Observe → Providers
 - **Run summaries + run-scoped chat**
   - `POST /api/gateway/runs/{run_id}/summary`

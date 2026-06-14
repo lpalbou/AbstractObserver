@@ -13,6 +13,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Connect to a remote gateway (cross-origin/CORS)** → `configuration.md` + `troubleshooting.md`
 - **See which gateway endpoints are required for each UI feature** → `api.md`
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
+- **Understand Runtime Activity vs Artifact Explorer vs Observe** → `architecture.md` → "Runtime Boundary"
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
 - **Contribute changes** → `../CONTRIBUTING.md`
@@ -21,6 +22,18 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - `architecture.md` — component view + data flow diagrams
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
+
+Observer’s Runtime views work with Gateway/Runtime artifact inventories, not
+with browser-local files or arbitrary server filesystem browsing:
+
+- `Artifact`: a saved runtime-owned payload that Runtime Activity / Artifact
+  Explorer can inventory and open through Gateway.
+- `Server File` / `Server Folder`: user-facing Gateway workspace paths used by
+  import/export or file-helper flows elsewhere in the product. Observer does not
+  treat them as artifacts until Gateway/Runtime actually store an artifact.
+- `Local File` / `Local Folder`: client-device sources that higher apps may
+  upload before a run. Observer inspects the resulting artifacts, not the local
+  browser handle.
 
 ## Operate and extend
 - `configuration.md` — CLI env vars, UI settings, deployment patterns
