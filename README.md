@@ -10,6 +10,39 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
 - (Optional) **Voice** in run chat: gateway-based TTS + push-to-talk transcription (`src/ui/use_gateway_voice.ts`)
 
+## Entity Memory view (`/entity.html`)
+
+A standalone page (`src/entity/`) that visualizes a **summoned entity's
+evolving memory graph** — memories appearing live, associations lighting on
+use, feelings as visual state, and a timeline you can scrub. It consumes the
+frozen memory replay stream v1 (one envelope shape; offline replay = bounded
+read, realtime = the same read that doesn't stop):
+
+- **Offline**: opens the bundled demo life, or drop any exported `.ndjson`
+  stream onto the page.
+- **Live**: connect a gateway and tail
+  `/api/gateway/entities/{name}/replay/stream` (SSE; reconnects resume
+  exactly via `Last-Event-ID`; cursors are floats because gateway host
+  markers sit at fractional seq positions).
+- **Why a memory entered context** is first-class: recall beats show
+  identity records present by right, continuity carryover, and stimulus
+  matches, plus what was considered and dropped (with reasons).
+- **Feelings**: dual-channel standings per person/tool/concept with scar and
+  bond halos, healings and breaks — presentation only, never gating.
+- **The diary is its own lane**, and diary content stays private: the engine
+  redacts diary display blocks at the source and the view renders the act,
+  never the words.
+- **Truthful scrubbing**: the state at any timeline position is a pure fold
+  of the stream prefix at that seq — the same `as_of` semantics the memory
+  engine itself uses. The view performs only reads (there is no write path
+  in the module).
+
+Regenerate the demo life (requires the Python monorepo checkout):
+
+```bash
+python abstractobserver/scripts/export_demo_entity.py
+```
+
 ## Where it fits (AbstractFramework ecosystem)
 AbstractObserver is one of the browser UIs in the **AbstractFramework** ecosystem:
 - AbstractFramework (ecosystem entrypoint): https://github.com/lpalbou/AbstractFramework

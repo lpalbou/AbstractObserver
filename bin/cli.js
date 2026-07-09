@@ -15,6 +15,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
+// LANDING PAGE (maintainer incident 2026-07-09: the entity launcher served
+// the OBSERVER because '/' and the SPA fallback are hardwired to index.html).
+// One dist, two apps: ABSTRACTOBSERVER_LANDING=entity.html makes this server
+// BE the entity app — '/' and unknown routes land there instead.
+const LANDING_PAGE = String(process.env.ABSTRACTOBSERVER_LANDING || 'index.html').trim() || 'index.html';
 const DEFAULT_GATEWAY_URL = String(process.env.ABSTRACTOBSERVER_GATEWAY_URL || process.env.ABSTRACTGATEWAY_URL || 'http://127.0.0.1:8080').trim().replace(/\/+$/, '') || 'http://127.0.0.1:8080';
 const GATEWAY_SESSION_URL_COOKIE = 'abstractobserver_gateway_url';
 const GATEWAY_SESSION_ID_COOKIE = 'abstractobserver_gateway_session';
@@ -62,6 +67,10 @@ function inject_config_html(html) {
   if (MONITOR_GPU) ui_config.monitor_gpu = true;
   if (ENABLE_BACKLOG !== undefined) ui_config.enable_backlog = ENABLE_BACKLOG;
   if (ENABLE_INBOX_TRIAGE !== undefined) ui_config.enable_inbox_triage = ENABLE_INBOX_TRIAGE;
+  // THIS deployment's gateway (maintainer incident 2026-07-09: the sign-in
+  // card showed a retired gateway's URL) — the UI's connect/sign-in surfaces
+  // default to it instead of any hardcoded historical port.
+  if (DEFAULT_GATEWAY_URL) ui_config.gateway_url = DEFAULT_GATEWAY_URL;
   if (!Object.keys(ui_config).length) return html;
   const marker = "window.__ABSTRACT_UI_CONFIG__";
   if (html.includes(marker)) return html;
@@ -431,10 +440,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Root lands on the configured landing page ('/' would otherwise resolve
+  // to dist/index.html via the directory branch and ignore the landing).
+  if (pathname === '/' || pathname === '') {
+    pathname = `/${LANDING_PAGE}`;
+  }
+
   // Try to serve the requested file
   let filePath = join(DIST_DIR, pathname);
   
   if (serveFile(res, filePath)) {
+    return;
+  }
+
+  // An EXPLICIT .html request that misses must fail loudly, never fall
+  // through to the SPA fallback (maintainer incident 2026-07-09: a
+  // published dist without entity.html silently served the OBSERVER app at
+  // /entity.html — the wrong app wearing the right URL is worse than a 404).
+  if (pathname.endsWith('.html')) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(
+      `${pathname} is not in this build (dist/). If you expected the entity app, `
+      + `this observer build predates it - rebuild from the checkout `
+      + `(cd abstractobserver && npm run build) or use scripts/entity-local.sh.`
+    );
     return;
   }
 
@@ -448,8 +477,9 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // SPA fallback: serve index.html for all other routes
-  const indexPath = join(DIST_DIR, 'index.html');
+  // SPA fallback: serve the configured landing page for all other routes
+  // (index.html = the observer app; entity.html = the entity app).
+  const indexPath = join(DIST_DIR, LANDING_PAGE);
   if (serveFile(res, indexPath)) {
     return;
   }

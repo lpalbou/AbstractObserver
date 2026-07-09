@@ -44,6 +44,14 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        // The main observer app plus the standalone entity memory view
+        // (kept out of the app.tsx monolith by design — see src/entity/).
+        main: resolve(__dirname, "index.html"),
+        entity: resolve(__dirname, "entity.html"),
+      },
+    },
   },
 });
 
