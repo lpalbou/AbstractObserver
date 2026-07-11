@@ -85,6 +85,72 @@ body {
   white-space: nowrap;
 }
 
+/* Content gate: a gateway life is invisible until the browser is verified. */
+.entity_locked {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 24px;
+}
+
+.entity_locked_card {
+  max-width: 460px;
+  text-align: center;
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px 26px;
+}
+
+.entity_locked_card h2 {
+  font-size: 17px;
+  margin: 0 0 10px;
+}
+
+.entity_locked_card p {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+/* Authenticated identity in the header (mechanism never displayed). */
+.eh_identity {
+  color: #7bc98c;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  white-space: nowrap;
+}
+
+/* The drawer's derived visiting identity (read-only — never typed). */
+.cd_identity {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0 0 6px;
+}
+
+.cd_identity strong {
+  color: #7bc98c;
+  font-weight: 600;
+}
+
+/* GW-F handle (castor@address): reachability chip, display-only. */
+.eh_handle {
+  color: var(--text-dim);
+  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .eh_reconnect {
   color: var(--scar);
   font-size: 11px;
@@ -788,6 +854,15 @@ body {
   flex: 0 0 auto;
 }
 
+/* Wall-clock staleness cue beside the warmth legend: activation decays by
+   activity, so a stopped life keeps its last recall green — this chip says
+   how old that green actually is (measured incident: 43h-frozen journal
+   still rendered a warm head). */
+.lg_stale {
+  color: #9db4d0;
+  font-weight: 600;
+}
+
 /* ------------------------------------- side rail (vertical tabs) ----- */
 /* The blackpixel reference: a narrow rail of VERTICAL-text tabs on the
    panel's canvas-facing edge; one panel at a time; clicking the active
@@ -972,6 +1047,11 @@ body {
 
 .ei_kind_beat {
   color: var(--adm-stimulus);
+}
+
+/* Engine acts (engram/reembed markers): never identity gold. */
+.ei_kind_bookkeeping {
+  color: #8fa3bd;
 }
 
 .ei_badge {
@@ -1462,6 +1542,13 @@ body {
   opacity: 0.75;
 }
 
+/* Maintenance act (reembed): retrieval geometry changed at this point —
+ * taller than session ticks so the boundary reads at a glance. */
+.et_tick_maintenance {
+  background: #8fa3bd;
+  height: 10px;
+}
+
 .et_track {
   width: 100%;
   accent-color: var(--accent);
@@ -1900,6 +1987,90 @@ body {
   font-size: 11.5px;
 }
 
+/* ------------------------------------------------------------- prompt tab */
+.wsp_prompt_section {
+  margin-bottom: 8px;
+  border: 1px solid rgba(125, 138, 160, 0.18);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.wsp_prompt_head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: rgba(20, 26, 36, 0.7);
+  border: none;
+  color: #c8d2e0;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.wsp_prompt_head:hover {
+  background: rgba(30, 38, 52, 0.8);
+}
+.wsp_prompt_arrow {
+  color: #7d8aa0;
+  font-size: 10px;
+}
+.wsp_badge {
+  margin-left: auto;
+  font-size: 10px;
+  color: #7d8aa0;
+  border: 1px solid rgba(125, 138, 160, 0.3);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.wsp_badge_overlay {
+  color: #e8b45a;
+  border-color: rgba(232, 180, 90, 0.5);
+}
+.wsp_badge_locked {
+  color: #8a9ab5;
+  border-color: rgba(138, 154, 181, 0.35);
+}
+.wsp_prompt_editor {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wsp_prompt_text {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(10, 14, 20, 0.8);
+  border: 1px solid rgba(125, 138, 160, 0.25);
+  border-radius: 8px;
+  color: #dde5f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  padding: 10px;
+  resize: vertical;
+}
+.wsp_prompt_text:focus {
+  outline: none;
+  border-color: rgba(123, 201, 140, 0.5);
+}
+.wsp_prompt_default_head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  color: #7d8aa0;
+  margin-bottom: 4px;
+}
+.wsp_prompt_pre {
+  max-height: 34vh;
+  white-space: pre-wrap;
+  margin: 0 0 6px;
+}
+.wsp_prompt_section > .wsp_prompt_pre {
+  margin: 10px 12px 12px;
+}
+
 /* ------------------------------------------------ gateway auth + own time */
 .ec_authchip {
   font-size: 11px;
@@ -1990,6 +2161,264 @@ body {
   font-size: 14px;
   min-width: 110px;
   text-transform: capitalize;
+}
+
+.eix_handle {
+  color: var(--text-dim);
+  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- fleet wall (item 13, O-C): one live tile per life ---- */
+
+.eix_fleet_bar {
+  max-width: 1180px;
+  margin: 10px auto 0;
+  padding: 0 18px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.fleet_view {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 14px 18px 40px;
+}
+
+.fleet_head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.fleet_head h2 {
+  font-size: 17px;
+  margin: 0;
+}
+
+.fleet_grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 12px;
+}
+
+.ft_tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.ft_tile:hover {
+  border-color: var(--accent);
+}
+
+.ft_tile_locked,
+.ft_tile_error {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.ft_head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ft_name {
+  font-weight: 600;
+  font-size: 15px;
+  text-transform: capitalize;
+}
+
+.ft_handle {
+  color: var(--text-dim);
+  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+}
+
+.ft_badge {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+}
+
+.ft_badge_live {
+  color: #7bc98c;
+}
+
+.ft_badge_quiet {
+  color: var(--text-dim);
+}
+
+.ft_badge_locked {
+  color: #d89a5a;
+}
+
+.ft_badge_error {
+  color: var(--scar);
+}
+
+.ft_counts {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ft_lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+  min-height: 48px;
+}
+
+.ft_line {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft_line strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.ft_line_empty {
+  font-style: italic;
+}
+
+.ft_detail {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+/* ---- meet reader (item 14 human-access): perspective columns ---- */
+
+.mr_panel {
+  max-width: 1100px;
+  width: min(1100px, 94vw);
+}
+
+.mr_contract {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.5;
+}
+
+.mr_body {
+  overflow: auto;
+}
+
+.mr_columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.mr_leg {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mr_leg_head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+
+.mr_leg_name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.mr_leg_sub {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.mr_leg_head .ei_link {
+  margin-left: auto;
+}
+
+.mr_moment {
+  background: var(--bg-raise);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.mr_moment_summary {
+  border-style: dashed;
+}
+
+.mr_moment_head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.mr_moment_at {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.mr_moment_title {
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.mr_moment_none {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.ei_meet_btn {
+  display: block;
+  margin-top: 3px;
+}
+
+/* Collapsed pair-trail rows ("woven together"): one row per recall's
+ * co-use burst; members indent under it when expanded. */
+.el_weave {
+  cursor: pointer;
+}
+
+.el_weave_member {
+  padding-left: 26px;
+  opacity: 0.85;
 }
 .eix_badge {
   font-size: 10.5px;
@@ -2559,3 +2988,10 @@ body {
 .eh_life_resting, .eix_life_resting { color: #9a86d8; border-color: rgba(154,134,216,0.45); }
 .eh_life_paused, .eix_life_paused { color: #d8c07a; border-color: rgba(216,192,122,0.5); }
 .eh_life_awake, .eix_life_awake { color: #7dd8a0; border-color: rgba(125,216,160,0.45); }
+
+/* Sleep column: standing config, not yet consumed by the sleep pass. */
+.wsp_phase_note {
+  font-size: 10px;
+  opacity: 0.7;
+  cursor: help;
+}

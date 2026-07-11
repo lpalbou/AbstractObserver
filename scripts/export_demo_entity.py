@@ -45,6 +45,7 @@ from abstractmemory import (
     engram,
     lint_spark,
 )
+from abstractmemory.reembed import reembed_store
 from abstractmemory.replay import REPLAY_STREAM, REPLAY_STREAM_VERSION
 
 ENTITY_NAME = "Castor"
@@ -67,6 +68,23 @@ class _CounterClock:
     def __call__(self) -> str:
         self._n += 1
         return f"2026-07-06T10:{self._n // 60:02d}:{self._n % 60:02d}+00:00"
+
+
+class _DemoEmbedder:
+    """Deterministic 8-dim embedder for the reembed epilogue (sha256-based —
+    Python's built-in hash() is salted per process and would make the demo
+    vectors drift between runs)."""
+
+    model = "demo-embed-8d"
+
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        import hashlib
+
+        out: List[List[float]] = []
+        for t in texts:
+            h = hashlib.sha256(t.encode("utf-8")).digest()
+            out.append([b / 255.0 for b in h[:8]])
+        return out
 
 
 class _Run:
@@ -420,9 +438,37 @@ def live_a_life(home_dir: Path, clock: _CounterClock) -> tuple:
     s3.recall_turn("s3-t4", "jellyfin media server behind caddy")
 
     host_marker(home3.ms, markers, "session_closed", "summon-s3", clock)
+    home3.close()
+    del home3, s3
+
+    # ---------------- epilogue: operator maintenance (reembed, plan item 3)
+    # A REAL reembed_store pass over the closed home: the engine journals
+    # its claim record (kind="claim", title "reembed: …") and the door
+    # writes the host marker beside it — both planes of one act, so the
+    # demo file carries the genuine marker shapes the view classifies
+    # (never hand-written fixtures). The demo home is vectorless until
+    # here, which is exactly the pre-M1 repair posture (backfill + pin).
+    home4 = open_home(home_dir, clock)
+    result = reembed_store(
+        home4.ms,
+        embedder=_DemoEmbedder(),
+        owner_id=ENTITY_ID,
+        reason="operator reembed (demo repair)",
+    )
+    # Marker details mirror the SHIPPED gateway verb (entities.py reembed):
+    # old_pin/new_pin objects, rows/vectored counts, the journal marker id.
+    host_marker(
+        home4.ms, markers, "reembed", "maintenance-m1", clock,
+        old_pin=result["old_pin"],
+        new_pin=result["new_pin"],
+        rows=result["rows"],
+        vectored=result["vectored"],
+        reason="operator reembed (demo repair)",
+        journal_marker_record_id=result["marker_record_id"],
+    )
 
     # The last home stays open for the export read; the caller closes it.
-    return markers, home3
+    return markers, home4
 
 
 def main() -> None:

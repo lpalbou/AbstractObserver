@@ -2,6 +2,343 @@
 
 ## Unreleased
 
+- RULED DEFAULT TOOL MATRIX (maintainer, 2026-07-11 12:37, set from the
+  workspace matrix screenshot): every NEW summoned entity now defaults to
+  the full 9-tool set for visit and resident (hands by default — narrowing
+  is the operator's explicit act), and sleep defaults to read-only
+  exploration WITHOUT the diary (web_search, fetch_url, read_memory,
+  search_memory, read_file, list_files — "the entity can't act/change the
+  environment while sleeping, but it can recall or search information; it
+  won't be in its diary"). Implemented in runtime's tree
+  (`tool_policy.py` + ruling-pinned tests; the per-session
+  enable_workspace gate no longer subtracts from defaults; runtime suite
+  1056 green, gateway roundtrip aligned). Observer's tools tab gains the
+  honest sleep cue (⏳ standing config — the sleep pass does not run
+  tools yet) and the operator-layer hint now says identity-shaped
+  statements ("You are curious…") belong in the SPARK at creation, not in
+  operator instructions — the spark-vs-operator placement question is
+  posed to memory/runtime/gateway (e-s 217) per the maintainer's ask.
+  Three adversarial reviews folded (e-s 220): an explicit zero grant
+  (visit: []) no longer falls open to tier-1 in the in-process driver
+  (None = default, () = deny-all, pinned); operator prompt-overlay
+  changes now land a `prompt_overlay_changed` host marker on the entity's
+  replay stream (layer names + content hashes, never words); the
+  operator-layer hint teaches the permission-vs-character split ("act
+  without asking" is operator material, "you are curious" is spark
+  material); canonical-order and exact-list pins added; a named-but-
+  malformed policy phase now falls to defaults loudly (#FALLBACK).
+
+- AGENCY CAPS (maintainer ruling, 2026-07-11 05:25: "default cap for a
+  turn is 20 tool calls"): the chat drawer's turn timeout rises 300s →
+  600s so a legitimate 20-call research turn is never client-aborted
+  mid-work. The offending cap itself (`#FALLBACK native tool call ignored
+  (cap 2/turn)` — a driver-era 2-per-round slice misreported as per-turn)
+  is fixed in the runtime tree: a TRUE 20-call turn-wide budget threaded
+  across rounds, rounds 3 → 20, contract text updated, pinned by tests
+  (runtime suite 1055 green; runtime seat owns the review). A room-wide
+  audit of every agency-reducing cap is convened at commons fs
+  `reports/agency-caps.md` — observer's section complete (no observer
+  surface caps entity/agent execution; render windows are
+  presentation-only).
+
+- THE PROMPT TAB (maintainer, 2026-07-11: "we need, in workspace modal, to
+  have a tab/badge for system prompt that we could rewrite"): the workspace
+  window gains a fourth tab showing the entity's system prompt AS ITS
+  LAYERS, with the operator-editable ones rewritable in place. Layer
+  ownership is the design: the IDENTITY PRELUDE renders read-only (identity
+  evolves by the entity's own acts — never a text box); the TOOLS text is
+  machine-owned (it must match the actual grant; the tools tab is its
+  editor); the CONVERSATION CONTRACT, VISIT paragraph, and OWN-TIME
+  contract are rewritable; a new OPERATOR layer appends standing
+  instructions LAST, explicitly attributed ("STANDING INSTRUCTIONS FROM
+  YOUR OPERATOR") so injected words never blend into the entity's own
+  voice. Empty editor = built-in default (shown below each editor with
+  "copy to editor"); a "full preview" section shows the exact head the next
+  visit summon composes. Server truth: the overlay persists as
+  `<home>/system_prompt.yaml` (operator config beside `substrate.yaml` /
+  `tool_policy.yaml`), read at summon time by ALL THREE session arms (chat
+  driver, durable visit workflow, own-time loop) through ONE composition
+  authority (`compose_system_base`, runtime); gateway serves GET/PUT
+  `/entities/{name}/prompt`. Cross-seat note: runtime + gateway halves
+  implemented from this seat while those agents were offline (maintainer
+  direct ask); seams posted to the room for owner review. Adversarial
+  review (1 agent, 14 findings) folded: operator-last now holds on
+  resident sessions too (own-time text re-composed BEFORE the operator
+  block, not appended after it), per-layer size cap (16k chars) refuses
+  paste accidents that would starve recall, saving text byte-identical to
+  a default is NOT recorded as a rewrite, a conversation rewrite that
+  drops the ```diary election syntax warns loudly, an unparseable
+  overlay file surfaces its raw bytes for recovery instead of silent
+  clobber, PUT documents whole-document-replace semantics, the tab
+  renders the server's layer list (a new layer can never be silently
+  deleted by an old UI's save), and "next summon obeys it; an open
+  session keeps its summoned prompt" is stated on both prompt and tools
+  tabs. Tests: 20 runtime + 6 gateway + typecheck/build green (runtime
+  full suite 1054 passed).
+
+- SIGN IN ONCE (maintainer, 2026-07-10 22:5x: "it should ask only after i
+  disconnect or on first connect — like abstractflow. BUT once i am signed
+  in, stop asking me again!"): the entity app now authenticates the way
+  AbstractFlow does. When the page is served by the observer CLI, sign-in
+  goes through the app-origin session proxy (`POST
+  /api/connection/gateway` — server-side gateway session, first-party
+  HTTP-only cookies); on refresh ONE silent status read re-verifies and
+  the sign-in card opens only on a definitive "signed out". The root
+  cause was a split brain (adversarial audit, 3 agents): the modal
+  verified credentials against `http://127.0.0.1:8080` directly while the
+  app's data calls rode the page-origin proxy — which refuses anonymous
+  calls, strips `Authorization`, and demands a CSRF header the app never
+  sent; every refresh re-asked, and "visit" died in a
+  sign-in -> 401 -> sign-in loop ("The gateway did not accept this
+  session"). Fixed structurally:
+  - posture detection: page-origin proxy first (cookies + CSRF ride every
+    call; `?gateway=` deep links naming the proxy's own gateway CONVERGE
+    onto it instead of dialing cross-origin); direct cross-origin bearer
+    only for gateways the proxy does not front, with the credential
+    stored WITH the base it was verified against;
+  - the CSRF header (`X-AbstractObserver-CSRF`) now rides every mutating
+    call (visit open/turn/close, state, loop, substrate, workspace,
+    create) — same contract as the main observer app;
+  - 401/403 on a door write triggers ONE silent re-check first: a valid
+    session shows the door's actual refusal instead of wiping auth into
+    the sign-in loop; UNREACHABLE never reads as REVOKED (a down gateway
+    keeps your credential and says so);
+  - the sign-in card never flashes while the silent check is in flight
+    (the locked card says "Checking your sign-in…");
+  - session-mode localStorage credentials are dead (the cookie is the
+    truth; the old stored "session" states could never authenticate a
+    cross-origin call and powered the visit loop);
+  - dead code removed: direct `session/login` from the modal; three chat
+    reads that sent no credential at all (status/transcript/life_state)
+    now send the standard headers.
+  Verified live end-to-end against the running gateway + entity server
+  (proxy sign-in -> cookies -> silent re-check -> entity roster ->
+  write-classed operator probe with CSRF 200 / without CSRF 403). 18
+  contract tests (probe classification refused-vs-unreachable, proxy
+  status/login, credential storage shape, loopback-alias base folding).
+  Adversarial re-audit gaps closed same night: a bearer is never REPLAYED
+  against a different gateway than it was verified for (a wrong-host
+  replay leaks the token; legacy base-less credentials probe once and
+  rebind), a proxy session the gateway did not confirm no longer forces
+  the modal (expired-or-down is not "revoked" — note + one-click connect
+  on the locked card), localhost/127.0.0.1 count as the same local
+  gateway, and a base edited in the modal converges the roster's base
+  too.
+
+- Visit direction reads human-first (maintainer, 2026-07-10 23:50): the
+  chat drawer's door-open line now says "you are visiting Mnemosyne"
+  (was "Mnemosyne is visiting with you" — backwards).
+
+- Entity-agency consensus (in progress, cross-seat; not observer code):
+  the plan for summoned-entity autonomy (ReAct unconditional, tools via
+  the workspace matrix, steer_repl-grade visit steering) is being driven
+  to sign-off on the agora hub; observer owns the Phase-C render lane
+  (live agent cycles in the drawer from the visit run's ledger SSE, the
+  steering composer, the workflow picker) and the drawer's migration off
+  the in-process chat path onto the durable /visit/* path. No observer
+  code lands until laurent signs the plan.
+
+- Green means WARM, not famous (maintainer correction 2026-07-10 21:27,
+  screenshot "too many memories selected"): the selection intensity
+  shipped at 20:50 keyed on the GLOBAL access count (lifetime, never
+  decays) — over a long life everything well-used glowed green forever.
+  The green now keys on the TEMPORAL access count: a faithful port of the
+  engine's activation fold (`temporal_activation.ts` — rank-distance
+  decay `weight/(1+d/20)` over the last 512 attention events per
+  (scope|owner) stream, per-step clamp [0,25], refocus ×6 stretch, audit
+  kinds inert, co_selected credits pair trails only; the engine's
+  global-count prior deliberately not ported). Node BLOOM and edge GREEN
+  decay with activity; node SIZE and edge WIDTH keep the global count —
+  the two-count model rendered honestly. Hovercard and inspector now show
+  both truths ("used N times (lifetime)" + "warm X.X now / cold").
+  Honest limit: the stream doesn't carry the host's AttentionConfig
+  (residents run window 8192 vs engine default 512) — the view uses the
+  engine default and the ask is on the memory agent's desk. Measured on
+  Castor's real journal (71,859 attention events, read-only): the old
+  render showed 91 nodes at ≥half bloom (82 near-full) and 1,194 edges at
+  ≥half green — the screenshot's saturated field; the new render shows 29
+  faint blooms, 0 at half, 293 dim head-edges (window 8192 barely
+  differs: 35/399 — his loop repeated the same cohort, so deeper history
+  adds little). 17 parity tests pin the port.
+
+- Warmth staleness cue (data-adversary finding, measured: Castor's
+  journal froze 2026-07-09 04:40Z and the head still rendered warm 43h
+  later): activation decays by ACTIVITY, not wall time, so a stopped life
+  keeps its last recall green forever. The legend now shows "🥶 last
+  selection Nh ago" (fold tracks the newest attention event's
+  observed_at; suppressed under 10 minutes; anchored to the scrub
+  position when scrubbing the past).
+
+- CRITICAL content gate (maintainer 2026-07-10 20:56: "no information
+  should show if i am not authenticated"): a gateway source now renders
+  NOTHING — no roster, no fleet, no graph, no ledger, no stats — until the
+  browser is VERIFIED by the gateway. Stored credentials are re-probed on
+  boot (the "cache of auth" desync fix); an unverified browser never even
+  FETCHES a life (the stream is deferred behind the auth gate and drained
+  only on a confirming probe/sign-in). This is defense-in-depth over the
+  gateway's own auth — its dev-read posture served reads that rendered
+  behind the sign-in modal. Disconnect re-locks; a fresh sign-in unlocks
+  immediately (the modal already proved the credential).
+
+- Visit-refusal recovery (maintainer 2026-07-10 20:56: "still not working
+  despite being authenticated"): when the door refuses a visit with
+  401/403 while the UI believed it was authed (a stale credential — e.g. a
+  session cookie that cannot ride cross-origin), the drawer no longer
+  dead-ends with the stale "set the token in the controls strip" message
+  (there is no such field anymore) — it clears verified-auth and reopens
+  the sign-in card, turning the refusal into a recovery path.
+
+- Selection intensity as the fork monitor renders it (maintainer,
+  2026-07-10 20:50): usage-trail edges now DEEPEN TOWARD GREEN with
+  co-selection count (grey = barely used; log-saturating at ~20 co-uses;
+  the amber flash stays the "just traveled" overlay), and often-selected
+  nodes get a green BLOOM behind their kind color (radial glow scaling
+  with lifetime use, saturating ~30) — the type stays readable, the
+  selection history glows through. Legend updated.
+
+- "Used" bursts fold like the pair bursts (maintainer follow-up): one
+  recall deposits one `selected` event per shelf record; consecutive
+  "Used" lines from the same recall now collapse to "🔦 Used — N memories
+  served this moment: A · B · …", expandable, same-recall-only grouping.
+
+- Identity flows from the ONE authentication (maintainer ruling 2026-07-10
+  20:17): the chat drawer's free-text "who are you?" field is REMOVED — it
+  was a spoofing surface for the entity's memories. The visiting identity
+  derives from the signed-in principal (`person:<userId>`), shown
+  read-only; unauthenticated visitors are told to sign in and the door
+  refuses regardless. The auth badge no longer displays the credential
+  mechanism ("(bearer)"/"(session)") — the identity is the abstraction.
+  Stale auth-refusal notes clear on sign-in.
+
+- One auth control in the header: the top-right gear (source panel) is
+  replaced by connect/disconnect — connected shows the identity +
+  "⏏ disconnect"; disconnected shows "🔑 connect" opening the shared
+  ui-kit sign-in card. The ad-hoc source panel is gone (deep links, the
+  roster, and .ndjson drop cover its uses).
+
+- Session-cookie auth rides EVERY gateway call: all 16 fetch sites in the
+  entity app now send `credentials: "include"`, so a session-mode sign-in
+  (the ONE-LOGIN proxy posture) authenticates reads and writes without a
+  bearer token in the page.
+
+- Gateway URL default is the STANDARD port (maintainer: "default is
+  8080"): the connect card and the boot probe resolve injected config →
+  `http://127.0.0.1:8080`; the page's own origin is never assumed to be a
+  gateway (a static-server port like :4188 showed as the default). Boot
+  now probes candidates in order (param/same-origin → injected → 8080)
+  and treats 401/403 as "gateway found, sign in" rather than moving on.
+
+- Theme contributed to the shared kit: `observer-night` (the entity app's
+  warm-amber-on-blue-black palette) is now a registered abstractuic
+  theme; the entity entry applies it so kit components (sign-in card,
+  pickers) match the app chrome.
+
+- Backlog (maintainer request): visit-wakes-authorized-entity — one click
+  on "visit" should wake an asleep entity when the visitor is authorized;
+  sequenced behind GW-G grants (docs/backlog/proposed/2026-07-10).
+
+- Ledger pair-trail collapse (maintainer, 2026-07-10 20:09: a wall of
+  "Used together" lines "doesn't seem very informative"): one recall
+  deposits one co-use event per PAIR of memories that served the moment
+  together, and the ledger rendered one line per pair — a burst of
+  near-identical rows per recall. Consecutive pair lines from the same
+  recall now collapse into a single "🕸 Woven together — N associations
+  deepened" row naming the distinct memories involved; click to expand
+  the individual pairings. Nothing is hidden, one moment reads as one
+  line.
+
+- Meet reader v0 (item 14's human-access half; maintainer requirement
+  2026-07-10 18:57): a correlated episode's "shared moment" row gains
+  "read the conversation" — a read-only view joining EVERY participating
+  life's own perspective side by side (episodes + reflections selected by
+  the correlation key from each home's SERVED stream, lossless verbatims
+  under each entity's own header, deep link into each life). Diary is
+  structurally absent (memory's pinned boundary); line-level speaker
+  attribution is honestly unclaimed until the door's stamp-attributed
+  transcript surface ships (v1) — never parsed from prose. Unreadable
+  homes contribute no leg; a keyless moment renders an honest "no
+  readable home carries this moment".
+
+- Fleet wall (plan item 13, O-C): "👁 watch all" on the roster opens one
+  live tile per entity — each tile is its OWN bounded-history read + SSE
+  tail + fold (streams never merge; the wall is presentation over N
+  independent folds, zero new serving machinery). Tiles show
+  stream-derived facts (memories/diary/feelings/sessions via the same
+  derivation as the single view, test-pinned) plus the last human-language
+  ledger lines and per-tile wall-time staleness. REFUSED ≠ ABSENT: a 403
+  tail renders as a locked tile quoting the door's detail (`fetchReplay`
+  errors now carry status + detail) — ready for GW-G's observation grants
+  at phase 4; unreachable homes render as errors, never quiet lives.
+
+- Renaming sign-off follow (approved 2026-07-10): the demo exporter now
+  calls memory's renamed `reembed_store` (was `reembed_home`); demo NDJSON
+  regenerated through the renamed pass. Zero old-spelling sites remain.
+
+- Maintenance-act visibility (consensus plan item 3, observer half): the
+  entity view now renders BOTH planes of an operator reembed — the engine's
+  journaled claim record folds as an "engine act" node (gray, seated with
+  free memories, never on the identity ring: the engine itself excludes
+  `attributes.bookkeeping` from the self, and the view must not contradict
+  it) and the door's `reembed` host marker lands as a ledger line naming
+  the space change (`old → new` model ids, "same memories, different
+  neighbors") plus a taller timeline tick — a recall-behavior shift is
+  explainable in the view, never mysterious. Detection prefers explicit
+  `display.bookkeeping`/`display.maintenance` fields (asked of memory as an
+  additive stream delta) and falls back to the engine's own title
+  conventions ("spark-engram v…", "reembed: …" on `kind="claim"`); the
+  engram marker now also reads as an engine act instead of a gold identity
+  node. The demo life gained a real `reembed_home` epilogue (deterministic
+  sha256 embedder) so the classifier is pinned against genuine engine
+  output, not hand-written fixtures. 8 new tests (90 total).
+
+- Interaction correlation rendered (item 14, render-side join): episodes
+  carrying the door-minted `visit_id` fold it from the display block
+  (additive delta asked of memory — the `graph_id` precedent), the
+  inspector shows it as a "shared moment" fact (the other participant's
+  home holds its own record under the same key — perspectives correlate
+  as data, streams never merge), and `fold_digest.ts` gains a `visit_ids`
+  section so walkthrough step 12 asserts the same key in BOTH homes'
+  digests with one diff. Absent stays absent — a solo visit fakes no
+  correlation.
+
+- Observation markers pre-pinned (GW-G design commitments, a2a 0017):
+  `observation_granted`/`observation_revoked` host markers render
+  first-class from the DECLARED payload keys (grantee, door-derived
+  granted_by, scope subset, reason) — "being watched is an event in the
+  life being watched". Test-pinned against the declared keys so any drift
+  at phase-4 build time fails a test instead of rendering wrong.
+
+- Kind-vocabulary drift guard: `ENGINE_RECORD_KINDS` mirrors the engine's
+  root-exported `MEMORY_RECORD_KINDS` (16 kinds), the color map covers
+  question/answer/decision/plan/instruction, and a test refuses any
+  canonical kind that would render unknown-gray (the diary_type-clamp
+  gotcha class, applied to pixels; sync-on-widening per the semantics
+  c319 authority ruling).
+
+- Visit-run close context: the `session_closed` ledger line surfaces
+  `close_reason`/`closed_by` when the door records them (D3 idle timeout,
+  explicit close, and state-transition closes read distinctly; older
+  markers render unchanged).
+
+- `scripts/fold_digest.ts`: headless fold digest — folds any exported
+  replay stream through the SHIPPED view code and prints a deterministic
+  JSON digest of what a reader would see (sessions, nodes by kind,
+  identity use counts / D2, diary, edges, standings). Built as the
+  read-only pixel-plane arbiter for the item-10 A/B harness
+  (ChatSession vs visit workflow): run it over both arms' exports and
+  `diff` the digests.
+
+- Handle display (consensus plan item 5, O-B): the entity header and the
+  roster cards render the door's declared handle (`castor@<address>`,
+  GW-F `handle` field on list/inspect/card) as a display-only reachability
+  chip — never a storage or lookup key (all per-entity UI keys stay on the
+  slug, verified: layout, substrate seed, chat session — so a localhost →
+  VPS move preserves the operator's spatial memory of the graph). No
+  declared address = no chip, matching the door's "never guesses" posture.
+  The reembed ledger line reads the SHIPPED gateway marker shape
+  (`old_pin`/`new_pin` objects with model id + dimension; flat model-id
+  keys tolerated for older exports).
+
 - Sign-in is FIRST and styled (maintainer rulings 2026-07-09 06:47): the
   entity entry now imports the ui-kit theme (the shared
   `GatewaySessionSignInCard` rendered as bare unstyled HTML because

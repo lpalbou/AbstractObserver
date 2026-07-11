@@ -4,10 +4,15 @@
  * Reads a FoldState + the current scrub seq and draws:
  * - nodes colored by class (identity gold, memories blue, diary green in
  *   its own lane, standing targets violet diamonds on the outer orbit);
- * - node size = global selected count (the never-decaying count);
+ * - node size = GLOBAL selected count (the never-decaying count) — what
+ *   mattered over a lifetime shapes the structure;
+ * - green warmth (edge color, node bloom) = the TEMPORAL count — the
+ *   engine's decaying activation, so green means "recently selected",
+ *   never "selected often long ago" (the two-count model rendered:
+ *   maintainer correction 2026-07-10 21:27);
  * - pulses on recent use, colored by WHY the memory entered context
  *   (identity present-by-right / continuity / matched);
- * - edges lit amber when recently traveled, faded by age;
+ * - edges flash amber when just traveled;
  * - scar (red) and bond (warm) halos on standing targets;
  * - closed beliefs as ghosts.
  *
@@ -18,10 +23,14 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import type { FoldState, NodeState, StandingState } from "./stream_fold";
+import { nodeWarmth, pairWarmth, type TemporalActivation } from "./temporal_activation";
 import { DEFAULT_FORCE_PARAMS, hash01, maxVelocity, seedPosition, tickForces, type LayoutEdge, type LayoutNode } from "./force_layout";
 
 export interface GraphCanvasProps {
   fold: FoldState;
+  /** The decaying activation at the scrub position (computed from the
+   * fold's attention windows — recomputed whenever the fold changes). */
+  temporal: TemporalActivation;
   /** Current scrub position (seq); pulses measure recency against it. */
   scrubSeq: number;
   selectedId: string | null;
@@ -35,9 +44,35 @@ export interface GraphCanvasProps {
   height?: number;
 }
 
-const IDENTITY_KINDS = new Set(["value", "purpose", "trait", "claim"]);
+export const IDENTITY_KINDS = new Set(["value", "purpose", "trait", "claim"]);
 
-const KIND_COLORS: Record<string, string> = {
+/** Mirror of the ENGINE's canonical record-kind set — root-exported as
+ * `abstractmemory.MEMORY_RECORD_KINDS` (the one authoritative place;
+ * engine validation vocabulary stays engine-owned, semantics c319 ruling).
+ * SYNC-ON-WIDENING: when memory widens the set, diff against
+ * `python -c "from abstractmemory import MEMORY_RECORD_KINDS; print(sorted(MEMORY_RECORD_KINDS))"`
+ * and extend KIND_COLORS — the drift test fails if a canonical kind would
+ * render as "unknown" gray (the diary_type-clamp gotcha class). */
+export const ENGINE_RECORD_KINDS = [
+  "answer",
+  "claim",
+  "decision",
+  "diary",
+  "dream",
+  "episode",
+  "instruction",
+  "interest",
+  "lesson",
+  "memory",
+  "plan",
+  "purpose",
+  "question",
+  "summary",
+  "trait",
+  "value",
+] as const;
+
+export const KIND_COLORS: Record<string, string> = {
   identity: "#e7b45a",
   memory: "#6ea8d8",
   episode: "#6ea8d8", // lived exchanges are memories
@@ -46,8 +81,14 @@ const KIND_COLORS: Record<string, string> = {
   interest: "#a8c46a", // self-grown direction
   lesson: "#d89a5a",
   diary: "#7bc98c",
+  question: "#d87ab0", // open questions — wake-reason kind, stands out
+  answer: "#5aa9a0", // beside summary: a question resolved
+  decision: "#c9705a",
+  plan: "#5ab8d8",
+  instruction: "#7a8fd8",
   standing: "#c084dd",
   relation: "#54657d",
+  bookkeeping: "#5d6a7a", // engine acts (engram/reembed markers) — not memories
   unknown: "#8a94a6",
 };
 
@@ -82,6 +123,11 @@ const STRUCTURAL_LABEL_COLOR = "rgba(160, 178, 200, 0.85)";
 
 function nodeClass(node: NodeState): string {
   if (node.diary) return "diary";
+  // Bookkeeping markers are kind="claim" like identity claims, but the
+  // engine keeps them OFF the self (self_component excludes
+  // attributes.bookkeeping) — drawing them on the identity ring would
+  // misstate who he is. They seat with the free memories, in engine gray.
+  if (node.bookkeeping) return "bookkeeping";
   if (IDENTITY_KINDS.has(node.kind)) return "identity";
   if (KIND_COLORS[node.kind]) return node.kind;
   return "unknown";
@@ -142,11 +188,11 @@ function layoutStorageKey(key: string): string {
   return `abstractobserver_entity_layout_v2:${key}`;
 }
 
-export function GraphCanvas({ fold, scrubSeq, selectedId, searchIds, layoutKey, onSelect, height }: GraphCanvasProps): React.ReactElement {
+export function GraphCanvas({ fold, temporal, scrubSeq, selectedId, searchIds, layoutKey, onSelect, height }: GraphCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const layoutRef = useRef<Map<string, LayoutNode>>(new Map());
   const cameraRef = useRef<Camera>({ x: 0, y: 0, zoom: 1.05 });
-  const stateRef = useRef({ fold, scrubSeq, selectedId, searchIds });
+  const stateRef = useRef({ fold, temporal, scrubSeq, selectedId, searchIds });
   const hoverRef = useRef<string | null>(null);
   /** The small memory card beside the cursor (maintainer ask, 2026-07-08):
    * set when the hovered node CHANGES (never per mousemove — no jitter). */
@@ -161,7 +207,7 @@ export function GraphCanvas({ fold, scrubSeq, selectedId, searchIds, layoutKey, 
    * for the node's lifetime (and persisted): permanent spatial memory. */
   const seatRef = useRef<{ seats: Map<string, number>; next: number }>({ seats: new Map(), next: 0 });
 
-  stateRef.current = { fold, scrubSeq, selectedId, searchIds };
+  stateRef.current = { fold, temporal, scrubSeq, selectedId, searchIds };
   onSelectRef.current = onSelect;
 
   // Load persisted positions + seats once per layout key.
@@ -230,7 +276,7 @@ export function GraphCanvas({ fold, scrubSeq, selectedId, searchIds, layoutKey, 
 
     const frame = () => {
       if (disposed) return;
-      const { fold, scrubSeq, selectedId, searchIds } = stateRef.current;
+      const { fold, temporal, scrubSeq, selectedId, searchIds } = stateRef.current;
       const layout = layoutRef.current;
       const sim = simRef.current;
 
@@ -476,6 +522,20 @@ export function GraphCanvas({ fold, scrubSeq, selectedId, searchIds, layoutKey, 
       }
       ctx.setLineDash([]);
 
+      // Trail intensity is COLOR, not just alpha (maintainer, 2026-07-10
+      // 20:50, the fork monitor as the bar) — and the color keys on the
+      // TEMPORAL count (maintainer correction 21:27): green means "these
+      // two served a recent moment together", decaying with activity like
+      // the engine's trail activation. Width and base alpha stay GLOBAL
+      // (lifetime co-use = structure); the amber flash stays the "just
+      // traveled" overlay. A trail deep in lifetime count but cold now
+      // renders grey — history is the shape, warmth is the color.
+      const trailColor = (t: number, alpha: number) => {
+        const r = Math.round(148 + (126 - 148) * t);
+        const g = Math.round(168 + (220 - 168) * t);
+        const bl = Math.round(194 + (160 - 194) * t);
+        return `rgba(${r}, ${g}, ${bl}, ${alpha})`;
+      };
       for (const e of fold.edges.values()) {
         const la = layout.get(e.a);
         const lb = layout.get(e.b);
@@ -484,9 +544,16 @@ export function GraphCanvas({ fold, scrubSeq, selectedId, searchIds, layoutKey, 
         const b = toScreen(lb.x, lb.y);
         const age = scrubSeq - e.last_seq;
         const recent = age >= 0 && age <= pulseWindow ? 1 - age / pulseWindow : 0;
-        // One-time co-use stays a whisper (0.09); the trail brightens with
-        // repetition — otherwise 200 count-1 edges read as a hairball.
-        const baseAlpha = e.count <= 1 ? 0.09 : Math.min(0.55, 0.14 + Math.log1p(e.count) * 0.11);
+        const warmth = pairWarmth(temporal.pairs.get(e.key) ?? 0);
+        // One-time co-use stays a whisper (0.09); lifetime depth brightens
+        // the line, recent warmth greens it — otherwise 200 count-1 edges
+        // read as a hairball and a deep trail reads no different from a
+        // shallow one. Warm trails get an alpha floor so a cold-but-deep
+        // history never outshines what is actually happening now.
+        const baseAlpha = Math.max(
+          e.count <= 1 ? 0.09 : Math.min(0.6, 0.14 + Math.log1p(e.count) * 0.12),
+          warmth * 0.55,
+        );
         ctx.globalAlpha = edgeDim(e.a, e.b);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -495,7 +562,7 @@ export function GraphCanvas({ fold, scrubSeq, selectedId, searchIds, layoutKey, 
           ctx.strokeStyle = `rgba(232, 165, 74, ${0.25 + recent * 0.6})`;
           ctx.lineWidth = 1 + recent * 1.6 + Math.log1p(e.count) * 0.4;
         } else {
-          ctx.strokeStyle = `rgba(148, 168, 194, ${baseAlpha})`;
+          ctx.strokeStyle = trailColor(warmth, baseAlpha);
           ctx.lineWidth = 0.8 + Math.log1p(e.count) * 0.4;
         }
         ctx.stroke();
@@ -583,6 +650,24 @@ export function GraphCanvas({ fold, scrubSeq, selectedId, searchIds, layoutKey, 
             ctx.stroke();
             ctx.globalAlpha = dim;
           }
+        }
+
+        // Selection bloom (maintainer, 2026-07-10 20:50; corrected 21:27):
+        // a memory GLOWS green behind its kind color when it is WARM —
+        // the TEMPORAL activation (decays with activity), not the lifetime
+        // count. A record selected 300 times over a life but not recently
+        // shows no bloom; size already carries its lifetime weight. Drawn
+        // UNDER the fill so the kind color stays crisp.
+        const warmth = nodeWarmth(temporal.records.get(node.id) ?? 0);
+        if (!isGhost && warmth > 0.02) {
+          const bloomR = r * (1.7 + warmth * 1.5);
+          const glow = ctx.createRadialGradient(p.x, p.y, r * 0.6, p.x, p.y, bloomR);
+          glow.addColorStop(0, `rgba(110, 220, 160, ${0.12 + warmth * 0.4})`);
+          glow.addColorStop(1, "rgba(110, 220, 160, 0)");
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, bloomR, 0, Math.PI * 2);
+          ctx.fillStyle = glow;
+          ctx.fill();
         }
 
         ctx.beginPath();
@@ -766,6 +851,12 @@ export function GraphCanvas({ fold, scrubSeq, selectedId, searchIds, layoutKey, 
                 <span>
                   {hoverNode.selected_count} time{hoverNode.selected_count === 1 ? "" : "s"} (lifetime)
                   {hoverNode.last_admission ? ` · last as ${hoverNode.last_admission}` : ""}
+                </span>
+                <span>warm</span>
+                <span>
+                  {(temporal.records.get(hoverNode.id) ?? 0) > 0.05
+                    ? `${(temporal.records.get(hoverNode.id) ?? 0).toFixed(1)} now (recent selections; decays)`
+                    : "cold (not recently selected)"}
                 </span>
                 <span>scope</span>
                 <span>{hoverNode.scope}</span>

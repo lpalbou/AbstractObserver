@@ -1,28 +1,39 @@
 /**
  * Sign in to the gateway — the SHARED card (ui-kit GatewaySessionSignInCard,
- * the same component AbstractFlow renders), wired for the observer:
+ * the same component AbstractFlow renders), wired for the observer.
  *
- * - USERS-MODE gateways (same-origin deployments): exchanges the token for
- *   the HTTP-only browser session via /api/gateway/session/login.
- * - LEGACY-TOKEN gateways (dev; and any cross-origin setup where the
- *   session cookie cannot travel): verifies the token against the operator
- *   probe and keeps it as the browser's Bearer credential.
+ * TWO POSTURES, decided by the HOST (entity_view detects them, the modal
+ * never guesses — the 2026-07-10 regression was exactly a modal that
+ * signed the browser in against a base the app then didn't use):
  *
- * "Keep this browser signed in" persists the credential in localStorage;
- * Disconnect clears it (and logs the session out where one exists).
+ * - PROXY posture (the page is served by the observer CLI, which exposes
+ *   POST /api/connection/gateway): the token is exchanged for a
+ *   server-side gateway session + FIRST-PARTY HttpOnly cookies — the
+ *   abstractflow shape. Nothing is persisted in localStorage; the cookie
+ *   IS the signed-in state, and refresh re-verifies silently.
+ * - DIRECT posture (a cross-origin gateway base, e.g. ?gateway= deep
+ *   links): the token is verified against the operator probe and kept as
+ *   the browser's Bearer credential, stored WITH the base it was verified
+ *   against (a base-less credential replayed against a different base was
+ *   the "asks me at every refresh" bug).
  */
 
 import React, { useState } from "react";
 
 import { GatewaySessionSignInCard } from "@abstractframework/ui-kit";
 
-import { probeOperatorAuth } from "./stream_source";
+import { proxyConnectionLogin } from "./gateway_session";
+import { classifyOperatorAuth } from "./stream_source";
 
 export interface GatewayAuthState {
   mode: "session" | "bearer";
   userId: string;
   token: string | null; // bearer mode only
   remembered: boolean;
+  /** The base this credential was VERIFIED against (bearer mode). A
+   * credential without its base is a split-brain seed — never replay it
+   * against a different gateway. */
+  base?: string;
 }
 
 export const AUTH_STORAGE_KEY = "abstractobserver_gateway_auth";
@@ -32,7 +43,11 @@ export function loadStoredAuth(): GatewayAuthState | null {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as GatewayAuthState;
-      if (parsed && (parsed.mode === "bearer" || parsed.mode === "session")) return parsed;
+      // Session-mode states are NOT loaded: the proxy cookie is the truth
+      // of a session sign-in (localStorage copies of it were the unusable
+      // "session" credentials behind the visit-refused loop, audit V7).
+      if (parsed && parsed.mode === "bearer" && parsed.token) return parsed;
+      return null;
     }
     // Legacy migration: the old controls-strip token field persisted under
     // its own key — adopt it as a remembered bearer credential so nobody is
@@ -47,39 +62,32 @@ export function loadStoredAuth(): GatewayAuthState | null {
 
 export function storeAuth(state: GatewayAuthState | null): void {
   try {
-    if (state && state.remembered) localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(state));
-    else localStorage.removeItem(AUTH_STORAGE_KEY);
+    // Only DIRECT-posture bearer credentials persist (the proxy session
+    // lives in HttpOnly cookies — nothing to store, nothing to leak).
+    if (state && state.remembered && state.mode === "bearer" && state.token) {
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(state));
+    } else {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
   } catch {
     // best-effort
   }
 }
 
-async function sessionLogin(baseUrl: string, userId: string, token: string, remember: boolean): Promise<boolean> {
-  const res = await fetch(`${baseUrl}/api/gateway/session/login`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ user_id: userId, token, remember }),
-  });
-  return res.ok;
-}
-
-export async function sessionLogout(baseUrl: string): Promise<void> {
-  try {
-    await fetch(`${baseUrl}/api/gateway/session/logout`, { method: "POST", credentials: "include" });
-  } catch {
-    // signing out of a dead gateway is still signing out
-  }
-}
-
 export interface ConnectGatewayModalProps {
+  /** PROXY posture: sign in through the page origin's connection API;
+   * the gateway base is server-pinned (no URL field). */
+  proxyMode: boolean;
+  /** The app's RESOLVED base (direct posture). The modal signs in against
+   * exactly this — never a divergent internal default. Empty = first
+   * connect with no base known yet (the URL field is shown). */
   baseUrl: string;
   onBaseUrlChange(value: string): void;
   onConnected(state: GatewayAuthState): void;
   onClose(): void;
 }
 
-export function ConnectGatewayModal({ baseUrl, onBaseUrlChange, onConnected, onClose }: ConnectGatewayModalProps): React.ReactElement {
+export function ConnectGatewayModal({ proxyMode, baseUrl, onBaseUrlChange, onConnected, onClose }: ConnectGatewayModalProps): React.ReactElement {
   const [userId, setUserId] = useState("admin");
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
@@ -87,45 +95,51 @@ export function ConnectGatewayModal({ baseUrl, onBaseUrlChange, onConnected, onC
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
-  // The gateway URL must default to THIS deployment's gateway (maintainer
-  // incident 2026-07-09: a retired gateway's URL survived as the visible
-  // default). Same-origin proxy first (the AbstractFlow shape), the
-  // cli-injected config next; a hardcoded historical port never.
+  // Direct posture only: when the app has no base yet, offer the injected
+  // config, else the STANDARD gateway port — never this page's own origin
+  // (the observer's static server port is not a gateway).
   const injected = (
     (window as unknown as { __ABSTRACT_UI_CONFIG__?: { gateway_url?: string } }).__ABSTRACT_UI_CONFIG__?.gateway_url || ""
   ).trim();
-  const effectiveUrl = (baseUrl || "").trim() || injected || window.location.origin;
+  const DEFAULT_GATEWAY = "http://127.0.0.1:8080";
+  const effectiveUrl = proxyMode ? "" : (baseUrl || "").trim() || injected || DEFAULT_GATEWAY;
 
   const submit = async () => {
     setSubmitting(true);
     setError(undefined);
-    const url = effectiveUrl.replace(/\/+$/, "");
     try {
-      // Same-origin gateways get the HTTP-only session (the flow shape);
-      // cross-origin (the observer's usual posture) keeps the Bearer path —
-      // a Lax cookie never travels cross-site, honesty over pretense.
-      const sameOrigin = new URL(url, window.location.href).origin === window.location.origin;
-      if (sameOrigin && (await sessionLogin(url, userId.trim(), token.trim(), remember))) {
-        const state: GatewayAuthState = { mode: "session", userId: userId.trim(), token: null, remembered: remember };
-        storeAuth(state);
-        onConnected(state);
+      if (proxyMode) {
+        // The abstractflow shape: one POST, server-side session, cookies.
+        const login = await proxyConnectionLogin(userId.trim(), token.trim(), remember);
+        if (login.ok) {
+          onConnected({ mode: "session", userId: login.userId || userId.trim() || "operator", token: null, remembered: remember });
+          return;
+        }
+        setError(login.detail || "The gateway refused this sign-in. Check the user id and token.");
         return;
       }
-      const probe = await probeOperatorAuth(url, token.trim());
-      if (probe?.operator) {
+      // Direct posture: verify the bearer against the app's resolved base.
+      const url = effectiveUrl.replace(/\/+$/, "");
+      const probe = await classifyOperatorAuth(url, token.trim());
+      if (probe.kind === "operator") {
         const state: GatewayAuthState = {
           mode: "bearer",
-          userId: probe.user_id || userId.trim() || "operator",
+          userId: probe.probe.user_id || userId.trim() || "operator",
           token: token.trim(),
           remembered: remember,
+          base: url,
         };
         storeAuth(state);
         onConnected(state);
         return;
       }
-      setError("The gateway refused this token (401). Check the token — and that the gateway URL is right.");
+      if (probe.kind === "refused") {
+        setError("The gateway refused this token (401). Check the token — and that the gateway URL is right.");
+      } else {
+        setError(`Could not reach the gateway: ${probe.error}`);
+      }
     } catch (e) {
-      setError(`Could not reach the gateway: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Sign-in failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSubmitting(false);
     }
@@ -142,13 +156,17 @@ export function ConnectGatewayModal({ baseUrl, onBaseUrlChange, onConnected, onC
         <GatewaySessionSignInCard
           kicker="Observer connection"
           title="Connect this browser to AbstractGateway"
-          description="Sign in with a Gateway user token. Same-origin gateways get an HTTP-only browser session; otherwise the token stays in this browser as a Bearer credential."
+          description={
+            proxyMode
+              ? "Sign in with a Gateway user token. This browser gets an HTTP-only session on this app's own origin — you stay signed in until you disconnect."
+              : "Sign in with a Gateway user token. The token stays in this browser as a Bearer credential for this gateway."
+          }
           statusLabel="Signed out"
           statusTone="warn"
           tokenSourceLabel="token: missing"
-          showGatewayUrl
+          showGatewayUrl={!proxyMode}
           gatewayUrl={effectiveUrl}
-          gatewayUrlPlaceholder={injected || window.location.origin}
+          gatewayUrlPlaceholder={injected || DEFAULT_GATEWAY}
           onGatewayUrlChange={onBaseUrlChange}
           userId={userId}
           onUserIdChange={setUserId}

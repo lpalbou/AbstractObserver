@@ -68,16 +68,32 @@ export interface ChatDrawerProps {
   entity: string;
   entityName: string;
   token: string | null;
-  participant: string;
+  /** The AUTHENTICATED principal's user id (maintainer ruling 2026-07-10
+   * 20:17: "i am logged in through the gateway, so i am fully
+   * authenticated — the 'who are you?' field should not even be there
+   * and is a security risk"). Identity flows from the ONE authentication;
+   * the drawer DERIVES person:<userId> and never offers a text field a
+   * visitor could fake. Null = not signed in (the door will refuse). */
+  authUserId: string | null;
   /** The live stream (for realtime turn activity: while OUR turn runs,
    * new envelopes on this home ARE this turn's activity — one life, one
    * summon). tools_ran in the turn response remains the tool authority. */
   envelopes: ReplayEnvelope[];
-  onParticipantChange(value: string): void;
+  /** Called when the DOOR refuses a write with 401/403 despite the UI
+   * believing it is authed (a stale/unusable credential — e.g. a session
+   * cookie that cannot ride to a cross-origin gateway). The host clears
+   * verified-auth and reopens sign-in — the dead-end becomes a recovery
+   * path (maintainer 2026-07-10 20:56: "still not working despite being
+   * authenticated"). */
+  onAuthRefused(): void;
 }
 
 export function ChatDrawer(props: ChatDrawerProps): React.ReactElement {
-  const { baseUrl, entity, entityName, token, participant, envelopes } = props;
+  const { baseUrl, entity, entityName, token, authUserId, envelopes, onAuthRefused } = props;
+  /** Identity derives from the session principal — never typed, never
+   * spoofable client-side (the door verifies regardless; this is the
+   * honest display of what will be stamped). */
+  const participant = authUserId ? `person:${authUserId}` : "";
   const [status, setStatus] = useState<ChatStatus | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<DrawerMessage[]>([]);
@@ -258,10 +274,18 @@ export function ChatDrawer(props: ChatDrawerProps): React.ReactElement {
     };
   }, [baseUrl, entity, chatId, rehydrate]);
 
+  // A stale refusal ("auth required") must not outlive a successful sign-in
+  // (maintainer screenshots 2026-07-10: connected badge beside the old
+  // refusal text). Auth change wipes the note.
+  useEffect(() => {
+    setNote(null);
+  }, [token, authUserId]);
+
   const open = useCallback(() => {
-    // Maintainer ruling (2026-07-08): never block the operator. An empty
-    // name defaults to person:operator instead of refusing.
-    const who = participant.trim() || "person:operator";
+    // Identity from authentication ONLY (maintainer 2026-07-10 20:17): the
+    // participant is the signed-in principal; an unauthenticated open is
+    // the door's to refuse, never ours to fake as person:operator.
+    const who = participant || "person:operator";
     // ONE substrate per entity (2026-07-09 06:32): the gateway resolves the
     // entity's persisted choice — the visit never asks separately. If no
     // choice exists anywhere, the gateway's refusal names the fix.
@@ -277,9 +301,12 @@ export function ChatDrawer(props: ChatDrawerProps): React.ReactElement {
           // best-effort
         }
         setNote(null);
+        // Direction of the visit reads human-first (maintainer, 2026-07-10
+        // 23:50): the OPERATOR visits the entity's home — never the
+        // reverse ("Mnemosyne is visiting with you" read backwards).
         push({
           role: "system",
-          content: `The door opened: ${entityName} is visiting with you${r.yielded_loop ? " (his own time yielded for this visit)" : ""}. Prelude ${r.prelude_tokens ?? "?"} tokens.`,
+          content: `The door opened: you are visiting ${entityName}${r.yielded_loop ? " (his own time yielded for this visit)" : ""}. Prelude ${r.prelude_tokens ?? "?"} tokens.`,
         });
       })
       .catch((e: Error & { status?: number }) => {
@@ -287,14 +314,19 @@ export function ChatDrawer(props: ChatDrawerProps): React.ReactElement {
         // poll will show the foreign-visit note — refresh it NOW so the
         // operator is not left with a stale start screen (the 23:49 race:
         // status said closed, the click met a conflict).
-        setNote(
-          e.status === 401 || e.status === 403
-            ? "The door refused: operator auth required (set the token in the controls strip)."
-            : `The door refused: ${refusalText(e)}`,
-        );
-        getChatStatus(baseUrl, entity)
-          .then(setStatus)
-          .catch(() => undefined);
+        if (e.status === 401 || e.status === 403) {
+          // The UI believed it was authed but the door refused: the
+          // credential is stale/unusable (e.g. a session cookie that
+          // cannot ride cross-origin). Recover, don't dead-end — hand
+          // back to the host to re-verify + reopen sign-in.
+          setNote("The gateway did not accept this session for the visit — reconnecting…");
+          onAuthRefused();
+        } else {
+          setNote(`The door refused: ${refusalText(e)}`);
+          getChatStatus(baseUrl, entity)
+            .then(setStatus)
+            .catch(() => undefined);
+        }
       })
       .finally(() => setBusy("idle"));
   }, [baseUrl, entity, entityName, participant, token, push, substrate]);
@@ -467,14 +499,16 @@ export function ChatDrawer(props: ChatDrawerProps): React.ReactElement {
             </>
           ) : (
             <>
-              <input
-                type="text"
-                className="cd_participant"
-                placeholder="who are you? (person:…)"
-                value={participant}
-                onChange={(e) => props.onParticipantChange(e.target.value)}
-                title="Stamped into his memories as WHO he lived this with"
-              />
+              {/* Identity flows from the ONE authentication (maintainer
+                * 2026-07-10 20:17) — shown, never typed. A free-text field
+                * here was a spoofing surface for the entity's memories. */}
+              {participant ? (
+                <p className="cd_identity" title="Your authenticated identity — stamped into his memories as WHO he lived this with. The door verifies it; nothing here is typed or fakeable.">
+                  visiting as <strong>{participant}</strong>
+                </p>
+              ) : (
+                <p className="cd_note">Sign in first (top right) — his memories record WHO he lived each moment with, so the door only admits authenticated visitors.</p>
+              )}
               {/* ONE substrate per entity (2026-07-09 06:32): the visit uses
                 * the SAME stored mind as his own time — shown here, changed
                 * only in the controls strip (🧠). No second picker. */}
@@ -483,7 +517,7 @@ export function ChatDrawer(props: ChatDrawerProps): React.ReactElement {
                   ? `mind: ${substrate.provider} / ${substrate.model}`
                   : "mind: the gateway's stored choice for him (set it once with 🧠 in the controls strip)"}
               </p>
-              <button className="cd_open_btn" onClick={open} disabled={busy === "opening"}>
+              <button className="cd_open_btn" onClick={open} disabled={busy === "opening" || !participant}>
                 {busy === "opening" ? "opening…" : `visit ${entityName}`}
               </button>
             </>

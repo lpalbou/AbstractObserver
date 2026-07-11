@@ -43,6 +43,9 @@ export interface EntitySummary {
   name: string;
   slug: string;
   entity_id?: string;
+  /** `<name>@<declared address>` when the door declares one (GW-F, plan
+   * item 5). Reachability, NOT identity — display only, never a key. */
+  handle?: string;
 }
 
 /** The browser's gateway credential, module-wide (maintainer, 2026-07-08:
@@ -72,9 +75,29 @@ function readHeaders(extra: Record<string, string> = {}): Record<string, string>
   return h;
 }
 
+/** The app-origin session proxy's CSRF guard (bin/cli.js): mutating
+ * /api/gateway/* calls through the proxy are refused unless they carry
+ * X-AbstractObserver-CSRF matching the readable csrf cookie the proxy set
+ * at connect time. Same contract as the main observer app
+ * (src/lib/gateway_client.ts). Harmless when absent (direct-gateway
+ * posture: no such cookie, no header). */
+function proxyCsrfHeader(): Record<string, string> {
+  try {
+    const csrf = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("abstractobserver_gateway_csrf="))
+      ?.slice("abstractobserver_gateway_csrf=".length);
+    if (csrf) return { "X-AbstractObserver-CSRF": decodeURIComponent(csrf) };
+  } catch {
+    // non-browser tests
+  }
+  return {};
+}
+
 /** List entity homes served by the gateway. */
 export async function listEntities(baseUrl: string): Promise<EntitySummary[]> {
-  const res = await fetch(`${baseUrl}/api/gateway/entities`, { headers: readHeaders({ Accept: "application/json" }) });
+  const res = await fetch(`${baseUrl}/api/gateway/entities`, { credentials: "include", headers: readHeaders({ Accept: "application/json" }) });
   if (!res.ok) {
     // Status rides the error so the index can tell "sign in required"
     // (401/403 -> connect prompt) from "gateway down" (maintainer incident
@@ -88,14 +111,30 @@ export async function listEntities(baseUrl: string): Promise<EntitySummary[]> {
     name: String(e.name ?? e.slug ?? ""),
     slug: String(e.slug ?? e.name ?? ""),
     entity_id: e.entity_id ? String(e.entity_id) : undefined,
+    handle: typeof e.handle === "string" && e.handle ? e.handle : undefined,
   }));
 }
 
-/** Bounded history read over the gateway's NDJSON endpoint. */
+/** Bounded history read over the gateway's NDJSON endpoint. Errors carry
+ * `status` (and the response `detail` when JSON) so consumers can render
+ * a 403 observation refusal distinctly from a down gateway (O-E: an
+ * ungranted mind must never read as an empty or broken one). */
 export async function fetchReplay(baseUrl: string, entity: string, sinceSeq = 0): Promise<ReplayEnvelope[]> {
   const url = `${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/replay?since_seq=${sinceSeq}`;
-  const res = await fetch(url, { headers: readHeaders({ Accept: "application/x-ndjson" }) });
-  if (!res.ok) throw new Error(`replay read failed: HTTP ${res.status}`);
+  const res = await fetch(url, { credentials: "include", headers: readHeaders({ Accept: "application/x-ndjson" }) });
+  if (!res.ok) {
+    const err = new Error(`replay read failed: HTTP ${res.status}`) as Error & { status?: number; detail?: string };
+    err.status = res.status;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (body && body.detail !== undefined) {
+        err.detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      }
+    } catch {
+      // non-JSON error body: status alone is enough
+    }
+    throw err;
+  }
   const { envelopes, errors } = parseNdjson(await res.text());
   if (errors.length) {
     console.warn(`#FALLBACK: ${errors.length} unparseable replay line(s) skipped`, errors.slice(0, 3));
@@ -119,7 +158,7 @@ export async function streamReplay(
   batchSize = 800,
 ): Promise<ReplayEnvelope[]> {
   const url = `${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/replay?since_seq=${sinceSeq}`;
-  const res = await fetch(url, { headers: readHeaders({ Accept: "application/x-ndjson" }) });
+  const res = await fetch(url, { credentials: "include", headers: readHeaders({ Accept: "application/x-ndjson" }) });
   if (!res.ok) throw new Error(`replay read failed: HTTP ${res.status}`);
   if (!res.body) {
     // No streaming support (very old browser): the one-shot path still works.
@@ -192,7 +231,7 @@ export interface RecordVerbatim {
  * shipped yet OR record has no verbatim; 403 = refused (diary). */
 export async function fetchRecordVerbatim(baseUrl: string, entity: string, graphId: string): Promise<RecordVerbatim> {
   const url = `${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/records/${encodeURIComponent(graphId)}/verbatim`;
-  const res = await fetch(url, { headers: readHeaders({ Accept: "application/json" }) });
+  const res = await fetch(url, { credentials: "include", headers: readHeaders({ Accept: "application/json" }) });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     const err = new Error(detail || `HTTP ${res.status}`) as Error & { status?: number };
@@ -218,7 +257,7 @@ export interface DiaryEntryRead {
  * is visible in the entity's biography. Reason is REQUIRED (422 without). */
 export async function fetchDiaryEntry(baseUrl: string, entity: string, entryId: string, reason: string): Promise<DiaryEntryRead> {
   const url = `${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/diary/${encodeURIComponent(entryId)}?reason=${encodeURIComponent(reason)}`;
-  const res = await fetch(url, { headers: readHeaders({ Accept: "application/json" }) });
+  const res = await fetch(url, { credentials: "include", headers: readHeaders({ Accept: "application/json" }) });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     const err = new Error(detail || `HTTP ${res.status}`) as Error & { status?: number };
@@ -242,11 +281,10 @@ export async function postEntityState(
   reason: string,
   token: string | null,
 ): Promise<EntityStateInfo> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/state`, {
+    credentials: "include",
     method: "POST",
-    headers,
+    headers: authHeaders(token),
     body: JSON.stringify({ state, reason }),
   });
   if (!res.ok) {
@@ -273,6 +311,7 @@ export interface EntityStateInfo {
  * Pure read; the view shows a badge and never offers state writes. */
 export async function fetchEntityState(baseUrl: string, entity: string): Promise<EntityStateInfo> {
   const res = await fetch(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/state`, {
+    credentials: "include",
     headers: readHeaders({ Accept: "application/json" }),
   });
   if (!res.ok) throw new Error(`state read failed: HTTP ${res.status}`);
@@ -290,14 +329,34 @@ export interface OperatorAuthProbe {
  * answers "would the state/chat/diary doors accept me?". 200 = yes;
  * 401/403 = no. Controls and the visit door gate on this. */
 export async function probeOperatorAuth(baseUrl: string, token: string | null): Promise<OperatorAuthProbe | null> {
+  const r = await classifyOperatorAuth(baseUrl, token);
+  return r.kind === "operator" ? r.probe : null;
+}
+
+/** The probe with its REASON (parity-contract fix, adversarial audit V5:
+ * "network errors read as auth refusals"): a definitive 401/403 means the
+ * door refused THIS credential — sign-in is the answer; anything else
+ * (gateway down, DNS, 5xx) means UNREACHABLE — re-asking the operator to
+ * sign in cannot help and must not be the response. */
+export type OperatorAuthClassification =
+  | { kind: "operator"; probe: OperatorAuthProbe }
+  | { kind: "refused"; status: number }
+  | { kind: "unreachable"; error: string };
+
+export async function classifyOperatorAuth(baseUrl: string, token: string | null): Promise<OperatorAuthClassification> {
   try {
-    const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
+    const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json", ...proxyCsrfHeader() };
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${baseUrl}/api/gateway/entities/auth/probe`, { method: "POST", headers, body: "{}" });
-    if (!res.ok) return null;
-    return (await res.json()) as OperatorAuthProbe;
-  } catch {
-    return null;
+    const res = await fetch(`${baseUrl}/api/gateway/entities/auth/probe`, { credentials: "include", method: "POST", headers, body: "{}" });
+    if (res.ok) {
+      const probe = (await res.json()) as OperatorAuthProbe;
+      if (probe?.operator) return { kind: "operator", probe };
+      return { kind: "refused", status: 200 };
+    }
+    if (res.status === 401 || res.status === 403) return { kind: "refused", status: res.status };
+    return { kind: "unreachable", error: `HTTP ${res.status}` };
+  } catch (e) {
+    return { kind: "unreachable", error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -398,7 +457,7 @@ export interface ToolPolicyInfo {
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: readHeaders({ Accept: "application/json" }) });
+  const res = await fetch(url, { credentials: "include", headers: readHeaders({ Accept: "application/json" }) });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     const err = new Error(detail || `HTTP ${res.status}`) as Error & { status?: number };
@@ -410,7 +469,7 @@ async function getJson<T>(url: string): Promise<T> {
 
 async function putJson<T>(url: string, body: unknown, token: string | null): Promise<T> {
   const headers = authHeaders(token);
-  const res = await fetch(url, { method: "PUT", headers, body: JSON.stringify(body) });
+  const res = await fetch(url, { credentials: "include", method: "PUT", headers, body: JSON.stringify(body) });
   if (!res.ok) {
     let detail = "";
     try {
@@ -464,6 +523,35 @@ export function putToolPolicy(
   return putJson(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/tool-policy`, { policy }, token);
 }
 
+/** The system prompt as its layers (maintainer, 2026-07-11): the rendered
+ * identity prelude is read-only truth; `layers` are the operator-editable
+ * ones (source says whether the built-in default or an overlay is live);
+ * `preview` is the exact next-summon head composition. */
+export interface PromptLayerInfo {
+  layers: Record<string, { text: string; source: "default" | "overlay" }>;
+  defaults: Record<string, string>;
+  prelude: string;
+  preview: string;
+  warnings: string[];
+  editable: string[];
+  /** Raw bytes of an UNPARSEABLE system_prompt.yaml (recovery surface —
+   * absent when the file is healthy or missing). */
+  raw_file?: string | null;
+}
+
+export function getEntityPrompt(baseUrl: string, entity: string): Promise<PromptLayerInfo> {
+  return getJson(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/prompt`);
+}
+
+export function putEntityPrompt(
+  baseUrl: string,
+  entity: string,
+  overlay: Record<string, string>,
+  token: string | null,
+): Promise<PromptLayerInfo> {
+  return putJson(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/prompt`, { overlay }, token);
+}
+
 export interface ChatCloseResult {
   summary?: string;
   turns?: number;
@@ -472,7 +560,7 @@ export interface ChatCloseResult {
 }
 
 function authHeaders(token: string | null): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
+  const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json", ...proxyCsrfHeader() };
   const effective = token || _gatewayToken;
   if (effective) headers["Authorization"] = `Bearer ${effective}`;
   return headers;
@@ -482,7 +570,7 @@ async function postJson<T>(url: string, body: unknown, token: string | null, tim
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { method: "POST", headers: authHeaders(token), body: JSON.stringify(body), signal: controller.signal });
+    const res = await fetch(url, { credentials: "include", method: "POST", headers: authHeaders(token), body: JSON.stringify(body), signal: controller.signal });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       const err = new Error(detail || `HTTP ${res.status}`) as Error & { status?: number };
@@ -496,7 +584,9 @@ async function postJson<T>(url: string, body: unknown, token: string | null, tim
 }
 
 export function getChatStatus(baseUrl: string, entity: string): Promise<ChatStatus> {
-  return fetch(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/chat`, { headers: { Accept: "application/json" } }).then((res) => {
+  // readHeaders, not bare Accept (audit V8): on a strict-auth gateway a
+  // credential-less status read 401s and the drawer degrades silently.
+  return fetch(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/chat`, { credentials: "include", headers: readHeaders({ Accept: "application/json" }) }).then((res) => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json() as Promise<ChatStatus>;
   });
@@ -539,7 +629,10 @@ export function sendChatTurn(
   // never to whoever originally opened the session.
   const body: Record<string, unknown> = { text };
   if (speaker?.trim()) body["speaker"] = speaker.trim();
-  return postJson(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/chat/${encodeURIComponent(chatId)}/turn`, body, token, 300000);
+  // 10 min: the turn budget is 20 tool calls (maintainer ruling 2026-07-11)
+  // and a research-heavy turn legitimately chains many lookups — the client
+  // must not abort a healthy turn the server is still working.
+  return postJson(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/chat/${encodeURIComponent(chatId)}/turn`, body, token, 600000);
 }
 
 export function closeChat(baseUrl: string, entity: string, chatId: string, token: string | null): Promise<ChatCloseResult> {
@@ -565,7 +658,8 @@ export interface ChatTranscript {
  * the drawer remounts or the page reloads mid-visit. */
 export function getChatTranscript(baseUrl: string, entity: string, chatId: string): Promise<ChatTranscript> {
   return fetch(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/chat/${encodeURIComponent(chatId)}/transcript`, {
-    headers: { Accept: "application/json" },
+    credentials: "include",
+    headers: readHeaders({ Accept: "application/json" }),
   }).then((res) => {
     if (!res.ok) {
       const err = new Error(`HTTP ${res.status}`) as Error & { status?: number };
@@ -656,7 +750,8 @@ export interface ServerLifeState {
  * to client-side derivation, labeled #FALLBACK in the derived state. */
 export function getServerLifeState(baseUrl: string, entity: string): Promise<ServerLifeState | null> {
   return fetch(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/life_state`, {
-    headers: { Accept: "application/json" },
+    credentials: "include",
+    headers: readHeaders({ Accept: "application/json" }),
   }).then((res) => {
     if (res.status === 404 || res.status === 405) return null;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -690,6 +785,7 @@ export interface EntitySubstrate {
 
 export function getEntitySubstrate(baseUrl: string, entity: string): Promise<EntitySubstrate | null> {
   return fetch(`${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/substrate`, {
+    credentials: "include",
     headers: gatewayReadHeaders({ Accept: "application/json" }),
   }).then((res) => {
     if (res.status === 404 || res.status === 405) return null; // older gateway
@@ -705,9 +801,7 @@ export function putEntitySubstrate(
   choice: { provider: string; model: string },
 ): Promise<EntitySubstrate> {
   const url = `${baseUrl}/api/gateway/entities/${encodeURIComponent(entity)}/substrate`;
-  const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return fetch(url, { method: "PUT", headers, body: JSON.stringify(choice) }).then((res) => {
+  return fetch(url, { credentials: "include", method: "PUT", headers: authHeaders(token), body: JSON.stringify(choice) }).then((res) => {
     if (!res.ok) return res.json().then((b) => Promise.reject(new Error(String(b?.detail || `HTTP ${res.status}`))));
     return res.json() as Promise<EntitySubstrate>;
   });

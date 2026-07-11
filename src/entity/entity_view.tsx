@@ -18,16 +18,20 @@ import { ChatDrawer } from "./chat_drawer";
 import { WorkspacePanel } from "./workspace_panel";
 import { SideTabs, type SideTab } from "./drawer";
 import { EntitiesIndex } from "./entities_index";
+import { FleetView } from "./fleet_view";
+import { MeetReader } from "./meet_reader";
 import { GraphCanvas, relationDash } from "./graph_canvas";
 import { IdentityCardContent } from "./identity_card";
 import { Inspector } from "./inspector";
 import { LedgerPanel } from "./ledger_panel";
 import { Timeline } from "./timeline";
 import { foldUpToIndex, type FoldCache } from "./stream_fold";
+import { computeTemporalActivation } from "./temporal_activation";
 import { deriveLifeState } from "./entity_state";
 import { SubstratePicker, loadSubstrateChoice, saveSubstrateChoice, type SubstrateChoice } from "./substrate_picker";
 import { getEntitySubstrate, putEntitySubstrate } from "./stream_source";
 import {
+  classifyOperatorAuth,
   fetchEntityState,
   getLoopStatus,
   getServerLifeState,
@@ -40,7 +44,6 @@ import {
   stopLoop,
   streamReplay,
   type EntityStateInfo,
-  type EntitySummary,
   type LiveTailHandle,
   type LoopStatus,
   type ServerLifeState,
@@ -49,10 +52,10 @@ import type { ReplayEnvelope } from "./stream_types";
 import {
   ConnectGatewayModal,
   loadStoredAuth,
-  sessionLogout,
   storeAuth,
   type GatewayAuthState,
 } from "./connect_gateway_modal";
+import { proxyConnectionLogout, proxyConnectionStatus, sameGatewayTarget } from "./gateway_session";
 
 const DEMO_URL = "/demo/castor.ndjson";
 /** Playback baseline: envelopes per second at 1x. */
@@ -72,10 +75,14 @@ export function EntityView(): React.ReactElement {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showQuiet, setShowQuiet] = useState(false);
   const [gatewayUrl, setGatewayUrl] = useState("");
-  const [entities, setEntities] = useState<EntitySummary[] | null>(null);
+  /** Live view of the resolved base for deferred work (the auth check may
+   * CONVERGE a ?gateway= deep link onto the page-origin proxy after the
+   * boot effect captured the param — a stale closure would dial the old
+   * base and 401). */
+  const gatewayUrlRef = useRef("");
+  gatewayUrlRef.current = gatewayUrl;
   const [entityName, setEntityName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [showConnect, setShowConnect] = useState(false);
 
   const tailRef = useRef<LiveTailHandle | null>(null);
   const playRef = useRef<{ acc: number; last: number } | null>(null);
@@ -85,6 +92,8 @@ export function EntityView(): React.ReactElement {
   const lastEnvelopeAtRef = useRef<number | null>(null);
   const [liveAgeS, setLiveAgeS] = useState<number | null>(null);
   const [entityState, setEntityState] = useState<EntityStateInfo | null>(null);
+  /** GW-F handle (`castor@<address>`) — display-only reachability. */
+  const [handle, setHandle] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
   // The browser's gateway credential (shared sign-in card, 2026-07-08):
   // seeded from storage or ?token=; every read helper sends it (strict-auth
@@ -96,14 +105,140 @@ export function EntityView(): React.ReactElement {
     return stored;
   });
   const controlToken = authState?.token ?? "";
+  // VERIFIED auth (maintainer ruling 2026-07-10 20:56, CRITICAL): a stored
+  // credential is a CLAIM, not proof — the gateway must confirm it accepts
+  // this browser before ANY entity content renders or streams. Without
+  // this, the gateway's dev-read posture (or a stale session cookie the
+  // door rejects for writes) leaked the graph/ledger behind the sign-in
+  // modal. `authVerified` gates all gateway reads/renders; it flips true
+  // ONLY on a confirming probe (boot re-verify) or a fresh successful
+  // sign-in (the modal probed/logged-in), and false on disconnect/refusal.
+  const [authVerified, setAuthVerified] = useState(false);
+  const authVerifiedRef = useRef(false);
+  authVerifiedRef.current = authVerified;
+  /** PROXY posture (the abstractflow shape, maintainer 2026-07-10 22:5x):
+   * the page origin serves /api/connection/gateway — sign in ONCE through
+   * it, first-party cookies carry the session, refresh re-verifies
+   * silently. null = still detecting. When false, the DIRECT posture
+   * applies (cross-origin bearer, base-bound credential). */
+  const [proxyMode, setProxyMode] = useState<boolean | null>(null);
+  const proxyModeRef = useRef<boolean | null>(null);
+  proxyModeRef.current = proxyMode;
+  /** A silent verification is in flight — the sign-in card must NOT open
+   * during it (audit V4: the modal flashed on every refresh even when the
+   * stored credential was about to verify). */
+  const [authChecking, setAuthChecking] = useState(true);
+  /** A life-stream kickoff deferred until auth verifies (so an unverified
+   * browser never fetches a life). Drained by the auth effect. */
+  const pendingStreamRef = useRef<null | (() => void)>(null);
   const [showAuth, setShowAuth] = useState(false);
-  // LOGIN-FIRST (maintainer ruling 2026-07-09 06:47: "like for flow, it
-  // should be the first thing you see if you are not logged in"): a gateway
-  // source with no credential opens the sign-in card immediately — the app
-  // never renders as a silent read-only shell behind an invisible wall.
+  // THE ONE SILENT CHECK on boot/base-change (the abstractflow contract;
+  // LOGIN-FIRST ruling 2026-07-09 honored by the check's own conclusions):
+  // 1. proxy posture — GET /api/connection/gateway answers "still signed
+  //    in?" from the HttpOnly cookie; sign-in appears only on a definitive
+  //    no. 2. direct posture — re-probe the stored bearer against the
+  //    resolved base, distinguishing REFUSED (sign in again) from
+  //    UNREACHABLE (a gateway that is down is not a revoked credential —
+  //    audit V5/W1: never answer a network error with a sign-in demand).
+  // The modal opens HERE, on definitive conclusions — never while the
+  // check is in flight (audit V4: the card flashed on every refresh even
+  // when the stored credential was about to verify).
   useEffect(() => {
-    if (sourceKind === "gateway" && !authState) setShowAuth(true);
-  }, [sourceKind, authState]);
+    if (sourceKind !== "gateway" || authVerified) return;
+    const base = gatewayUrl.trim().replace(/\/+$/, "");
+    let cancelled = false;
+    setAuthChecking(true);
+    (async () => {
+      // ONE status read answers two questions: does this origin have the
+      // proxy, and which gateway does it front. The proxy posture covers
+      // same-origin bases AND direct deep links whose ?gateway= names the
+      // proxy's own gateway (the launcher opens ?gateway=http://…:8080 —
+      // converge it onto the proxy instead of dialing cross-origin, or the
+      // sign-in-once cookie can never apply to the main entry path).
+      const sameOriginBase = !base || new URL(base, window.location.href).origin === window.location.origin;
+      const status = await proxyConnectionStatus();
+      if (cancelled) return;
+      const proxyGateway = (status.gatewayUrl || "").trim().replace(/\/+$/, "");
+      const proxyCovers =
+        status.available && (sameOriginBase || (proxyGateway !== "" && sameGatewayTarget(proxyGateway, base)));
+      if (proxyCovers) {
+        setProxyMode(true);
+        setGatewayToken(null); // cookies carry the session; no bearer
+        if (base) {
+          // Converge every data call onto the page origin (the proxy).
+          setGatewayUrl("");
+          setIndexBase((prev) => (prev !== null ? "" : prev));
+        }
+        if (status.ok) {
+          setAuthState({ mode: "session", userId: status.userId || "operator", token: null, remembered: true });
+          setAuthVerified(true);
+          setShowAuth(false);
+          setControlNote(null);
+        } else if (status.hasSession) {
+          // A session cookie exists but the gateway did not confirm it —
+          // EXPIRED session or gateway DOWN, and the proxy's one answer
+          // cannot distinguish them (refresh-audit gap G2). Unreachable
+          // must never read as revoked: say what is known, keep the
+          // cookie, and leave the connect button one click away on the
+          // locked card instead of forcing the modal.
+          setControlNote("The gateway did not confirm your browser session (it may be restarting, or the session expired) — retry in a moment, or connect again.");
+        } else {
+          setShowAuth(true); // first connect through this browser
+        }
+        setAuthChecking(false);
+        return;
+      }
+      setProxyMode(false);
+      // DIRECT posture: verify the stored bearer against this base — but
+      // never REPLAY a token against a different gateway than it was
+      // verified for (refresh-audit gap G1: sending a bearer to the wrong
+      // host leaks it). Legacy base-less credentials probe once and are
+      // rebound to the base that accepts them.
+      if (authState?.token) {
+        const storedBase = (authState.base || "").trim().replace(/\/+$/, "");
+        if (storedBase && base && !sameGatewayTarget(storedBase, base)) {
+          setControlNote(`Your saved sign-in belongs to ${storedBase} — connect to this gateway to continue.`);
+          setShowAuth(true);
+          setAuthChecking(false);
+          return;
+        }
+        const probe = await classifyOperatorAuth(base, authState.token);
+        if (cancelled) return;
+        if (probe.kind === "operator") {
+          if (!storedBase && authState.remembered) {
+            // Rebind the legacy credential to the base that accepted it.
+            storeAuth({ ...authState, base });
+            setAuthState({ ...authState, base });
+          }
+          setAuthVerified(true);
+          setShowAuth(false);
+          setControlNote(null);
+        } else if (probe.kind === "refused") {
+          setControlNote("Your saved sign-in is no longer accepted by this gateway — please connect again.");
+          setShowAuth(true);
+        } else {
+          // Unreachable is NOT a credential problem: keep the credential,
+          // say what happened, let the operator retry (no sign-in demand).
+          setControlNote(`The gateway is not answering (${probe.error}) — your sign-in is kept; retry when it is back.`);
+        }
+      } else {
+        setShowAuth(true); // no credential at all: first connect
+      }
+      setAuthChecking(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceKind, authState, authVerified, gatewayUrl]);
+  // Drain a deferred life stream once auth verifies (the fetch that was
+  // withheld from an unverified browser).
+  useEffect(() => {
+    if (authVerified && pendingStreamRef.current) {
+      const run = pendingStreamRef.current;
+      pendingStreamRef.current = null;
+      run();
+    }
+  }, [authVerified]);
   const [controlNote, setControlNote] = useState<string | null>(null);
   const [showWorkspace, setShowWorkspace] = useState(false);
   const [loopStatus, setLoopStatus] = useState<LoopStatus | null>(null);
@@ -116,10 +251,18 @@ export function EntityView(): React.ReactElement {
    * a 98 MB replay must never look like an empty broken page. */
   const [bootProgress, setBootProgress] = useState<string | null>(null);
   const [loopBusy, setLoopBusy] = useState(false);
-  const [participant, setParticipant] = useState(() => localStorage.getItem("abstractobserver_entity_participant") || "");
+  // Identity flows from the ONE authentication (maintainer 2026-07-10
+  // 20:17): the old free-text participant field (and its localStorage
+  // seed) is GONE — the chat drawer derives person:<userId> from the
+  // signed-in principal, and the door verifies regardless.
   /** The multi-entity manager (0010 121500Z): when a gateway answers and
    * no ?entity= is selected, the app is an INDEX of lives, not one life. */
   const [indexBase, setIndexBase] = useState<string | null>(null);
+  /** Fleet wall (item 13, O-C): watch every life at once from the index. */
+  const [fleetMode, setFleetMode] = useState(false);
+  /** Meet reader (item 14 human-access half): the shared moment open for
+   * reading — every participating life's perspective, side by side. */
+  const [meetVisitId, setMeetVisitId] = useState<string | null>(null);
   /** A requested side tab (roster click = "join his room" -> chat, the
    * maintainer's ask 2026-07-09). The nonce bumps every open so SideTabs
    * re-applies even when re-entering the same entity. */
@@ -228,6 +371,28 @@ export function EntityView(): React.ReactElement {
   }, [entityName, gatewayUrl]);
 
   useEffect(() => {
+    // The entity's HANDLE (`castor@<declared address>`, GW-F item 5):
+    // display-only reachability — shown in the header, NEVER a storage or
+    // lookup key (O-B: UI keys stay on the slug; the address may change).
+    if (sourceKind !== "gateway" || !entityName) {
+      setHandle(null);
+      return;
+    }
+    const base = gatewayUrl.trim().replace(/\/+$/, "");
+    let cancelled = false;
+    listEntities(base)
+      .then((list) => {
+        if (cancelled) return;
+        const row = list.find((e) => e.slug === entityName);
+        setHandle(row?.handle ?? null);
+      })
+      .catch(() => !cancelled && setHandle(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceKind, entityName, gatewayUrl]);
+
+  useEffect(() => {
     // The lifecycle badge (asleep/awake/paused — gateway 0008 surface).
     // Pure read on a slow poll; older gateways without the endpoint just
     // leave the badge off.
@@ -276,46 +441,79 @@ export function EntityView(): React.ReactElement {
       // A long life is a BIG stream (castor: ~98 MB / 67k events) — load it
       // progressively so the graph fills as it arrives instead of looking
       // empty/broken for the whole fetch (maintainer, 2026-07-09 04:32:
-      // "this is not castor").
+      // "this is not castor"). GATED ON VERIFIED AUTH (2026-07-10 20:56):
+      // an unverified browser must not even FETCH a life; the stream waits
+      // for the confirming probe, drained by the auth effect below.
       loadEnvelopes([], "gateway", `${entityParam} @ ${gatewayParam || "this gateway"}`);
-      setBootProgress("loading his life…");
-      streamReplay(gatewayParam, entityParam, 0, (all, bytes) => {
-        setEnvelopes([...all]);
-        setScrubIndex(all.length - 1);
-        setBootProgress(`loading his life… ${all.length.toLocaleString()} events${bytes > 0 ? ` · ${(bytes / 1048576).toFixed(0)} MB` : ""}`);
-      })
-        .then((history) => {
-          setBootProgress(null);
-          if (!wantReplay) {
-            // An empty history (a just-created life) still tails from 0 so
-            // its first moments stream in without a reload.
-            startTail(gatewayParam, entityParam, history.length > 0 ? history[history.length - 1].seq : 0);
-          } else {
-            setScrubIndex(-1);
-            setPlaying(history.length > 0);
-          }
+      const runBootStream = () => {
+        // The base is read LIVE, not from the boot closure: the silent auth
+        // check may have converged a ?gateway= deep link onto the page
+        // origin's proxy by the time this deferred stream drains.
+        const streamBase = gatewayUrlRef.current.trim().replace(/\/+$/, "");
+        setBootProgress("loading his life…");
+        streamReplay(streamBase, entityParam, 0, (all, bytes) => {
+          setEnvelopes([...all]);
+          setScrubIndex(all.length - 1);
+          setBootProgress(`loading his life… ${all.length.toLocaleString()} events${bytes > 0 ? ` · ${(bytes / 1048576).toFixed(0)} MB` : ""}`);
         })
-        .catch((e) => {
-          setBootProgress(null);
-          setError(`Could not open ${entityParam}: ${String((e as Error).message || e)}`);
-        });
+          .then((history) => {
+            setBootProgress(null);
+            if (!wantReplay) {
+              startTail(streamBase, entityParam, history.length > 0 ? history[history.length - 1].seq : 0);
+            } else {
+              setScrubIndex(-1);
+              setPlaying(history.length > 0);
+            }
+          })
+          .catch((e) => {
+            setBootProgress(null);
+            setError(`Could not open ${entityParam}: ${String((e as Error).message || e)}`);
+          });
+      };
+      if (authVerifiedRef.current) runBootStream();
+      else pendingStreamRef.current = runBootStream;
       return () => tailRef.current?.close();
     }
     const srcParam = params.get("src");
     if (!srcParam) {
-      // No entity, no file: if a gateway answers (same-origin behind the
-      // Observer proxy, or ?gateway=), the app IS the entities index
-      // (0010 121500Z). The demo stays the fallback for standalone use.
-      listEntities(gatewayParam)
-        .then(() => {
-          setGatewayUrl(gatewayParam);
-          setSourceKind("gateway");
-          setSourceLabel(`entities @ ${gatewayParam || "this gateway"}`);
-          setIndexBase(gatewayParam);
-        })
-        .catch(() => {
+      // No entity, no file: find the gateway (0010 121500Z + maintainer
+      // 2026-07-10: "default is 8080"). Candidates in order: ?gateway= /
+      // same-origin (the proxy posture) → the cli-injected config → the
+      // STANDARD local gateway port. A 401/403 answer still counts as a
+      // gateway FOUND (the index prompts sign-in); only unreachable moves
+      // on. The demo stays the fallback for standalone use.
+      const injected = (
+        (window as unknown as { __ABSTRACT_UI_CONFIG__?: { gateway_url?: string } }).__ABSTRACT_UI_CONFIG__?.gateway_url || ""
+      )
+        .trim()
+        .replace(/\/+$/, "");
+      // Candidate order: explicit param > same-origin ("" — the PROXY
+      // posture; when the page is served by the observer CLI, its
+      // /api/gateway/* proxy is the contract path and cookies carry the
+      // session) > the base a stored bearer was verified against (audit
+      // V3: a credential without its base re-asked on every refresh) >
+      // injected config > the standard local gateway port.
+      const storedBase = (loadStoredAuth()?.base || "").trim().replace(/\/+$/, "");
+      const candidates = [...new Set([gatewayParam, "", storedBase, injected, "http://127.0.0.1:8080"])];
+      const adopt = (base: string) => {
+        setGatewayUrl(base);
+        setSourceKind("gateway");
+        setSourceLabel(`entities @ ${base || "this gateway"}`);
+        setIndexBase(base);
+      };
+      const tryNext = (i: number): void => {
+        if (i >= candidates.length) {
           loadDemoOrSrc(null);
-        });
+          return;
+        }
+        listEntities(candidates[i])
+          .then(() => adopt(candidates[i]))
+          .catch((e: Error & { status?: number }) => {
+            if (e.status === 401 || e.status === 403) adopt(candidates[i]);
+            else tryNext(i + 1);
+          });
+      };
+      tryNext(0);
       return () => tailRef.current?.close();
     }
     loadDemoOrSrc(srcParam);
@@ -362,22 +560,12 @@ export function EntityView(): React.ReactElement {
     [loadEnvelopes],
   );
 
-  const connectGateway = useCallback(async () => {
-    setError(null);
-    try {
-      const base = gatewayUrl.trim().replace(/\/+$/, "");
-      const list = await listEntities(base);
-      setEntities(list);
-      if (list.length === 0) setError("The gateway has no entity homes yet.");
-    } catch (e) {
-      setError(`Gateway list failed: ${String((e as Error).message || e)}`);
-    }
-  }, [gatewayUrl]);
-
   // ------------------------------------------------------- gateway auth
   const disconnectGateway = useCallback(async () => {
-    if (authState?.mode === "session") {
-      await sessionLogout(gatewayUrl.trim().replace(/\/+$/, "") || window.location.origin);
+    if (proxyModeRef.current) {
+      // End the server-side gateway session + clear the first-party cookies
+      // (the ONE disconnect the contract allows to re-ask for sign-in).
+      await proxyConnectionLogout();
     }
     setGatewayToken(null);
     storeAuth(null);
@@ -387,7 +575,37 @@ export function EntityView(): React.ReactElement {
       // best-effort
     }
     setAuthState(null);
+    setAuthVerified(false); // lock the content gate again
     setControlNote("Disconnected — this browser holds no gateway credential.");
+  }, []);
+
+  /** 401/403 on a door write while the UI believed it was authed. The
+   * contract fix (audit V6/W2): ONE silent re-check first — a transient
+   * refusal, a CSRF hiccup, or a non-auth 403 must not nuke a valid
+   * session into a sign-in demand loop. Only a re-check that itself says
+   * "refused" reopens the sign-in. */
+  const handleAuthRefused = useCallback(async () => {
+    const base = gatewayUrl.trim().replace(/\/+$/, "");
+    if (proxyModeRef.current) {
+      const status = await proxyConnectionStatus();
+      if (status.ok) {
+        setControlNote("The door refused that action, but your sign-in is valid — the refusal was about the action, not you.");
+        return;
+      }
+    } else if (authState?.token) {
+      const probe = await classifyOperatorAuth(base, authState.token);
+      if (probe.kind === "operator") {
+        setControlNote("The door refused that action, but your sign-in is valid — the refusal was about the action, not you.");
+        return;
+      }
+      if (probe.kind === "unreachable") {
+        setControlNote(`The gateway is not answering (${probe.error}) — your sign-in is kept; retry when it is back.`);
+        return;
+      }
+    }
+    setAuthVerified(false);
+    setControlNote("The gateway no longer accepts this browser's sign-in — please connect again.");
+    setShowAuth(true);
   }, [authState, gatewayUrl]);
 
   // ------------------------------------------------------------ own time
@@ -423,6 +641,9 @@ export function EntityView(): React.ReactElement {
    * suppresses own-time and sleeping. The gateway's `/life_state` is the
    * authority when present; `entityState.mode` + loop status carry the
    * client-side fallback for older gateways. */
+  // A gateway source whose browser is not yet VERIFIED shows no content
+  // (the critical content gate). File/demo sources are never locked.
+  const gatewayLocked = sourceKind === "gateway" && !authVerified;
   const life = useMemo(() => deriveLifeState(entityState, loopStatus, null, serverLife), [entityState, loopStatus, serverLife]);
   const ownTimeActive = life.ownTimeActive;
 
@@ -492,41 +713,48 @@ export function EntityView(): React.ReactElement {
   const openEntity = useCallback(
     async (name: string, opts: { pushUrl?: boolean; joinRoom?: boolean } = {}) => {
       setError(null);
-      try {
-        const base = gatewayUrl.trim().replace(/\/+$/, "");
-        setEntityName(name);
-        loadEnvelopes([], "gateway", `${name} @ ${base || "this gateway"}`);
-        setShowConnect(false);
-        setBootProgress("loading his life…");
-        const history = await streamReplay(base, name, 0, (all, bytes) => {
-          setEnvelopes([...all]);
-          setScrubIndex(all.length - 1);
-          setBootProgress(`loading his life… ${all.length.toLocaleString()} events${bytes > 0 ? ` · ${(bytes / 1048576).toFixed(0)} MB` : ""}`);
-        });
-        setBootProgress(null);
-        // "When I click on the entity, I should join its room" (maintainer,
-        // 2026-07-09): land in the chat drawer, ready to talk. Distinct
-        // object identity each time so SideTabs re-applies even for the
-        // same slug reopened.
-        if (opts.joinRoom !== false) setRequestedTab({ tab: "chat", nonce: Date.now() });
-        // Deep links stay shareable (0010 121500Z item 3): the URL tracks
-        // the selection. The token never rides a pushed URL.
-        if (opts.pushUrl !== false) {
-          const url = new URLSearchParams(window.location.search);
-          url.set("entity", name);
-          url.delete("token");
-          window.history.pushState({ entity: name }, "", `${window.location.pathname}?${url.toString()}`);
-        }
-        // Opening a live home follows its present by default — the index
-        // click means "watch him now", not "study the archive". An empty
-        // history (a just-created life) still tails from 0 so its first
-        // moments stream in without a reload.
-        if (history.length > 0) setScrubIndex(history.length - 1);
-        startTail(base, name, history.length > 0 ? history[history.length - 1].seq : 0);
-      } catch (e) {
-        setBootProgress(null);
-        setError(`Replay read failed: ${String((e as Error).message || e)}`);
+      const base = gatewayUrl.trim().replace(/\/+$/, "");
+      setEntityName(name);
+      loadEnvelopes([], "gateway", `${name} @ ${base || "this gateway"}`);
+      // "When I click on the entity, I should join its room" (maintainer,
+      // 2026-07-09): land in the chat drawer, ready to talk.
+      if (opts.joinRoom !== false) setRequestedTab({ tab: "chat", nonce: Date.now() });
+      // Deep links stay shareable (0010 121500Z item 3); the token never
+      // rides a pushed URL. The BASE does (direct posture only): a pushed
+      // ?entity= without its ?gateway= made refresh re-resolve the base
+      // from scratch and lose the credential's target (audit V3 — the
+      // refresh re-ask). Proxy posture pushes no gateway param: the page
+      // origin IS the base, and the cookie survives refresh by itself.
+      if (opts.pushUrl !== false) {
+        const url = new URLSearchParams(window.location.search);
+        url.set("entity", name);
+        url.delete("token");
+        if (base) url.set("gateway", base);
+        else url.delete("gateway");
+        window.history.pushState({ entity: name }, "", `${window.location.pathname}?${url.toString()}`);
       }
+      // The life STREAM is gated on verified auth (2026-07-10 20:56): if the
+      // browser is not yet verified, defer the fetch — the render gate shows
+      // the sign-in, and the auth effect drains this the moment a confirming
+      // probe/sign-in lands. No life is fetched for an unverified browser.
+      const runStream = async () => {
+        setBootProgress("loading his life…");
+        try {
+          const history = await streamReplay(base, name, 0, (all, bytes) => {
+            setEnvelopes([...all]);
+            setScrubIndex(all.length - 1);
+            setBootProgress(`loading his life… ${all.length.toLocaleString()} events${bytes > 0 ? ` · ${(bytes / 1048576).toFixed(0)} MB` : ""}`);
+          });
+          setBootProgress(null);
+          if (history.length > 0) setScrubIndex(history.length - 1);
+          startTail(base, name, history.length > 0 ? history[history.length - 1].seq : 0);
+        } catch (e) {
+          setBootProgress(null);
+          setError(`Replay read failed: ${String((e as Error).message || e)}`);
+        }
+      };
+      if (authVerifiedRef.current) void runStream();
+      else pendingStreamRef.current = () => void runStream();
     },
     [gatewayUrl, loadEnvelopes, startTail],
   );
@@ -632,6 +860,34 @@ export function EntityView(): React.ReactElement {
     return { ...foldCacheRef.current.state };
   }, [envelopes, effectiveIndex]);
 
+  // The TEMPORAL count at the scrub position (two-count model): green
+  // warmth in the canvas keys on this decaying activation, never on the
+  // global counts. Pure over the fold's bounded attention windows —
+  // recomputes once per fold change, not per frame.
+  const temporal = useMemo(() => computeTemporalActivation(fold.attention), [fold]);
+
+  // Wall-clock honesty for the warmth (data-adversary finding, measured on
+  // Castor: journal frozen since Jul 9 while the head still rendered warm):
+  // activation decays by ACTIVITY, so a stopped life keeps its last recall
+  // green forever. Say how old the warmth actually is once it stops being
+  // "now" — in the scrubbed past this is the age AT the scrub position.
+  const warmthAge = useMemo(() => {
+    if (!fold.last_attention_at) return null;
+    const head = new Date(fold.last_attention_at).getTime();
+    if (Number.isNaN(head)) return null;
+    // Live/latest: age against wall clock. Scrubbed: age against the scrub
+    // position's own moment (the envelope at the head of the prefix).
+    const refIso = effectiveIndex >= 0 && envelopes[effectiveIndex] ? envelopes[effectiveIndex].observed_at : "";
+    const ref = refIso ? new Date(refIso).getTime() : Date.now();
+    const anchor = live || !refIso ? Date.now() : ref;
+    const ageMs = anchor - head;
+    if (!Number.isFinite(ageMs) || ageMs < 10 * 60 * 1000) return null; // fresh enough to say nothing
+    const h = Math.floor(ageMs / 3600000);
+    if (h < 1) return `${Math.floor(ageMs / 60000)}m`;
+    if (h < 48) return `${h}h`;
+    return `${Math.floor(h / 24)}d`;
+  }, [fold, live, effectiveIndex, envelopes]);
+
   const stats = useMemo(() => {
     let edgeUses = 0;
     for (const e of fold.edges.values()) edgeUses += e.count;
@@ -710,6 +966,11 @@ export function EntityView(): React.ReactElement {
           <span className="eh_source" title={sourceLabel}>
             {sourceLabel}
           </span>
+          {handle ? (
+            <span className="eh_handle" title="How this door is reached (declared address) — reachability, not identity; changing it touches no record.">
+              {handle}
+            </span>
+          ) : null}
           {/* ONE state chip (maintainer 2026-07-09): never two contradictory
             * badges. deriveLifeState collapses chat/state/loop into a single
             * mutually-exclusive phase (visiting suppresses own-time+sleep). */}
@@ -730,35 +991,60 @@ export function EntityView(): React.ReactElement {
           ) : null}
         </div>
         <div className="eh_stats">
-          <input
-            type="search"
-            className="eh_search"
-            placeholder="search memories…"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setSearchText("");
-            }}
-            title="Match on title, kind, and ids — matches light up on the graph, the rest dims. Escape clears."
-          />
-          {searchIds !== null ? <span className="eh_search_count">{searchIds.size} match{searchIds.size === 1 ? "" : "es"}</span> : null}
-          <span>{stats.nodes} memories</span>
-          <span title="formation-time links / co-use trails">
-            {fold.structural_edges.size} linked · {stats.edges} co-used
-          </span>
-          <span>{stats.sessions} sessions</span>
+          {/* Stats + search reveal the life's shape — withheld until the
+            * browser is verified (content gate, 2026-07-10 20:56). */}
+          {!gatewayLocked ? (
+            <>
+              <input
+                type="search"
+                className="eh_search"
+                placeholder="search memories…"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setSearchText("");
+                }}
+                title="Match on title, kind, and ids — matches light up on the graph, the rest dims. Escape clears."
+              />
+              {searchIds !== null ? <span className="eh_search_count">{searchIds.size} match{searchIds.size === 1 ? "" : "es"}</span> : null}
+              <span>{stats.nodes} memories</span>
+              <span title="formation-time links / co-use trails">
+                {fold.structural_edges.size} linked · {stats.edges} co-used
+              </span>
+              <span>{stats.sessions} sessions</span>
+            </>
+          ) : null}
           {indexBase !== null && entityName ? (
             <button className="eh_connect" onClick={() => goToIndex()} title="All entities — back to the manager index">
               ⌂
             </button>
           ) : null}
-          <button className="eh_connect" onClick={() => setShowConnect((v) => !v)} title="Connect to a gateway (source selection)">
-            {showConnect ? "✕" : "⚙"}
-          </button>
+          {/* ONE auth control (maintainer 2026-07-10 20:17): connected →
+            * identity + disconnect; disconnected → connect (the shared
+            * ui-kit sign-in card). The credential MECHANISM is never
+            * displayed — the identity is the abstraction. */}
+          {authState ? (
+            <>
+              <span className="eh_identity" title="Signed in — this identity is what the door stamps into his memories.">
+                ⚡ {authState.userId}
+              </span>
+              <button
+                className="eh_connect"
+                onClick={() => void disconnectGateway()}
+                title="Disconnect this browser (and end the session where one exists) — you can reconnect from the same button"
+              >
+                ⏏ disconnect
+              </button>
+            </>
+          ) : (
+            <button className="eh_connect" onClick={() => setShowAuth(true)} title="Connect to the gateway (shared sign-in)">
+              🔑 connect
+            </button>
+          )}
         </div>
       </header>
 
-      {sourceKind === "gateway" && entityName ? (
+      {sourceKind === "gateway" && entityName && !gatewayLocked ? (
         <div className="entity_controls">
           {/* Maintainer ruling (2026-07-08 00:59): no pre-gating. The
             * buttons are always live; if the gateway refuses, its actual
@@ -841,20 +1127,13 @@ export function EntityView(): React.ReactElement {
               compact
             />
           </span>
-          {authState ? (
-            <>
-              <span className="ec_authchip" title={authState.mode === "session" ? "HTTP-only browser session" : "Bearer token held by this browser"}>
-                ⚡ {authState.userId} ({authState.mode})
-              </span>
-              <button className="ec_btn" onClick={() => void disconnectGateway()} title="Forget the credential in this browser (and end the session where one exists)">
-                ⏏ disconnect
-              </button>
-            </>
-          ) : (
-            <button className="ec_btn" onClick={() => setShowAuth(true)} title="Sign in with a Gateway user token (shared connect card)">
+          {/* Auth lives in the header (one control, maintainer 2026-07-10);
+            * the strip only nudges when signed out. */}
+          {!authState ? (
+            <button className="ec_btn" onClick={() => setShowAuth(true)} title="Sign in with the shared connect card (top right)">
               🔑 connect
             </button>
-          )}
+          ) : null}
           {loopStatus?.inbox_warning ? (
             <span className="ec_note ec_warn" title="The loop's command inbox could not be read — stop requests may not land until this clears.">
               {loopStatus.inbox_warning}
@@ -869,46 +1148,89 @@ export function EntityView(): React.ReactElement {
         </div>
       ) : null}
 
-      {showConnect ? (
-        <div className="entity_connect">
-          <input
-            type="text"
-            placeholder="Gateway URL (empty = this origin, e.g. behind the Observer proxy)"
-            value={gatewayUrl}
-            onChange={(e) => setGatewayUrl(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void connectGateway()}
-          />
-          <button onClick={() => void connectGateway()}>List entities</button>
-          {entities?.map((e) => (
-            <button key={e.slug} className="ec_entity" onClick={() => void openEntity(e.slug)}>
-              {e.name || e.slug}
-            </button>
-          ))}
-          <span className="ec_hint">…or drop an exported .ndjson life anywhere.</span>
+      {error ? <div className="entity_error">{error}</div> : null}
+
+      {/* CONTENT GATE (maintainer ruling 2026-07-10 20:56, CRITICAL): a
+        * gateway source shows NOTHING — no roster, no fleet, no life — to a
+        * browser the gateway has not confirmed. This is defense-in-depth
+        * over the gateway's own auth (its dev-read posture leaked reads);
+        * the observer never renders a life it has not been verified to see. */}
+      {gatewayLocked ? (
+        <div className="entity_locked">
+          <div className="entity_locked_card">
+            {authChecking ? (
+              <>
+                <h2>Checking your sign-in…</h2>
+                <p>Verifying this browser's session with the gateway — one silent check, no typing needed if you signed in before.</p>
+              </>
+            ) : (
+              <>
+                <h2>🔒 Sign in to view {entityName ? `${entityName}'s life` : "this gateway"}</h2>
+                <p>The observer shows a summoned entity's memories only to a browser the gateway has authenticated — an entity's inner life is not public.</p>
+                <button className="eix_create_btn" onClick={() => setShowAuth(true)}>
+                  🔑 connect
+                </button>
+              </>
+            )}
+          </div>
         </div>
       ) : null}
 
-      {error ? <div className="entity_error">{error}</div> : null}
-
-      {indexBase !== null && !entityName ? (
-        <EntitiesIndex
-          key={authState ? `authed:${authState.userId}` : "anon"}
+      {!gatewayLocked && indexBase !== null && !entityName && fleetMode ? (
+        <FleetView
+          key={authState ? `fleet:${authState.userId}` : "fleet:anon"}
           baseUrl={indexBase}
-          token={controlToken.trim() || null}
-          onOpen={(slug) => void openEntity(slug)}
-          onConnect={() => setShowAuth(true)}
+          onOpen={(slug) => {
+            setFleetMode(false);
+            void openEntity(slug);
+          }}
+          onBack={() => setFleetMode(false)}
         />
+      ) : null}
+
+      {!gatewayLocked && indexBase !== null && !entityName && !fleetMode ? (
+        <>
+          <div className="eix_fleet_bar">
+            <button
+              className="eix_create_btn"
+              onClick={() => setFleetMode(true)}
+              title="Watch every life at once — one live tile per entity (streams never merge; each tile is its own fold)"
+            >
+              👁 watch all
+            </button>
+          </div>
+          <EntitiesIndex
+            key={authState ? `authed:${authState.userId}` : "anon"}
+            baseUrl={indexBase}
+            token={controlToken.trim() || null}
+            onOpen={(slug) => void openEntity(slug)}
+            onConnect={() => setShowAuth(true)}
+          />
+        </>
       ) : null}
 
       {showAuth ? (
         <ConnectGatewayModal
+          proxyMode={proxyMode === true}
           baseUrl={gatewayUrl}
           onBaseUrlChange={setGatewayUrl}
           onConnected={(state) => {
             if (state.token) setGatewayToken(state.token);
             setAuthState(state);
+            // Direct posture: converge EVERY base on the one the credential
+            // was verified against (refresh-audit F7: a URL edited in the
+            // modal updated gatewayUrl but left the roster's indexBase on
+            // the old target — a quieter split brain).
+            if (state.mode === "bearer" && state.base) {
+              setGatewayUrl(state.base);
+              setIndexBase((prev) => (prev !== null ? state.base ?? prev : prev));
+            }
+            // The modal already PROVED the credential (session login or a
+            // confirming operator probe) — unlock content immediately; no
+            // second round-trip, and the deferred life stream drains.
+            setAuthVerified(true);
             setShowAuth(false);
-            setControlNote(`Connected as ${state.userId} (${state.mode}).`);
+            setControlNote(`Connected as ${state.userId}.`);
           }}
           onClose={() => setShowAuth(false)}
         />
@@ -924,10 +1246,23 @@ export function EntityView(): React.ReactElement {
         />
       ) : null}
 
-      <div className="entity_main" style={indexBase !== null && !entityName ? { display: "none" } : undefined}>
+      {meetVisitId && sourceKind === "gateway" ? (
+        <MeetReader
+          baseUrl={gatewayUrl.trim().replace(/\/+$/, "")}
+          visitId={meetVisitId}
+          onClose={() => setMeetVisitId(null)}
+          onOpenEntity={(slug) => {
+            setMeetVisitId(null);
+            void openEntity(slug);
+          }}
+        />
+      ) : null}
+
+      <div className="entity_main" style={gatewayLocked || (indexBase !== null && !entityName) ? { display: "none" } : undefined}>
         <div className="entity_canvas_wrap">
           <GraphCanvas
             fold={fold}
+            temporal={temporal}
             scrubSeq={scrubSeq}
             selectedId={selectedId}
             searchIds={searchIds}
@@ -942,12 +1277,30 @@ export function EntityView(): React.ReactElement {
             <span className="lg lg_scar">scar</span>
             <span className="lg lg_bond">bond</span>
             <span className="lg_sep" />
-            <span className="lg_edge" title="usage trail — how often two memories served one moment together; brightens when recently traveled">
+            <span
+              className="lg_edge"
+              title="usage trail — turns green when the two memories served a RECENT moment together (temporal count: decays with activity, so old habits fade back to grey); line width grows with lifetime co-use; flashes amber when just traveled"
+            >
               <svg width="26" height="6" aria-hidden="true">
-                <line x1="0" y1="3" x2="26" y2="3" stroke="#e8a54a" strokeWidth="1.8" />
+                <line x1="0" y1="3" x2="26" y2="3" stroke="#7edca0" strokeWidth="1.8" />
               </svg>
-              used together
+              warm together
             </span>
+            <span className="lg_edge" title="green glow — this memory was RECENTLY selected (temporal count: decays with activity); node SIZE carries the lifetime count, which never decays">
+              <svg width="14" height="14" aria-hidden="true">
+                <circle cx="7" cy="7" r="6" fill="rgba(110,220,160,0.35)" />
+                <circle cx="7" cy="7" r="3" fill="#6ea8d8" />
+              </svg>
+              warm now
+            </span>
+            {warmthAge ? (
+              <span
+                className="lg_edge lg_stale"
+                title="Warmth decays with ACTIVITY, not wall time — while nothing runs, the last recall stays green. This is how long ago that last selection actually happened."
+              >
+                🥶 last selection {warmthAge} ago
+              </span>
+            ) : null}
             {relationTypes.map((relation) => (
               <span key={relation} className="lg_edge" title={`“${relation}” link — recorded at formation (born linked)`}>
                 <svg width="26" height="6" aria-hidden="true">
@@ -975,16 +1328,9 @@ export function EntityView(): React.ReactElement {
                         entity={entityName}
                         entityName={entityName.charAt(0).toUpperCase() + entityName.slice(1)}
                         token={controlToken.trim() || null}
+                        authUserId={authState?.userId ?? null}
                         envelopes={envelopes}
-                        participant={participant}
-                        onParticipantChange={(v) => {
-                          setParticipant(v);
-                          try {
-                            localStorage.setItem("abstractobserver_entity_participant", v);
-                          } catch {
-                            // best-effort
-                          }
-                        }}
+                        onAuthRefused={() => void handleAuthRefused()}
                       />
                     ),
                   },
@@ -1003,6 +1349,7 @@ export function EntityView(): React.ReactElement {
               content: (
                 <Inspector
                   fold={fold}
+                  temporal={temporal}
                   scrubSeq={scrubSeq}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
@@ -1011,6 +1358,7 @@ export function EntityView(): React.ReactElement {
                       ? { baseUrl: gatewayUrl.trim().replace(/\/+$/, ""), entity: entityName }
                       : null
                   }
+                  onOpenMeet={sourceKind === "gateway" ? (visitId) => setMeetVisitId(visitId) : undefined}
                 />
               ),
             },

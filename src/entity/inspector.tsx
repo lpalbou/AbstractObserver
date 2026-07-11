@@ -9,16 +9,22 @@
 import React, { useMemo, useState } from "react";
 
 import type { BeatState, FeelingEvent, FoldState, NodeState, StandingState } from "./stream_fold";
+import type { TemporalActivation } from "./temporal_activation";
 import { ADMISSION_LABELS } from "./stream_types";
 import { VerbatimModal, type VerbatimSource } from "./verbatim_modal";
 
 export interface InspectorProps {
   fold: FoldState;
+  /** The decaying activation at the scrub position (two-count model:
+   * shown beside the lifetime count so both truths stay visible). */
+  temporal?: TemporalActivation;
   scrubSeq: number;
   selectedId: string | null;
   onSelect(id: string | null): void;
   /** Present when the life is served by a gateway (verbatim reads possible). */
   verbatimSource: VerbatimSource | null;
+  /** Open the meet reader for a correlated moment (gateway sources only). */
+  onOpenMeet?(visitId: string): void;
 }
 
 function admissionBadge(admission: string | null): React.ReactElement | null {
@@ -62,15 +68,19 @@ function FeelingEvents({ events }: { events: FeelingEvent[] }): React.ReactEleme
 function NodeCard({
   fold,
   node,
+  temporal,
   onSelect,
   verbatimSource,
   onReadVerbatim,
+  onOpenMeet,
 }: {
   fold: FoldState;
   node: NodeState;
+  temporal?: TemporalActivation;
   onSelect(id: string): void;
   verbatimSource: VerbatimSource | null;
   onReadVerbatim(node: NodeState): void;
+  onOpenMeet?(visitId: string): void;
 }): React.ReactElement {
   const partners = useMemo(() => {
     const rows: Array<{ id: string; title: string; count: number }> = [];
@@ -93,7 +103,11 @@ function NodeCard({
   return (
     <div className="ei_card">
       <div className="ei_kind_row">
-        <span className={`ei_kind ei_kind_${node.diary ? "diary" : node.kind}`}>{node.diary ? "diary" : node.kind}</span>
+        {/* Bookkeeping markers are kind="claim" but NOT identity — the chip
+         * must not wear identity gold (engine excludes them from the self). */}
+        <span className={`ei_kind ei_kind_${node.diary ? "diary" : node.bookkeeping ? "bookkeeping" : node.kind}`}>
+          {node.diary ? "diary" : node.bookkeeping ? `engine act${node.maintenance ? ` · ${node.maintenance}` : ""}` : node.kind}
+        </span>
         {admissionBadge(node.last_admission)}
       </div>
       <h3 className="ei_title">{node.title || node.id.slice(0, 24)}</h3>
@@ -102,7 +116,7 @@ function NodeCard({
           Read the entry
         </button>
       ) : null}
-      {!node.diary && node.kind !== "relation" ? (
+      {!node.diary && node.kind !== "relation" && !node.bookkeeping ? (
         verbatimSource ? (
           <button className="ei_verbatim_btn" onClick={() => onReadVerbatim(node)}>
             Read the verbatim
@@ -135,6 +149,16 @@ function NodeCard({
         <dd>
           {node.selected_count} time{node.selected_count === 1 ? "" : "s"} (lifetime count — never decays)
         </dd>
+        {temporal ? (
+          <>
+            <dt>warm</dt>
+            <dd>
+              {(temporal.records.get(node.id) ?? 0) > 0.05
+                ? `${(temporal.records.get(node.id) ?? 0).toFixed(1)} now (temporal count — recent selections, decays with activity)`
+                : "cold — not recently selected"}
+            </dd>
+          </>
+        ) : null}
         <dt>scope</dt>
         <dd>
           {node.scope || "—"}
@@ -145,6 +169,19 @@ function NodeCard({
         </dd>
         <dt>born</dt>
         <dd>seq {node.first_seq}</dd>
+        {node.visit_id ? (
+          <>
+            <dt>shared moment</dt>
+            <dd title="Interaction correlation (item 14): the other participant's home holds ITS OWN record of this moment under the same key — perspectives correlate as data, streams never merge.">
+              {node.visit_id}
+              {onOpenMeet ? (
+                <button className="ei_link ei_meet_btn" onClick={() => onOpenMeet(node.visit_id as string)} title="Read the conversation — every participating life's own perspective, side by side">
+                  read the conversation →
+                </button>
+              ) : null}
+            </dd>
+          </>
+        ) : null}
         {node.token_estimate ? (
           <>
             <dt>size</dt>
@@ -299,7 +336,7 @@ function BeatCard({ fold, beat, onSelect }: { fold: FoldState; beat: BeatState; 
   );
 }
 
-export function Inspector({ fold, scrubSeq, selectedId, onSelect, verbatimSource }: InspectorProps): React.ReactElement {
+export function Inspector({ fold, temporal, scrubSeq, selectedId, onSelect, verbatimSource, onOpenMeet }: InspectorProps): React.ReactElement {
   // The modal lives HERE, not in NodeCard: cards remount when the fold
   // recomputes (every live envelope), which would close an open reader.
   const [verbatimNode, setVerbatimNode] = useState<NodeState | null>(null);
@@ -318,7 +355,7 @@ export function Inspector({ fold, scrubSeq, selectedId, onSelect, verbatimSource
       if (standing) return <StandingCard standing={standing} />;
     } else if (selectedId) {
       const node = fold.nodes.get(selectedId) ?? fold.nodes.get(fold.graph_to_row.get(selectedId) ?? "");
-      if (node) return <NodeCard fold={fold} node={node} onSelect={onSelect} verbatimSource={verbatimSource} onReadVerbatim={openReader} />;
+      if (node) return <NodeCard fold={fold} node={node} temporal={temporal} onSelect={onSelect} verbatimSource={verbatimSource} onReadVerbatim={openReader} onOpenMeet={onOpenMeet} />;
       const standing = fold.standings.get(selectedId);
       if (standing) return <StandingCard standing={standing} />;
     }
@@ -330,7 +367,7 @@ export function Inspector({ fold, scrubSeq, selectedId, onSelect, verbatimSource
     }
     if (active) return <BeatCard fold={fold} beat={active} onSelect={onSelect} />;
     return <div className="ei_empty">Click a memory in the graph, or scrub to a recall.</div>;
-  }, [fold, scrubSeq, selectedId, onSelect, verbatimSource]);
+  }, [fold, temporal, scrubSeq, selectedId, onSelect, verbatimSource, onOpenMeet]);
 
   return (
     <div className="entity_inspector">

@@ -16,12 +16,15 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import {
+  getEntityPrompt,
   getToolPolicy,
   getWorkspaceMounts,
   listWorkspace,
+  putEntityPrompt,
   putToolPolicy,
   putWorkspaceMounts,
   readWorkspaceFile,
+  type PromptLayerInfo,
   type ToolPolicyInfo,
   type WorkspaceEntry,
   type WorkspaceListing,
@@ -36,7 +39,7 @@ export interface WorkspacePanelProps {
   onClose(): void;
 }
 
-type Tab = "files" | "mounts" | "tools";
+type Tab = "files" | "mounts" | "tools" | "prompt";
 
 export function WorkspacePanel({ baseUrl, entity, entityName, token, onClose }: WorkspacePanelProps): React.ReactElement {
   const [tab, setTab] = useState<Tab>("files");
@@ -72,6 +75,9 @@ export function WorkspacePanel({ baseUrl, entity, entityName, token, onClose }: 
             <button className={tab === "tools" ? "wsp_tab wsp_tab_on" : "wsp_tab"} onClick={() => setTab("tools")}>
               tools
             </button>
+            <button className={tab === "prompt" ? "wsp_tab wsp_tab_on" : "wsp_tab"} onClick={() => setTab("prompt")}>
+              prompt
+            </button>
           </div>
           <button className="ev_close" onClick={onClose}>
             close
@@ -81,6 +87,7 @@ export function WorkspacePanel({ baseUrl, entity, entityName, token, onClose }: 
           {tab === "files" ? <FilesTab baseUrl={baseUrl} entity={entity} /> : null}
           {tab === "mounts" ? <MountsTab baseUrl={baseUrl} entity={entity} token={token} /> : null}
           {tab === "tools" ? <ToolsTab baseUrl={baseUrl} entity={entity} token={token} /> : null}
+          {tab === "prompt" ? <PromptTab baseUrl={baseUrl} entity={entity} entityName={entityName} token={token} /> : null}
         </div>
       </div>
     </div>
@@ -202,7 +209,7 @@ function MountsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string
         setNewName("");
       })
       .catch((e: Error & { status?: number }) => {
-        setError(e.status === 401 || e.status === 403 ? "The door refused: operator auth required (set the token in the controls strip)." : e.message);
+        setError(e.status === 401 || e.status === 403 ? AUTH_REFUSED_MSG : e.message);
       })
       .finally(() => setBusy(false));
   };
@@ -271,6 +278,200 @@ const PHASE_LABEL: Record<string, string> = {
   sleep: "sleep",
 };
 
+/** Honest state of each column (adversary A's caveat, 2026-07-11): the
+ * sleep grant is CONFIG the consolidation pass will consume when it gains
+ * tool use — checking it today configures the future, it does not run
+ * anything tonight. */
+const PHASE_HINT: Record<string, string> = {
+  visit: "Applies at the next summon (chat or visit).",
+  resident: "Applies at the next own-time day boundary.",
+  sleep: "Configures the sleep/dream pass. It explores (recall, search, reads) but never acts — and it does not run tools yet: this column takes effect when the sleep pass gains tool use.",
+};
+
+// ------------------------------------------------------------------ prompt
+
+/** Labels/hints for the layer keys the server is KNOWN to serve. The list
+ * itself comes from the server (`editable`) so a new layer renders (with a
+ * generic label) instead of being silently dropped from the next save —
+ * the whole-document-replace PUT makes a missing key a deletion. */
+const PROMPT_LAYER_META: Record<string, { label: string; hint: string }> = {
+  conversation: { label: "conversation contract", hint: "How memories arrive and how the diary is offered — every session." },
+  visit: { label: "visit paragraph", hint: "The life framing during visits (own time continues after)." },
+  own_time: { label: "own-time contract", hint: "The framing of the entity's own 24/7 loop sessions." },
+  operator: {
+    label: "operator instructions",
+    hint:
+      "Standing direction and PERMISSIONS, appended last and attributed to you — never blended into the entity's own voice. " +
+      "Grants of authority belong here (\"You have my standing permission to act without asking\"). CHARACTER statements " +
+      "(\"You are curious, fair…\") belong in the SPARK at creation — there they are the entity's own and its memory can find them; " +
+      "here they read as orders, and a self-search would contradict them. Mid-life character change is the entity's own act (its reflection), not an operator edit.",
+  },
+};
+
+const AUTH_REFUSED_MSG = "The door refused: operator sign-in required.";
+
+function PromptTab({
+  baseUrl,
+  entity,
+  entityName,
+  token,
+}: {
+  baseUrl: string;
+  entity: string;
+  entityName: string;
+  token: string | null;
+}): React.ReactElement {
+  const [info, setInfo] = useState<PromptLayerInfo | null>(null);
+  const [draft, setDraft] = useState<Record<string, string> | null>(null);
+  const [open, setOpen] = useState<string | null>("operator");
+  const [showPrelude, setShowPrelude] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const layerKeys = (p: PromptLayerInfo): string[] =>
+    p.editable?.length ? p.editable : Object.keys(PROMPT_LAYER_META);
+
+  const draftFrom = (p: PromptLayerInfo): Record<string, string> => {
+    const d: Record<string, string> = {};
+    for (const key of layerKeys(p)) d[key] = p.layers[key]?.source === "overlay" ? p.layers[key].text : "";
+    return d;
+  };
+
+  useEffect(() => {
+    getEntityPrompt(baseUrl, entity)
+      .then((p) => {
+        setInfo(p);
+        setDraft(draftFrom(p));
+      })
+      .catch((e: Error) => setError(e.message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseUrl, entity]);
+
+  const save = () => {
+    if (!draft) return;
+    setBusy(true);
+    setError(null);
+    putEntityPrompt(baseUrl, entity, draft, token)
+      .then((p) => {
+        setInfo(p);
+        setDraft(draftFrom(p));
+        setSaved(true);
+      })
+      .catch((e: Error & { status?: number }) => {
+        setError(e.status === 401 || e.status === 403 ? AUTH_REFUSED_MSG : e.message);
+      })
+      .finally(() => setBusy(false));
+  };
+
+  if (error && !info) return <p className="wsp_error">{error}</p>;
+  if (!info || !draft) return <p className="wsp_quiet">reading…</p>;
+
+  const dirty = layerKeys(info).some((key) => {
+    const live = info.layers[key]?.source === "overlay" ? info.layers[key].text : "";
+    return (draft[key] ?? "") !== live;
+  });
+
+  return (
+    <div className="wsp_prompt">
+      <p className="wsp_quiet">
+        {entityName}'s system prompt, layer by layer. The identity block and the tools text are machine-owned (identity evolves by the entity's own
+        acts; tools text follows the actual grant — edit it in the tools tab). The layers below are yours to rewrite; empty = the built-in default.
+        Saving writes <code>system_prompt.yaml</code> in the home — the next summon obeys it; a session already open keeps the prompt it was
+        summoned with.
+      </p>
+      {info.warnings.length > 0 ? <p className="wsp_error">{info.warnings.join(" · ")}</p> : null}
+      {info.raw_file ? (
+        <div className="wsp_prompt_section">
+          <div className="wsp_prompt_editor">
+            <p className="wsp_error">The file on disk could not be parsed — its raw content is shown here so nothing is lost. Saving replaces it.</p>
+            <pre className="wsp_pre wsp_prompt_pre">{info.raw_file}</pre>
+          </div>
+        </div>
+      ) : null}
+      {error ? <p className="wsp_error">{error}</p> : null}
+
+      <div className="wsp_prompt_section">
+        <button className="wsp_prompt_head" onClick={() => setShowPrelude(!showPrelude)}>
+          <span className="wsp_prompt_arrow">{showPrelude ? "▾" : "▸"}</span> identity prelude
+          <span className="wsp_badge wsp_badge_locked" title="Rendered from the engrammed core + diary + standing; evolves only by the entity's own acts">
+            read-only
+          </span>
+        </button>
+        {showPrelude ? <pre className="wsp_pre wsp_prompt_pre">{info.prelude || "(prelude refused to render — see warnings)"}</pre> : null}
+      </div>
+
+      {layerKeys(info).map((key) => {
+        const meta = PROMPT_LAYER_META[key] ?? { label: key.replace(/_/g, " "), hint: "" };
+        const live = info.layers[key];
+        const isOpen = open === key;
+        const overlayOn = (draft[key] ?? "").trim().length > 0;
+        return (
+          <div className="wsp_prompt_section" key={key}>
+            <button className="wsp_prompt_head" onClick={() => setOpen(isOpen ? null : key)}>
+              <span className="wsp_prompt_arrow">{isOpen ? "▾" : "▸"}</span> {meta.label}
+              <span className={overlayOn ? "wsp_badge wsp_badge_overlay" : "wsp_badge"} title={overlayOn ? "Your rewrite is live" : "Built-in default text"}>
+                {overlayOn ? "rewritten" : "default"}
+              </span>
+            </button>
+            {isOpen ? (
+              <div className="wsp_prompt_editor">
+                {meta.hint ? <p className="wsp_quiet">{meta.hint}</p> : null}
+                <textarea
+                  className="wsp_prompt_text"
+                  rows={key === "operator" ? 4 : 8}
+                  placeholder={key === "operator" ? "(nothing yet — standing instructions you want in every summon)" : "(empty = the built-in default below)"}
+                  value={draft[key] ?? ""}
+                  onChange={(e) => {
+                    setDraft({ ...draft, [key]: e.target.value });
+                    setSaved(false);
+                  }}
+                />
+                {(info.defaults[key] ?? "") !== "" ? (
+                  <div className="wsp_prompt_default">
+                    <div className="wsp_prompt_default_head">
+                      built-in default{live?.source === "overlay" ? " (replaced by your rewrite)" : " (live)"}
+                      <button
+                        className="wsp_up"
+                        onClick={() => {
+                          setDraft({ ...draft, [key]: info.defaults[key] ?? "" });
+                          setSaved(false);
+                        }}
+                        title="Copy the default into the editor as a starting point (saving it unchanged keeps the default live)"
+                      >
+                        copy to editor
+                      </button>
+                    </div>
+                    <pre className="wsp_pre wsp_prompt_pre">{info.defaults[key]}</pre>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+
+      <div className="wsp_prompt_section">
+        <button className="wsp_prompt_head" onClick={() => setShowPreview(!showPreview)}>
+          <span className="wsp_prompt_arrow">{showPreview ? "▾" : "▸"}</span> full preview
+          <span className="wsp_badge" title="The exact head the next VISIT summon composes (per-turn presence + MEMORIES append at runtime; own-time sessions swap the visit paragraph for the own-time contract)">
+            next visit summon
+          </span>
+        </button>
+        {showPreview ? <pre className="wsp_pre wsp_prompt_pre">{info.preview || "(no preview — prelude refused)"}</pre> : null}
+      </div>
+
+      <div className="wsp_save_row">
+        <button onClick={save} disabled={busy || !dirty}>
+          {busy ? "saving…" : "save prompt"}
+        </button>
+        {saved ? <span className="wsp_saved">saved — next summon obeys it</span> : null}
+      </div>
+    </div>
+  );
+}
+
 function ToolsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string; token: string | null }): React.ReactElement {
   const [policy, setPolicy] = useState<ToolPolicyInfo | null>(null);
   const [draft, setDraft] = useState<Record<string, Set<string>> | null>(null);
@@ -302,15 +503,33 @@ function ToolsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string;
     if (!draft || !policy) return;
     setBusy(true);
     setError(null);
+    // TOUCHED PHASES ONLY (adversary find, 2026-07-11): sending every
+    // phase materialized the day's RESOLVED defaults into the file as
+    // "the operator's word" — every real home ended up with a frozen
+    // `sleep: []` from pre-ruling saves, killing the ruled sleep default.
+    // The server merges per phase; unchanged phases stay as they were
+    // (absent = follows the evolving framework defaults).
     const body: Record<string, string[]> = {};
-    for (const [phase, tools] of Object.entries(draft)) body[phase] = policy.all_tools.filter((t) => tools.has(t));
+    for (const [phase, tools] of Object.entries(draft)) {
+      const shown = new Set(policy.phases[phase]?.tools ?? []);
+      const changed = tools.size !== shown.size || [...tools].some((t) => !shown.has(t));
+      if (changed) body[phase] = policy.all_tools.filter((t) => tools.has(t));
+    }
+    if (Object.keys(body).length === 0) {
+      setBusy(false);
+      setSaved(true);
+      return;
+    }
     putToolPolicy(baseUrl, entity, body, token)
       .then((p) => {
         setPolicy(p);
+        const d: Record<string, Set<string>> = {};
+        for (const [phase, info] of Object.entries(p.phases)) d[phase] = new Set(info.tools);
+        setDraft(d);
         setSaved(true);
       })
       .catch((e: Error & { status?: number }) => {
-        setError(e.status === 401 || e.status === 403 ? "The door refused: operator auth required (set the token in the controls strip)." : e.message);
+        setError(e.status === 401 || e.status === 403 ? AUTH_REFUSED_MSG : e.message);
       })
       .finally(() => setBusy(false));
   };
@@ -323,8 +542,10 @@ function ToolsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string;
   return (
     <div className="wsp_tools">
       <p className="wsp_quiet">
-        Which tools he holds in each phase of life. Tier-1 (marked ●) is the read-only cognition set, designed to be safe 24/7; the rest write inside
-        his workspace walls. Saving writes <code>tool_policy.yaml</code> in his home — the next summon of each phase obeys it.
+        Which tools he holds in each phase of life. Tier-1 (marked ●) is the read-only cognition set, designed to be safe 24/7; the rest reach only
+        his workspace walls (reads and writes). Saving writes <code>tool_policy.yaml</code> in his home — the next summon of each phase obeys it; a session already
+        open (a live visit, a resident mid-day) keeps the grant it was summoned with. The sleep column (⏳) is standing config: the sleeping mind may
+        explore (recall, search, read) but never act — it takes effect when the sleep pass gains tool use.
       </p>
       {error ? <p className="wsp_error">{error}</p> : null}
       <table className="wsp_matrix">
@@ -332,7 +553,15 @@ function ToolsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string;
           <tr>
             <th>tool</th>
             {Object.keys(policy.phases).map((phase) => (
-              <th key={phase}>{PHASE_LABEL[phase] ?? phase}</th>
+              <th key={phase} title={PHASE_HINT[phase] ?? ""}>
+                {PHASE_LABEL[phase] ?? phase}
+                {phase === "sleep" ? (
+                  <span className="wsp_phase_note" title={PHASE_HINT.sleep}>
+                    {" "}
+                    ⏳
+                  </span>
+                ) : null}
+              </th>
             ))}
           </tr>
         </thead>

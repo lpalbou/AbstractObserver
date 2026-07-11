@@ -24,6 +24,14 @@ import type {
   TracePayload,
   ValencePayload,
 } from "./stream_types";
+import {
+  ATTENTION_KINDS,
+  DECAY_MARKER_KINDS,
+  eventWeight,
+  pushAttentionEvent,
+  rekeyAttentionEvents,
+  type AttentionEventLite,
+} from "./temporal_activation";
 
 // ---------------------------------------------------------------- state
 
@@ -60,6 +68,16 @@ export interface NodeState {
   redacted: boolean;
   pinned: boolean;
   silenced: boolean;
+  /** Engine bookkeeping (engram marker, reembed marker): engine state, not
+   * a memory — the engine keeps these off the self and off shelves; the
+   * view must not draw them as identity (plan item 3, observer half). */
+  bookkeeping: boolean;
+  /** Maintenance act name when the record journals one ("reembed"). */
+  maintenance: string | null;
+  /** Interaction correlation (item 14): the shared moment this episode is
+   * one perspective of. Data, never merged — the OTHER leg lives in the
+   * other home's stream; this key is how views JOIN, streams never do. */
+  visit_id: string | null;
 }
 
 export interface EdgeState {
@@ -179,6 +197,17 @@ export interface FoldState {
   graph_to_row: Map<string, string>;
   /** Recent pulse sources for animation: node id -> seq of last use. */
   last_event_seq: number;
+  /** Bounded per-(scope|owner) attention-event windows — the input to the
+   * TEMPORAL activation fold (two-count model: global counts live on
+   * nodes/edges above and never decay; the temporal count is computed
+   * from these windows and decays with activity). */
+  attention: Map<string, AttentionEventLite[]>;
+  /** observed_at of the newest attention event folded — the wall-clock
+   * honesty anchor: activation decays by ACTIVITY, so a stopped life keeps
+   * its last recall "warm" forever; the view must say how long ago that
+   * head actually was (Castor measured: journal frozen 43h and the head
+   * still glowed). */
+  last_attention_at: string;
 }
 
 export function createFoldState(): FoldState {
@@ -196,6 +225,8 @@ export function createFoldState(): FoldState {
     applied_count: 0,
     graph_to_row: new Map(),
     last_event_seq: 0,
+    attention: new Map(),
+    last_attention_at: "",
   };
 }
 
@@ -223,6 +254,9 @@ function rekeyNodeInEdges(state: FoldState, oldId: string, newId: string): void 
       state.edges.set(nk, { key: nk, a, b, count: edge.count, last_seq: edge.last_seq });
     }
   }
+  // The attention windows reference the same ids — warmth must follow the
+  // merge exactly like edge traffic does.
+  rekeyAttentionEvents(state.attention, oldId, newId);
 }
 
 function displayOf(env: ReplayEnvelope): DisplayBlock {
@@ -259,6 +293,9 @@ function ensureNode(state: FoldState, id: string, seq: number, seed?: Partial<No
       redacted: false,
       pinned: false,
       silenced: false,
+      bookkeeping: false,
+      maintenance: null,
+      visit_id: null,
     };
     state.nodes.set(id, node);
   }
@@ -285,6 +322,37 @@ export function relationPredicate(title: string): string | null {
   return m[1] === "dcterms:abstract" ? null : m[1];
 }
 
+/** Engine bookkeeping markers are kind="claim" records with load-bearing
+ * title conventions (the engine itself matches "spark-engram v" in
+ * prelude.py; the reembed marker titles "reembed: …"). Display-field
+ * detection (`bookkeeping`/`maintenance`) is the contract asked of memory;
+ * the title match is the labeled fallback for streams exported before the
+ * fields ship. Pure so the ledger lines classify the same way. */
+export function classifyBookkeeping(
+  kind: string,
+  title: string,
+  display: DisplayBlock,
+): { bookkeeping: boolean; maintenance: string | null } {
+  if (display.bookkeeping === true) {
+    const m = typeof display.maintenance === "string" && display.maintenance ? display.maintenance : null;
+    return { bookkeeping: true, maintenance: m };
+  }
+  if (kind === "claim") {
+    if (/^spark-engram v\d+/.test(title)) return { bookkeeping: true, maintenance: null };
+    if (/^reembed:/.test(title)) return { bookkeeping: true, maintenance: "reembed" };
+  }
+  return { bookkeeping: false, maintenance: null };
+}
+
+function detectBookkeeping(node: NodeState, display: DisplayBlock): void {
+  if (node.bookkeeping) return;
+  const c = classifyBookkeeping(node.kind, node.title || "", display);
+  if (c.bookkeeping) {
+    node.bookkeeping = true;
+    if (c.maintenance) node.maintenance = c.maintenance;
+  }
+}
+
 function applyDisplayToNode(node: NodeState, display: DisplayBlock): void {
   if (display.redacted === "diary") {
     node.diary = true;
@@ -309,6 +377,10 @@ function applyDisplayToNode(node: NodeState, display: DisplayBlock): void {
   if (typeof display.token_estimate === "number" && !node.token_estimate) {
     node.token_estimate = display.token_estimate;
   }
+  if (typeof display.visit_id === "string" && display.visit_id && !node.visit_id) {
+    node.visit_id = display.visit_id;
+  }
+  detectBookkeeping(node, display);
 }
 
 /** Bindings name records by graph id ("ex:diary-…" / "ex:memory-…"), which
@@ -551,6 +623,15 @@ function applyEvent(state: FoldState, env: ReplayEnvelope): void {
   const p = env.payload as unknown as EventPayload;
   const kind = String(p.kind || "");
   const display = displayOf(env);
+  // Attention window bookkeeping (temporal count): the scope STREAM key —
+  // the engine scores per (scope, owner) with no cross-scope bleed, so a
+  // busy life scope must never flush the self scope's recency.
+  const scopeKey = `${String(p.scope || env.scope || "")}|${String(p.owner_id || env.owner_id || "")}`;
+  const ttlRaw = (env.payload as Record<string, unknown>)["ttl_activity"];
+  const ttl = typeof ttlRaw === "number" && Number.isFinite(ttlRaw) ? ttlRaw : null;
+  if ((ATTENTION_KINDS.has(kind) || DECAY_MARKER_KINDS.has(kind)) && env.observed_at) {
+    state.last_attention_at = env.observed_at;
+  }
 
   if (kind === "co_selected" && Array.isArray(p.pair_ids) && p.pair_ids.length === 2) {
     // Hebbian trails are digest<->EDGE hops; edge members merge onto their
@@ -572,13 +653,46 @@ function applyEvent(state: FoldState, env: ReplayEnvelope): void {
       } else {
         state.edges.set(key, { key, a: na.id, b: nb.id, count: 1, last_seq: env.seq });
       }
+      pushAttentionEvent(state.attention, scopeKey, {
+        kind,
+        record_id: null,
+        pair_key: edgeKey(na.id, nb.id),
+        weight: eventWeight(kind, p.weight),
+        ttl_activity: null,
+        seq: env.seq,
+      });
+    } else {
+      // Merged self-pair: still real activity on the axis — occupies a
+      // window slot (engine parity) but credits no rendered edge.
+      pushAttentionEvent(state.attention, scopeKey, {
+        kind,
+        record_id: null,
+        pair_key: null,
+        weight: eventWeight(kind, p.weight),
+        ttl_activity: null,
+        seq: env.seq,
+      });
     }
     state.last_event_seq = env.seq;
     return;
   }
 
   const rid = p.record_id ? String(p.record_id) : null;
-  if (!rid) return; // refocus: scope-level marker, ledger-only
+  if (!rid) {
+    // refocus: scope-level decay marker — occupies a window slot and
+    // stretches older distances in the temporal fold; ledger-only visually.
+    if (DECAY_MARKER_KINDS.has(kind)) {
+      pushAttentionEvent(state.attention, scopeKey, {
+        kind,
+        record_id: null,
+        pair_key: null,
+        weight: 0,
+        ttl_activity: null,
+        seq: env.seq,
+      });
+    }
+    return;
+  }
   const node = resolveUsageNode(state, rid, display, env.seq);
 
   if (kind === "selected") {
@@ -593,6 +707,16 @@ function applyEvent(state: FoldState, env: ReplayEnvelope): void {
     node.pinned = true;
   } else if (kind === "silenced") {
     node.silenced = true;
+  }
+  if (ATTENTION_KINDS.has(kind)) {
+    pushAttentionEvent(state.attention, scopeKey, {
+      kind,
+      record_id: node.id,
+      pair_key: null,
+      weight: eventWeight(kind, p.weight),
+      ttl_activity: ttl,
+      seq: env.seq,
+    });
   }
   // Audit kinds (listed/shown/expanded/cited) are structurally inert for
   // attention; the fold reads them only to reveal nodes early (already done

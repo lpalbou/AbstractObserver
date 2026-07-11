@@ -8,7 +8,7 @@
  * codex-fork monitor reads, but with the WHY visible.
  */
 
-import { cleanTitle, relationPredicate } from "./stream_fold";
+import { classifyBookkeeping, cleanTitle, relationPredicate } from "./stream_fold";
 import type {
   BindingPayload,
   ClosurePayload,
@@ -34,6 +34,15 @@ export interface LedgerLine {
   subject_id: string | null;
   /** Visual accent: formation | usage | recall | context | feeling | revision | session | boundary | quiet */
   tone: string;
+  /** Member names for collapsible burst lines — the panel folds
+   * consecutive runs of the SAME groupKind + recall into one row
+   * (a single recall deposits one `selected` per shelf record and one
+   * `co_selected` per pair; one line per event floods the ledger with
+   * sameness — maintainer, 2026-07-10 20:09 + 20:50). */
+  members?: string[];
+  /** Which burst family this line belongs to: "use" (selected) or
+   * "pair" (co_selected). Absent = never grouped. */
+  groupKind?: "use" | "pair";
 }
 
 function clip(text: string, max = 96): string {
@@ -144,6 +153,20 @@ export function ledgerLine(env: ReplayEnvelope): LedgerLine {
         if (kind === "lesson") {
           return { ...base, title: "📚 A lesson crystallized", detail: gist || name, subject_id: p.record_id, tone: "formation" };
         }
+        // Engine bookkeeping (engram/reembed markers): an ACT journaled
+        // into the life, not a memory he formed — say what the engine did.
+        // The reembed line is the plan's item-3 visibility clause: the
+        // stream must show WHEN retrieval geometry changed.
+        const bk = classifyBookkeeping(kind, cleanTitle(title), env.display ?? {});
+        if (bk.bookkeeping) {
+          if (bk.maintenance === "reembed") {
+            return { ...base, title: "🔧 Retrieval geometry changed (reembed)", detail: gist || name, subject_id: p.record_id, tone: "session" };
+          }
+          if (/^spark-engram v\d+/.test(cleanTitle(title))) {
+            return { ...base, title: "🌱 The spark was engrammed", detail: gist || name, subject_id: p.record_id, tone: "session" };
+          }
+          return { ...base, title: `🔧 Engine act${bk.maintenance ? ` (${bk.maintenance})` : ""}`, detail: gist || name, subject_id: p.record_id, tone: "session" };
+        }
         return {
           ...base,
           title: "Memory formed",
@@ -163,12 +186,15 @@ export function ledgerLine(env: ReplayEnvelope): LedgerLine {
     case "event": {
       const p = env.payload as unknown as EventPayload;
       if (p.kind === "selected") {
+        const name = displayTitle(env, clip(p.record_id ?? "", 40));
         return {
           ...base,
           title: "Used",
-          detail: displayTitle(env, clip(p.record_id ?? "", 40)),
+          detail: name,
           subject_id: p.record_id,
           tone: "usage",
+          members: [name],
+          groupKind: "use",
         };
       }
       if (p.kind === "co_selected") {
@@ -186,6 +212,8 @@ export function ledgerLine(env: ReplayEnvelope): LedgerLine {
           detail: label,
           subject_id: p.pair_ids?.[0] ?? null,
           tone: "usage",
+          members: names.filter(Boolean),
+          groupKind: "pair",
         };
       }
       if (p.kind === "pinned" || p.kind === "silenced") {
@@ -292,7 +320,19 @@ export function ledgerLine(env: ReplayEnvelope): LedgerLine {
         return { ...base, title: "Summoned", detail: `a new session begins${session}`, subject_id: null, tone: "session" };
       }
       if (p.kind === "session_closed") {
-        return { ...base, title: "Session closed", detail: `the session ended${session}`, subject_id: null, tone: "session" };
+        // Visit runs close with a WHY (D3 idle deadline / explicit close /
+        // state-transition guards) and a WHO (closed_by) — surface both
+        // when the door records them; older markers stay a plain close.
+        const closeReason = typeof p["close_reason"] === "string" && p["close_reason"] ? String(p["close_reason"]) : reason;
+        const closedBy = typeof p["closed_by"] === "string" && p["closed_by"] ? String(p["closed_by"]) : "";
+        const why = [closeReason, closedBy ? `by ${closedBy}` : ""].filter(Boolean).join(" — ");
+        return {
+          ...base,
+          title: "Session closed",
+          detail: `the session ended${session}${why ? ` — ${clip(why, 96)}` : ""}`,
+          subject_id: null,
+          tone: "session",
+        };
       }
       if (p.kind === "prelude_refused") {
         return { ...base, title: "Prelude refused", detail: `the summon was refused${session}`, subject_id: null, tone: "session" };
@@ -309,6 +349,54 @@ export function ledgerLine(env: ReplayEnvelope): LedgerLine {
       if (p.kind === "diary_read") {
         const who = typeof p["channel"] === "string" && p["channel"] ? String(p["channel"]) : "someone";
         return { ...base, title: "The book was read", detail: `${who}${reason ? ` — ${reason}` : ""}`, subject_id: null, tone: "session" };
+      }
+      if (p.kind === "observation_granted" || p.kind === "observation_revoked") {
+        // Being watched is an event in the life being watched (GW-G design
+        // commitment, 0017 pin 2 — the diary_read precedent generalized).
+        // Payload keys are the DECLARED contract: grantee, granted_by
+        // (door-derived), scope (subset array), reason.
+        const grantee = typeof p["grantee"] === "string" && p["grantee"] ? String(p["grantee"]) : "someone";
+        const grantedBy = typeof p["granted_by"] === "string" && p["granted_by"] ? String(p["granted_by"]) : "";
+        const scope = Array.isArray(p["scope"]) ? (p["scope"] as unknown[]).map(String).join(", ") : "";
+        const granted = p.kind === "observation_granted";
+        return {
+          ...base,
+          title: granted ? "👁 Someone may now watch" : "An observation ended",
+          detail: `${grantee}${scope ? ` (${scope})` : ""}${grantedBy ? ` — ${granted ? "granted" : "revoked"} by ${grantedBy}` : ""}${reason ? ` — ${reason}` : ""}`,
+          subject_id: null,
+          tone: "session",
+        };
+      }
+      if (p.kind === "reembed") {
+        // The door's half of the item-3 maintenance act (memory's claim
+        // record is the journal half): name the space change explicitly so
+        // a recall-behavior shift is explainable, never mysterious.
+        // Payload shape = the SHIPPED gateway verb (entities.py reembed):
+        // old_pin/new_pin objects {model_id, dimension}; flat
+        // old_model_id/new_model_id tolerated for older exports.
+        const pinOf = (v: unknown): { model?: string; dim?: number } => {
+          if (v && typeof v === "object") {
+            const o = v as Record<string, unknown>;
+            return {
+              model: typeof o["model_id"] === "string" && o["model_id"] ? String(o["model_id"]) : undefined,
+              dim: typeof o["dimension"] === "number" ? Number(o["dimension"]) : undefined,
+            };
+          }
+          return {};
+        };
+        const oldPin = pinOf(p["old_pin"]);
+        const newPin = pinOf(p["new_pin"]);
+        const flat = (k: string) => (typeof p[k] === "string" && p[k] ? String(p[k]) : undefined);
+        const fmt = (model: string, dim?: number) => (dim ? `${model} (${dim}d)` : model);
+        const oldModel = fmt(oldPin.model ?? flat("old_model_id") ?? "unpinned", oldPin.dim);
+        const newModel = fmt(newPin.model ?? flat("new_model_id") ?? "unknown model", newPin.dim);
+        return {
+          ...base,
+          title: "🔧 Reembed (operator maintenance)",
+          detail: `embedding space ${oldModel} → ${newModel}${reason ? ` — ${reason}` : ""}; same memories, different neighbors`,
+          subject_id: null,
+          tone: "session",
+        };
       }
       // Own-time loop lifecycle (runtime 0010 121500Z: these were silently
       // dropped engine-side before — now they land, so name them).

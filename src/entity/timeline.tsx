@@ -40,6 +40,9 @@ export function Timeline(props: TimelineProps): React.ReactElement {
       if (env.family === "host") {
         const kind = String((env.payload as { kind?: string }).kind ?? "");
         if (kind === "summon" || kind === "prelude_refused") ticks.push({ index: i, kind });
+        // Maintenance acts (reembed): retrieval geometry changed HERE —
+        // the scrub bar must show the boundary (plan item 3, observer half).
+        if (kind === "reembed") ticks.push({ index: i, kind: "maintenance" });
       }
     });
     for (const seq of props.inferredSessionSeqs) {
@@ -68,7 +71,7 @@ export function Timeline(props: TimelineProps): React.ReactElement {
           {sessionTicks.map((t) => (
             <div
               key={`${t.kind}-${t.index}`}
-              className={`et_tick ${t.kind === "summon" ? "et_tick_summon" : t.kind === "session" ? "et_tick_session" : "et_tick_refused"}`}
+              className={`et_tick ${t.kind === "summon" ? "et_tick_summon" : t.kind === "session" ? "et_tick_session" : t.kind === "maintenance" ? "et_tick_maintenance" : "et_tick_refused"}`}
               style={{ left: `${max > 0 ? (t.index / max) * 100 : 0}%` }}
               title={`${t.kind} @ seq ${envelopes[t.index]?.seq}`}
             />

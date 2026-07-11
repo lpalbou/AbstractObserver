@@ -443,6 +443,155 @@ describe("ledger lines", () => {
     expect(line.title).toBe("Summoned");
     expect(line.tone).toBe("session");
   });
+
+  it("names the reembed host marker with the space change (item 3 visibility)", () => {
+    // The SHIPPED gateway marker shape: old_pin/new_pin objects.
+    const line = ledgerLine(
+      env({
+        family: "host",
+        seq: 2.001,
+        payload: {
+          kind: "reembed",
+          session_id: null,
+          old_pin: { model_id: "qwen3-embedding-0.6b", dimension: 1024 },
+          new_pin: { model_id: "qwen3-embedding-4b", dimension: 2560 },
+          reason: "operator reembed",
+        },
+      }),
+    );
+    expect(line.title).toContain("Reembed");
+    expect(line.detail).toContain("qwen3-embedding-0.6b (1024d) → qwen3-embedding-4b (2560d)");
+    expect(line.tone).toBe("session");
+  });
+
+  it("tolerates the flat old/new model-id marker shape (older exports)", () => {
+    const line = ledgerLine(
+      env({
+        family: "host",
+        seq: 3.001,
+        payload: { kind: "reembed", session_id: null, old_model_id: "a", new_model_id: "b" },
+      }),
+    );
+    expect(line.detail).toContain("a → b");
+  });
+
+  it("phrases observation grant/revoke markers with the DECLARED payload keys (0017 pin 2)", () => {
+    const granted = ledgerLine(
+      env({
+        family: "host",
+        seq: 4.001,
+        payload: {
+          kind: "observation_granted",
+          session_id: null,
+          grantee: "person:laurent",
+          granted_by: "entity:castor",
+          scope: ["replay", "live"],
+          reason: "he asked to watch",
+        },
+      }),
+    );
+    expect(granted.title).toContain("watch");
+    expect(granted.detail).toContain("person:laurent");
+    expect(granted.detail).toContain("replay, live");
+    expect(granted.detail).toContain("granted by entity:castor");
+    const revoked = ledgerLine(
+      env({ family: "host", seq: 5.001, payload: { kind: "observation_revoked", session_id: null, grantee: "person:x", granted_by: "operator" } }),
+    );
+    expect(revoked.title).toContain("observation ended");
+    expect(revoked.detail).toContain("revoked by operator");
+  });
+
+  it("phrases the reembed journal marker as an engine act, not a memory", () => {
+    const line = ledgerLine(
+      bindingEnv("ex:claim-re1", 3, {}, {
+        record_id: "ex:claim-re1",
+        kind: "claim",
+        title: "reembed: embedding space migrated",
+      }),
+    );
+    expect(line.title).toContain("Retrieval geometry changed");
+    expect(line.tone).toBe("session");
+  });
+
+  it("phrases the engram marker as the spark being planted", () => {
+    const line = ledgerLine(
+      bindingEnv("ex:claim-eng", 4, {}, { record_id: "ex:claim-eng", kind: "claim", title: "spark-engram v1" }),
+    );
+    expect(line.title).toContain("spark was engrammed");
+    expect(line.tone).toBe("session");
+  });
+});
+
+describe("bookkeeping markers (plan item 3, observer half)", () => {
+  it("classifies the reembed marker off the identity set via title convention", () => {
+    const fold = foldEnvelopes([
+      bindingEnv("ex:claim-re1", 1, {}, { record_id: "ex:claim-re1", kind: "claim", title: "reembed: embedding space migrated" }),
+    ]);
+    const node = fold.nodes.get("ex:claim-re1")!;
+    expect(node.kind).toBe("claim");
+    expect(node.bookkeeping).toBe(true);
+    expect(node.maintenance).toBe("reembed");
+  });
+
+  it("classifies via explicit display fields when the stream carries them", () => {
+    const fold = foldEnvelopes([
+      bindingEnv("ex:claim-x", 1, {}, { record_id: "ex:claim-x", kind: "claim", title: "anything", bookkeeping: true, maintenance: "reembed" }),
+    ]);
+    const node = fold.nodes.get("ex:claim-x")!;
+    expect(node.bookkeeping).toBe(true);
+    expect(node.maintenance).toBe("reembed");
+  });
+
+  it("classifies the engram marker as bookkeeping without a maintenance act", () => {
+    const fold = foldEnvelopes([
+      bindingEnv("ex:claim-eng", 1, {}, { record_id: "ex:claim-eng", kind: "claim", title: "spark-engram v1" }),
+    ]);
+    const node = fold.nodes.get("ex:claim-eng")!;
+    expect(node.bookkeeping).toBe(true);
+    expect(node.maintenance).toBeNull();
+  });
+
+  it("never flags an ordinary identity claim as bookkeeping", () => {
+    const fold = foldEnvelopes([
+      bindingEnv("ex:claim-id", 1, {}, { record_id: "ex:claim-id", kind: "claim", title: "I keep my promises" }),
+    ]);
+    const node = fold.nodes.get("ex:claim-id")!;
+    expect(node.bookkeeping).toBe(false);
+    expect(node.maintenance).toBeNull();
+  });
+
+  it("folds the interaction correlation key from the display delta (item 14)", () => {
+    const fold = foldEnvelopes([
+      bindingEnv("ex:episode-leg", 1, {}, { record_id: "ex:episode-leg", kind: "episode", title: "a shared moment", visit_id: "visit-abc123" }),
+      bindingEnv("ex:episode-solo", 2, {}, { record_id: "ex:episode-solo", kind: "episode", title: "a solo moment" }),
+    ]);
+    expect(fold.nodes.get("ex:episode-leg")!.visit_id).toBe("visit-abc123");
+    // ABSENT stays absent: a solo visit fakes no correlation.
+    expect(fold.nodes.get("ex:episode-solo")!.visit_id).toBeNull();
+  });
+
+  it("classifies the REAL engine output in the demo life (both planes of the act)", async () => {
+    // The demo NDJSON is a genuine engine export (export_demo_entity.py runs
+    // a real reembed_store over a real home) — this pins the classifier
+    // against engine-authored shapes, not hand-written fixtures.
+    const fs = await import("node:fs");
+    const path = new URL("../../public/demo/castor.ndjson", import.meta.url).pathname;
+    const { envelopes, errors } = parseNdjson(fs.readFileSync(path, "utf-8"));
+    expect(errors).toHaveLength(0);
+    const fold = foldEnvelopes(envelopes);
+    const reembedNodes = [...fold.nodes.values()].filter((n) => n.maintenance === "reembed");
+    expect(reembedNodes).toHaveLength(1);
+    expect(reembedNodes[0].bookkeeping).toBe(true);
+    const engramNodes = [...fold.nodes.values()].filter((n) => n.bookkeeping && n.maintenance === null);
+    expect(engramNodes.length).toBeGreaterThanOrEqual(1); // the spark-engram marker
+    // The door's half: the host reembed marker is in the session stream.
+    expect(fold.sessions.some((s) => s.kind === "reembed")).toBe(true);
+    // No real identity record got swept into bookkeeping: values/purposes/
+    // traits from the spark stay clean.
+    for (const n of fold.nodes.values()) {
+      if (["value", "purpose", "trait"].includes(n.kind)) expect(n.bookkeeping).toBe(false);
+    }
+  });
 });
 
 describe("ndjson parsing", () => {

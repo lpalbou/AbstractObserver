@@ -280,6 +280,11 @@ export function EntitiesIndex({ baseUrl, token, onOpen, onConnect }: EntitiesInd
             <div key={summary.slug} className="eix_card">
               <button className="eix_card_head" onClick={() => onOpen(summary.slug)} title={`Watch ${summary.name}'s mind`}>
                 <span className="eix_name">{summary.name}</span>
+                {summary.handle ? (
+                  <span className="eix_handle" title="handle (declared address) — reachability, not identity">
+                    {summary.handle}
+                  </span>
+                ) : null}
                 <span className={`eix_badge eix_life_${life.accent}`} title={life.detail}>
                   {life.label}
                 </span>

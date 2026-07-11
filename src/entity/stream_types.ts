@@ -57,6 +57,19 @@ export interface DisplayBlock {
   gist?: string | null;
   entry_kind?: string | null;
   entry_id?: string;
+  /** Engine bookkeeping markers (plan item 3 / M1b): the engram claim and
+   * the reembed claim are engine state, not memories — the engine excludes
+   * them from the self and from shelves, and the view must not draw them
+   * as identity. ADDITIVE fields (asked of memory, 0012 phase-1 report);
+   * until they ship, detection falls back to the marker TITLE convention
+   * the engine itself uses (prelude.py matches "spark-engram v"). */
+  bookkeeping?: boolean;
+  maintenance?: string;
+  /** Interaction correlation key (item 14): the door-minted visit_id
+   * engraved as attributes.visit_id on both legs' episodes. ADDITIVE
+   * display field (asked of memory — the graph_id delta precedent);
+   * absent = no correlation claimed, rendered as absent. */
+  visit_id?: string;
 }
 
 export interface ReplayEnvelope {
