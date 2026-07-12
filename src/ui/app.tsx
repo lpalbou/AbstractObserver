@@ -31,6 +31,7 @@ import { random_id } from "../lib/ids";
 import { McpWorkerClient } from "../lib/mcp_worker_client";
 import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
+import { RecordBuffer } from "./record_buffer";
 import {
   artifact_display_kind,
   artifact_preview_kind,
@@ -41,12 +42,9 @@ import {
   type ArtifactTextRenderKind,
 } from "./artifact_rendering";
 import { FlowGraph } from "./flow_graph";
-import { BacklogBrowserPage } from "./backlog_browser";
 import { MindmapPanel } from "./mindmap_panel";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
-import { ProcessesPage } from "./processes_page";
-import { ReportInboxPage } from "./report_inbox";
 import {
   build_runtime_activity_views,
   count_runtime_activity_queues,
@@ -73,7 +71,6 @@ type Settings = {
   auto_connect_gateway: boolean;
   maintenance_ai_provider: string;
   maintenance_ai_model: string;
-  backlog_advisor_agent: string;
 };
 
 type UiLogItem = {
@@ -129,6 +126,30 @@ type WorkflowOption = {
 
 type RunFilterMode = "all" | "active" | "waiting" | "terminal" | "failed";
 type ObserveRightTab = "overview" | "timeline" | "replay" | "ledger" | "providers" | "graph" | "digest" | "attachments" | "chat";
+
+// Latest persisted run summary (abstract.summary emit) found in the ledger.
+// Kept module-scope because it is shared by the always-on Overview scan and
+// the digest-tab-gated digest memo.
+type LatestRunSummary = {
+  cursor: number;
+  ts: string;
+  text: string;
+  provider?: string;
+  model?: string;
+  generated_at?: string;
+  source?: any;
+};
+
+// Shape of the (digest-tab-gated) run digest memo. `overall`/`per_run` keep
+// the memo's structural types loosely here; the precise field types live
+// with the compute logic inside the memo.
+type RunDigest = {
+  overall: any;
+  per_run: Record<string, any>;
+  subruns: Array<{ run_id: string; parent_run_id: string; parent_node_id: string; digest: any }>;
+  latest_summary: LatestRunSummary | null;
+  summary_outdated: boolean;
+};
 
 type RuntimeArtifact = {
   artifact_id: string;
@@ -216,21 +237,6 @@ type RunTreeRow = { run: RunSummary; children: RunSummary[] };
 type RunTreeSection = { key: string; label: string; rows: RunTreeRow[] };
 
 // === UI feature flags (runtime config injected by CLI) ===
-function read_ui_flag(key: string, default_value = false): boolean {
-  const cfg: any = typeof window !== "undefined" ? window.__ABSTRACT_UI_CONFIG__ : undefined;
-  const raw = cfg?.[key];
-  if (raw === undefined || raw === null || raw === "") return default_value;
-  if (typeof raw === "boolean") return raw;
-  const normalized = String(raw).trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  console.warn(`#FALLBACK: ui_config.${key}="${raw}" is not a boolean; defaulting to ${default_value ? "true" : "false"}.`);
-  return default_value;
-}
-
-const ENABLE_BACKLOG = read_ui_flag("enable_backlog");
-const ENABLE_INBOX_TRIAGE = read_ui_flag("enable_inbox_triage");
-
 function now_iso(): string {
   return new Date().toISOString();
 }
@@ -267,6 +273,19 @@ function normalize_ui_event_name(name: string): string {
   const s = String(name || "").trim();
   if (s.startsWith("abstractcode.")) return `abstract.${s.slice("abstractcode.".length)}`;
   return s;
+}
+
+// Human preview for the steer-delivery ack (hooks H4: runtime drains queued
+// steer messages into the run's inbox at a tick boundary and acks with an
+// `abstract.steer_seen` EMIT_EVENT — payload {seqs, count, node_id}, no prose,
+// so the generic textish extraction renders an empty row without this).
+// Exported for the contract test only.
+export function steer_seen_preview(payload: any): string {
+  const p = payload && typeof payload === "object" ? (payload as any) : {};
+  const count = typeof p?.count === "number" && Number.isFinite(p.count) ? Number(p.count) : null;
+  const node = typeof p?.node_id === "string" && p.node_id.trim() ? ` before ${p.node_id.trim()}` : "";
+  const n = count === null ? "steering" : `${count} steer message${count === 1 ? "" : "s"}`;
+  return `${n} folded into the run${node} — the loop sees it at this boundary`;
 }
 
 function is_ui_event_name(name: string): boolean {
@@ -684,7 +703,6 @@ function load_settings(): Settings {
       auto_connect_gateway: parsed?.auto_connect_gateway === false ? false : true,
       maintenance_ai_provider: String(parsed?.maintenance_ai_provider || ""),
       maintenance_ai_model: String(parsed?.maintenance_ai_model || ""),
-      backlog_advisor_agent: String(parsed?.backlog_advisor_agent || parsed?.backlogAdvisorAgent || ""),
     };
   } catch {
     return {
@@ -701,7 +719,6 @@ function load_settings(): Settings {
       auto_connect_gateway: true,
       maintenance_ai_provider: "",
       maintenance_ai_model: "",
-      backlog_advisor_agent: "",
     };
   }
 }
@@ -1344,11 +1361,10 @@ function getOrCreateStableSessionId(): string {
 }
 
 export function App(): React.ReactElement {
-  const [page, set_page] = useState<"observe" | "launch" | "runtime" | "mindmap" | "backlog" | "inbox" | "processes" | "settings">("observe");
-
-  useEffect(() => {
-    if (!ENABLE_BACKLOG && (page === "backlog" || page === "processes")) set_page("observe");
-  }, [page, ENABLE_BACKLOG]);
+  // CI/CD development pages (backlog + codex execution, report/email inbox,
+  // processes) moved to the abstractcontinuum repo (2026-07-12 split): the
+  // observer's purpose is observing and discussing the running system.
+  const [page, set_page] = useState<"observe" | "launch" | "runtime" | "mindmap" | "settings">("observe");
 
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
@@ -1383,6 +1399,32 @@ export function App(): React.ReactElement {
   const [records, set_records] = useState<Array<{ cursor: number; record: StepRecord }>>([]);
   const [child_records_for_digest, set_child_records_for_digest] = useState<Array<{ run_id: string; cursor: number; record: StepRecord }>>([]);
   const cursor_ref = useRef<number>(0);
+  // Batched appenders for the UNBOUNDED records arrays: one concat (and one
+  // pass of every records-derived useMemo) per ~40ms flush window instead of
+  // one full array copy per ledger event — the per-event copies were O(N²)
+  // cumulative at resident scale (~5k events/day), the entity-view
+  // scale-contract class applied here. Scope note: per-event state updates
+  // that remain (push_log ≤800 cap, mark_node_activity, active-node) are
+  // BOUNDED structures and deliberately stay per-event for liveness.
+  const records_buffer_ref = useRef<RecordBuffer<{ cursor: number; record: StepRecord }> | null>(null);
+  if (!records_buffer_ref.current) {
+    records_buffer_ref.current = new RecordBuffer(
+      (flush) => window.setTimeout(flush, 40),
+      (items) => set_records((prev) => prev.concat(items)),
+    );
+  }
+  const child_records_buffer_ref = useRef<RecordBuffer<{ run_id: string; cursor: number; record: StepRecord }> | null>(null);
+  if (!child_records_buffer_ref.current) {
+    child_records_buffer_ref.current = new RecordBuffer(
+      (flush) => window.setTimeout(flush, 40),
+      (items) => set_child_records_for_digest((prev) => prev.concat(items)),
+    );
+  }
+  // Last digest computed while the digest tab was visible (see the digest memo note).
+  const digest_cache_ref = useRef<RunDigest | null>(null);
+  // Incremental scan state for the always-on latest-summary memo: `records`
+  // only grows (concat) or resets to [], so a shrink means "new run — rescan".
+  const latest_summary_scan_ref = useRef<{ scanned: number; found: LatestRunSummary | null }>({ scanned: 0, found: null });
   const [run_state, set_run_state] = useState<any>(null);
 
   const [new_run_error, set_new_run_error] = useState<string>("");
@@ -2709,7 +2751,7 @@ export function App(): React.ReactElement {
 
   function handle_step(ev: LedgerStreamEvent): void {
     cursor_ref.current = ev.cursor;
-    set_records((prev) => [...prev, { cursor: ev.cursor, record: ev.record }]);
+    records_buffer_ref.current?.push({ cursor: ev.cursor, record: ev.record });
     if (run_id.trim()) digest_seen_ref.current.add(`${run_id.trim()}:${ev.cursor}`);
 
     const emit = extract_emit_event(ev.record);
@@ -2757,7 +2799,9 @@ export function App(): React.ReactElement {
     if (emit && emit.name && is_ui_event_name(emit.name)) {
       kind = emit_name === "abstract.message" ? "message" : "event";
       title = emit_name || emit.name;
-      preview = clamp_preview(extract_textish(emit?.payload).text);
+      preview = clamp_preview(
+        emit_name === "abstract.steer_seen" ? steer_seen_preview(emit?.payload) : extract_textish(emit?.payload).text,
+      );
     } else if (rec?.error) {
       kind = "error";
       title = "error";
@@ -2796,7 +2840,7 @@ export function App(): React.ReactElement {
     const is_new = !digest_seen_ref.current.has(dig_key);
     if (!is_new) return;
     digest_seen_ref.current.add(dig_key);
-    set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }]);
+    child_records_buffer_ref.current?.push({ run_id: child_run_id, cursor: ev.cursor, record: ev.record });
     const emit = extract_emit_event(ev.record);
     const emit_name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
     const rec = ev.record;
@@ -2851,7 +2895,9 @@ export function App(): React.ReactElement {
     if (emit && emit.name && is_ui_event_name(emit.name)) {
       kind = emit_name === "abstract.message" ? "message" : "event";
       title = `subrun • ${emit_name || emit.name}`;
-      preview = clamp_preview(extract_textish(emit?.payload).text);
+      preview = clamp_preview(
+        emit_name === "abstract.steer_seen" ? steer_seen_preview(emit?.payload) : extract_textish(emit?.payload).text,
+      );
     } else if (rec?.error) {
       kind = "error";
       title = "error";
@@ -2891,7 +2937,7 @@ export function App(): React.ReactElement {
     const is_new = !digest_seen_ref.current.has(dig_key);
     if (!is_new) return;
     digest_seen_ref.current.add(dig_key);
-    set_child_records_for_digest((prev) => [...prev, { run_id: child_run_id, cursor: ev.cursor, record: ev.record }]);
+    child_records_buffer_ref.current?.push({ run_id: child_run_id, cursor: ev.cursor, record: ev.record });
 
     const emit = extract_emit_event(ev.record);
     const emit_name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
@@ -2931,7 +2977,9 @@ export function App(): React.ReactElement {
     if (emit && emit.name && is_ui_event_name(emit.name)) {
       kind = emit_name === "abstract.message" ? "message" : "event";
       title = `subrun • ${emit_name || emit.name}`;
-      preview = clamp_preview(extract_textish(emit?.payload).text);
+      preview = clamp_preview(
+        emit_name === "abstract.steer_seen" ? steer_seen_preview(emit?.payload) : extract_textish(emit?.payload).text,
+      );
     } else if (rec?.error) {
       kind = "error";
       title = "error";
@@ -2987,6 +3035,10 @@ export function App(): React.ReactElement {
     set_error_text("");
     set_connecting(true);
     set_connected(false);
+    records_buffer_ref.current?.reset();
+    child_records_buffer_ref.current?.reset();
+    digest_cache_ref.current = null;
+    latest_summary_scan_ref.current = { scanned: 0, found: null };
     set_records([]);
     cursor_ref.current = 0;
     set_child_records_for_digest([]);
@@ -3427,6 +3479,10 @@ export function App(): React.ReactElement {
     set_resuming(false);
 
     cursor_ref.current = 0;
+    records_buffer_ref.current?.reset();
+    child_records_buffer_ref.current?.reset();
+    digest_cache_ref.current = null;
+    latest_summary_scan_ref.current = { scanned: 0, found: null };
     set_records([]);
     set_child_records_for_digest([]);
     digest_seen_ref.current = new Set();
@@ -4145,7 +4201,51 @@ export function App(): React.ReactElement {
   const limits_used = limits_tokens?.estimated_used;
   const limits_budget = limits_tokens?.max_input_tokens ?? limits_tokens?.max_tokens;
 
-  const digest = useMemo(() => {
+  // Always-on, incremental: the latest persisted run summary (abstract.summary)
+  // in the root ledger. The Overview tab (the app's default tab) needs this
+  // live, so it must NOT ride the digest-tab-gated memo below. `records` only
+  // grows via concat or resets to [] (run switch), so scanning just the new
+  // tail keeps this O(new records) per flush.
+  const latest_run_summary = useMemo<LatestRunSummary | null>(() => {
+    const scan = latest_summary_scan_ref.current;
+    if (records.length < scan.scanned) {
+      scan.scanned = 0;
+      scan.found = null;
+    }
+    for (let i = scan.scanned; i < records.length; i++) {
+      const item = records[i];
+      const rec = item?.record;
+      if (!rec) continue;
+      const emit = extract_emit_event(rec);
+      const name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
+      if (name !== "abstract.summary") continue;
+      const payload = emit?.payload && typeof emit.payload === "object" ? (emit.payload as any) : {};
+      const text = typeof payload?.text === "string" ? String(payload.text) : "";
+      if (!text.trim()) continue;
+      scan.found = {
+        cursor: item.cursor,
+        ts: String(rec?.ended_at || rec?.started_at || ""),
+        text,
+        provider: typeof payload?.provider === "string" ? String(payload.provider) : undefined,
+        model: typeof payload?.model === "string" ? String(payload.model) : undefined,
+        generated_at: typeof payload?.generated_at === "string" ? String(payload.generated_at) : undefined,
+        source: payload?.source,
+      };
+    }
+    scan.scanned = records.length;
+    return scan.found;
+  }, [records]);
+
+  const digest = useMemo<RunDigest | null>(() => {
+    // Every OTHER consumer of the digest lives inside the `right_tab ===
+    // "digest"` panel (Overview reads `latest_run_summary` above), but this
+    // memo used to recompute over the FULL record history on every ledger
+    // flush regardless of visibility — per-record parsing (emit extraction,
+    // JSON previews) over an unbounded array, the main always-on CPU burn at
+    // resident scale. Compute only while the digest tab is showing; keep the
+    // last computed value so tab switches render instantly (it recomputes
+    // fresh on the next records change while open).
+    if (right_tab !== "digest") return digest_cache_ref.current;
     type DigestStats = {
       steps: number;
       tool_calls_effects: number;
@@ -4459,28 +4559,9 @@ export function App(): React.ReactElement {
 
     subruns.sort((a, b) => (a.run_id < b.run_id ? -1 : a.run_id > b.run_id ? 1 : 0));
 
-    // Latest persisted run summary (abstract.summary) in the parent/root ledger.
-    let latest_summary:
-      | { cursor: number; ts: string; text: string; provider?: string; model?: string; generated_at?: string; source?: any }
-      | null = null;
-    for (const item of records) {
-      const rec = item.record;
-      const emit = extract_emit_event(rec);
-      const name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
-      if (name !== "abstract.summary") continue;
-      const payload = emit?.payload && typeof emit.payload === "object" ? (emit.payload as any) : {};
-      const text = typeof payload?.text === "string" ? String(payload.text) : "";
-      if (!text.trim()) continue;
-      latest_summary = {
-        cursor: item.cursor,
-        ts: String(rec?.ended_at || rec?.started_at || ""),
-        text,
-        provider: typeof payload?.provider === "string" ? String(payload.provider) : undefined,
-        model: typeof payload?.model === "string" ? String(payload.model) : undefined,
-        generated_at: typeof payload?.generated_at === "string" ? String(payload.generated_at) : undefined,
-        source: payload?.source,
-      };
-    }
+    // Latest persisted run summary (abstract.summary) in the parent/root
+    // ledger — shared with the always-on Overview scan above.
+    const latest_summary = latest_run_summary;
 
     const summary_ms = latest_summary ? parse_iso_ms(latest_summary.generated_at || latest_summary.ts) : null;
     let last_meaningful_ms: number | null = null;
@@ -4494,8 +4575,10 @@ export function App(): React.ReactElement {
     }
     const summary_outdated = summary_ms !== null && last_meaningful_ms !== null ? last_meaningful_ms > summary_ms : false;
 
-    return { overall, per_run, subruns, latest_summary, summary_outdated };
-  }, [records, child_records_for_digest, run_id, subrun_ids, discovered_tool_specs]);
+    const computed: RunDigest = { overall, per_run, subruns, latest_summary, summary_outdated };
+    digest_cache_ref.current = computed;
+    return computed;
+  }, [records, child_records_for_digest, run_id, subrun_ids, discovered_tool_specs, right_tab, latest_run_summary]);
 
   // Follow the deepest active subworkflow run for status/event UX (not just the immediate child).
   useEffect(() => {
@@ -5337,14 +5420,6 @@ export function App(): React.ReactElement {
           <button className={`nav_tab ${page === "mindmap" ? "active" : ""}`} onClick={() => set_page("mindmap")}>
             Mindmap
           </button>
-          {ENABLE_BACKLOG ? (
-          <button className={`nav_tab ${page === "backlog" ? "active" : ""}`} onClick={() => set_page("backlog")}>
-            Backlog
-          </button>
-          ) : null}
-          <button className={`nav_tab ${page === "inbox" ? "active" : ""}`} onClick={() => set_page("inbox")}>
-            Inbox
-          </button>
         </div>
         <div className="status_pills">
           {monitor_gpu_enabled ? (
@@ -5367,17 +5442,6 @@ export function App(): React.ReactElement {
                 } as React.CSSProperties
               }
             />
-          ) : null}
-          {ENABLE_BACKLOG ? (
-          <button
-            className={`header_icon_btn ${page === "processes" ? "active" : ""}`}
-            title="Processes"
-            aria-label="Processes"
-            type="button"
-            onClick={() => set_page("processes")}
-          >
-            <Icon name="terminal" size={16} />
-          </button>
           ) : null}
           <button
             className={`header_icon_btn ${page === "settings" ? "active" : ""}`}
@@ -5513,24 +5577,9 @@ export function App(): React.ReactElement {
                   }
                 />
                 <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                  Used for in-editor maintenance chat{ENABLE_BACKLOG ? " and backlog AI assist" : ""}. Defaults follow `ABSTRACTGATEWAY_PROVIDER` /
+                  Used for in-editor maintenance chat. Defaults follow `ABSTRACTGATEWAY_PROVIDER` /
                   `ABSTRACTGATEWAY_MODEL`.
                 </div>
-
-                {ENABLE_BACKLOG ? (
-                <div className="field" style={{ marginTop: "10px" }}>
-                  <label>Backlog advisor agent (bundle id; blank = basic-agent)</label>
-                  <input
-                    className="mono"
-                    value={settings.backlog_advisor_agent}
-                    onChange={(e) => set_settings((s) => ({ ...s, backlog_advisor_agent: String(e.target.value || "") }))}
-                    placeholder="basic-agent"
-                  />
-                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                    Used by Backlog → Advisor drawer. Must be a bundle available on the gateway (e.g. `basic-agent`, `advanced-agent`).
-                  </div>
-                </div>
-                ) : null}
 
                 <div className="section_divider" />
                 <div className="section_title">Remote Tool Worker (MCP)</div>
@@ -5881,30 +5930,6 @@ export function App(): React.ReactElement {
             </div>
           </div>
         ) : null}
-
-        {ENABLE_BACKLOG && page === "backlog" ? (
-          <BacklogBrowserPage
-            gateway={gateway}
-            gateway_connected={gateway_connected}
-            maintenance_ai_provider={settings.maintenance_ai_provider}
-            maintenance_ai_model={settings.maintenance_ai_model}
-            backlog_advisor_agent={settings.backlog_advisor_agent}
-            voice_session_id={start_session_id}
-          />
-        ) : null}
-
-        {page === "inbox" ? (
-          <ReportInboxPage
-            gateway={gateway}
-            gateway_connected={gateway_connected}
-            enable_triage={ENABLE_INBOX_TRIAGE}
-            default_session_id={session_id_for_run || run_id || start_session_id}
-            default_active_run_id={run_id}
-            default_workflow_id={(run_state as any)?.workflow_id ?? selected_run_summary?.workflow_id ?? null}
-          />
-        ) : null}
-
-        {ENABLE_BACKLOG && page === "processes" ? <ProcessesPage gateway={gateway} gateway_connected={gateway_connected} /> : null}
 
         {page === "mindmap" ? (
           <div className="page mindmap_page">
@@ -6319,7 +6344,7 @@ export function App(): React.ReactElement {
                     child_records_count={child_records_for_digest.length}
                     provider_activities={provider_activities}
                     attachments_count={session_attachments.length}
-                    digest={digest}
+                    latest_summary={latest_run_summary}
                     wait_state={wait_state}
                     summary_generating={summary_generating}
                     summary_error={summary_error}
@@ -8018,7 +8043,7 @@ function RunOverviewPanel(props: {
   child_records_count: number;
   provider_activities: ProviderActivity[];
   attachments_count: number;
-  digest: any;
+  latest_summary: LatestRunSummary | null;
   wait_state: WaitState | null;
   summary_generating: boolean;
   summary_error: string;
@@ -8034,7 +8059,7 @@ function RunOverviewPanel(props: {
   const llm_count = props.provider_activities.length;
   const token_total = props.provider_activities.reduce((n, a) => n + (Number(a.tokens.total) || 0), 0);
   const missing = props.provider_activities.filter((a) => a.missing_response || a.error).length;
-  const summary_text = String(props.digest?.latest_summary?.text || "").trim();
+  const summary_text = String(props.latest_summary?.text || "").trim();
   const wait = props.wait_state;
 
   return (
@@ -8118,7 +8143,7 @@ function RunOverviewPanel(props: {
         <section className="overview_panel">
           <div className="overview_panel_header">
             <h3>Summary</h3>
-            {props.digest?.latest_summary ? <span className="chip mono ok">saved</span> : <span className="chip mono muted">none</span>}
+            {props.latest_summary ? <span className="chip mono ok">saved</span> : <span className="chip mono muted">none</span>}
           </div>
           {props.summary_error ? <div className="warn_callout">{props.summary_error}</div> : null}
           {summary_text ? <Markdown text={summary_text} /> : <div className="empty_state_inline">Generate a grounded summary from the root run and its subflows.</div>}

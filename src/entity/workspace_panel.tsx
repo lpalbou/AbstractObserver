@@ -6,8 +6,9 @@
  * - mounts: whitelist extra directories the entity may reach (read-only or
  *   read+write), remove them, see them exactly as his tools do
  *   (`mounts/<name>/`). Writes go through the operator door (token).
- * - tools: the per-phase tool grant (visit / resident / sleep) as a
- *   checkbox matrix over <home>/tool_policy.yaml.
+ * - tools: the per-phase tool grant (visit / tasked / own_time / sleep —
+ *   the ruled four-phase vocabulary; `resident` renders for older
+ *   gateways) as a checkbox matrix over <home>/tool_policy.yaml.
  *
  * Everything renders from gateway answers; a refused write shows the
  * door's words verbatim.
@@ -15,6 +16,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import { authRefusedMsg } from "./gateway_session";
 import {
   getEntityPrompt,
   getToolPolicy,
@@ -209,7 +211,7 @@ function MountsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string
         setNewName("");
       })
       .catch((e: Error & { status?: number }) => {
-        setError(e.status === 401 || e.status === 403 ? AUTH_REFUSED_MSG : e.message);
+        setError(e.status === 401 || e.status === 403 ? authRefusedMsg(e.status, e.message) : e.message);
       })
       .finally(() => setBusy(false));
   };
@@ -272,10 +274,26 @@ function MountsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string
 
 // ------------------------------------------------------------------ tools
 
+/** Labels for the phase vocabulary. RULED (laurent, 2026-07-11 20:30 via
+ * agency c786, after a 9-0 room ballot): the four phases are single human
+ * words — visit / work / personal / sleep. `tasked`/`own_time` are the
+ * pre-ruling spellings and `resident` the oldest — all three render
+ * labeled as legacy during the migration window (runtime aliases them:
+ * tasked→work, own_time/resident→personal, loud #FALLBACK). The matrix
+ * itself is server-driven — it renders whatever keys the gateway serves;
+ * only labels/hints live client-side. DELETABLE STOPGAP: when the gateway
+ * GET carries per-phase label/hint (uic's MatrixPhase {id,label?,hint?}
+ * shape, c703), delete both maps and render the payload's words —
+ * client-side vocabulary is the drift class the adversary already caught
+ * here once. */
 const PHASE_LABEL: Record<string, string> = {
-  visit: "visit / chat",
-  resident: "active / persistent",
+  visit: "visit",
+  work: "work",
+  personal: "personal",
   sleep: "sleep",
+  resident: "personal (legacy spelling)",
+  tasked: "work (legacy spelling)",
+  own_time: "personal (legacy spelling)",
 };
 
 /** Honest state of each column (adversary A's caveat, 2026-07-11): the
@@ -284,8 +302,12 @@ const PHASE_LABEL: Record<string, string> = {
  * anything tonight. */
 const PHASE_HINT: Record<string, string> = {
   visit: "Applies at the next summon (chat or visit).",
-  resident: "Applies at the next own-time day boundary.",
-  sleep: "Configures the sleep/dream pass. It explores (recall, search, reads) but never acts — and it does not run tools yet: this column takes effect when the sleep pass gains tool use.",
+  work: "Pursuing operator-given tasks; ticks until done, then sleeps. Full set by default (hands by default). Applies at the next work session.",
+  personal: "His own time — self-directed, no given tasks. Full set by default (Q1 ruling: same as work); the brake is the personal-time grant (off by default, operator-granted with a timer or until retracted), never an empty toolset. Applies at the next day boundary.",
+  sleep: "Configures the sleep/dream pass. The DEFAULT is explore-only (recall, search, reads) — widen it here if his dreams should act (a dedicated sleep workspace, extra tools: the operator's call). It does not run tools yet: this column takes effect when the sleep pass gains tool use.",
+  resident: "Legacy spelling of the personal phase (older gateway). Applies at the next day boundary.",
+  tasked: "Legacy spelling of the work phase (older gateway).",
+  own_time: "Legacy spelling of the personal phase (older gateway).",
 };
 
 // ------------------------------------------------------------------ prompt
@@ -308,7 +330,6 @@ const PROMPT_LAYER_META: Record<string, { label: string; hint: string }> = {
   },
 };
 
-const AUTH_REFUSED_MSG = "The door refused: operator sign-in required.";
 
 function PromptTab({
   baseUrl,
@@ -360,7 +381,7 @@ function PromptTab({
         setSaved(true);
       })
       .catch((e: Error & { status?: number }) => {
-        setError(e.status === 401 || e.status === 403 ? AUTH_REFUSED_MSG : e.message);
+        setError(e.status === 401 || e.status === 403 ? authRefusedMsg(e.status, e.message) : e.message);
       })
       .finally(() => setBusy(false));
   };
@@ -529,7 +550,7 @@ function ToolsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string;
         setSaved(true);
       })
       .catch((e: Error & { status?: number }) => {
-        setError(e.status === 401 || e.status === 403 ? AUTH_REFUSED_MSG : e.message);
+        setError(e.status === 401 || e.status === 403 ? authRefusedMsg(e.status, e.message) : e.message);
       })
       .finally(() => setBusy(false));
   };
@@ -544,8 +565,8 @@ function ToolsTab({ baseUrl, entity, token }: { baseUrl: string; entity: string;
       <p className="wsp_quiet">
         Which tools he holds in each phase of life. Tier-1 (marked ●) is the read-only cognition set, designed to be safe 24/7; the rest reach only
         his workspace walls (reads and writes). Saving writes <code>tool_policy.yaml</code> in his home — the next summon of each phase obeys it; a session already
-        open (a live visit, a resident mid-day) keeps the grant it was summoned with. The sleep column (⏳) is standing config: the sleeping mind may
-        explore (recall, search, read) but never act — it takes effect when the sleep pass gains tool use.
+        open (a live visit, an own-time day mid-run) keeps the grant it was summoned with. The sleep column (⏳) is standing config with an explore-only
+        DEFAULT (recall, search, read) — widen it if his dreams should act; it takes effect when the sleep pass gains tool use.
       </p>
       {error ? <p className="wsp_error">{error}</p> : null}
       <table className="wsp_matrix">

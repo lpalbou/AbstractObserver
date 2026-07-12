@@ -97,14 +97,10 @@ Evidence: `src/lib/gateway_client.ts` and `src/lib/sse_parser.ts`. Diagram: `arc
 It depends on which UI pages/features you use.
 For the authoritative list grouped by feature, see `api.md` (grounded in `src/lib/gateway_client.ts`).
 
-## What are Backlog / Inbox / Processes?
-They are maintainer-oriented pages that rely on additional gateway endpoints and are **high trust**:
-- Backlog: maintenance items (create/edit/execute)
-- Inbox: bug/feature reports + triage decisions + email mailbox (list/read/send)
-- Processes: process manager controls + log tail
+## Where did Backlog / Inbox / Processes go?
 
-Evidence: `src/ui/backlog_browser.tsx`, `src/ui/report_inbox.tsx`, `src/ui/email_inbox.tsx`, `src/ui/processes_page.tsx`.
-Security guidance: `security.md`.
+Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+
 
 ## What is the “Remote tool worker (MCP)”?
 If configured, AbstractObserver can execute tool waits via an MCP HTTP JSON-RPC endpoint and then resume the run.
@@ -116,7 +112,7 @@ Evidence:
 Security guidance: `security.md`.
 
 ## Does it support voice (PTT / TTS)?
-Yes — in **Observe → Chat** and **Backlog → Advisor**, the UI can:
+Yes — in **Observe → Chat**, the UI can:
 - record audio in the browser, upload it to the gateway, and request transcription (push-to-talk)
 - request gateway-based text-to-speech audio and play it back (TTS)
 
@@ -124,7 +120,7 @@ Gateway endpoints: `api.md` (Voice section).
 
 Evidence:
 - voice hook: `src/ui/use_gateway_voice.ts`
-- UI wiring: `src/ui/app.tsx`, `src/ui/backlog_browser.tsx`
+- UI wiring: `src/ui/app.tsx`
 - gateway client: `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`)
 
 ## What is “monitor-gpu” and how do I enable it?
@@ -137,14 +133,9 @@ Evidence:
 - UI feature gate: `monitor_gpu_enabled` in `src/ui/app.tsx`
 
 ## How do I enable Backlog or Inbox triage?
-These are optional UI features gated by runtime flags injected by the CLI.
 
-- `ABSTRACTOBSERVER_ENABLE_BACKLOG=on` → enables Backlog + Process Manager
-- `ABSTRACTOBSERVER_ENABLE_INBOX_TRIAGE=on` → enables Inbox triage/reporting
+Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
 
-Evidence:
-- HTML config injection: `bin/cli.js`
-- UI feature gates: `enable_backlog`, `enable_inbox_triage` in `src/ui/app.tsx`
 
 ## Is this a PWA? Does it work offline?
 The app registers a service worker in production to cache the UI shell (installability + faster reloads), but run data still comes from the gateway.

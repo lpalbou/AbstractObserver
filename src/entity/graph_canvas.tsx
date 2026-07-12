@@ -850,7 +850,7 @@ export function GraphCanvas({ fold, temporal, scrubSeq, selectedId, searchIds, l
                 <span>used</span>
                 <span>
                   {hoverNode.selected_count} time{hoverNode.selected_count === 1 ? "" : "s"} (lifetime)
-                  {hoverNode.last_admission ? ` · last as ${hoverNode.last_admission}` : ""}
+                  {hoverNode.last_admission ? ` · admitted as ${hoverNode.last_admission}` : ""}
                 </span>
                 <span>warm</span>
                 <span>

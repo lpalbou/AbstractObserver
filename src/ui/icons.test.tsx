@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Icon, type IconName } from "@abstractframework/ui-kit";
 
 describe("AbstractObserver icons", () => {
-  it("supports action icons used in the Backlog UI", () => {
+  it("supports the shared action icons", () => {
     const names: IconName[] = ["plus", "refresh", "copy", "edit", "trash", "terminal", "settings"];
     for (const name of names) {
       const html = renderToStaticMarkup(<Icon name={name} size={16} title={name} />);

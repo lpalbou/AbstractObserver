@@ -44,6 +44,27 @@ function principalUserId(payload: unknown): string | null {
   return id || null;
 }
 
+/** ONE wording for door refusals across the entity app (adversary find,
+ * 2026-07-11: three components carried three different conflations of
+ * 401/403). 401 = the credential is missing/dead (sign in). 403 = the door
+ * KNOWS who you are and refuses anyway (authorization — CSRF today; the
+ * config-object plan's N1 admin-gating will add "non-admin on an entity
+ * mutation"). Conflating them reads as a credential failure and sends the
+ * operator to a pointless re-login. The gateway's own 403s always carry a
+ * human-written detail; a no-detail 403 is an intermediary's — say only
+ * what we know, never diagnose a body we didn't get. */
+export function authRefusedMsg(status: number | undefined, detail?: string): string {
+  if (status === 403) {
+    const text = (detail ?? "").trim();
+    // An HTML error page from a proxy is not a sentence — don't banner it.
+    if (text && !text.startsWith("<") && text.length <= 240) {
+      return `The door refused: ${text}`;
+    }
+    return "The door refused this action (HTTP 403) — your sign-in is valid, but the door did not allow the change.";
+  }
+  return "The door refused: operator sign-in required.";
+}
+
 /** One silent check: is this browser already signed in through the
  * app-origin proxy? `available:false` means the route does not exist here
  * (direct-gateway posture applies); never throws. */

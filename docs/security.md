@@ -40,13 +40,10 @@ If you use voice push-to-talk (PTT) or TTS:
 
 Evidence: `src/ui/use_gateway_voice.ts` and related endpoints in `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`).
 
-## Process manager (high trust)
-The **Processes** page (`src/ui/processes_page.tsx`) can call endpoints that start/stop/restart/redeploy services and tail logs.
+## Process manager (moved)
 
-Guidance:
-- Do not expose process-manager endpoints on a public gateway.
-- Enforce strong authn/authz and network restrictions.
-- Assume “whoever can access the UI + token can control processes”.
+Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+
 
 ## Remote tool worker (high trust)
 If configured, AbstractObserver can execute tool waits via an MCP HTTP worker (`src/lib/mcp_worker_client.ts`) and then resume the run via `POST /api/gateway/commands` (`src/lib/gateway_client.ts`).

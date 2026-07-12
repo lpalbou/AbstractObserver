@@ -225,6 +225,52 @@ describe("stream fold", () => {
     expect(beat.dropped[0].reason).toBe("below_shelf");
   });
 
+  it("a self admission annotates an existing node without touching its selected count", () => {
+    // The maintainer's correction (2026-07-11): identity is present by
+    // right and NEVER counts as retrieved/selected. The fold's half of
+    // the contract: admission labels ANNOTATE (last_admission), only
+    // `selected` events increment the displayed count — a trace admitting
+    // a node as "self" must leave selected_count at 0.
+    const fold = foldEnvelopes([
+      env({
+        family: "binding",
+        seq: 1,
+        payload: {
+          record_id: "ex:value-1",
+          op: "bind",
+          search_state: "indexed",
+          prompt_state: "active",
+        },
+        display: { graph_id: "ex:value-1", kind: "value", title: "value-honesty" },
+      }),
+      env({
+        family: "trace",
+        seq: 2,
+        trace_id: "t-self",
+        payload: {
+          trace_id: "t-self",
+          trace_kind: "reconstruct",
+          need: { cue_text: "who am I", turn_id: "turn-1", view: "working_set" },
+          searched_scopes: [],
+          channels: ["keyword"],
+          candidates: [{ record_id: "ex:value-1", scores: {} }],
+          selected: ["ex:value-1"],
+          dropped: [],
+          cues: [],
+          stop_reason: "enough",
+          warnings: [],
+          admissions: { "ex:value-1": "self" },
+          seq: 2,
+        },
+      }),
+    ]);
+    const node = fold.nodes.get("ex:value-1");
+    expect(node).toBeDefined();
+    expect(node!.last_admission).toBe("self");
+    expect(node!.selected_count).toBe(0); // presence != use, as pixels
+    expect(node!.last_selected_seq).toBeNull();
+  });
+
   it("joins namespaces via display.graph_id first-class (0005 memory delta)", () => {
     const fold = foldEnvelopes([
       bindingEnv("ex:memory-aaa", 1, {}, { record_id: "ex:memory-aaa", kind: "memory", title: "media server", graph_id: "ex:memory-aaa" }),

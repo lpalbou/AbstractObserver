@@ -110,7 +110,6 @@ All pages share the same gateway connection settings.
 - **Runtime**: Activity, Artifacts, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: start runs, schedule runs, bundle upload/reload
 - **Mindmap**: knowledge-graph query UI (requires `POST /api/gateway/kg/query`)
-- **Backlog / Inbox (reports + email) / Processes**: maintainer tooling (high trust; requires additional gateway endpoints)
 
 ## Documentation
 - Start here: `docs/getting-started.md`

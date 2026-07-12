@@ -35,17 +35,21 @@ export interface ToolClaimVerdict {
 }
 
 /** Real tool names an entity can elect (free-prose mentions of these in a
- * "used/ran/called" phrase are claims of execution). Kept in sync with the
- * driver's tier-1 set loosely — unknown names simply never match. */
-const TOOL_NAMES = [
+ * "used/ran/called" phrase are claims of execution). Mirrors the runtime's
+ * ALL_TOOL_NAMES (tier-1 + workspace) — the Phase-C fix for the stale list
+ * my adversary flagged: `diary_search` never existed (a claim naming it
+ * could not flag), `fetch_url` was missing (a real tool's prose claims
+ * passed silently). Unknown names simply never match, so this list can
+ * only ever miss, never false-positive — which is why staleness matters. */
+export const TOOL_NAMES = [
   "web_search",
-  "search_memory",
-  "read_memory",
-  "diary_read",
+  "fetch_url",
   "diary_list",
-  "diary_search",
-  "read_file",
+  "diary_read",
+  "read_memory",
+  "search_memory",
   "write_file",
+  "read_file",
   "list_files",
 ];
 
@@ -79,6 +83,15 @@ const TOOL_PROSE_RE = new RegExp(
   "i",
 );
 
+/** Hallucinated-name coverage (adversary find, 2026-07-11): dropping the
+ * never-real `diary_search` from TOOL_NAMES traded one miss for another —
+ * a zero-tools turn claiming ANY tool ran is fabrication regardless of
+ * whether the named tool exists. This catches "I used the X tool" for
+ * unknown X; the explicit "tool" noun keeps it conservative (bare
+ * "I used caution" never matches). */
+const GENERIC_TOOL_PROSE_RE =
+  /\bI\s+(?:used|ran|called|invoked|executed)\s+(?:the\s+)?[\w-]+\s+tool\b/i;
+
 function sentences(text: string): string[] {
   return String(text || "")
     .split(/(?<=[.!?])\s+|\n+/)
@@ -99,7 +112,7 @@ export function detectLookupClaims(reply: string): LookupClaim[] {
       claims.push({ rule: "first_person_lookup", snippet: sentence.slice(0, 160) });
       continue;
     }
-    if (TOOL_PROSE_RE.test(sentence)) {
+    if (TOOL_PROSE_RE.test(sentence) || GENERIC_TOOL_PROSE_RE.test(sentence)) {
       claims.push({ rule: "tool_name_prose", snippet: sentence.slice(0, 160) });
     }
   }

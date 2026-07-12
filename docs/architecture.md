@@ -61,9 +61,7 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Runtime** (platform-level Activity, Artifacts, and Logs modes): `src/ui/app.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
 - **Mindmap** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
-- **Backlog** (browse/edit/execute maintenance items): `src/ui/backlog_browser.tsx` + `GatewayClient.backlog_*()`
-- **Inbox** (bug/feature reports + triage decisions + email mailbox): `src/ui/report_inbox.tsx` + `src/ui/email_inbox.tsx` + `GatewayClient.list_*_reports()` / `triage_*()` / `email_*()`
-- **Processes** (process manager; high trust): `src/ui/processes_page.tsx` + `GatewayClient.list_processes()` / `process_log_tail()` / `*_process()`
+- **Backlog / Inbox / Processes**: Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
 
 ## Observe projections
 The raw ledger remains the authoritative record, but the default Observe experience now projects it into human-readable views:
@@ -114,7 +112,6 @@ trace and audit links are shown only when the envelope reports them.
 
 ## Trust boundaries (important)
 AbstractObserver can enable high-trust features depending on what your gateway exposes:
-- Process manager endpoints can start/stop/redeploy processes.
 - Remote tool execution can be delegated to a client-controlled MCP worker, then resumed into a run via `POST /api/gateway/commands`.
 
 See `security.md` for operational guidance.

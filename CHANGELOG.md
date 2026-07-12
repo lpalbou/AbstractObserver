@@ -2,6 +2,124 @@
 
 ## Unreleased
 
+- THE OBSERVER OBSERVES; CONTINUUM DEVELOPS (maintainer split, 2026-07-12):
+  every CI/CD development surface left this repo for the new sibling
+  `../abstractcontinuum` — the Backlog page (backlog CRUD + the codex
+  execution pipeline: execute/batch/exec requests/feedback/promote/
+  deploy-UAT/log tails, 4,141 lines), the report/email Inbox (1,210 lines),
+  the Processes manager (552 lines), `exec_event.ts` + its pins, ~1,000
+  lines of dev-lane `gateway_client.ts` methods/types (report reads,
+  email/triage, backlog + exec, managed processes), 376 lines of dev-lane
+  CSS, the backlog CSS pin test, and the
+  `ABSTRACTOBSERVER_ENABLE_BACKLOG`/`_ENABLE_INBOX_TRIAGE` env knobs.
+  The observer's pages are now observe / launch / runtime / mindmap /
+  settings — observe and discuss, change nothing. Docs updated
+  (faq/security/architecture/configuration/README); suite 173 green;
+  the split's full story lives in `../abstractcontinuum/history.md`.
+
+- STEER ACK RENDERS AS WORDS (hooks H4 render half, runtime ship c996):
+  runtime's steer sidecar acks each delivery with an
+  `abstract.steer_seen` EMIT_EVENT whose payload ({seqs, count, node_id})
+  carries no prose — the generic textish preview rendered an empty
+  ledger row. All three log builders (root, child, subrun-digest) now
+  render "N steer message(s) folded into the run before <node> — the
+  loop sees it at this boundary"; missing count renders honest wording
+  (never a fabricated number), missing node drops the location. Visible
+  in condensed view by design — steer delivery is exactly what the
+  listen surface exists to show. 5 contract pins
+  (`steer_seen_preview.test.ts`).
+
+- RUN VIEW SCALE DISCIPLINE (hooks plan P3, observer's ungated slice —
+  c980 commitment, one fable5 adversary folded): the main app's raw
+  `records`/`child_records_for_digest` arrays appended with a FULL array
+  copy per ledger event — O(N²) cumulative at resident scale (~5k
+  events/day, the fleet DONE bar) — and every records-derived useMemo
+  re-ran per event. Now: `RecordBuffer` (new `src/ui/record_buffer.ts`, 6
+  contract tests) batches appends into one concat per ~40ms flush window
+  with generation-guarded reset (a run switch can never leak a stale
+  flush into the new run); the heavy digest memo (per-record emit
+  parsing + JSON previews over the whole history) computes ONLY while
+  the digest tab is visible, caching the last value for instant tab
+  switches. ADVERSARY CATCH (P1, fixed before ship): the Overview tab —
+  the app's DEFAULT tab — consumed `digest.latest_summary`, so gating
+  the digest froze/nulled the summary panel exactly where users land;
+  the latest-summary scan is now its own always-on INCREMENTAL memo
+  (scans only the new tail per flush, rescans on run switch) feeding
+  Overview directly, and the digest memo shares it instead of
+  rescanning. Per-event liveness paths (status pills, active-node
+  highlight, ledger log rows — all bounded structures) deliberately stay
+  per-event. Digest typed (`RunDigest | null`) instead of decaying to
+  `any`.
+
+- ONE SESSION PROXY, SHARED (uic ship c961, co-signed live 2026-07-12):
+  `bin/cli.js` dropped its ~300-line app-origin gateway session proxy for
+  `createGatewaySessionProxy({ appId: "abstractobserver" })` from the new
+  `@abstractframework/app-server` module — the shared extraction of this
+  file's own hardened copy, ending the observer/flow/abstractcode
+  triplicate drift hazard. Cookie names (`abstractobserver_gateway_*`),
+  the `x-abstractobserver-csrf` header, and every
+  `ABSTRACTOBSERVER_*`/`ABSTRACTGATEWAY_*` env gate derive from appId, so
+  live sessions and deployment posture survive the swap byte-for-byte
+  (adversary-diffed function by function against the deleted copy).
+  Live-verified against the real gateway: silent probe, sign-in-once,
+  authenticated proxied GET, CSRF deny/allow on both header spellings
+  (canonical `x-abstract-csrf` now accepted too), sign-out, landing
+  intact. The module is strictly SAFER than the deleted copy: upstream
+  error mid-SSE no longer crashes the process (`headersSent` guard) and
+  abandoned live tails no longer leak a gateway connection (client-abort
+  teardown). RELEASE GATE (adversary P1): the dep is `file:` on an
+  unpublished package — publish `@abstractframework/app-server` and swap
+  to a semver range before any observer release, or `npx` + standalone
+  `npm ci` fail.
+
+- HOST MARKERS RENDER AHEAD OF THE DOOR (config-object build phase,
+  2026-07-11 — contracts proposed c745, gateway-confirmed c746, one
+  adversary folded): five marker kinds now render as human ledger lines
+  the day the gateway starts writing them — `deposit_refused` (N4/R5's
+  render leg: "⛔ A sleep-phase deposit was refused — MEMORY_FORM
+  (episode) into self — <door's sentence>", 96-clip visible, phase named
+  only when the payload names it), the own_time grant lifecycle
+  (`own_time_granted` renders as ARMED never started — semantics c700;
+  `own_time_grant_expired` distinguishes the calm tick-poll expiry from
+  the LOUD wall-clock backstop, which means the gateway was dead;
+  `own_time_grant_retracted` names who withdrew it), and
+  `prompt_overlay_changed` (layer names only, word-free). Adversary pins:
+  missing `mode`/`enforced_by` render "unrecorded" instead of fabricating
+  the strongest ("until retracted") or calmest ("poll") claim; layers as
+  an array never renders indices as names; all interpolated fields
+  clipped. 12 contract tests + 6 malformed-payload pins. RE-SPELLED to
+  the ruled vocabulary same evening (semantics c794, gateway confirm
+  c798): kinds are `personal_granted` (mode timer|until_revoked — revoke,
+  not retract: retract is spent in the identity lane) /
+  `personal_grant_expired` / `personal_grant_revoked`; the pre-ruling
+  own_time_grant* spellings died unaliased (zero envelopes ever carried
+  them — pinned generic), while loop-lifecycle kinds render under BOTH
+  spellings (historical streams carry own_time_started).
+
+- FABRICATION GUARD UNSTALED + 403 ≠ 401 + FOUR-PHASE LABELS (2026-07-11,
+  one adversary folded): `tool_claim_guard`'s tool-name list matched the
+  runtime again (the never-real `diary_search` out, the missing `fetch_url`
+  in — that exact prose claim used to pass silently) plus a conservative
+  hallucinated-name pattern ("I ran the X tool" flags for unknown X; bare
+  "I used caution" never does) and a cross-repo drift pin that parses the
+  runtime's `tools.py` tuples directly (the entity_tokens precedent — this
+  list already went stale once). Door refusals now speak with ONE voice
+  from `gateway_session.authRefusedMsg`: 401 = sign in, 403 = the door
+  refused the ACT (detail rendered when it's a sentence, length-capped,
+  HTML dropped; no speculative "admin required" diagnosis on a body we
+  didn't get) — replacing three different conflations across the workspace
+  tabs, the own-time strip, and the state buttons (one of which still
+  pointed at the removed control-panel token). The phase matrix carries
+  labels + honest hints for the ruled four-phase vocabulary
+  (visit/tasked/own_time/sleep — own_time states the Q1 ruling: full set
+  by default, the grant is the brake); `resident` renders as legacy for
+  older gateways, and the stale "renders when runtime flips" comments were
+  corrected: runtime has ALREADY flipped, the alias is the migration
+  window. RULED WORDS (laurent 20:30, 9-0 room ballot): the phases are
+  single human words — visit | work | personal | sleep; the matrix labels
+  them so, and tasked/own_time/resident all render "(legacy spelling)"
+  until every gateway flips.
+
 - RULED DEFAULT TOOL MATRIX (maintainer, 2026-07-11 12:37, set from the
   workspace matrix screenshot): every NEW summoned entity now defaults to
   the full 9-tool set for visit and resident (hands by default — narrowing

@@ -398,15 +398,126 @@ export function ledgerLine(env: ReplayEnvelope): LedgerLine {
           tone: "session",
         };
       }
-      // Own-time loop lifecycle (runtime 0010 121500Z: these were silently
-      // dropped engine-side before — now they land, so name them).
-      if (p.kind === "own_time_started") {
+      if (p.kind === "prompt_overlay_changed") {
+        // The operator rewrote prompt layers (marker-first, word-free —
+        // layer names + hashes only; the words stay in the home file).
+        // Array-shaped `layers` would pass a bare typeof check and render
+        // indices as layer names (adversary find) — objects only.
+        const layersRaw = p["layers"];
+        const layers =
+          layersRaw && typeof layersRaw === "object" && !Array.isArray(layersRaw)
+            ? Object.keys(layersRaw as Record<string, unknown>).map((k) => clip(k, 32))
+            : [];
+        const reverted = Array.isArray(p["reverted"]) ? (p["reverted"] as unknown[]).map((v) => clip(String(v), 32)) : [];
+        const capped = (names: string[]) => (names.length > 6 ? `${names.slice(0, 6).join(", ")} and ${names.length - 6} more` : names.join(", "));
+        const parts = [
+          layers.length ? `rewrote: ${capped(layers)}` : "",
+          reverted.length ? `reverted to default: ${capped(reverted)}` : "",
+        ].filter(Boolean);
+        return {
+          ...base,
+          title: "✍️ Standing instructions changed",
+          detail: parts.length ? `the operator ${parts.join("; ")}` : "the operator changed the prompt overlay",
+          subject_id: null,
+          tone: "session",
+        };
+      }
+      if (p.kind === "deposit_refused") {
+        // N4's render leg (config-object R5; contract confirmed c746): the
+        // deposit gate refused a write from this phase. refused_by
+        // distinguishes the sleep phase-gate class from ordinary channel
+        // refusals. The reason is the door's sentence — clipped at the
+        // file's 96 default (visibly, with an ellipsis), never the tighter
+        // 80 shared clip, because the refusal sentence is the load-bearing
+        // content of this line.
+        const phase = clip(typeof p["phase"] === "string" ? String(p["phase"]) : "", 24);
+        const effectType = clip(typeof p["effect_type"] === "string" && p["effect_type"] ? String(p["effect_type"]) : "a deposit", 32);
+        const recordKind = clip(typeof p["record_kind"] === "string" ? String(p["record_kind"]) : "", 24);
+        const scope = clip(typeof p["scope"] === "string" ? String(p["scope"]) : "", 48);
+        const fullReason = typeof p["reason"] === "string" && p["reason"] ? clip(String(p["reason"]), 96) : "";
+        const phaseGate = p["refused_by"] === "phase_gate";
+        // phase_gate WITHOUT a named phase must not claim the sleep class
+        // (a future phase gate would misreport) — name the phase only when
+        // the payload does.
+        const title = phaseGate
+          ? phase
+            ? `⛔ A ${phase}-phase deposit was refused`
+            : "⛔ A phase-gated deposit was refused"
+          : "⛔ A deposit was refused";
+        return {
+          ...base,
+          title,
+          detail: `${effectType}${recordKind ? ` (${recordKind})` : ""}${scope ? ` into ${scope}` : ""}${fullReason ? ` — ${fullReason}` : ""}`,
+          subject_id: null,
+          tone: "session",
+        };
+      }
+      // Personal-time grant lifecycle (contract c746, re-spelled to the
+      // RULED vocabulary at c794/c798: phases are visit/work/personal/
+      // sleep; "revoke" not "retract" — retract is spent in the identity
+      // lane). The old own_time_grant* kinds were NEVER written (no
+      // writer shipped), so they die unaliased; the loop-lifecycle kinds
+      // below keep their legacy spellings because historical streams
+      // carry them. ARM ≠ START (an armed grant PERMITS the loop, never
+      // starts it) — granted→started is two events by design; a started
+      // with no prior granted is a bug worth seeing.
+      if (p.kind === "personal_granted") {
+        // Unknown/missing mode must NOT fabricate the strongest claim
+        // ("until revoked" = unbounded) — render honestly unknown
+        // (adversary find: aged exports missing `mode` would misreport a
+        // timer grant as open-ended).
+        const mode = typeof p["mode"] === "string" ? String(p["mode"]) : "";
+        const expires = clip(typeof p["expires_at"] === "string" ? String(p["expires_at"]) : "", 32);
+        const grantedBy = clip(typeof p["granted_by"] === "string" && p["granted_by"] ? String(p["granted_by"]) : "the operator", 48);
+        const until =
+          mode === "timer" ? (expires ? `timer until ${expires}` : "timed") : mode === "until_revoked" ? "until revoked" : "mode unrecorded";
+        return {
+          ...base,
+          title: "Personal time armed",
+          detail: `${grantedBy} granted his personal time (${until}) — armed, not started${reason ? ` — ${reason}` : ""}`,
+          subject_id: null,
+          tone: "session",
+        };
+      }
+      if (p.kind === "personal_grant_expired") {
+        // enforced_by distinguishes the 5s poll from the SIGKILL-surviving
+        // backstop — a backstop expiry means the gateway had died, which
+        // the operator should see (requirement 2, c746). A MISSING field
+        // must not default to the calm claim: the loud case is the one a
+        // silent default would suppress (adversary find).
+        const enforcedBy = typeof p["enforced_by"] === "string" ? String(p["enforced_by"]) : "";
+        const at = typeof p["expired_at"] === "string" && p["expired_at"] ? ` at ${clip(String(p["expired_at"]), 32)}` : "";
+        if (enforcedBy === "wall_clock_backstop") {
+          return {
+            ...base,
+            title: "⛔ Personal-time grant expired (backstop)",
+            detail: `the loop stopped itself${at} — wall-clock backstop enforced (the gateway was not there to do it)`,
+            subject_id: null,
+            tone: "session",
+          };
+        }
+        return {
+          ...base,
+          title: "Personal-time grant expired",
+          detail: enforcedBy === "poll" ? `enforced at the tick poll${at}` : `the grant ended${at} (enforcement unrecorded)`,
+          subject_id: null,
+          tone: "session",
+        };
+      }
+      if (p.kind === "personal_grant_revoked") {
+        const revokedBy = clip(typeof p["revoked_by"] === "string" && p["revoked_by"] ? String(p["revoked_by"]) : "the operator", 48);
+        return { ...base, title: "Personal-time grant revoked", detail: `${revokedBy} withdrew the grant${reason ? ` — ${reason}` : ""}`, subject_id: null, tone: "session" };
+      }
+      // Loop lifecycle — BOTH spellings render: own_time_* envelopes exist
+      // in historical streams (the 0010 wave); personal_* is the ruled
+      // vocabulary going forward.
+      if (p.kind === "own_time_started" || p.kind === "personal_started") {
         return { ...base, title: "His own time began", detail: reason || "the tick loop is running", subject_id: null, tone: "session" };
       }
-      if (p.kind === "own_time_stop_requested") {
-        return { ...base, title: "Own-time stop requested", detail: reason || "halts at the next tick boundary", subject_id: null, tone: "session" };
+      if (p.kind === "own_time_stop_requested" || p.kind === "personal_stop_requested") {
+        return { ...base, title: "Personal-time stop requested", detail: reason || "halts at the next tick boundary", subject_id: null, tone: "session" };
       }
-      if (p.kind === "own_time_frozen") {
+      if (p.kind === "own_time_frozen" || p.kind === "personal_frozen") {
         // FREEZE = admin hibernation (maintainer ruling, commons 52):
         // process killed now, nothing changes, the door closed.
         return { ...base, title: "Frozen", detail: reason || "admin hibernation — nothing changes until the thaw", subject_id: null, tone: "session" };

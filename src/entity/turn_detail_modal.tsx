@@ -90,7 +90,14 @@ export function TurnDetailModal({ turn, entityName, onClose }: TurnDetailModalPr
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const memories = turn.memories ?? [];
+  // DEFENSE-IN-DEPTH (maintainer correction, 2026-07-11: identity is ALWAYS
+  // in context and never counts as retrieved/selected memories): the driver
+  // already excludes self-admitted handles from report.memories — if a
+  // future driver ever leaked one, it must render UNCOUNTED under its own
+  // heading, never inflate "N memories".
+  const allHandles = turn.memories ?? [];
+  const memories = allHandles.filter((m) => m.admission !== "self");
+  const identityRows = allHandles.filter((m) => m.admission === "self");
   const formed = turn.records_formed ?? [];
   const diary = turn.diary_entries ?? [];
   const tools: Array<{ name: string; arg?: string; result?: string }> =
@@ -179,6 +186,14 @@ export function TurnDetailModal({ turn, entityName, onClose }: TurnDetailModalPr
                 ) : (
                   memories.map((m, i) => <MemoryRow key={m.record_id ?? m.tag ?? i} m={m} />)
                 )}
+                {identityRows.length > 0 ? (
+                  <>
+                    <h4 className="tdm_h">identity — always present, never counted</h4>
+                    {identityRows.map((m, i) => (
+                      <MemoryRow key={m.record_id ?? m.tag ?? `id${i}`} m={m} />
+                    ))}
+                  </>
+                ) : null}
               </section>
               <section>
                 <h4 className="tdm_h">

@@ -55,7 +55,7 @@ import {
   storeAuth,
   type GatewayAuthState,
 } from "./connect_gateway_modal";
-import { proxyConnectionLogout, proxyConnectionStatus, sameGatewayTarget } from "./gateway_session";
+import { authRefusedMsg, proxyConnectionLogout, proxyConnectionStatus, sameGatewayTarget } from "./gateway_session";
 
 const DEMO_URL = "/demo/castor.ndjson";
 /** Playback baseline: envelopes per second at 1x. */
@@ -701,7 +701,7 @@ export function EntityView(): React.ReactElement {
       const err = e as Error & { status?: number };
       setControlNote(
         err.status === 401 || err.status === 403
-          ? "The door refused: sign in first (🔑 connect)."
+          ? authRefusedMsg(err.status, err.message)
           : `Own-time request refused: ${err.message}`,
       );
       reconcile();
@@ -946,9 +946,12 @@ export function EntityView(): React.ReactElement {
           window.setTimeout(() => setControlNote(null), 6000);
         })
         .catch((e: Error & { status?: number }) => {
+          // authRefusedMsg splits 401 (sign in) from 403 (door refused the
+          // act); the old wording here named a "token in the control panel"
+          // mechanism the 2026-07-09 auth ruling removed.
           setControlNote(
             e.status === 401 || e.status === 403
-              ? "The door refused: operator auth required (set a token in the control panel)."
+              ? authRefusedMsg(e.status, e.message)
               : `The door refused: ${e.message}`,
           );
           window.setTimeout(() => setControlNote(null), 10000);
