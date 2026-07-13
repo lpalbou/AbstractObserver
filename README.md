@@ -10,38 +10,16 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
 - (Optional) **Voice** in run chat: gateway-based TTS + push-to-talk transcription (`src/ui/use_gateway_voice.ts`)
 
-## Entity Memory view (`/entity.html`)
+## Watching entities (the entity app moved)
 
-A standalone page (`src/entity/`) that visualizes a **summoned entity's
-evolving memory graph** — memories appearing live, associations lighting on
-use, feelings as visual state, and a timeline you can scrub. It consumes the
-frozen memory replay stream v1 (one envelope shape; offline replay = bounded
-read, realtime = the same read that doesn't stop):
-
-- **Offline**: opens the bundled demo life, or drop any exported `.ndjson`
-  stream onto the page.
-- **Live**: connect a gateway and tail
-  `/api/gateway/entities/{name}/replay/stream` (SSE; reconnects resume
-  exactly via `Last-Event-ID`; cursors are floats because gateway host
-  markers sit at fractional seq positions).
-- **Why a memory entered context** is first-class: recall beats show
-  identity records present by right, continuity carryover, and stimulus
-  matches, plus what was considered and dropped (with reasons).
-- **Feelings**: dual-channel standings per person/tool/concept with scar and
-  bond halos, healings and breaks — presentation only, never gating.
-- **The diary is its own lane**, and diary content stays private: the engine
-  redacts diary display blocks at the source and the view renders the act,
-  never the words.
-- **Truthful scrubbing**: the state at any timeline position is a pure fold
-  of the stream prefix at that seq — the same `as_of` semantics the memory
-  engine itself uses. The view performs only reads (there is no write path
-  in the module).
-
-Regenerate the demo life (requires the Python monorepo checkout):
-
-```bash
-python abstractobserver/scripts/export_demo_entity.py
-```
+The **entity app** (memory graph + visits UI, formerly `/entity.html`)
+lives in its own package since 2026-07-12:
+[AbstractEntity](https://github.com/lpalbou/AbstractEntity)
+(`npx @abstractframework/entity`, default port `3007`). The observer still
+*watches* entities — the Board's entities strip reads
+`GET /api/gateway/entities` + `/entities/{name}/card` — and its
+"Entities ↗" links point at the entity app deployment
+(`ABSTRACTOBSERVER_ENTITY_APP_URL`, default `http://127.0.0.1:3007`).
 
 ## Where it fits (AbstractFramework ecosystem)
 AbstractObserver is one of the browser UIs in the **AbstractFramework** ecosystem:
@@ -69,11 +47,12 @@ npx --yes --package @abstractframework/observer -- abstractobserver
 
 Note: the npm package is `@abstractframework/observer`, and the CLI binary is `abstractobserver`.
 
-Open `http://localhost:3001`, then go to **Settings** and configure:
-- **Gateway URL** (usually your gateway base URL, e.g. `http://localhost:8081`)
-  - Leave it blank only for same-origin deployments (reverse proxy routes `/api`) or when using `npm run dev` (Vite `/api` proxy).
-- **Gateway user** and that user's **Gateway token** in hosted user-auth mode,
-  then click **Connect**
+Open `http://localhost:3001`. Sign-in is the shared AbstractFramework
+connection dialog (the same one AbstractFlow and the gateway console use):
+it opens automatically when this browser has no gateway session — enter the
+gateway URL (pre-filled from the server), a Gateway user id, and that
+user's token. The dialog is always one click away on the header connection
+badge.
 
 In hosted mode, Observer exchanges the user token for an app-scoped Gateway
 browser session and does not persist the token in browser settings. Direct
@@ -106,6 +85,7 @@ The CLI is a static file server implemented in `bin/cli.js`.
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
+- **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
 - **Runtime**: Activity, Artifacts, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: start runs, schedule runs, bundle upload/reload

@@ -36,6 +36,9 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
 ## Optional endpoints (feature-gated in the UI)
 These power additional pages/drawers. If your gateway does not expose them, the corresponding UI areas will show errors or empty states.
 
+- **Entities strip (Board page)** — cheap reads only, never replay folds
+  - `GET /api/gateway/entities` — roster (names)
+  - `GET /api/gateway/entities/{name}/card` — per-entity card (state object, age, moments, `as_of_seq`)
 - **Gateway discovery helpers**
   - `GET /api/gateway/discovery/tools`
   - `GET /api/gateway/discovery/providers?include_models=true|false`
@@ -46,12 +49,8 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `DELETE /api/gateway/bundles/{bundle_id}?bundle_version=…&reload=true|false`
 - **Knowledge graph (Mindmap page)**
   - `POST /api/gateway/kg/query`
-- **Process manager (Processes page; high trust)**
-  - `GET /api/gateway/processes`
-  - `GET /api/gateway/processes/env` — list managed environment variables
-  - `POST /api/gateway/processes/env` — set/unset managed environment variables
-  - `POST /api/gateway/processes/{id}/start|stop|restart|redeploy`
-  - `GET /api/gateway/processes/{id}/logs/tail?max_bytes=…`
+- **Process manager** — moved to `abstractcontinuum` with the CI/CD dev
+  lane (2026-07-12 split); the observer no longer has a Processes page.
 - **Runtime explorer, artifacts, and audit tail**
   - `GET /api/gateway/runs?limit=…&status=…&workflow_id=…&session_id=…&root_only=true|false` — loaded run page used by Runtime Activity queues. Activity counts are displayed as loaded-scope counts unless a future Gateway run-stats endpoint provides exact global queue totals.
   - `GET /api/gateway/artifacts/search?scope=all|session|run&session_id=…&run_id=…&artifact_kind=…&semantic_kind=…&render_kind=…&modality=…&content_type=…&query=…&tags=…&created_after=…&order_by=…&order=…&include_stats=true&limit=…&offset=…` — canonical artifact search used by the Runtime tab. Rows include legacy fields plus `artifact_envelope_v1`; stats/facets are used for exact filter chips and totals.

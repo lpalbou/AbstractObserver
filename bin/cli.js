@@ -15,12 +15,24 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
-// LANDING PAGE (maintainer incident 2026-07-09: the entity launcher served
-// the OBSERVER because '/' and the SPA fallback are hardwired to index.html).
-// One dist, two apps: ABSTRACTOBSERVER_LANDING=entity.html makes this server
-// BE the entity app — '/' and unknown routes land there instead.
-const LANDING_PAGE = String(process.env.ABSTRACTOBSERVER_LANDING || 'index.html').trim() || 'index.html';
+// ONE app since the 2026-07-12 split: the entity view moved to its own
+// package (abstractentity, :3007). The ABSTRACTOBSERVER_LANDING knob died
+// with it — this server always lands on index.html.
 const DEFAULT_GATEWAY_URL = String(process.env.ABSTRACTOBSERVER_GATEWAY_URL || process.env.ABSTRACTGATEWAY_URL || 'http://127.0.0.1:8080').trim().replace(/\/+$/, '') || 'http://127.0.0.1:8080';
+// Where the ENTITY app lives — drives the "Entities ↗" links in the UI.
+// Normalized to origin+path (query/hash dropped): both consumers append
+// their own query (`/entity.html` redirect here, deep links in the UI),
+// so a configured value carrying `?` would produce malformed URLs.
+const ENTITY_APP_URL = (() => {
+  const raw = String(process.env.ABSTRACTOBSERVER_ENTITY_APP_URL || '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    return `${u.origin}${u.pathname}`.replace(/\/+$/, '');
+  } catch {
+    return raw.split(/[?#]/)[0].replace(/\/+$/, '');
+  }
+})();
 const ARGV = process.argv.slice(2);
 const MONITOR_GPU =
   ARGV.includes("--monitor-gpu") ||
@@ -53,6 +65,7 @@ function inject_config_html(html) {
   // card showed a retired gateway's URL) — the UI's connect/sign-in surfaces
   // default to it instead of any hardcoded historical port.
   if (DEFAULT_GATEWAY_URL) ui_config.gateway_url = DEFAULT_GATEWAY_URL;
+  if (ENTITY_APP_URL) ui_config.entity_app_url = ENTITY_APP_URL;
   if (!Object.keys(ui_config).length) return html;
   const marker = "window.__ABSTRACT_UI_CONFIG__";
   if (html.includes(marker)) return html;
@@ -121,10 +134,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Root lands on the configured landing page ('/' would otherwise resolve
-  // to dist/index.html via the directory branch and ignore the landing).
   if (pathname === '/' || pathname === '') {
-    pathname = `/${LANDING_PAGE}`;
+    pathname = '/index.html';
   }
 
   // Try to serve the requested file
@@ -135,15 +146,22 @@ const server = http.createServer((req, res) => {
   }
 
   // An EXPLICIT .html request that misses must fail loudly, never fall
-  // through to the SPA fallback (maintainer incident 2026-07-09: a
-  // published dist without entity.html silently served the OBSERVER app at
-  // /entity.html — the wrong app wearing the right URL is worse than a 404).
+  // through to the SPA fallback (maintainer incident 2026-07-09: the wrong
+  // app wearing the right URL is worse than a 404). /entity.html was real
+  // here before the 2026-07-12 split — send old bookmarks to the entity
+  // app's own deployment when we know it, otherwise say where it went.
   if (pathname.endsWith('.html')) {
+    if (pathname === '/entity.html' && ENTITY_APP_URL) {
+      res.writeHead(302, { Location: `${ENTITY_APP_URL}/${url.search || ''}` });
+      res.end();
+      return;
+    }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end(
-      `${pathname} is not in this build (dist/). If you expected the entity app, `
-      + `this observer build predates it - rebuild from the checkout `
-      + `(cd abstractobserver && npm run build) or use scripts/entity-local.sh.`
+      pathname === '/entity.html'
+        ? 'The entity app moved to its own package (abstractentity, default http://127.0.0.1:3007). '
+          + 'Set ABSTRACTOBSERVER_ENTITY_APP_URL to make this a redirect.'
+        : `${pathname} is not in this build (dist/). This server hosts the AbstractObserver app only.`
     );
     return;
   }
@@ -158,9 +176,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // SPA fallback: serve the configured landing page for all other routes
-  // (index.html = the observer app; entity.html = the entity app).
-  const indexPath = join(DIST_DIR, LANDING_PAGE);
+  // SPA fallback
+  const indexPath = join(DIST_DIR, 'index.html');
   if (serveFile(res, indexPath)) {
     return;
   }

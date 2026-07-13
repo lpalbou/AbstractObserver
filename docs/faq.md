@@ -61,7 +61,7 @@ If you leave **Gateway URL** blank, the UI will call `/api/...` on the UI origin
 Evidence: `bin/cli.js` (static server), `vite.config.ts` (dev proxy), `src/lib/gateway_client.ts` (fetches `/api/...` when `base_url=""`).
 
 ## What should I put in “Gateway URL”?
-Usually: your gateway base URL (e.g. `http://localhost:8081` for local dev).
+Usually: your gateway base URL (e.g. `http://localhost:8080` for local dev).
 
 Rules enforced by the UI during discovery (see `on_discover_gateway()` in `src/ui/app.tsx`):
 - must start with `http://` or `https://` (or be blank)
@@ -76,7 +76,7 @@ Only if the UI origin and gateway origin differ.
 See `configuration.md`.
 
 ## How does authentication work?
-In hosted user-auth mode, set Gateway URL, Gateway user, and that user's token.
+In hosted user-auth mode, sign in through the shared connection dialog (header badge) with the gateway URL, user id, and token.
 Observer exchanges the token for an app-scoped browser session, then proxies
 Gateway requests with `X-AbstractGateway-Session` and a CSRF header for writes.
 The token is not persisted in browser settings.

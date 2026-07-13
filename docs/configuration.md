@@ -13,6 +13,11 @@ Implemented in `bin/cli.js`.
 - `PORT` — HTTP port to listen on (default `3001`)
 - `HOST` — bind address (default `0.0.0.0`)
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
+- `ABSTRACTOBSERVER_ENTITY_APP_URL` — where the entity app lives (its own
+  package since 2026-07-12: `@abstractframework/entity`, default port
+  `3007`). Injected as `__ABSTRACT_UI_CONFIG__.entity_app_url`; drives the
+  "Entities ↗" links and makes `/entity.html` a redirect for pre-split
+  bookmarks. Unset: the UI falls back to `http://127.0.0.1:3007`.
 
 Examples:
 ```bash

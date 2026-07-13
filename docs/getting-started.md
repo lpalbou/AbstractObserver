@@ -35,8 +35,15 @@ Click **Connect** (or keep **Auto-connect** enabled).
 Direct bearer-token mode remains available for local development when no
 Gateway user is set.
 
+## The Board (landing page)
+You land on **Board** — Mission Control: kanban columns
+**Pending / Working / Review / Done** across every run, plus an entities
+strip. Cards move themselves as run state changes (the list polls live);
+the **Review** column is where a human is the blocker — approve/deny tool
+requests or answer questions inline, or click any card to open the run.
+
 ## Observe a run
-Go to **Observe**:
+Go to **Observe** (or click a Board card):
 - pick a run from **Runs**
 - inspect:
   - **Ledger** (durable log; replay-first + streaming)

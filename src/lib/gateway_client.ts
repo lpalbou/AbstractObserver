@@ -195,6 +195,11 @@ export class GatewayClient {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
+      // The board's poll loop rides this call — a stalled-open connection
+      // without a deadline wedges the whole poll chain (runs_loading stays
+      // true, Refresh stays disabled). 30s is 4× the worst measured server
+      // time (2026-07-13).
+      signal: AbortSignal.timeout(30_000),
     });
     if (!r.ok) throw new Error(`list_runs failed: ${await _read_error(r)}`);
     return await r.json();
@@ -384,6 +389,28 @@ export class GatewayClient {
     });
     if (!r.ok) throw new Error(`download_run_artifact_content failed: ${await _read_error(r)}`);
     return await r.blob();
+  }
+
+  // --- Entity observation reads (the entity app owns the deep surfaces;
+  // these two power the main app's fleet/board view: roster + the cheap
+  // per-entity card — never whole-life replay folds from this client).
+  async list_entities(): Promise<{ entities: any[] }> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/entities"), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`list_entities failed: ${await _read_error(r)}`);
+    const body = await r.json();
+    return { entities: Array.isArray(body?.entities) ? body.entities : [] };
+  }
+
+  async get_entity_card(name: string): Promise<any> {
+    const n = String(name || "").trim();
+    if (!n) throw new Error("get_entity_card: name is required");
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/entities/${encodeURIComponent(n)}/card`), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`get_entity_card failed: ${await _read_error(r)}`);
+    return await r.json();
   }
 
   async get_ledger(run_id: string, opts: { after: number; limit: number }): Promise<{ items: any[]; next_after: number }> {

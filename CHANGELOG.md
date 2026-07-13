@@ -1,6 +1,255 @@
 # Changelog
 
+## 2026-07-13 — SteerComposer wired (uic kit wave)
+
+The kit shipped the shared steer composer (commons c1239; hooks P3
+surfacing). The Observe toolbar now carries it for any attached
+non-terminal run: mid-run guidance submits as the durable
+`inject_guidance` command through `gateway.submit_command` (session
+proxy + CSRF and direct bearer both work via the submit override).
+Status honesty per the contract: the composer says "Queued (seq N)";
+DELIVERY is the ledger's own `abstract.steer_seen` line (already
+rendered with a human preview). Waiting runs show the kit's parked
+note — steers do not wake runs.
+
+DisclosureList/AfChip adoption (the ledger-list fork deletion) is
+assessed as a separate refactor wave — the observe ledger list is
+virtualized custom rendering; adopting the kit list is real surgery,
+scheduled next session rather than rushed at 4am.
+
+## 2026-07-13 — Connected-first startup (the 10-15s "Connecting…" fix)
+
+Operator incident (02:12, screenshot): first connect on localhost pinned
+on "Connecting…" for 10-15s. Measured root cause: the connected state
+gated behind a SERIALIZED waterfall — probe → bundles → runs → tools ∥
+providers — and the gateway runs listing is a whale (2.2-7.9s server-side
+at ~500 runs with metrics; `/api/health` answers in 1ms). Five round
+trips, four serialized stages, slowest one 2-8s.
+
+- **Connected-first**: `run_discovery` flips `gateway_connected` as soon
+  as auth is proven (session probe / modal sign-in / bearer preflight) and
+  runs all four discovery fetches in ONE `Promise.allSettled`. The board
+  paints immediately; each surface fills as its fetch lands.
+- **Bearer preflight** (adversary): the direct dev path now proves the
+  typed token with one ~20ms authenticated call before flipping connected
+  — a wrong token stays on the sign-in screen with a real error, exactly
+  as before.
+- **All-rejected guard** (adversary): if every discovery fetch fails, the
+  app drops back to the sign-in screen with `discovery_error` set instead
+  of staying "connected" over a dead gateway.
+- **Honest first paint** (adversary): before the first runs payload lands,
+  the board says "loading runs…"/"loading…" instead of claiming
+  "0 need you" over empty columns.
+- **Self-tuning poll**: the 5s/30s runs poll now waits at least 3× the
+  last request's duration — a 3s server response polls at ~9-10s instead
+  of making the board the gateway's main load; fast servers keep 5s.
+  Rescheduling moved into `finally` (a future throwing refresh must never
+  silently kill the poll), single-chain guards added.
+- **Epoch guard** (adversary): sign-out during in-flight discovery/runs
+  bumps an epoch; late results can no longer repopulate a signed-out app.
+- **`list_runs` deadline**: 30s `AbortSignal.timeout` so a stalled-open
+  connection can't wedge the poll chain with Refresh disabled forever.
+
+Server-side half reported to gateway on commons: the runs listing itself
+(2.2-7.9s at ~500 runs) is theirs to optimize; the poll self-tunes back to
+5s when it gets fast.
+
+## 2026-07-12 — AbstractEntity split: adversary fold
+
+Two fable5 adversaries attacked the split (one per side); observer-side
+findings, all fixed:
+
+- **Workspace launchers advertised a dead URL** (P0): `gateway-flow.sh` +
+  `gateway-flow-local.sh` printed `observer:3001/entity.html` (a
+  guaranteed 404 post-split) and never exported
+  `ABSTRACTOBSERVER_ENTITY_APP_URL` into the observer spawn — both now
+  export it and print the entity app's own address with its launcher.
+  `meet_castor.sh` (already deprecated for the retired :8081 rig, now
+  doubly dead — its body needed `dist/entity.html` and the removed landing
+  knob) exits immediately naming the current path.
+- **False security claim in-app** (P1): the Sign out tooltip and the
+  `disconnect_gateway` doc still said the session is shared with the
+  entity app on this origin — false since the split (own deployment, own
+  cookies). Both rewritten; `docs/security.md` already said it correctly.
+- **`docs/api.md` Processes section** (P2): documented a page that moved
+  to abstractcontinuum — replaced with a moved-pointer.
+- **Redesign backlog annotated** (P2): the 2026-07-12 UI-rethink doc now
+  carries a status note (wave 1 shipped; entity-app work items belong to
+  abstractentity's backlog).
+- **`ABSTRACTOBSERVER_ENTITY_APP_URL` normalized** (P2): query/hash are
+  stripped at parse so both consumers (redirect + deep links) can append
+  their own query safely.
+- **Stale dev proxy target** (P2, pre-existing): Vite's sessionless `/api`
+  fallback pointed at the retired :8081 gateway — now :8080 with env
+  overrides.
+
+Gates after the fold: 56 tests green, tsc clean, build clean.
+
+## 2026-07-12 — The entity app moved out (AbstractEntity split)
+
+Maintainer directive: entity code lives in its own package. Everything
+entity-shaped moved to `../abstractentity` (github.com/lpalbou/AbstractEntity)
+— the whole `src/entity/` module tree and its tests, `entity.html`,
+`public/demo/*.ndjson`, `scripts/export_demo_entity.py`,
+`scripts/export_home_stream.py`, `scripts/fold_digest.ts`, and the
+visit-wakes backlog item. The observer observes; the entity app is where
+entities live.
+
+What the observer keeps (watching, not serving):
+
+- The Board's entities strip (`GET /api/gateway/entities` + `/card`) and
+  all run/runtime/gateway surfaces.
+- "Entities ↗" links now point at the entity app's own deployment:
+  `ABSTRACTOBSERVER_ENTITY_APP_URL` (bin/cli.js injects it as
+  `__ABSTRACT_UI_CONFIG__.entity_app_url`), default `http://127.0.0.1:3007`.
+
+Serving changes:
+
+- `bin/cli.js`: the two-apps-one-dist landing knob
+  (`ABSTRACTOBSERVER_LANDING`) is gone; `/entity.html` now 302-redirects to
+  the entity app when `ABSTRACTOBSERVER_ENTITY_APP_URL` is set, otherwise
+  404s with the new address (the wrong app wearing the right URL is worse
+  than a 404 — 2026-07-09 lesson kept).
+- `vite.config.ts`: single-entry build again.
+- Workspace launchers (`scripts/entity[-local].sh`) serve the new package;
+  `observer[-local].sh` exports the entity-app URL for the links.
+
+## 2026-07-12 — Kind vocabulary sync: `world_model`
+
+Memory's maintainer-authorized wave (commons c1148) widened the engine
+record-kind set with `world_model` — sleep-formed orientation cards per
+person/topic. Per the sync-on-widening rule the mirror is extended the
+same day:
+
+- `ENGINE_RECORD_KINDS` gains `world_model` (verified against the source
+  tree's `abstractmemory.MEMORY_RECORD_KINDS`); `KIND_COLORS` gives it a
+  light teal in the consolidation family (kin to summary, distinct from
+  it) instead of unknown-gray.
+- Ledger lines: `world_model` formations render as "🧭 He mapped how he
+  sees someone/something" instead of the generic "Memory formed".
+- The kind-vocabulary drift test covers the new kind.
+
+## 2026-07-12 — Tokens never rest client-side (entity app)
+
+The connection-surface contract uic published after Laurent's continuum
+flag (commons c1142) restates the framework ruling: bearer tokens must
+never rest in client storage, dev convenience included. The entity app's
+direct posture persisted a remembered bearer (with its base) in
+`localStorage` — compliant apps keep credentials in memory only.
+
+- `storeAuth` no longer persists anything; `loadStoredAuth` now only
+  SCRUBS tokens written by earlier builds (`abstractobserver_gateway_auth`
+  and the legacy `abstractobserver_entity_token`) and returns null.
+- Direct-dev tabs re-prompt for the token on reload — that friction is
+  the ruling working. The proxy session path (HttpOnly cookies) is
+  unchanged and remains the endorsed posture.
+- Tests: storage pins replaced with never-persist + scrub-on-load pins;
+  `docs/security.md` updated.
+
 ## Unreleased
+
+- DEV SIGN-IN = PROD SIGN-IN (continuum's c1122 root cause adopted
+  same-hour): the Vite dev server now mounts the SAME
+  createGatewaySessionProxy as bin/cli.js via a config plugin —
+  POST /api/connection/gateway used to fall through the raw /api proxy to
+  the gateway (which has no such route) and 404 the shared sign-in dialog
+  in dev. Fall-through contract preserved: authenticated /api rides the
+  session proxy; sessionless requests keep hitting the raw dev proxy so
+  no-auth dev gateways still work. Smoke-verified (dev probe answers the
+  connection contract).
+
+- ONE SIGN-IN DIALOG, EVERYWHERE (maintainer verdict 2026-07-12: "your
+  login/auth is terrible — comply with abstractgateway/console and
+  abstractflow, reuse the abstractuic gateway login + kit"): both observer
+  apps now ride the SHARED `GatewayConnectModal` from
+  `@abstractframework/ui-kit` (flow's endorsed design on the
+  `/api/connection/gateway` session contract). Main app: the header LED
+  became a labeled connection control (dot + signed-in-as identity —
+  console parity), the boot probe is SESSION-FIRST and auto-opens the
+  dialog when signed out (flow parity: signed-out is a sign-in screen,
+  never a dead app), Settings' raw URL/user/token/remember fields are
+  gone (status badge + "Manage connection…" + a demoted Advanced
+  direct-dev block), the app-local sign-in code is deleted, and every
+  disconnected page CTA opens the dialog instead of pointing at Settings.
+  Entity app: the proxy posture returns the kit dialog verbatim; the
+  cross-origin bearer card survives only as the labeled dev posture.
+  TWO-ADVERSARY FOLD (all findings fixed): the P0 — URL validation ran
+  BEFORE the session probe, so the default localhost URL blocked a valid
+  session on every deployed host (probe now runs first; validation
+  belongs to the direct branch only); "Disconnect app" said it kept the
+  browser session while DELETE-ing it (now an honest "Sign out" naming
+  the origin-wide blast radius, and modal-driven sign-outs skip the
+  redundant DELETE); sign-out during in-flight discovery landed nowhere
+  (gate removed); opening the dialog over a live DIRECT connection
+  silently rewired it to session mode (guarded); the dialog now closes
+  itself on a FRESH sign-in only (open-probe baselines in both apps —
+  the entity wrapper would otherwise instantly close for signed-in
+  users, making sign-out unreachable); monitor-gpu rode the raw gateway
+  URL unauthenticated in session mode (now same-origin); Runtime
+  "Reconnect" and run deep-links prompt sign-in instead of failing
+  silently; stale 401 advice, dead `gateway_remember` field, and stale
+  README/faq/security auth sections all updated.
+
+- MISSION CONTROL (maintainer sign-off 2026-07-12, "surprise me" wave):
+  the app's new DEFAULT landing page is the Board — kanban columns
+  Pending / Working / Review / Done where cards are RUNS that move
+  themselves by state truth (never drag, never prose): Review = a human
+  is the blocker (tool approvals + questions, INLINE Approve/Deny/Answer
+  on the card — no modal, no context switch, oldest wait first), Working
+  = running or parked listening (a resident on a wait_event is progress,
+  not a request), Pending = scheduled, Done = terminal with failures
+  floated. Health strip (gateway LED, data age, needs-you/failed/working
+  counts); entities strip from the CHEAP card endpoint (name, phase chip
+  on the ruled visit/work/personal/sleep vocabulary, age, last moment —
+  card + as_of_seq per gateway c1038, never whole-life folds), each tile
+  deep-linking into the entity app. Run lists now POLL (5s visible/30s
+  hidden, visibility-aware) — a pending approval on an unwatched run was
+  invisible until a human pressed Refresh. Disconnected landing is an
+  honest connect hero instead of a dead board. The two apps finally see
+  each other: "Entities ↗" in the observer nav, "Observer ↗" in the
+  entity header. THREE-ADVERSARY FOLD (all findings fixed pre-ship): the
+  Review column scans the FULL run listing, not roots — agent workflows
+  hold tool approvals in CHILD runs while the parent parks on
+  subworkflow, so a roots-only Review was blind to the dominant approval
+  shape (cards carry a "subrun" chip and resume against the child's
+  run_id + wait_key); Enter inside the answer textarea no longer
+  navigates away and destroys the answer (keydown containment); Send
+  disables on empty and trims; choice waits honestly say "Open to answer
+  (choices)" instead of faking free text; approve/deny stay busy until
+  the poll moves the card (double-approve window closed); the poll's
+  in-flight dedup moved to a ref (the state-based guard was frozen in
+  the effect closure — requests could stack on a slow gateway); deep
+  links to runs now land on Observe (the board became the default);
+  board cards open runs through attach_to_run (root id no longer goes
+  stale); entity tiles read the REAL card shape (state is an object —
+  verified live against castor); strip truncation labeled ("12 of N").
+  16 board contract pins.
+
+- GRAPH LENSES (same wave — "the memory graph is pretty inefficient to
+  access information"): one-click semantic filters over the entity
+  memory graph riding the existing search-emphasis mechanism — Identity
+  / Recent (newest tenth of the life, by birth or selection) / Warm
+  (temporal activation now) / Feelings (valence targets, on-node and
+  standing) / Diary / Dreams / Questions (question+problem+idea+lesson).
+  Search INTERSECTS the active lens ("questions about tolstoy"); an
+  emphasis count chip shows "N of M"; the camera now FITS to the
+  emphasized set when it changes (fit-to-emphasis — finding information
+  no longer requires a manual pan-hunt; world positions untouched, only
+  the camera moves, spatial-memory rule intact). ADVERSARY FOLD: the fit
+  keys on OPERATOR INTENT (lens click + 450ms-debounced search commit),
+  never on set membership — a fold-keyed fit re-framed the camera on
+  every live envelope under "recent"/"warm" (the live view became
+  un-navigable); the fit retries while layout materializes instead of
+  recording a signature that swallowed it forever; an EMPTY lens result
+  now DIMS the graph and says "nothing matches here" (falling through to
+  no-filter made empty lenses read as broken buttons); the feelings lens
+  resolves graph-id targets through graph_to_row (the two-namespace rule
+  — it was dimming the very node carrying the feeling); identity lens =
+  value/purpose/trait/interest (deliberately narrower than the canvas
+  color map's gold `claim`s, documented); questions lens = question +
+  lesson only (problem/idea are wake reasons, not record kinds) and
+  excludes closed records; lens resets on entity switch; chips are
+  aria-pressed buttons. 9 lens pins.
 
 - THE OBSERVER OBSERVES; CONTINUUM DEVELOPS (maintainer split, 2026-07-12):
   every CI/CD development surface left this repo for the new sibling

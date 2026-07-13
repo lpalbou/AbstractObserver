@@ -1,5 +1,16 @@
 # UI rethink — full redesign plan (2026-07-12)
 
+> STATUS UPDATE (same day, evening): PARTIALLY SUPERSEDED by events.
+> Wave 1 shipped (Mission Control board = the health screen with inline
+> approvals + live polling; graph lenses; cross-links both ways; the
+> `ABSTRACTOBSERVER_LANDING` knob is GONE). The maintainer then directed a
+> second split: the ENTIRE entity app moved to `../abstractentity`
+> (github.com/lpalbou/AbstractEntity) — every "entity app" work item below
+> (entity.css token cut-over, `entity_tokens.test.ts` flip, roster landing)
+> now belongs to that repo's backlog, not this one. Observer-scoped items
+> (app.tsx structure, run-panel tab consolidation, design-token unification)
+> remain live here.
+
 Maintainer directive: "the functionalities we have are good but the design and
 access to them is average" + the same-day purpose split (CI/CD development
 surfaces moved to `../abstractcontinuum`; the observer's purpose narrows to

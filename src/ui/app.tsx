@@ -15,13 +15,18 @@ import {
 import {
   AfSelect,
   FontScaleSelect,
+  GatewayConnectModal,
   HeaderDensitySelect,
   Icon,
   ProviderModelSelect,
+  SteerComposer,
   ThemeSelect,
   applyTheme,
   applyTypography,
+  fetchGatewayConnection,
+  gatewayStatusBadge,
   type AfSelectOption,
+  type GatewayConnectionState,
   type ProviderOption,
 } from "@abstractframework/ui-kit";
 import { registerMonitorGpuWidget } from "@abstractframework/monitor-gpu";
@@ -43,6 +48,7 @@ import {
 } from "./artifact_rendering";
 import { FlowGraph } from "./flow_graph";
 import { MindmapPanel } from "./mindmap_panel";
+import { MissionControlPage, type EntityTile as BoardEntityTile } from "./mission_control";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
 import {
@@ -62,7 +68,6 @@ type Settings = {
   auth_token: string;
   gateway_user: string;
   gateway_auth_mode: "session" | "direct";
-  gateway_remember: boolean;
   worker_url: string;
   worker_token: string;
   theme: string;
@@ -433,8 +438,8 @@ function gateway_connect_error_message(value: any, settings: Settings): string {
   if (/\b401\b/.test(msg)) {
     const user = String(settings.gateway_user || "").trim();
     return user
-      ? `Gateway authentication failed for user '${user}'. Check the Gateway token or clear the user field to use direct local auth. (${msg})`
-      : `Gateway authentication failed. Enter a Gateway user/token for browser-session auth, or a direct dev token if your local Gateway requires one. (${msg})`;
+      ? `Gateway authentication failed for user '${user}'. Sign in again through the connection dialog. (${msg})`
+      : `Gateway authentication failed. Sign in through the connection dialog (or check the dev bearer token under Settings → Advanced). (${msg})`;
   }
   return msg;
 }
@@ -694,7 +699,6 @@ function load_settings(): Settings {
       auth_token: "",
       gateway_user: String(parsed?.gateway_user || ""),
       gateway_auth_mode: parsed?.gateway_auth_mode === "direct" ? "direct" : "session",
-      gateway_remember: parsed?.gateway_remember === false ? false : true,
       worker_url: String(parsed?.worker_url || ""),
       worker_token: String(parsed?.worker_token || ""),
       theme: String(parsed?.theme || "dark"),
@@ -710,7 +714,6 @@ function load_settings(): Settings {
       auth_token: "",
       gateway_user: "",
       gateway_auth_mode: "session",
-      gateway_remember: true,
       worker_url: "",
       worker_token: "",
       theme: "dark",
@@ -1364,10 +1367,18 @@ export function App(): React.ReactElement {
   // CI/CD development pages (backlog + codex execution, report/email inbox,
   // processes) moved to the abstractcontinuum repo (2026-07-12 split): the
   // observer's purpose is observing and discussing the running system.
-  const [page, set_page] = useState<"observe" | "launch" | "runtime" | "mindmap" | "settings">("observe");
+  // "board" = Mission Control (the new landing page, maintainer sign-off
+  // 2026-07-12): Pending/Working/Review/Done across runs + entities.
+  const [page, set_page] = useState<"board" | "observe" | "launch" | "runtime" | "mindmap" | "settings">("board");
 
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
+  // The entity app is its OWN deployment since the 2026-07-12 split —
+  // served config wins (ABSTRACTOBSERVER_ENTITY_APP_URL), local-stack
+  // default (:3007, the workspace launchers' ENTITY_PORT) otherwise.
+  const entity_app_url =
+    (typeof window !== "undefined" && (window.__ABSTRACT_UI_CONFIG__?.entity_app_url || "").trim().replace(/\/+$/, "")) ||
+    "http://127.0.0.1:3007";
   const monitor_gpu_ref = useRef<HTMLElement | null>(null);
   const [run_id, set_run_id] = useState<string>("");
   const [root_run_id, set_root_run_id] = useState<string>("");
@@ -1384,10 +1395,25 @@ export function App(): React.ReactElement {
   const [discovery_loading, set_discovery_loading] = useState(false);
   const [discovery_error, set_discovery_error] = useState<string>("");
   const [gateway_connected, set_gateway_connected] = useState(false);
+  // SHARED SIGN-IN (maintainer directive 2026-07-12, "comply with what
+  // abstractgateway/console and abstractflow are doing"): the uic
+  // GatewayConnectModal owns the sign-in UX against /api/connection/gateway;
+  // this app only reacts to its status. Tokens exchange for HTTP-only
+  // session cookies inside the modal — never stored here.
+  const [connect_modal_open, set_connect_modal_open] = useState(false);
+  const [connection_status, set_connection_status] = useState<GatewayConnectionState | null>(null);
   const [workflow_options, set_workflow_options] = useState<WorkflowOption[]>([]);
   const [run_options, set_run_options] = useState<RunSummary[]>([]);
   const [all_run_options, set_all_run_options] = useState<RunSummary[]>([]);
   const [runs_loading, set_runs_loading] = useState(false);
+  const [runs_refreshed_at, set_runs_refreshed_at] = useState<number | null>(null);
+  const [board_entities, set_board_entities] = useState<BoardEntityTile[]>([]);
+  const [board_entities_total, set_board_entities_total] = useState(0);
+  const [board_entities_error, set_board_entities_error] = useState("");
+  // In-flight ref (not state): the poll effect captures ONE render's
+  // closure, so a state-based guard is frozen there (adversary P1 — the
+  // stale closure made the dedup claim false and let slow requests stack).
+  const runs_inflight_ref = useRef(false);
   const [bundles_reloading, set_bundles_reloading] = useState(false);
   const [discovered_tool_specs, set_discovered_tool_specs] = useState<any[]>([]);
   const [discovered_providers, set_discovered_providers] = useState<any[]>([]);
@@ -1750,8 +1776,10 @@ export function App(): React.ReactElement {
 
   useEffect(() => {
     if (!settings.auto_connect_gateway) return;
-    if (!settings.gateway_url.trim() && typeof window !== "undefined" && !window.location?.origin) return;
-    void on_discover_gateway();
+    // Flow/console parity: signed-out is a SIGN-IN SCREEN, never a dead
+    // app — the boot probe opens the shared modal when no session and no
+    // dev bearer exists.
+    void on_discover_gateway({ open_modal_if_needed: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.auto_connect_gateway]);
 
@@ -2014,7 +2042,9 @@ export function App(): React.ReactElement {
   }
 
   async function refresh_runs(gateway_client: GatewayClient = gateway, opts?: { force?: boolean }): Promise<void> {
-    if (runs_loading && !opts?.force) return;
+    if (runs_inflight_ref.current && !opts?.force) return;
+    runs_inflight_ref.current = true;
+    const epoch = discovery_epoch_ref.current;
     set_runs_loading(true);
     try {
       const normalize_runs = (items: any[]): RunSummary[] =>
@@ -2047,6 +2077,9 @@ export function App(): React.ReactElement {
         gateway_client.list_runs({ limit: 200, root_only: true, include_metrics: true }),
         gateway_client.list_runs({ limit: 500, root_only: false, include_metrics: true }),
       ]);
+      // EPOCH GUARD (adversary 2026-07-13): a sign-out during this await
+      // must not repopulate the disconnected app with late results.
+      if (epoch !== discovery_epoch_ref.current) return;
       const root_items = Array.isArray((root_runs as any)?.items) ? ((root_runs as any).items as any[]) : [];
       const all_items = Array.isArray((all_runs as any)?.items) ? ((all_runs as any).items as any[]) : [];
       const next: RunSummary[] = normalize_runs(root_items)
@@ -2054,50 +2087,117 @@ export function App(): React.ReactElement {
         .filter((r) => !String(r.parent_run_id || "").trim());
       set_run_options(next);
       set_all_run_options(normalize_runs(all_items).filter((r) => Boolean(r.run_id)));
+      set_runs_refreshed_at(Date.now());
     } catch (e: any) {
       push_log({ ts: now_iso(), kind: "error", title: "Refresh runs failed", preview: clamp_preview(String(e?.message || e || "")) });
     } finally {
+      runs_inflight_ref.current = false;
       set_runs_loading(false);
     }
   }
 
-  async function sign_in_gateway_session(): Promise<void> {
-    const gateway_user = String(settings.gateway_user || "").trim();
-    const gateway_token = String(settings.auth_token || "").trim();
-    if (!gateway_user) {
-      throw new Error("Gateway user is required for hosted sign-in.");
+  /** The post-auth half of connecting: discovery over an ALREADY
+   * authenticated client (session cookies via the shared modal, or a direct
+   * dev bearer). Shared by the modal path and the legacy direct path. */
+  async function run_discovery(gateway_for_connect: GatewayClient): Promise<void> {
+    // CONNECTED-FIRST (operator incident 2026-07-13 02:12: 10-15s pinned on
+    // "Connecting…" ON LOCALHOST). Auth is already proven by every caller
+    // (session probe ok / modal sign-in / a bearer verified by the direct
+    // path's preflight) — the app flips to connected NOW and each discovery
+    // surface fills as its fetch lands. The measured whale is the gateway
+    // runs listing (2.2-7.9s at ~500 runs, include_metrics; /api/health
+    // answers in 1ms) — a slow data scan must never gate first paint. The
+    // four fetches below run in PARALLEL (they were serialized: bundles →
+    // runs → tools ∥ providers).
+    const epoch = discovery_epoch_ref.current;
+    set_gateway_connected(true);
+    set_discovered_models_by_provider({});
+
+    const [bundles_res, , tools_res, providers_res] = await Promise.allSettled([
+      gateway_for_connect.list_bundles(),
+      refresh_runs(gateway_for_connect),
+      gateway_for_connect.discovery_tools(),
+      gateway_for_connect.discovery_providers({ include_models: false }),
+    ]);
+    // EPOCH GUARD (adversary 2026-07-13): a sign-out that happened during
+    // the awaits must not have its cleared state repopulated by these
+    // late results.
+    if (epoch !== discovery_epoch_ref.current) return;
+
+    // ALL-REJECTED = the gateway died (or refused us) between the auth
+    // proof and discovery — staying "connected" over three failures would
+    // be the old lie. Surface it and drop back to the sign-in screen.
+    if (bundles_res.status === "rejected" && tools_res.status === "rejected" && providers_res.status === "rejected") {
+      set_gateway_connected(false);
+      set_discovery_error(gateway_connect_error_message(bundles_res.reason, settings));
+      push_log({ ts: now_iso(), kind: "error", title: "Discovery failed", preview: clamp_preview(String(bundles_res.reason || "")) });
+      return;
     }
-    if (!gateway_token) {
-      const response = await fetch("/api/connection/gateway", { headers: { Accept: "application/json" } });
-      const payload = await response.json().catch(async () => ({ detail: await response.text().catch(() => "") }));
-      const principal = payload?.gateway?.principal || payload?.principal || {};
-      const existing_user = String(principal?.user_id || "").trim();
-      if (response.ok && payload?.ok !== false && existing_user === gateway_user) {
-        return;
-      }
-      throw new Error("Gateway token is required to create a browser session.");
+
+    let workflow_count = 0;
+    if (bundles_res.status === "fulfilled") {
+      const opts = build_workflow_options_from_bundles(bundles_res.value);
+      workflow_count = opts.length;
+      set_workflow_options(opts);
+    } else {
+      set_workflow_options([]);
+      push_log({ ts: now_iso(), kind: "error", title: "Discovery bundles failed", preview: clamp_preview(String(bundles_res.reason || "")) });
     }
-    const response = await fetch("/api/connection/gateway", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        gateway_url: String(settings.gateway_url || "").trim(),
-        gateway_user_id: gateway_user,
-        gateway_token,
-        persist: settings.gateway_remember !== false,
-      }),
-    });
-    const payload = await response.json().catch(async () => ({ detail: await response.text().catch(() => "") }));
-    if (!response.ok || payload?.ok === false) {
-      throw new Error(String(payload?.detail || payload?.error || `Gateway sign-in failed (${response.status})`));
+
+    if (tools_res.status === "fulfilled") {
+      const items = Array.isArray(tools_res.value?.items) ? tools_res.value.items : [];
+      set_discovered_tool_specs(items);
+    } else {
+      set_discovered_tool_specs([]);
+      push_log({ ts: now_iso(), kind: "error", title: "Discovery tools failed", preview: clamp_preview(String(tools_res.reason || "")) });
     }
+
+    if (providers_res.status === "fulfilled") {
+      const items = Array.isArray(providers_res.value?.items) ? providers_res.value.items : [];
+      set_discovered_providers(items);
+    } else {
+      set_discovered_providers([]);
+      push_log({ ts: now_iso(), kind: "error", title: "Discovery providers failed", preview: clamp_preview(String(providers_res.reason || "")) });
+    }
+
+    push_log({ ts: now_iso(), kind: "info", title: "Gateway discovery loaded", preview: clamp_preview(`workflows: ${workflow_count}`) });
   }
 
-  async function on_discover_gateway(): Promise<void> {
+  /** Legacy/dev direct path (bearer token against a cross-origin gateway) +
+   * the boot path when a browser session already exists. The primary
+   * sign-in UX is the shared uic modal (handle_connection_status).
+   * `opts.open_modal_if_needed`: explicit user clicks open the sign-in
+   * modal when no credentials exist; the silent boot probe never does. */
+  async function on_discover_gateway(opts?: { open_modal_if_needed?: boolean; prefer_direct?: boolean }): Promise<void> {
     set_discovery_error("");
     set_gateway_connected(false);
     set_discovery_loading(true);
     try {
+      // SESSION FIRST, before any URL validation (adversary P0: the URL
+      // checks below only matter for the DIRECT path — running them first
+      // meant the default localhost URL blocked a perfectly valid session
+      // on every deployed host). An existing browser session wins over any
+      // stored direct token — sign-in-once is the contract.
+      if (!opts?.prefer_direct) {
+        const probe = await fetchGatewayConnection().catch(() => null);
+        set_connection_status(probe);
+        if (probe && probe.has_session && probe.gateway?.ok) {
+          set_settings((s) => ({ ...s, gateway_auth_mode: "session", auth_token: "" }));
+          await run_discovery(new GatewayClient({ base_url: "", auth_token: "" }));
+          return;
+        }
+      }
+
+      const direct_token = String(settings.auth_token || "").trim();
+      if (!direct_token) {
+        // No session, no dev bearer: the shared modal is the way in (the
+        // boot path opens it too — flow/console parity: signed-out is a
+        // sign-in screen, never a dead app).
+        if (opts?.open_modal_if_needed) set_connect_modal_open(true);
+        return;
+      }
+
+      // DIRECT dev path: the URL validation belongs to this branch only.
       const gw_url_raw = String(settings.gateway_url || "").trim();
       if (gw_url_raw) {
         const lower = gw_url_raw.toLowerCase();
@@ -2122,56 +2222,62 @@ export function App(): React.ReactElement {
           throw new Error(String(e?.message || e || "Invalid Gateway URL"));
         }
       }
-
-      const wants_session = Boolean(String(settings.gateway_user || "").trim());
-      const gateway_for_connect = wants_session
-        ? new GatewayClient({ base_url: "", auth_token: "" })
-        : new GatewayClient({ base_url: gw_url_raw, auth_token: settings.auth_token });
-      if (wants_session) {
-        await sign_in_gateway_session();
-        set_settings((s) => ({ ...s, gateway_auth_mode: "session", auth_token: "" }));
-      } else {
-        set_settings((s) => ({ ...s, gateway_auth_mode: "direct" }));
-      }
-
-      const bundles = await gateway_for_connect.list_bundles();
-      const opts = build_workflow_options_from_bundles(bundles);
-      set_workflow_options(opts);
-
-      try {
-        await refresh_runs(gateway_for_connect);
-      } catch (e: any) {
-        set_run_options([]);
-        push_log({ ts: now_iso(), kind: "error", title: "Discovery runs failed", preview: clamp_preview(String(e?.message || e || "")) });
-      }
-
-      const [tools_res, providers_res] = await Promise.allSettled([
-        gateway_for_connect.discovery_tools(),
-        gateway_for_connect.discovery_providers({ include_models: false }),
-      ]);
-      if (tools_res.status === "fulfilled") {
-        const items = Array.isArray(tools_res.value?.items) ? tools_res.value.items : [];
-        set_discovered_tool_specs(items);
-      } else {
-        set_discovered_tool_specs([]);
-        push_log({ ts: now_iso(), kind: "error", title: "Discovery tools failed", preview: clamp_preview(String(tools_res.reason || "")) });
-      }
-
-      if (providers_res.status === "fulfilled") {
-        const items = Array.isArray(providers_res.value?.items) ? providers_res.value.items : [];
-        set_discovered_providers(items);
-      } else {
-        set_discovered_providers([]);
-        push_log({ ts: now_iso(), kind: "error", title: "Discovery providers failed", preview: clamp_preview(String(providers_res.reason || "")) });
-      }
-
-      set_discovered_models_by_provider({});
-      set_gateway_connected(true);
-      push_log({ ts: now_iso(), kind: "info", title: "Gateway discovery loaded", preview: clamp_preview(`workflows: ${opts.length}`) });
+      // BEARER PREFLIGHT (adversary 2026-07-13: the token is operator-TYPED,
+      // not verified — connected-first must not flip green for a wrong dev
+      // token). One cheap authenticated call (~20ms) proves it; a 401 throws
+      // into the catch below and surfaces as discovery_error with the app
+      // still on the sign-in screen.
+      const direct_client = new GatewayClient({ base_url: gw_url_raw, auth_token: direct_token });
+      await direct_client.list_bundles();
+      set_settings((s) => ({ ...s, gateway_auth_mode: "direct" }));
+      await run_discovery(direct_client);
     } catch (e: any) {
       set_discovery_error(gateway_connect_error_message(e, settings));
     } finally {
       set_discovery_loading(false);
+    }
+  }
+
+  /** The shared modal's status callback: a fresh sign-in flips the app to
+   * session mode, runs discovery, and closes the modal (flow parity); a
+   * sign-out disconnects. The modal also emits on OPEN (its silent probe) —
+   * a connected app skips redundant re-discovery, and a connected DIRECT
+   * app is never silently rewired by merely opening the dialog. */
+  const had_session_ref = useRef(false);
+  /** Bumped on every disconnect: in-flight discovery/runs fetches compare
+   * their entry epoch before writing state, so late results can never
+   * repopulate a signed-out app (adversary 2026-07-13). */
+  const discovery_epoch_ref = useRef(0);
+  function handle_connection_status(s: GatewayConnectionState | null): void {
+    set_connection_status(s);
+    const signed_in = Boolean(s && s.has_session && s.gateway?.ok);
+    const was_signed_in = had_session_ref.current;
+    had_session_ref.current = signed_in;
+    if (signed_in) {
+      // Looking at the dialog must not rewire a live DIRECT dev connection.
+      if (gateway_connected && settings.gateway_auth_mode === "direct") return;
+      const principal_user = String(s?.gateway?.principal?.user_id || "").trim();
+      set_settings((prev) => ({
+        ...prev,
+        gateway_auth_mode: "session",
+        auth_token: "",
+        gateway_user: principal_user || prev.gateway_user,
+      }));
+      if (!was_signed_in) set_connect_modal_open(false); // fresh sign-in: dialog closes (flow parity)
+      if (gateway_connected && settings.gateway_auth_mode === "session") return; // open-probe of a live connection
+      set_discovery_error("");
+      set_discovery_loading(true);
+      void run_discovery(new GatewayClient({ base_url: "", auth_token: "" }))
+        .catch((e: any) => set_discovery_error(gateway_connect_error_message(e, settings)))
+        .finally(() => set_discovery_loading(false));
+      return;
+    }
+    if (s && !s.has_session && settings.gateway_auth_mode === "session") {
+      // Signed out through the modal (or the session expired): reflect it
+      // app-wide — an app that keeps rendering over a dead session is the
+      // old lie this wave exists to end. (No gateway_connected gate: a
+      // sign-out DURING in-flight discovery must still land.)
+      disconnect_gateway({ keep_session: true });
     }
   }
 
@@ -2219,8 +2325,21 @@ export function App(): React.ReactElement {
     }
   }
 
-  function disconnect_gateway(): void {
-    void fetch("/api/connection/gateway", { method: "DELETE" }).catch(() => undefined);
+  /** Reset the app's connection state. By default this ALSO signs the
+   * browser out (DELETE the session — it is what "Disconnect" means to an
+   * operator, and matches the console's Sign out). Callers reacting to a
+   * sign-out that ALREADY happened (the modal's own sign-out, an expired
+   * session) pass keep_session to avoid a redundant DELETE. Scope is THIS
+   * app's origin only — since the 2026-07-12 split the entity app is its
+   * own deployment with its own cookies. */
+  function disconnect_gateway(opts?: { keep_session?: boolean }): void {
+    // Invalidate in-flight discovery/runs fetches BEFORE clearing state so
+    // their late results cannot write over the cleared app.
+    discovery_epoch_ref.current += 1;
+    if (!opts?.keep_session) {
+      void fetch("/api/connection/gateway", { method: "DELETE" }).catch(() => undefined);
+      had_session_ref.current = false;
+    }
     clear_run_view();
     set_bundle_id("");
     set_flow_id("");
@@ -2237,6 +2356,7 @@ export function App(): React.ReactElement {
 
     set_discovery_error("");
     set_gateway_connected(false);
+    set_connection_status(null);
     set_settings((s) => ({ ...s, auth_token: "" }));
     push_log({ ts: now_iso(), kind: "info", title: "Gateway disconnected" });
   }
@@ -2291,6 +2411,135 @@ export function App(): React.ReactElement {
       window.clearInterval(timer);
     };
   }, [connected, run_id, gateway]);
+
+  // LIVE RUN LIST (mission-control wave, 2026-07-12): the board and the run
+  // rail must never depend on a human pressing Refresh — a pending approval
+  // on an unwatched run was invisible before this. 5s while the tab is
+  // visible, 30s hidden — SELF-TUNING against slow servers (2026-07-13):
+  // the runs listing measured 2-8s server-side at ~500 runs, and a fixed
+  // 5s cadence against a 3s query makes the board the gateway's main load.
+  // The next tick waits at least 3× the last request's duration, so a slow
+  // gateway sees gentle polling and a fast one keeps the 5s liveness.
+  useEffect(() => {
+    if (!gateway_connected) return;
+    let timer: number | null = null;
+    let disposed = false;
+    let ticking = false;
+    const schedule = (ms: number) => {
+      if (disposed) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void tick(), ms);
+    };
+    const tick = async () => {
+      // One chain only: a visibility-triggered tick while a poll is in
+      // flight would fork a second setTimeout chain forever (each chain
+      // reschedules itself); the running chain already reschedules.
+      if (ticking) return;
+      ticking = true;
+      const started = Date.now();
+      try {
+        await refresh_runs(gateway);
+      } finally {
+        // Reschedule INSIDE the finally: refresh_runs is throw-proof today,
+        // but a future edit that lets it reject must degrade to a late
+        // tick, never to silent poll death (adversary 2026-07-13).
+        ticking = false;
+        const took = Date.now() - started;
+        const base = document.visibilityState === "hidden" ? 30_000 : 5_000;
+        schedule(Math.max(base, took * 3));
+      }
+    };
+    const on_visibility = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
+    void tick();
+    document.addEventListener("visibilitychange", on_visibility);
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", on_visibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gateway_connected, gateway]);
+
+  // Entity tiles for the board: roster + the CHEAP per-entity card (gateway
+  // c1038 — card + as_of_seq; never whole-life replay folds). 30s cadence.
+  useEffect(() => {
+    if (!gateway_connected) {
+      set_board_entities([]);
+      set_board_entities_error("");
+      return;
+    }
+    let stop = false;
+    let timer: number | null = null;
+    const load = async () => {
+      try {
+        const roster = await gateway.list_entities();
+        const names = roster.entities
+          .map((e: any) => String(e?.name || e?.slug || "").trim())
+          .filter(Boolean)
+          .slice(0, 12);
+        const tiles: BoardEntityTile[] = await Promise.all(
+          names.map(async (name): Promise<BoardEntityTile> => {
+            try {
+              const card = await gateway.get_entity_card(name);
+              // Live card shape (verified against castor 2026-07-12):
+              // state is an OBJECT {state, changed_at, reason, written_by};
+              // moments entries carry {kind, at}, no title.
+              const state_obj = card?.state && typeof card.state === "object" ? card.state : null;
+              const moments = Array.isArray(card?.moments) ? card.moments : [];
+              const last = moments.length ? moments[moments.length - 1] : null;
+              return {
+                name,
+                state: String(state_obj?.state ?? (typeof card?.state === "string" ? card.state : "")).trim(),
+                age_days: typeof card?.age_days === "number" ? card.age_days : null,
+                last_moment: String(last?.kind || "").trim(),
+                error: "",
+              };
+            } catch (e: any) {
+              return { name, state: "", age_days: null, last_moment: "", error: String(e?.message || e || "card failed") };
+            }
+          }),
+        );
+        if (!stop) {
+          set_board_entities(tiles);
+          set_board_entities_total(roster.entities.length);
+          set_board_entities_error("");
+        }
+      } catch (e: any) {
+        // No entity door on this gateway is a normal deployment, not an error.
+        if (!stop) {
+          set_board_entities([]);
+          const msg = String(e?.message || e || "");
+          set_board_entities_error(/404|not found/i.test(msg) ? "" : msg);
+        }
+      }
+      if (!stop) timer = window.setTimeout(() => void load(), 30_000);
+    };
+    void load();
+    return () => {
+      stop = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gateway_connected, gateway]);
+
+  // Board-initiated wait answers: independent of the attached run (the
+  // whole point — approve from the Review column without switching context).
+  async function board_resume_wait(rid: string, wait_key: string, payload_obj: any): Promise<void> {
+    const wk = String(wait_key || "").trim();
+    if (!rid || !wk) throw new Error("This wait has no wait_key yet — open the run to inspect.");
+    await gateway.submit_command({
+      command_id: random_id(),
+      run_id: rid,
+      type: "resume",
+      payload: { wait_key: wk, payload: payload_obj || {} },
+      client_id: "web_pwa",
+    });
+    push_log({ ts: now_iso(), kind: "info", title: "Board resume submitted", preview: clamp_preview(`run ${rid} · wait ${wk}`), data: { run_id: rid, wait_key: wk } });
+    void refresh_runs(gateway, { force: true });
+    window.setTimeout(() => void refresh_runs(gateway, { force: true }), 1200);
+  }
 
   const session_id_for_run = useMemo(() => {
     const sid = (run_state as any)?.session_id;
@@ -3434,8 +3683,11 @@ export function App(): React.ReactElement {
     let stopped = false;
     void (async () => {
       try {
-        if (!gateway_connected) await on_discover_gateway();
+        if (!gateway_connected) await on_discover_gateway({ open_modal_if_needed: true });
         if (stopped) return;
+        // A shared run link must LAND on the run — the board became the
+        // default page, so deep links now navigate explicitly.
+        set_page("observe");
         await attach_to_run(rid);
       } catch (e: any) {
         if (!stopped) set_error_text(String(e?.message || e || "Failed to attach run from URL"));
@@ -5408,6 +5660,9 @@ export function App(): React.ReactElement {
           <span className="logo_name">AbstractObserver</span>
         </div>
         <div className="app_nav">
+          <button className={`nav_tab ${page === "board" ? "active" : ""}`} onClick={() => set_page("board")}>
+            Board
+          </button>
           <button className={`nav_tab ${page === "observe" ? "active" : ""}`} onClick={() => set_page("observe")}>
             Observe
           </button>
@@ -5420,6 +5675,11 @@ export function App(): React.ReactElement {
           <button className={`nav_tab ${page === "mindmap" ? "active" : ""}`} onClick={() => set_page("mindmap")}>
             Mindmap
           </button>
+          {/* The entity app is its own deployment (abstractentity) — one
+              link ends the two-apps-are-mutually-invisible era. */}
+          <a className="nav_tab" href={entity_app_url} target="_blank" rel="noreferrer" title="Open the entity app (memory graph + visits)">
+            Entities ↗
+          </a>
         </div>
         <div className="status_pills">
           {monitor_gpu_enabled ? (
@@ -5428,7 +5688,7 @@ export function App(): React.ReactElement {
               mode="icon"
               history-size="5"
               tick-ms="1500"
-              base-url={settings.gateway_url}
+              base-url={settings.gateway_auth_mode === "session" ? "" : settings.gateway_url}
               title="GPU usage (host)"
               style={
                 {
@@ -5452,15 +5712,89 @@ export function App(): React.ReactElement {
           >
             <Icon name="settings" size={16} />
           </button>
-          <span
-            className={`gateway_led ${gateway_connected ? "ok" : discovery_loading ? "warn" : "err"}`}
-            title={`Gateway: ${gateway_connected ? "connected" : discovery_loading ? "connecting" : "disconnected"}`}
-            aria-hidden="true"
-          />
+          {/* The LED is the connection CONTROL with a visible identity —
+              console parity: dot + who you are + one click to manage. */}
+          <button
+            className="gateway_led_btn"
+            type="button"
+            onClick={() => set_connect_modal_open(true)}
+            title={
+              gateway_connected
+                ? "Gateway connection — click to manage or sign out"
+                : discovery_loading
+                  ? "Gateway: connecting…"
+                  : "Gateway: signed out — click to sign in"
+            }
+            aria-label="Gateway connection"
+          >
+            <span className={`gateway_led ${gateway_connected ? "ok" : discovery_loading ? "warn" : "err"}`} aria-hidden="true" />
+            <span className="gateway_led_label mono">
+              {gateway_connected
+                ? connection_status?.gateway?.principal?.user_id || (settings.gateway_auth_mode === "direct" ? "direct dev" : "connected")
+                : discovery_loading
+                  ? "connecting…"
+                  : "sign in"}
+            </span>
+          </button>
         </div>
       </div>
 
+      <GatewayConnectModal
+        isOpen={connect_modal_open}
+        onClose={() => set_connect_modal_open(false)}
+        appName="AbstractObserver"
+        defaultGatewayUrl={
+          (typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.gateway_url) || settings.gateway_url || DEFAULT_GATEWAY_URL
+        }
+        onStatusChange={handle_connection_status}
+      />
+
       <div className="app-body">
+        {page === "board" ? (
+          !gateway_connected ? (
+            <div className="page page_scroll">
+              <div className="page_inner constrained">
+                <div className="card mc_hero">
+                  <div className="title">
+                    <h1>Connect to your gateway</h1>
+                  </div>
+                  <p className="muted">
+                    Mission Control shows every run and entity on one board — but nothing is connected yet.
+                    {discovery_error ? ` Last attempt: ${discovery_error}` : ""}
+                  </p>
+                  <div className="row" style={{ gap: "8px", alignItems: "center" }}>
+                    <button className="btn primary" onClick={() => set_connect_modal_open(true)} disabled={discovery_loading}>
+                      {discovery_loading ? "Connecting…" : "Sign in"}
+                    </button>
+                    <button className="btn" onClick={() => void on_discover_gateway({ open_modal_if_needed: true })} disabled={discovery_loading} title="Retry with an existing browser session or a direct dev token">
+                      Retry connection
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <MissionControlPage
+              gateway_connected={gateway_connected}
+              runs={run_options}
+              all_runs={all_run_options}
+              runs_refreshed_at={runs_refreshed_at}
+              entities={board_entities}
+              entities_total={board_entities_total}
+              entities_error={board_entities_error}
+              refreshing={runs_loading}
+              on_refresh={() => void refresh_runs(gateway, { force: true })}
+              on_open_run={(rid) => {
+                set_page("observe");
+                set_right_tab("overview");
+                void attach_to_run(rid);
+              }}
+              on_resume_wait={board_resume_wait}
+              entity_app_href={entity_app_url}
+            />
+          )
+        ) : null}
+
         {page === "settings" ? (
           <div className="page page_scroll">
             <div className="page_inner constrained">
@@ -5488,24 +5822,28 @@ export function App(): React.ReactElement {
 
                 <div className="section_title">Gateway</div>
                 <div className="field">
-                  <label>Gateway URL</label>
+                  <label>Connection</label>
                   <div className="field_inline">
-                    <input
-                      value={settings.gateway_url}
-                      onChange={(e) => set_settings((s) => ({ ...s, gateway_url: e.target.value }))}
-                      placeholder={DEFAULT_GATEWAY_URL}
-                    />
-                    <button className="btn" onClick={gateway_connected ? disconnect_gateway : on_discover_gateway} disabled={discovery_loading}>
-                      {discovery_loading ? "Connecting…" : gateway_connected ? "Disconnect" : "Connect"}
+                    <span className={`mc_pill ${gateway_connected ? "" : "mc_pill_hot"}`}>
+                      {gatewayStatusBadge(connection_status).label}
+                    </span>
+                    <button className="btn primary" onClick={() => set_connect_modal_open(true)}>
+                      Manage connection…
                     </button>
+                    {gateway_connected ? (
+                      <button className="btn" onClick={() => disconnect_gateway()} title="Sign this browser out of the gateway (this app's session only — the entity app signs in on its own deployment)">
+                        Sign out
+                      </button>
+                    ) : null}
                   </div>
                   {discovery_error ? (
-                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)" }}>
+                    <div className="mono" style={{ color: "var(--error)", fontSize: "var(--font-size-sm)" }}>
                       {discovery_error}
                     </div>
                   ) : null}
                   <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                    Defaults to the local Gateway. Browser-session sign-in uses this URL through the Observer connection proxy; direct local auth calls it from this page.
+                    Sign-in is the shared AbstractFramework dialog: a Gateway user token exchanges for an HTTP-only browser
+                    session (same flow as AbstractFlow and the gateway console). Raw tokens are never stored.
                   </div>
                 </div>
                 <div className="field">
@@ -5518,36 +5856,31 @@ export function App(): React.ReactElement {
                     <option value="off">Off</option>
                   </select>
                 </div>
-                <div className="field">
-                  <label>Gateway user</label>
-                  <input
-                    value={settings.gateway_user}
-                    onChange={(e) => set_settings((s) => ({ ...s, gateway_user: e.target.value, gateway_auth_mode: "session" }))}
-                    placeholder="user id for hosted sign-in"
-                  />
-                </div>
-                <div className="field">
-                  <label>Gateway token</label>
-                  <input
-                    type="password"
-                    value={settings.auth_token}
-                    onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value }))}
-                    placeholder={settings.gateway_user.trim() ? "user token for sign-in" : "optional direct dev token"}
-                  />
-                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                    Hosted sign-in exchanges this token for a browser session and does not save it in localStorage.
+                <details style={{ marginTop: "6px" }}>
+                  <summary className="mono muted" style={{ cursor: "pointer" }}>
+                    Advanced: direct dev connection (bearer token, cross-origin)
+                  </summary>
+                  <div className="field" style={{ marginTop: "8px" }}>
+                    <label>Gateway URL</label>
+                    <input
+                      value={settings.gateway_url}
+                      onChange={(e) => set_settings((s) => ({ ...s, gateway_url: e.target.value }))}
+                      placeholder={DEFAULT_GATEWAY_URL}
+                    />
                   </div>
-                </div>
-                <div className="field">
-                  <label>Remember browser session</label>
-                  <select
-                    value={settings.gateway_remember ? "on" : "off"}
-                    onChange={(e) => set_settings((s) => ({ ...s, gateway_remember: e.target.value === "on" }))}
-                  >
-                    <option value="on">On</option>
-                    <option value="off">Off</option>
-                  </select>
-                </div>
+                  <div className="field">
+                    <label>Dev bearer token</label>
+                    <input
+                      type="password"
+                      value={settings.auth_token}
+                      onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value, gateway_auth_mode: "direct" }))}
+                      placeholder="development only — prefer the sign-in dialog"
+                    />
+                  </div>
+                  <button className="btn" onClick={() => void on_discover_gateway({ prefer_direct: true })} disabled={discovery_loading}>
+                    {discovery_loading ? "Connecting…" : "Connect directly"}
+                  </button>
+                </details>
 
                 <div className="section_title">Maintenance AI</div>
                 <ProviderModelSelect
@@ -5940,11 +6273,11 @@ export function App(): React.ReactElement {
                     <h1>Mindmap</h1>
                   </div>
                   <div className="mono muted">
-                    Not connected. Open{" "}
-                    <button className="btn" onClick={() => set_page("settings")}>
-                      Settings
+                    Not connected.{" "}
+                    <button className="btn primary" onClick={() => set_connect_modal_open(true)}>
+                      Sign in
                     </button>{" "}
-                    to connect to a gateway.
+                    to watch this gateway.
                   </div>
                 </div>
               </div>
@@ -6043,7 +6376,7 @@ export function App(): React.ReactElement {
               void attach_to_run(rid);
             }}
             on_refresh_runs={() => void refresh_runs(gateway, { force: true })}
-            on_reconnect={() => void on_discover_gateway()}
+            on_reconnect={() => void on_discover_gateway({ open_modal_if_needed: true })}
             on_open_settings={() => set_page("settings")}
           />
         ) : null}
@@ -6128,6 +6461,44 @@ export function App(): React.ReactElement {
 	                    Cancel
 	                  </button>
 	                </div>
+
+              {/* STEERING (uic kit c1239, hooks P3): mid-run guidance via the
+                * durable inject_guidance command. Status truth stays honest —
+                * "Queued (seq N)" from the composer; DELIVERY is the ledger's
+                * own abstract.steer_seen line. The submit override rides
+                * gateway.submit_command so session (proxy+CSRF) and direct
+                * (bearer) postures both work. */}
+              {run_id.trim() && !run_terminal ? (
+                <div className="observe_steer_row">
+                  <SteerComposer
+                    runId={run_id.trim()}
+                    parked={is_waiting}
+                    submit={(rid, guidance) =>
+                      gateway
+                        .submit_command({
+                          command_id: `steer-${random_id()}`,
+                          run_id: rid,
+                          type: "inject_guidance",
+                          payload: { guidance },
+                          client_id: "web_pwa",
+                        })
+                        .then((r: any) => ({
+                          accepted: Boolean(r?.accepted),
+                          duplicate: Boolean(r?.duplicate),
+                          seq: Number(r?.seq ?? 0),
+                        }))
+                    }
+                    onSent={() =>
+                      push_log({
+                        ts: now_iso(),
+                        kind: "info",
+                        title: "Steer queued",
+                        preview: "inject_guidance submitted — delivery shows as abstract.steer_seen in the ledger",
+                      })
+                    }
+                  />
+                </div>
+              ) : null}
 
               {/* Contextual info: waiting / schedule / error — shown inline when relevant */}
               {(is_waiting || is_scheduled_run || error_text) ? (

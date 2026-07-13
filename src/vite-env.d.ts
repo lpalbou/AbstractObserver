@@ -10,6 +10,10 @@ declare global {
        * default for direct-posture connect surfaces; through the app-origin
        * proxy the browser never dials it directly. */
       gateway_url?: string;
+      /** Where the entity app lives (its own package since 2026-07-12);
+       * drives the "Entities ↗" links. bin/cli.js injects it from
+       * ABSTRACTOBSERVER_ENTITY_APP_URL. */
+      entity_app_url?: string;
     };
   }
 

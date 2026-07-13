@@ -1,9 +1,51 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
+import { createGatewaySessionProxy } from "@abstractframework/app-server";
+
+// Dev-server twin of bin/cli.js (pattern from continuum c1122, same root
+// cause): mount the SAME app-origin gateway session proxy so sign-in works
+// identically in dev and prod. Without this, POST /api/connection/gateway
+// fell through Vite's raw /api proxy to the gateway, which has no such
+// route -> 404 at the shared sign-in dialog.
+//
+// Fall-through contract: the connection endpoint is always ours; other
+// /api/* requests ride the session proxy ONLY when a browser session
+// exists (prod parity). With no session they fall through to Vite's raw
+// /api proxy below, so no-auth dev gateways keep working unauthenticated.
+function gatewaySessionDevProxy(): Plugin {
+  const proxy = createGatewaySessionProxy({
+    appId: "abstractobserver",
+    defaultGatewayUrl:
+      String(process.env.ABSTRACTOBSERVER_GATEWAY_URL || process.env.ABSTRACTGATEWAY_URL || "").trim() || "http://127.0.0.1:8080",
+  });
+  return {
+    name: "abstractobserver-gateway-session-proxy",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        let pathname = "/";
+        try {
+          pathname = new URL(req.url || "/", "http://local").pathname;
+        } catch {
+          next();
+          return;
+        }
+        if (pathname === proxy.connectionPath) {
+          proxy.handle(req, res, pathname);
+          return;
+        }
+        if (pathname.startsWith("/api/") && proxy.browserSession(req).sessionId) {
+          proxy.handle(req, res, pathname);
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [gatewaySessionDevProxy(), react()],
   resolve: {
     alias: [
       // Workspace imports (AbstractUIC packages) originate outside this project's
@@ -31,10 +73,12 @@ export default defineConfig({
       // this app's own root directory or Vite will 403 on `/index.html`.
       allow: [resolve(__dirname), resolve(__dirname, "../abstractuic")],
     },
-    // In dev, you can proxy /api to a local gateway host (AbstractFlow backend).
+    // In dev, sessionless /api requests fall through to a local gateway
+    // (the standard :8080 — the :8081 night-watch gateway was retired
+    // 2026-07-09; env overrides win).
     proxy: {
       "/api": {
-        target: "http://localhost:8081",
+        target: process.env.ABSTRACTOBSERVER_GATEWAY_URL || process.env.ABSTRACTGATEWAY_URL || "http://127.0.0.1:8080",
         changeOrigin: true,
         ws: true,
         secure: false,
@@ -44,14 +88,8 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
-    rollupOptions: {
-      input: {
-        // The main observer app plus the standalone entity memory view
-        // (kept out of the app.tsx monolith by design — see src/entity/).
-        main: resolve(__dirname, "index.html"),
-        entity: resolve(__dirname, "entity.html"),
-      },
-    },
+    // One app since 2026-07-12: the entity memory view moved to its own
+    // package (../abstractentity, github.com/lpalbou/AbstractEntity).
   },
 });
 

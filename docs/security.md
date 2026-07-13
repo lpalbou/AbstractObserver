@@ -10,14 +10,21 @@ Guidance:
 - For shared deployments, put the UI behind an authenticated reverse proxy and use HTTPS.
 
 ## Tokens and browser sessions
-In hosted user-auth mode, the UI server exchanges Gateway user credentials for
-an app-scoped browser session. Browser settings persist the Gateway URL, Gateway
-user, preferences, and optional tool worker configuration, but strip the
-Gateway token (`auth_token`) when saving settings. The session id is kept in an
-HTTP-only app cookie and writes require a CSRF token.
+Sign-in is the shared AbstractFramework connection dialog
+(`GatewayConnectModal` from `@abstractframework/ui-kit` — the same component
+AbstractFlow and the gateway console use), backed by the
+`@abstractframework/app-server` session proxy: the Gateway user token is
+exchanged server-side for an app-scoped browser session; the session id is
+kept in an HTTP-only app cookie, writes require a CSRF token, and the raw
+token is never persisted (settings strip `auth_token` when saving). The
+session is origin-wide for this app. (The entity app is its own deployment
+since 2026-07-12 — see AbstractEntity — with its own session cookies.)
 
-Direct bearer-token mode remains available for local development when no
-Gateway user is configured. The optional MCP worker token (`worker_token`) is
+A direct bearer-token mode remains for local development (Settings →
+Advanced). Bearer credentials live in MEMORY for the tab's lifetime only —
+tokens never rest client-side (framework ruling, 2026-07-12): reloading a
+direct-dev tab re-prompts, and builds that previously persisted a token
+scrub it on next load. The optional MCP worker token (`worker_token`) is
 still stored in browser settings.
 
 When Observer is served from a non-local hostname, the server-configured
