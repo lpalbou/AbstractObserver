@@ -4,7 +4,7 @@
 // runs AND entities. The organizing metaphor is the maintainer's ask: kanban
 // columns Pending / Working / Review / Done — but cards move THEMSELVES
 // (state-driven, no drag): the operator watches flow and acts only in the
-// Review column, where waits carry inline Approve / Deny / Answer.
+// Review column, where waits carry inline Approve / Reject / Answer.
 //
 // Honesty rules carried in:
 // - Cards derive from run-state truth (status + wait classification via
@@ -13,11 +13,11 @@
 //   card + as_of_seq), never whole-life replay folds.
 // - Staleness is visible (data age chip) because the board is only as live
 //   as its poll — pretending otherwise is the old dashboard lie.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
 import type { WaitState } from "../lib/types";
-import type { RunSummary } from "./run_picker";
+import { run_status_class, run_status_word, type RunSummary } from "./run_status";
 import {
   parse_iso_ms,
   run_duration_ms,
@@ -47,6 +47,9 @@ export type BoardCard = {
   is_scheduled: boolean;
   schedule_interval: string;
   failed: boolean;
+  /** The run's error text (failed runs) — rendered as a clamped line on
+   * the card so the WHY is visible without opening the run. */
+  error: string;
   paused: boolean;
   is_subrun: boolean;
 };
@@ -56,17 +59,59 @@ export type EntityTile = {
   state: string;
   age_days: number | null;
   last_moment: string;
+  /** ISO timestamp of the last recorded moment — drives the tile's
+   * "active Xs ago" freshness (B3: the operator must see whether a life is
+   * doing something without opening it). Empty = unknown. */
+  last_moment_at: string;
+  /** AUTHORITATIVE working truth from the cognition wire (gateway c1390:
+   * store-read loop/visit state, never fabricated). null = wire absent
+   * (pre-wire gateway) — the tile falls back to the moment-age heuristic. */
+  working: boolean | null;
+  /** Lifetime billed tokens from the home run ledger (spend.lifetime).
+   * null = wire absent. */
+  tokens_total: number | null;
+  /** Billed tokens of the OPEN visit's run tree (spend.live_visit);
+   * null when no visit is open or wire absent. */
+  live_visit_tokens: number | null;
+  /** Labeled spend gaps from the wire (e.g. loop-spend #FALLBACK) — ride
+   * the tooltip so a partial number is never read as total. */
+  spend_warning: string;
+  /** COMPOSITE phase from the cognition wire (one-active-phase ruling,
+   * c1455: the board renders THE active phase from the SAME source as the
+   * apps). Empty = wire absent — fall back to the card-state mapping. */
+  live_phase: string;
   error: string;
 };
 
-const COLUMN_LABEL: Record<BoardColumnId, string> = {
-  pending: "Pending",
-  working: "Working",
+/** Compact token count for tile chips: 812 -> "812", 12_340 -> "12.3k",
+ * 4_200_000 -> "4.2M". Null-safe (null renders nothing — never fabricate). */
+export function format_tokens(n: number | null): string {
+  if (n === null || !Number.isFinite(n) || n < 0) return "";
+  if (n < 1_000) return String(Math.round(n));
+  if (n < 1_000_000) return `${(n / 1_000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/* REVIEW FIRST: the column where a human is the blocker renders leftmost —
+ * insertion order IS render order, and at narrow widths later columns fall
+ * below the fold (fable5 layout P1-5: Review was third of four). */
+export const COLUMN_LABEL: Record<BoardColumnId, string> = {
   review: "Review",
+  working: "Working",
+  pending: "Pending",
   done: "Done",
 };
 
-const COLUMN_HINT: Record<BoardColumnId, string> = {
+/* Empty columns say what empty MEANS — a bare "—" reads as a load failure
+ * (fable5 layout P1-12). */
+export const COLUMN_EMPTY: Record<BoardColumnId, string> = {
+  review: "nothing needs you",
+  working: "idle",
+  pending: "nothing scheduled",
+  done: "no recent runs",
+};
+
+export const COLUMN_HINT: Record<BoardColumnId, string> = {
   pending: "scheduled or queued — will run without you",
   working: "running or parked listening — no action needed",
   review: "needs a human decision — act here",
@@ -119,6 +164,10 @@ export function board_card(run: RunSummary, now_ms = Date.now()): BoardCard {
     is_scheduled: Boolean(run?.is_scheduled),
     schedule_interval: String(run?.schedule_interval || "").trim(),
     failed: String(run?.status || "").trim().toLowerCase() === "failed",
+    // Failed cards carry their WHY — the Done column promises "read the
+    // outcome" and a bare red pill kept the error three clicks away
+    // (fable5 layout P1-14).
+    error: String((run as any)?.error || "").trim(),
     paused: Boolean(run?.paused),
     is_subrun: Boolean(String(run?.parent_run_id || "").trim()),
   };
@@ -168,6 +217,19 @@ export function board_columns(
   return out;
 }
 
+/** Milliseconds since an entity's last recorded moment; null when the card
+ * carried no parseable timestamp (render nothing — never fabricate). */
+export function entity_activity_age(last_moment_at: string, now_ms = Date.now()): number | null {
+  const raw = String(last_moment_at || "").trim();
+  if (!raw) return null;
+  const ts = Date.parse(raw);
+  if (!Number.isFinite(ts)) return null;
+  return Math.max(0, now_ms - ts);
+}
+
+/** "● active" window for entity tiles: one board-poll generation. */
+export const ACTIVE_WINDOW_MS = 60_000;
+
 export function format_age(ms: number | null, now_ms = Date.now()): string {
   if (ms === null || !Number.isFinite(ms)) return "";
   const delta = Math.max(0, now_ms - ms);
@@ -206,9 +268,26 @@ export function entity_phase(state: string): string {
   if (s.includes("personal") || s.includes("own_time") || s.includes("own time")) return "personal";
   if (s.includes("task") || s.includes("work")) return "work";
   if (s.includes("awake") || s.includes("idle")) return "awake";
+  // LIVENESS AXIS (c1523): stop is NOT a phase — it is the kill switch
+  // above the machine. The board renders it unmistakably whichever at-rest
+  // spelling semantics rules (stop / stopped); paused is today's engraved
+  // hard-freeze (frozen:true, everything torn down) and wears the same
+  // emergency treatment until the spelling ruling lands.
+  if (s.includes("stop")) return "stopped";
   if (s.includes("pause")) return "paused";
+  if (s.includes("rest")) return "resting";
+  // Unlisted server words pass through VERBATIM (never coerced into a
+  // ruled phase — collapsing them is the gateway's strict-alignment job,
+  // not the renderer's). awake/paused/resting are pre-alignment
+  // passthroughs: delete those branches when the gateway serves strict
+  // four-phase values only.
   return s;
 }
+
+/** Phase keys with a dedicated mc_phase_* style. Unlisted keys render
+ * their verbatim WORD but a bounded "other" CLASS (server strings never
+ * interpolate into class names). */
+export const KNOWN_PHASE_KEYS = new Set(["visit", "work", "personal", "sleep", "awake", "paused", "resting", "stopped", "unknown"]);
 
 export type MissionControlProps = {
   gateway_connected: boolean;
@@ -242,9 +321,23 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
   const review_count = columns.review.length;
   const failed_count = columns.done.filter((c) => c.failed).length;
 
+  /** Busy identity includes the wait's APPEARANCE (since_ms): runtime wait
+   * keys are deterministic per run+node, so a recurring ask at the same
+   * node carries the IDENTICAL run_id:wait_key — keying busy on that alone
+   * locked every repeat of the wait on "Resuming…" forever (fable5 code
+   * adversary P1). A re-asked wait has a new `since`, so it never matches
+   * the consumed one's busy key. */
+  const busy_key = (card: BoardCard) => `${card.run_id}:${card.wait_key}:${card.since_ms ?? ""}`;
+
+  // Belt for the same finding: when the busy card is no longer in Review
+  // (the resume landed and the poll moved it), release the lock.
+  useEffect(() => {
+    if (!busy_wait) return;
+    if (!columns.review.some((c) => busy_key(c) === busy_wait)) set_busy_wait("");
+  }, [columns, busy_wait]);
+
   async function act(card: BoardCard, payload: any): Promise<void> {
-    const key = `${card.run_id}:${card.wait_key}`;
-    set_busy_wait(key);
+    set_busy_wait(busy_key(card));
     set_act_error("");
     try {
       await props.on_resume_wait(card.run_id, card.wait_key, payload);
@@ -260,7 +353,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
   }
 
   function render_card(card: BoardCard): React.ReactElement {
-    const busy = busy_wait === `${card.run_id}:${card.wait_key}`;
+    const busy = busy_wait === busy_key(card);
     const is_review = card.column === "review";
     const no_wait_key = is_review && !card.wait_key;
     return (
@@ -281,9 +374,13 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
           <span className="mc_card_title" title={card.workflow}>
             {workflow_short(card.workflow)}
           </span>
-          <span className={`mc_status mc_status_${card.failed ? "failed" : card.status || "unknown"}`}>
-            {card.paused ? "paused" : card.failed ? "failed" : card.status || "?"}
-          </span>
+          {(() => {
+            // ONE word, ONE color map (adversary 3 P0-1: the board's private
+            // mc_status_* palette said running=green while every Observe
+            // chip said running=blue — same run, two truths).
+            const status_word = card.failed ? "failed" : run_status_word({ status: card.status, paused: card.paused });
+            return <span className={`mc_status ${run_status_class(status_word)}`}>{status_word === "unknown" ? "?" : status_word}</span>;
+          })()}
         </div>
         <div className="mc_card_meta mono">
           <span title={card.run_id}>{short_run_id(card.run_id)}</span>
@@ -294,6 +391,11 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
         </div>
         {card.is_scheduled && card.schedule_interval ? (
           <div className="mc_card_line mono">every {card.schedule_interval}</div>
+        ) : null}
+        {card.failed && card.error ? (
+          <div className="mc_card_error" title={card.error}>
+            {card.error.length > 120 ? `${card.error.slice(0, 118)}…` : card.error}
+          </div>
         ) : null}
         {is_review ? (
           <div
@@ -310,11 +412,11 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
             ) : null}
             {card.wait_kind === "tool_approval" ? (
               <div className="mc_card_actions">
-                <button className="btn primary" disabled={busy || no_wait_key} onClick={() => void act(card, { approved: true })}>
+                <button className="btn success" disabled={busy || no_wait_key} onClick={() => void act(card, { approved: true })}>
                   {busy ? "Resuming…" : "Approve"}
                 </button>
                 <button className="btn danger" disabled={busy || no_wait_key} onClick={() => void act(card, { approved: false })}>
-                  Deny
+                  Reject
                 </button>
               </div>
             ) : !card.allow_free_text ? (
@@ -371,8 +473,11 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
   return (
     <div className="page page_scroll mc_page">
       <div className="mc_health">
-        <span className={`mc_led ${props.gateway_connected ? "ok" : "bad"}`} />
-        <span className="mono">{props.gateway_connected ? "gateway connected" : "gateway unreachable"}</span>
+        {/* The LED + pills carry the answer; "gateway connected" prose
+          * duplicated the sidebar footer's connection control (adversary 2
+          * board #5). The words only appear when something is WRONG. */}
+        <span className={`mc_led ${props.gateway_connected ? "ok" : "bad"}`} title={props.gateway_connected ? "Gateway connected" : "Gateway unreachable"} />
+        {!props.gateway_connected ? <span className="mono">gateway unreachable</span> : null}
         {data_age ? <span className="mono muted">data {data_age} old</span> : null}
         {/* HONEST FIRST PAINT (connected-first fix, 2026-07-13): before the
           * first runs payload lands there are no counts to claim — "0 need
@@ -414,12 +519,75 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                 href={`${props.entity_app_href}${props.entity_app_href.includes("?") ? "&" : "?"}entity=${encodeURIComponent(e.name)}&live=1`}
                 target="_blank"
                 rel="noreferrer"
-                title={e.error || e.last_moment || e.name}
+                title={[e.error, e.age_days !== null ? `${e.age_days.toFixed(0)} days old` : "", e.last_moment].filter(Boolean).join(" — ") || e.name}
               >
                 <span className="mc_entity_name">{e.name}</span>
-                <span className={`mc_entity_phase mc_phase_${entity_phase(e.state)}`}>{entity_phase(e.state)}</span>
-                {e.age_days !== null ? <span className="mono muted">{e.age_days.toFixed(0)}d old</span> : null}
+                {/* ONE ACTIVE PHASE (c1455 ruling): prefer the cognition
+                  * wire's composite phase — the same source both apps
+                  * render — over the card-state heuristic. The chip's
+                  * tooltip names the SOURCE so a degraded read is never
+                  * mistaken for the wire's truth. */}
+                {(() => {
+                  const phase_word = entity_phase(e.live_phase || e.state);
+                  const phase_cls = KNOWN_PHASE_KEYS.has(phase_word) ? phase_word : "other";
+                  return (
+                    <span
+                      className={`mc_entity_phase mc_phase_${phase_cls}`}
+                      title={e.live_phase ? "phase (cognition wire)" : "phase from card state — cognition wire unavailable"}
+                    >
+                      {phase_word}
+                    </span>
+                  );
+                })()}
                 {e.last_moment ? <span className="mc_entity_moment">{e.last_moment}</span> : null}
+                {/* WORKING / FRESHNESS (B3, 2026-07-13): the cognition wire's
+                  * store-read `working` is authoritative when present
+                  * (gateway c1390); pre-wire gateways fall back to the
+                  * moment-age heuristic. Unknown shows nothing — never
+                  * fabricate liveness. */}
+                {(() => {
+                  // "busy", never "working" — WORK is a ruled PHASE word;
+                  // execution liveness must not wear it (fable5 P1,
+                  // c1475 wave).
+                  if (e.working === true) {
+                    return (
+                      <span className="mc_entity_live" title="busy now (loop mid-day or live visit — store-read, never fabricated)">
+                        ● busy
+                      </span>
+                    );
+                  }
+                  const age = entity_activity_age(e.last_moment_at, now_ms);
+                  if (e.working === false) {
+                    return (
+                      <span className="mono muted" title="idle (cognition wire)">
+                        idle{age !== null ? ` · ${format_age(now_ms - age, now_ms)} ago` : ""}
+                      </span>
+                    );
+                  }
+                  if (age === null) return null;
+                  return age <= ACTIVE_WINDOW_MS ? (
+                    <span className="mc_entity_live" title={`last moment ${format_age(now_ms - age, now_ms)} ago`}>
+                      ● active
+                    </span>
+                  ) : (
+                    <span className="mono muted" title="time since the last recorded moment">
+                      {format_age(now_ms - age, now_ms)} ago
+                    </span>
+                  );
+                })()}
+                {/* SPEND (B3 second half): lifetime billed tokens from the
+                  * home run ledger + the open visit's live spend. Warnings
+                  * from the wire ride the tooltip so a partial number is
+                  * never read as total. */}
+                {e.tokens_total !== null ? (
+                  <span
+                    className="mono muted mc_entity_spend"
+                    title={`lifetime billed tokens (home run ledger)${e.live_visit_tokens !== null ? `; open visit: ${format_tokens(e.live_visit_tokens)} tk` : ""}${e.spend_warning ? `; ${e.spend_warning}` : ""}`}
+                  >
+                    {format_tokens(e.tokens_total)} tk{e.live_visit_tokens !== null ? ` (+${format_tokens(e.live_visit_tokens)})` : ""}
+                    {e.spend_warning ? "*" : ""}
+                  </span>
+                ) : null}
               </a>
             ))}
           </div>
@@ -440,7 +608,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
               <div className="mc_column_cards">
                 {visible.map((card) => render_card(card))}
                 {!cards.length ? (
-                  <div className="mc_empty muted">{props.runs_refreshed_at === null ? "loading…" : "—"}</div>
+                  <div className="mc_empty muted">{props.runs_refreshed_at === null ? "loading…" : COLUMN_EMPTY[col]}</div>
                 ) : null}
                 {col === "done" && cards.length > 8 && !show_done ? (
                   <button className="btn mc_more" onClick={() => set_show_done(true)}>

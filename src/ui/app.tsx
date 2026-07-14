@@ -13,23 +13,26 @@ import {
   type ChatMessage,
 } from "@abstractframework/panel-chat";
 import {
+  AfAppearanceDialog,
   AfSelect,
-  FontScaleSelect,
+  AfTopBarActions,
   GatewayConnectModal,
-  HeaderDensitySelect,
   Icon,
   ProviderModelSelect,
   SteerComposer,
-  ThemeSelect,
-  applyTheme,
-  applyTypography,
-  fetchGatewayConnection,
   gatewayStatusBadge,
+  useAppearanceSettings,
+  useGatewayConnection,
   type AfSelectOption,
   type GatewayConnectionState,
   type ProviderOption,
 } from "@abstractframework/ui-kit";
+import { AppAssistantDrawer } from "./app_assistant";
 import { registerMonitorGpuWidget } from "@abstractframework/monitor-gpu";
+
+import "./forms.css";
+
+import "./observe.css";
 
 import { GatewayClient } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
@@ -60,8 +63,9 @@ import {
   type RuntimeActivitySort,
 } from "./runtime_activity";
 import { merge_runtime_metadata, split_runtime_metadata_envelope, type RuntimeMetadata } from "./runtime_metadata";
-import { RunPicker, type RunSummary } from "./run_picker";
+import { run_status_class, run_status_word, type RunSummary } from "./run_status";
 import { useGatewayVoice } from "./use_gateway_voice";
+import "./system.css";
 
 type Settings = {
   gateway_url: string;
@@ -130,7 +134,8 @@ type WorkflowOption = {
 };
 
 type RunFilterMode = "all" | "active" | "waiting" | "terminal" | "failed";
-type ObserveRightTab = "overview" | "timeline" | "replay" | "ledger" | "providers" | "graph" | "digest" | "attachments" | "chat";
+/* Observe content tabs — Story (overview), Ledger, Flow (graph), Ask (chat). */
+type ObserveRightTab = "overview" | "ledger" | "graph" | "chat";
 
 // Latest persisted run summary (abstract.summary emit) found in the ledger.
 // Kept module-scope because it is shared by the always-on Overview scan and
@@ -143,17 +148,6 @@ type LatestRunSummary = {
   model?: string;
   generated_at?: string;
   source?: any;
-};
-
-// Shape of the (digest-tab-gated) run digest memo. `overall`/`per_run` keep
-// the memo's structural types loosely here; the precise field types live
-// with the compute logic inside the memo.
-type RunDigest = {
-  overall: any;
-  per_run: Record<string, any>;
-  subruns: Array<{ run_id: string; parent_run_id: string; parent_node_id: string; digest: any }>;
-  latest_summary: LatestRunSummary | null;
-  summary_outdated: boolean;
 };
 
 type RuntimeArtifact = {
@@ -201,7 +195,10 @@ type RuntimeArtifactGroupMode = "type" | "run" | "time" | "turn" | "node" | "wor
 type RuntimeArtifactSortMode = "newest" | "oldest" | "size_desc" | "size_asc" | "last_access" | "turn" | "type";
 type RuntimeArtifactDateFilter = "all" | "hour" | "today" | "week" | "month";
 type RuntimeArtifactTypeFilter = "voice" | "music" | "sound" | "recording" | "audio" | "image" | "video" | "markdown" | "html" | "json" | "document" | "code" | "text" | "other";
-type RuntimeTab = "activity" | "artifacts" | "logs";
+type RuntimeTab = "activity" | "artifacts" | "logs" | "memory";
+
+/* Story → Chronology renders this many newest steps until expanded. */
+const CHRONOLOGY_PREVIEW_COUNT = 30;
 const RUNTIME_ARTIFACT_PAGE_SIZE = 500;
 const DEFAULT_GATEWAY_URL = "http://127.0.0.1:8080";
 
@@ -215,7 +212,6 @@ type RuntimeEmbeddedPreview = {
   error: string;
 };
 
-type RuntimeEmbeddedPreviewLoader = (artifact: RuntimeArtifact) => Promise<RuntimeEmbeddedPreview>;
 
 type ProviderActivity = {
   id: string;
@@ -1369,7 +1365,7 @@ export function App(): React.ReactElement {
   // observer's purpose is observing and discussing the running system.
   // "board" = Mission Control (the new landing page, maintainer sign-off
   // 2026-07-12): Pending/Working/Review/Done across runs + entities.
-  const [page, set_page] = useState<"board" | "observe" | "launch" | "runtime" | "mindmap" | "settings">("board");
+  const [page, set_page] = useState<"board" | "observe" | "launch" | "runtime" | "settings">("board");
 
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
@@ -1395,13 +1391,29 @@ export function App(): React.ReactElement {
   const [discovery_loading, set_discovery_loading] = useState(false);
   const [discovery_error, set_discovery_error] = useState<string>("");
   const [gateway_connected, set_gateway_connected] = useState(false);
-  // SHARED SIGN-IN (maintainer directive 2026-07-12, "comply with what
-  // abstractgateway/console and abstractflow are doing"): the uic
-  // GatewayConnectModal owns the sign-in UX against /api/connection/gateway;
-  // this app only reacts to its status. Tokens exchange for HTTP-only
-  // session cookies inside the modal — never stored here.
-  const [connect_modal_open, set_connect_modal_open] = useState(false);
+  // SHARED SIGN-IN (maintainer directive 2026-07-12 + B5 ruling 2026-07-13
+  // "login/auth should be consistent across apps"): the uic
+  // useGatewayConnection hook IS the connection state machine (boot probe,
+  // auto-open on resolved disconnect, close on sign-in transition, episode
+  // re-arm) — this app only reacts to status transitions (discovery /
+  // disconnect) and never hand-rolls the modal lifecycle again. Tokens
+  // exchange for HTTP-only session cookies inside the modal — never here.
+  const gateway_connection = useGatewayConnection({
+    appName: "AbstractObserver",
+    variant: "dismissable",
+    defaultGatewayUrl:
+      (typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.gateway_url) || DEFAULT_GATEWAY_URL,
+    onStatusChange: (s) => handle_connection_status(s),
+  });
   const [connection_status, set_connection_status] = useState<GatewayConnectionState | null>(null);
+  /* Unified top-right cluster (operator directive + plans/unified-top-bar.md):
+   * assistant drawer + shared appearance dialog + the ONE disconnect pill.
+   * Appearance persistence is the kit's per-app hook (theme/font/header
+   * applied synchronously at first paint; migrates once from the old
+   * settings blob). */
+  const [appearance, set_appearance] = useAppearanceSettings("abstractobserver", { legacyKey: "abstractobserver_settings" });
+  const [appearance_open, set_appearance_open] = useState(false);
+  const [assistant_open, set_assistant_open] = useState(false);
   const [workflow_options, set_workflow_options] = useState<WorkflowOption[]>([]);
   const [run_options, set_run_options] = useState<RunSummary[]>([]);
   const [all_run_options, set_all_run_options] = useState<RunSummary[]>([]);
@@ -1446,8 +1458,6 @@ export function App(): React.ReactElement {
       (items) => set_child_records_for_digest((prev) => prev.concat(items)),
     );
   }
-  // Last digest computed while the digest tab was visible (see the digest memo note).
-  const digest_cache_ref = useRef<RunDigest | null>(null);
   // Incremental scan state for the always-on latest-summary memo: `records`
   // only grows (concat) or resets to [], so a shrink means "new run — rescan".
   const latest_summary_scan_ref = useRef<{ scanned: number; found: LatestRunSummary | null }>({ scanned: 0, found: null });
@@ -1572,10 +1582,6 @@ export function App(): React.ReactElement {
   const [observe_filter, set_observe_filter] = useState<RunFilterMode>("all");
   const [observe_group_by, set_observe_group_by] = useState<"status" | "workflow" | "session">("status");
   const [right_tab, set_right_tab] = useState<ObserveRightTab>("overview");
-  const [replay_bundle, set_replay_bundle] = useState<any | null>(null);
-  const [replay_bundle_run_id, set_replay_bundle_run_id] = useState<string>("");
-  const [replay_loading, set_replay_loading] = useState(false);
-  const [replay_error, set_replay_error] = useState<string>("");
   const [ledger_condensed, set_ledger_condensed] = useState(true);
   const [ledger_view, set_ledger_view] = useState<"steps" | "cycles">("steps");
   const [ledger_cycles_run_id, set_ledger_cycles_run_id] = useState<string>("");
@@ -1684,35 +1690,6 @@ export function App(): React.ReactElement {
     [settings.worker_url, settings.worker_token]
   );
 
-  async function refresh_replay_bundle(force = false): Promise<void> {
-    const rid = run_id.trim();
-    if (!rid || !gateway_connected) return;
-    if (!force && replay_bundle_run_id === rid && replay_bundle) return;
-    set_replay_loading(true);
-    set_replay_error("");
-    try {
-      const bundle = await gateway.get_run_history_bundle(rid, {
-        include_subruns: true,
-        include_session: true,
-        session_turn_limit: 100,
-        ledger_mode: "tail",
-        ledger_max_items: 500,
-      });
-      set_replay_bundle(bundle);
-      set_replay_bundle_run_id(rid);
-    } catch (e: any) {
-      set_replay_error(String(e?.message || e || "Failed to load replay bundle"));
-    } finally {
-      set_replay_loading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (right_tab !== "replay") return;
-    void refresh_replay_bundle(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [right_tab, run_id, gateway_connected]);
-
   const last_record = records.length ? records[records.length - 1].record : null;
   const wait_state: WaitState | null = useMemo(() => extract_wait_from_record(last_record), [last_record]);
 
@@ -1756,14 +1733,6 @@ export function App(): React.ReactElement {
   }, [settings]);
 
   useEffect(() => {
-    applyTheme(settings.theme);
-  }, [settings.theme]);
-
-  useEffect(() => {
-    applyTypography({ font_scale: settings.font_scale, header_density: settings.header_density });
-  }, [settings.font_scale, settings.header_density]);
-
-  useEffect(() => {
     return () => {
       if (abort_ref.current) abort_ref.current.abort();
       if (child_abort_ref.current) child_abort_ref.current.abort();
@@ -1774,14 +1743,11 @@ export function App(): React.ReactElement {
     };
   }, []);
 
-  useEffect(() => {
-    if (!settings.auto_connect_gateway) return;
-    // Flow/console parity: signed-out is a SIGN-IN SCREEN, never a dead
-    // app — the boot probe opens the shared modal when no session and no
-    // dev bearer exists.
-    void on_discover_gateway({ open_modal_if_needed: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.auto_connect_gateway]);
+  // BOOT: the uic useGatewayConnection hook owns the probe + modal machine
+  // (B5, 2026-07-13) — its status callback runs session discovery and the
+  // direct-dev fallback. No app-side boot effect remains; the old
+  // auto_connect_gateway toggle is superseded by the ruled contract
+  // (signed-out is a sign-in screen, never a dead app).
 
   const input_data_obj: Record<string, any> | null = useMemo(() => {
     const raw = input_data_text.trim();
@@ -2089,7 +2055,15 @@ export function App(): React.ReactElement {
       set_all_run_options(normalize_runs(all_items).filter((r) => Boolean(r.run_id)));
       set_runs_refreshed_at(Date.now());
     } catch (e: any) {
-      push_log({ ts: now_iso(), kind: "error", title: "Refresh runs failed", preview: clamp_preview(String(e?.message || e || "")) });
+      const msg = String(e?.message || e || "");
+      push_log({ ts: now_iso(), kind: "error", title: "Refresh runs failed", preview: clamp_preview(msg) });
+      // SESSION-EXPIRY HONESTY (fable5 code adversary P1): a 401/403 from
+      // the heartbeat means the session died mid-use — without this, the
+      // app stayed "connected" with frozen columns while every action
+      // failed. Re-probing through the hook drives the real sign-in flow.
+      if (/\b40[13]\b/.test(msg) || /unauthorized|forbidden/i.test(msg)) {
+        void gateway_connection.refresh().catch(() => undefined);
+      }
     } finally {
       runs_inflight_ref.current = false;
       set_runs_loading(false);
@@ -2179,21 +2153,19 @@ export function App(): React.ReactElement {
       // on every deployed host). An existing browser session wins over any
       // stored direct token — sign-in-once is the contract.
       if (!opts?.prefer_direct) {
-        const probe = await fetchGatewayConnection().catch(() => null);
-        set_connection_status(probe);
-        if (probe && probe.has_session && probe.gateway?.ok) {
-          set_settings((s) => ({ ...s, gateway_auth_mode: "session", auth_token: "" }));
-          await run_discovery(new GatewayClient({ base_url: "", auth_token: "" }));
-          return;
-        }
+        // Re-probe through the HOOK (one machine): a live session lands in
+        // handle_connection_status, which runs discovery.
+        await gateway_connection.refresh();
+        if (had_session_ref.current) return;
       }
 
       const direct_token = String(settings.auth_token || "").trim();
       if (!direct_token) {
         // No session, no dev bearer: the shared modal is the way in (the
-        // boot path opens it too — flow/console parity: signed-out is a
-        // sign-in screen, never a dead app).
-        if (opts?.open_modal_if_needed) set_connect_modal_open(true);
+        // hook auto-opens on resolved disconnects; explicit retries open it
+        // directly — flow/console parity: signed-out is a sign-in screen,
+        // never a dead app).
+        if (opts?.open_modal_if_needed) gateway_connection.openModal();
         return;
       }
 
@@ -2248,12 +2220,15 @@ export function App(): React.ReactElement {
    * their entry epoch before writing state, so late results can never
    * repopulate a signed-out app (adversary 2026-07-13). */
   const discovery_epoch_ref = useRef(0);
+  /** Once per signed-out episode: the direct dev-bearer fallback (a stored
+   * token with no proxy session) must not loop on every status echo. */
+  const direct_fallback_tried_ref = useRef(false);
   function handle_connection_status(s: GatewayConnectionState | null): void {
     set_connection_status(s);
     const signed_in = Boolean(s && s.has_session && s.gateway?.ok);
-    const was_signed_in = had_session_ref.current;
     had_session_ref.current = signed_in;
     if (signed_in) {
+      direct_fallback_tried_ref.current = false;
       // Looking at the dialog must not rewire a live DIRECT dev connection.
       if (gateway_connected && settings.gateway_auth_mode === "direct") return;
       const principal_user = String(s?.gateway?.principal?.user_id || "").trim();
@@ -2263,7 +2238,7 @@ export function App(): React.ReactElement {
         auth_token: "",
         gateway_user: principal_user || prev.gateway_user,
       }));
-      if (!was_signed_in) set_connect_modal_open(false); // fresh sign-in: dialog closes (flow parity)
+      // Modal close on the sign-in transition is the HOOK's job now (B5).
       if (gateway_connected && settings.gateway_auth_mode === "session") return; // open-probe of a live connection
       set_discovery_error("");
       set_discovery_loading(true);
@@ -2272,12 +2247,22 @@ export function App(): React.ReactElement {
         .finally(() => set_discovery_loading(false));
       return;
     }
-    if (s && !s.has_session && settings.gateway_auth_mode === "session") {
-      // Signed out through the modal (or the session expired): reflect it
-      // app-wide — an app that keeps rendering over a dead session is the
-      // old lie this wave exists to end. (No gateway_connected gate: a
-      // sign-out DURING in-flight discovery must still land.)
-      disconnect_gateway({ keep_session: true });
+    if (s && !s.has_session) {
+      if (settings.gateway_auth_mode === "session") {
+        // Signed out through the modal (or the session expired): reflect it
+        // app-wide — an app that keeps rendering over a dead session is the
+        // old lie this wave exists to end. (No gateway_connected gate: a
+        // sign-out DURING in-flight discovery must still land.)
+        disconnect_gateway({ keep_session: true });
+      }
+      // DIRECT dev fallback (the pre-hook boot path's other half): a stored
+      // dev bearer connects without a proxy session — tried once per
+      // signed-out episode, alongside the hook's auto-opened modal.
+      const dev_token = String(settings.auth_token || "").trim();
+      if (dev_token && !gateway_connected && !direct_fallback_tried_ref.current) {
+        direct_fallback_tried_ref.current = true;
+        void on_discover_gateway({ prefer_direct: true });
+      }
     }
   }
 
@@ -2337,7 +2322,10 @@ export function App(): React.ReactElement {
     // their late results cannot write over the cleared app.
     discovery_epoch_ref.current += 1;
     if (!opts?.keep_session) {
-      void fetch("/api/connection/gateway", { method: "DELETE" }).catch(() => undefined);
+      // Sign out THROUGH the hook's machine (uic c1327: signOut() = server
+      // DELETE + fresh probe, so phase/auto-open react to the real state —
+      // replaces the old fire-and-forget DELETE + delayed refresh poke).
+      void gateway_connection.signOut().catch(() => undefined);
       had_session_ref.current = false;
     }
     clear_run_view();
@@ -2350,6 +2338,14 @@ export function App(): React.ReactElement {
 
     set_workflow_options([]);
     set_run_options([]);
+    // The board's Review column reads all_run_options — leaving it populated
+    // kept the PREVIOUS session's waits rendered as actionable cards after
+    // sign-out (and across gateway/account switches: a wrong-data join over
+    // trust boundaries — fable5 code adversary P1). The freshness chip's
+    // clock resets with it.
+    set_all_run_options([]);
+    set_runs_refreshed_at(null);
+    set_board_entities([]);
     set_discovered_tool_specs([]);
     set_discovered_providers([]);
     set_discovered_models_by_provider({});
@@ -2482,22 +2478,49 @@ export function App(): React.ReactElement {
         const tiles: BoardEntityTile[] = await Promise.all(
           names.map(async (name): Promise<BoardEntityTile> => {
             try {
-              const card = await gateway.get_entity_card(name);
+              // Card + the B3 cognition wire (gateway c1390) side by side;
+              // cognition is OPTIONAL (pre-wire gateways 404 it — tile
+              // degrades to the moment-age heuristic, never fabricates).
+              const [card, cog] = await Promise.all([
+                gateway.get_entity_card(name),
+                gateway.get_entity_cognition(name).catch(() => null),
+              ]);
               // Live card shape (verified against castor 2026-07-12):
               // state is an OBJECT {state, changed_at, reason, written_by};
               // moments entries carry {kind, at}, no title.
               const state_obj = card?.state && typeof card.state === "object" ? card.state : null;
               const moments = Array.isArray(card?.moments) ? card.moments : [];
               const last = moments.length ? moments[moments.length - 1] : null;
+              const lifetime = cog?.spend?.lifetime;
+              const live_visit = cog?.spend?.live_visit;
+              const warnings = Array.isArray(cog?.warnings) ? cog.warnings.map((w: any) => String(w || "")).filter(Boolean) : [];
               return {
                 name,
                 state: String(state_obj?.state ?? (typeof card?.state === "string" ? card.state : "")).trim(),
                 age_days: typeof card?.age_days === "number" ? card.age_days : null,
                 last_moment: String(last?.kind || "").trim(),
+                last_moment_at: String(last?.at || "").trim(),
+                working: typeof cog?.working === "boolean" ? cog.working : null,
+                tokens_total: typeof lifetime?.tokens_total === "number" ? lifetime.tokens_total : null,
+                live_visit_tokens: typeof live_visit?.tokens_total === "number" ? live_visit.tokens_total : null,
+                spend_warning: warnings.join(" | "),
+                live_phase: typeof cog?.phase === "string" ? cog.phase : "",
                 error: "",
               };
             } catch (e: any) {
-              return { name, state: "", age_days: null, last_moment: "", error: String(e?.message || e || "card failed") };
+              return {
+                name,
+                state: "",
+                age_days: null,
+                last_moment: "",
+                last_moment_at: "",
+                working: null,
+                tokens_total: null,
+                live_visit_tokens: null,
+                spend_warning: "",
+                live_phase: "",
+                error: String(e?.message || e || "card failed"),
+              };
             }
           }),
         );
@@ -2998,10 +3021,18 @@ export function App(): React.ReactElement {
     }, 2200);
   }
 
-  function handle_step(ev: LedgerStreamEvent): void {
+  /** `attached_rid` is the run id of the OWNING attach, passed explicitly.
+   * Reading the `run_id` STATE here was a stale closure (fable5 code
+   * adversary P1): the stream loop captured the PREVIOUS run id forever,
+   * which (a) made the abstract.status ticker dead code — the equality
+   * gate below never matched on first attach or re-attach — and (b)
+   * poisoned digest dedup keys with the wrong run id, silently dropping a
+   * child run's records from the digest after a child→root switch. */
+  function handle_step(ev: LedgerStreamEvent, attached_rid?: string): void {
+    const attach_run_id = String(attached_rid || "").trim() || run_id.trim();
     cursor_ref.current = ev.cursor;
     records_buffer_ref.current?.push({ cursor: ev.cursor, record: ev.record });
-    if (run_id.trim()) digest_seen_ref.current.add(`${run_id.trim()}:${ev.cursor}`);
+    if (attach_run_id) digest_seen_ref.current.add(`${attach_run_id}:${ev.cursor}`);
 
     const emit = extract_emit_event(ev.record);
     const emit_name = emit && emit.name ? normalize_ui_event_name(emit.name) : "";
@@ -3012,8 +3043,8 @@ export function App(): React.ReactElement {
     const effect_type = typeof rec?.effect?.type === "string" ? rec.effect.type : "";
     const rec_run_id = typeof rec?.run_id === "string" ? rec.run_id : "";
 
-    const effective_run_id = rec_run_id || run_id.trim();
-    if (emit_name === "abstract.status" && effective_run_id === run_id.trim()) {
+    const effective_run_id = rec_run_id || attach_run_id;
+    if (emit_name === "abstract.status" && effective_run_id === attach_run_id) {
       const { text, duration } = extract_textish(emit?.payload);
       set_status(text, duration);
     }
@@ -3068,14 +3099,14 @@ export function App(): React.ReactElement {
     }
 
     push_log({
-      id: `step:${rec_run_id || run_id.trim() || "?"}:${ev.cursor}`,
+      id: `step:${rec_run_id || attach_run_id || "?"}:${ev.cursor}`,
       ts: String(rec?.ended_at || rec?.started_at || now_iso()),
       kind,
       title,
       preview,
       data: rec,
       cursor: ev.cursor,
-      run_id: rec_run_id || run_id.trim() || undefined,
+      run_id: rec_run_id || attach_run_id || undefined,
       node_id: node_id_for_log || node_id,
       status,
       effect_type,
@@ -3261,10 +3292,17 @@ export function App(): React.ReactElement {
     });
   }
 
-  async function replay_ledger(run_id_value: string, opts: { after: number }): Promise<number> {
+  async function replay_ledger(run_id_value: string, opts: { after: number; signal?: AbortSignal }): Promise<number> {
     let after = opts.after;
     while (true) {
-      const page = await gateway.get_ledger(run_id_value, { after, limit: 200 });
+      // ABORT-AWARE (fable5 code adversary P0): the replay loop used to
+      // outlive its attach — switching runs mid-replay kept the OLD run's
+      // pages flushing into the NEW run's records (wrong-wait exposure:
+      // the operator could approve A's tool calls while B executes).
+      // The attach's signal now cancels the page loop and each push.
+      if (opts.signal?.aborted) return after;
+      const page = await gateway.get_ledger(run_id_value, { after, limit: 200, signal: opts.signal });
+      if (opts.signal?.aborted) return after;
       const items = Array.isArray(page.items) ? page.items : [];
       if (!items.length) {
         cursor_ref.current = after;
@@ -3273,7 +3311,7 @@ export function App(): React.ReactElement {
       const base = after;
       for (let i = 0; i < items.length; i++) {
         const record = items[i] as StepRecord;
-        handle_step({ cursor: base + i + 1, record });
+        handle_step({ cursor: base + i + 1, record }, run_id_value);
       }
       after = typeof page.next_after === "number" ? page.next_after : after;
     }
@@ -3286,7 +3324,6 @@ export function App(): React.ReactElement {
     set_connected(false);
     records_buffer_ref.current?.reset();
     child_records_buffer_ref.current?.reset();
-    digest_cache_ref.current = null;
     latest_summary_scan_ref.current = { scanned: 0, found: null };
     set_records([]);
     cursor_ref.current = 0;
@@ -3366,7 +3403,7 @@ export function App(): React.ReactElement {
         await load_bundle_info(inferred_bundle_id);
       }
 
-      await replay_ledger(rid, { after: 0 });
+      await replay_ledger(rid, { after: 0, signal: abort.signal });
 
       // Best-effort: discover descendant runs even when the root run's ledger does not include
       // explicit subworkflow wait markers (common for event-driven "listener" children).
@@ -3430,10 +3467,10 @@ export function App(): React.ReactElement {
       while (!abort.signal.aborted) {
         try {
           // Best-effort resync before streaming (replay-first).
-          const after = await replay_ledger(rid, { after: cursor_ref.current });
+          const after = await replay_ledger(rid, { after: cursor_ref.current, signal: abort.signal });
           await gateway.stream_ledger(rid, {
             after,
-            on_step: handle_step,
+            on_step: (ev) => handle_step(ev, rid),
             signal: abort.signal,
           });
         } catch (e: any) {
@@ -3454,7 +3491,7 @@ export function App(): React.ReactElement {
     const fid = flow_id.trim();
     const bid = bundle_id.trim();
     if (!fid || !bid) {
-      const msg = "Select a workflow first (Start Workflow → pick a workflow).";
+      const msg = "Select a workflow first (Launch → pick a workflow).";
       set_error_text(msg);
       return msg;
     }
@@ -3521,7 +3558,7 @@ export function App(): React.ReactElement {
     const fid = flow_id.trim();
     const bid = bundle_id.trim();
     if (!fid || !bid) {
-      const msg = "Select a workflow first (Start Workflow → pick a workflow).";
+      const msg = "Select a workflow first (Launch → pick a workflow).";
       set_error_text(msg);
       return msg;
     }
@@ -3664,12 +3701,32 @@ export function App(): React.ReactElement {
           share_context: schedule_share_context,
         })
       : await start_new_run();
-    if (err) set_new_run_error(err);
+    if (err) {
+      set_new_run_error(err);
+      return;
+    }
+    // Launch is not a dead end: BOTH paths land the operator on the run
+    // they just created. The scheduled path used to stay on Launch with
+    // zero visible change (adversary 2 P0-3: "click → nothing happens")
+    // while silently attaching in the background — now it navigates like
+    // the immediate path and the schedule chip on the run view is the
+    // confirmation.
+    set_right_tab("overview");
+    set_page("observe");
   }
 
   async function attach_to_run(rid: string, opts?: { root_run_id?: string }): Promise<void> {
     const run = String(rid || "").trim();
     if (!run) return;
+    // SINGLE-FLIGHT (fable5 code adversary P0): board cards are clickable
+    // during an in-flight attach; overlapping connect_to_run calls fought
+    // over the shared cursor/buffer refs and contaminated the run view.
+    // The abort-aware replay closes the data hole; this guard closes the
+    // race at the door.
+    if (connecting) {
+      set_status(`Still attaching — retry in a moment (${short_id(run, 14)})`, 2500);
+      return;
+    }
     set_error_text("");
     const root = String(opts?.root_run_id || run).trim() || run;
     set_root_run_id(root);
@@ -3686,7 +3743,10 @@ export function App(): React.ReactElement {
         if (!gateway_connected) await on_discover_gateway({ open_modal_if_needed: true });
         if (stopped) return;
         // A shared run link must LAND on the run — the board became the
-        // default page, so deep links now navigate explicitly.
+        // default page, so deep links now navigate explicitly. Reset the
+        // content tab too: landing on a stale Ask/Ledger tab for a fresh
+        // run reads as an empty page (adversary 1 P1-7).
+        set_right_tab("overview");
         set_page("observe");
         await attach_to_run(rid);
       } catch (e: any) {
@@ -3733,7 +3793,6 @@ export function App(): React.ReactElement {
     cursor_ref.current = 0;
     records_buffer_ref.current?.reset();
     child_records_buffer_ref.current?.reset();
-    digest_cache_ref.current = null;
     latest_summary_scan_ref.current = { scanned: 0, found: null };
     set_records([]);
     set_child_records_for_digest([]);
@@ -4390,7 +4449,10 @@ export function App(): React.ReactElement {
   const wait_event_name = wait_reason === "event" ? normalize_ui_event_name(event_name_from_wait_key(wait_key)) : "";
   const is_ask_event_wait = wait_reason === "event" && wait_event_name === "abstract.ask";
   const has_tool_wait = tool_calls_for_wait.length > 0;
-  const show_wait_modal = is_waiting && wait_key && (is_user_wait || is_ask_event_wait || has_tool_wait) && dismissed_wait_key !== wait_key;
+  // The board has its own inline answer forms — the global modal landing
+  // on top of a half-typed board answer was a hijack (fable5 layout P1-6).
+  const show_wait_modal =
+    is_waiting && wait_key && (is_user_wait || is_ask_event_wait || has_tool_wait) && dismissed_wait_key !== wait_key && page !== "board";
   const sub_run_id = typeof (wait_state as any)?.details?.sub_run_id === "string" ? String((wait_state as any).details.sub_run_id) : "";
   const wait_context_run: RunSummary = {
     run_id: run_id.trim(),
@@ -4487,350 +4549,6 @@ export function App(): React.ReactElement {
     scan.scanned = records.length;
     return scan.found;
   }, [records]);
-
-  const digest = useMemo<RunDigest | null>(() => {
-    // Every OTHER consumer of the digest lives inside the `right_tab ===
-    // "digest"` panel (Overview reads `latest_run_summary` above), but this
-    // memo used to recompute over the FULL record history on every ledger
-    // flush regardless of visibility — per-record parsing (emit extraction,
-    // JSON previews) over an unbounded array, the main always-on CPU burn at
-    // resident scale. Compute only while the digest tab is showing; keep the
-    // last computed value so tab switches render instantly (it recomputes
-    // fresh on the next records change while open).
-    if (right_tab !== "digest") return digest_cache_ref.current;
-    type DigestStats = {
-      steps: number;
-      tool_calls_effects: number;
-      tool_calls: number;
-      unique_tools: number;
-      llm_calls: number;
-      llm_missing_responses: number;
-      prompt_tokens: number;
-      completion_tokens: number;
-      total_tokens: number;
-      started_at: string;
-      ended_at: string;
-      duration_s: number;
-      errors: number;
-    };
-
-    type DigestToolCall = {
-      ts: string;
-      run_id: string;
-      node_id: string;
-      name: string;
-      signature: string;
-      success: boolean | null;
-      output_preview: string;
-      error: string;
-    };
-
-	    type DigestLlmCall = {
-	      ts: string;
-	      run_id: string;
-	      node_id: string;
-	      provider: string;
-	      model: string;
-	      prompt_preview: string;
-	      response_preview: string;
-	      missing_response: boolean;
-	      tokens: { prompt: number; completion: number; total: number };
-	    };
-
-	    const tool_specs_by_name: Record<string, any> = {};
-	    for (const s of discovered_tool_specs || []) {
-	      if (!s || typeof s !== "object") continue;
-	      const name = String((s as any).name || "").trim();
-	      if (!name) continue;
-	      tool_specs_by_name[name] = s;
-	    }
-
-	    const tool_toolset = (tool_name: string): string => {
-	      const spec = tool_specs_by_name[String(tool_name || "").trim()];
-	      const v = spec && typeof spec === "object" ? (spec as any).toolset : "";
-	      return typeof v === "string" ? v.trim() : "";
-	    };
-
-	    const format_arg_value = (value: any): string => {
-	      if (value === null || value === undefined) return "";
-	      if (typeof value === "boolean") return value ? "true" : "false";
-	      if (typeof value === "number") return String(value);
-	      if (typeof value === "string") return clamp_preview(value, { max_chars: 160, max_lines: 2 });
-	      return clamp_preview(safe_json_inline(value, 160), { max_chars: 160, max_lines: 2 });
-	    };
-
-	    const ordered_tool_args = (tool_name: string, args: any): Array<[string, any]> => {
-	      const n = String(tool_name || "").trim();
-	      const a = args && typeof args === "object" ? (args as any) : {};
-	      const spec = tool_specs_by_name[n];
-	      const params = spec && typeof spec === "object" ? (spec as any).parameters : null;
-	      const order = params && typeof params === "object" ? Object.keys(params) : Object.keys(a);
-
-	      const out: Array<[string, any]> = [];
-	      const seen = new Set<string>();
-	      for (const k of order) {
-	        if (typeof k !== "string" || !k.trim() || seen.has(k)) continue;
-	        seen.add(k);
-	        if (Object.prototype.hasOwnProperty.call(a, k)) out.push([k, a[k]]);
-	      }
-	      for (const k of Object.keys(a)) {
-	        if (seen.has(k)) continue;
-	        out.push([k, a[k]]);
-	      }
-	      return out;
-	    };
-
-	    const tool_primary_arg_value = (tool_name: string, args: any): string => {
-	      const pairs = ordered_tool_args(tool_name, args);
-	      if (!pairs.length) return "";
-	      return format_arg_value(pairs[0][1]);
-	    };
-
-	    const tool_signature = (tool_name: string, args: any): string => {
-	      const n = String(tool_name || "").trim() || "tool";
-	      const pairs = ordered_tool_args(n, args);
-	      const shown = pairs.slice(0, 2);
-	      if (!shown.length) return `${n}()`;
-	      if (shown.length === 1) return `${n}(${format_arg_value(shown[0][1])})`;
-	      const inner = shown.map(([k, v]) => `${k}=${format_arg_value(v)}`).join(", ");
-	      return `${n}(${inner})`;
-	    };
-
-	    type DigestForRun = {
-	      stats: DigestStats;
-	      files: Array<{ tool: string; file_path: string; run_id: string; ts: string }>;
-	      commands: Array<{ command: string; run_id: string; ts: string }>;
-      web: Array<{ tool: string; value: string; run_id: string; ts: string }>;
-      tools_used: string[];
-      tool_calls_detail: DigestToolCall[];
-      llm_calls_detail: DigestLlmCall[];
-    };
-
-    const compute = (all: StepRecord[]): DigestForRun => {
-      const stats: DigestStats = {
-        steps: all.length,
-        tool_calls_effects: 0,
-        tool_calls: 0,
-        unique_tools: 0,
-        llm_calls: 0,
-        llm_missing_responses: 0,
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-        started_at: "",
-        ended_at: "",
-        duration_s: 0,
-        errors: 0,
-      };
-
-      const files: Array<{ tool: string; file_path: string; run_id: string; ts: string }> = [];
-      const commands: Array<{ command: string; run_id: string; ts: string }> = [];
-      const web: Array<{ tool: string; value: string; run_id: string; ts: string }> = [];
-      const tools_used = new Set<string>();
-      const tool_calls_detail: DigestToolCall[] = [];
-      const llm_calls_detail: DigestLlmCall[] = [];
-
-      let min_ms: number | null = null;
-      let max_ms: number | null = null;
-
-      const llm_prompt_from_payload = (payload: any): string => {
-        if (!payload || typeof payload !== "object") return "";
-        const p = (payload as any).prompt;
-        if (typeof p === "string" && p.trim()) return p.trim();
-        const msgs = (payload as any).messages;
-        if (Array.isArray(msgs)) {
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            const m = msgs[i];
-            if (!m || typeof m !== "object") continue;
-            if (String((m as any).role || "") !== "user") continue;
-            const c = (m as any).content;
-            if (typeof c === "string" && c.trim()) return c.trim();
-          }
-        }
-        return "";
-      };
-
-      const output_preview = (value: any): string => {
-        if (value === null || value === undefined) return "";
-        if (typeof value === "string") return clamp_preview(value, { max_chars: 2400, max_lines: 32 });
-        return clamp_preview(safe_json(value), { max_chars: 2400, max_lines: 32 });
-      };
-
-      for (const rec of all) {
-        const rid = typeof rec?.run_id === "string" ? String(rec.run_id) : "";
-        const node_id = typeof rec?.node_id === "string" ? String(rec.node_id) : "";
-        const ts_s = String(rec?.ended_at || rec?.started_at || "").trim();
-        const ms = parse_iso_ms(ts_s);
-        if (ms !== null) {
-          if (min_ms === null || ms < min_ms) min_ms = ms;
-          if (max_ms === null || ms > max_ms) max_ms = ms;
-        }
-
-        if (rec?.error) stats.errors += 1;
-
-        const eff_type = typeof rec?.effect?.type === "string" ? String(rec.effect.type) : "";
-        if (eff_type === "llm_call") {
-          stats.llm_calls += 1;
-          const payload = rec?.effect?.payload;
-          const usage = rec?.result && typeof rec.result === "object" ? (rec.result as any).usage || (rec.result as any).token_usage : null;
-          let pt = 0;
-          let ct = 0;
-          let tt = 0;
-          if (usage && typeof usage === "object") {
-            pt = Number((usage as any).prompt_tokens ?? (usage as any).input_tokens ?? 0);
-            ct = Number((usage as any).completion_tokens ?? (usage as any).output_tokens ?? 0);
-            tt = Number((usage as any).total_tokens ?? pt + ct);
-            if (Number.isFinite(pt)) stats.prompt_tokens += pt;
-            if (Number.isFinite(ct)) stats.completion_tokens += ct;
-            if (Number.isFinite(tt)) stats.total_tokens += tt;
-          }
-
-          const provider = payload && typeof payload === "object" && typeof (payload as any).provider === "string" ? String((payload as any).provider) : "";
-          const model = payload && typeof payload === "object" && typeof (payload as any).model === "string" ? String((payload as any).model) : "";
-          const prompt = llm_prompt_from_payload(payload);
-          const content =
-            rec?.result && typeof rec.result === "object" && typeof (rec.result as any).content === "string"
-              ? String((rec.result as any).content)
-              : rec?.result && typeof rec.result === "object" && typeof (rec.result as any).response === "string"
-                ? String((rec.result as any).response)
-                : typeof rec?.result === "string"
-                  ? String(rec.result)
-                  : "";
-          const missing_response = !String(content || "").trim();
-          if (missing_response) stats.llm_missing_responses += 1;
-          if (llm_calls_detail.length < 80) {
-            llm_calls_detail.push({
-              ts: ts_s,
-              run_id: rid,
-              node_id,
-              provider,
-              model,
-              prompt_preview: clamp_preview(prompt, { max_chars: 1800, max_lines: 24 }),
-              response_preview: clamp_preview(String(content || ""), { max_chars: 1800, max_lines: 24 }),
-              missing_response,
-              tokens: { prompt: Number.isFinite(pt) ? pt : 0, completion: Number.isFinite(ct) ? ct : 0, total: Number.isFinite(tt) ? tt : 0 },
-            });
-          }
-        }
-
-        if (eff_type !== "tool_calls") continue;
-        stats.tool_calls_effects += 1;
-        const payload = rec?.effect?.payload;
-        const tool_calls = payload && typeof payload === "object" ? (payload as any).tool_calls : null;
-        const calls = Array.isArray(tool_calls) ? (tool_calls as any[]) : [];
-        if (!calls.length) continue;
-        stats.tool_calls += calls.length;
-
-        const results = rec?.result && typeof rec.result === "object" ? (rec.result as any).results : null;
-        const results_list = Array.isArray(results) ? (results as any[]) : [];
-        const results_by_id = new Map<string, any>();
-        for (const r of results_list) {
-          if (!r || typeof r !== "object") continue;
-          const cid = String((r as any).call_id || (r as any).id || "").trim();
-          if (cid && !results_by_id.has(cid)) results_by_id.set(cid, r);
-        }
-
-        for (let i = 0; i < calls.length; i++) {
-          const c = calls[i];
-          if (!c || typeof c !== "object") continue;
-          const name = String((c as any).name || "").trim();
-          if (!name) continue;
-          tools_used.add(name);
-          const args = (c as any).arguments;
-          const call_id = String((c as any).call_id || (c as any).id || "").trim();
-          const result = call_id && results_by_id.has(call_id) ? results_by_id.get(call_id) : i < results_list.length ? results_list[i] : null;
-          const ok = result && typeof result === "object" && typeof (result as any).success === "boolean" ? Boolean((result as any).success) : null;
-          const out = result && typeof result === "object" ? (result as any).output : null;
-          const err = result && typeof result === "object" ? (result as any).error : null;
-
-          if (tool_calls_detail.length < 240) {
-            tool_calls_detail.push({
-              ts: ts_s,
-              run_id: rid,
-              node_id,
-              name,
-              signature: tool_signature(name, args),
-              success: ok,
-              output_preview: output_preview(out),
-              error: typeof err === "string" ? String(err) : err ? String(err) : "",
-            });
-          }
-
-          const toolset = tool_toolset(name);
-          const primary = tool_primary_arg_value(name, args);
-          if (toolset === "files" && primary) files.push({ tool: name, file_path: primary, run_id: rid, ts: ts_s });
-          else if (toolset === "system" && primary) commands.push({ command: primary, run_id: rid, ts: ts_s });
-          else if (toolset === "web" && primary) web.push({ tool: name, value: primary, run_id: rid, ts: ts_s });
-        }
-      }
-
-      stats.unique_tools = tools_used.size;
-      if (min_ms !== null) stats.started_at = new Date(min_ms).toISOString();
-      if (max_ms !== null) stats.ended_at = new Date(max_ms).toISOString();
-      if (min_ms !== null && max_ms !== null) stats.duration_s = Math.max(0, Math.round((max_ms - min_ms) / 1000));
-
-      return { stats, files, commands, web, tools_used: Array.from(tools_used).sort(), tool_calls_detail, llm_calls_detail };
-    };
-
-    const all_records: StepRecord[] = [];
-    const by_run: Record<string, StepRecord[]> = {};
-    const root_id = run_id.trim();
-
-    const add = (r: StepRecord) => {
-      if (!r) return;
-      all_records.push(r);
-      const rid = typeof (r as any)?.run_id === "string" ? String((r as any).run_id || "").trim() : "";
-      const key = rid || root_id || "unknown";
-      if (!by_run[key]) by_run[key] = [];
-      by_run[key].push(r);
-    };
-
-    for (const x of records) {
-      if (x && x.record) add(x.record);
-    }
-    for (const x of child_records_for_digest) {
-      if (x && x.record) add(x.record);
-    }
-
-    const overall = compute(all_records);
-    const per_run: Record<string, DigestForRun> = {};
-    for (const [rid, items] of Object.entries(by_run)) {
-      per_run[rid] = compute(items);
-    }
-
-    const subruns = subrun_ids
-      .map((rid) => {
-        const r = String(rid || "").trim();
-        if (!r) return null;
-        const parent_run_id = String(subrun_parent_ref.current[r] || "").trim();
-        const spawn = subrun_spawn_ref.current[r];
-        const parent_node_id = spawn ? String(spawn.parent_node_id || "").trim() : "";
-        return { run_id: r, parent_run_id, parent_node_id, digest: per_run[r] || null };
-      })
-      .filter(Boolean) as Array<{ run_id: string; parent_run_id: string; parent_node_id: string; digest: DigestForRun | null }>;
-
-    subruns.sort((a, b) => (a.run_id < b.run_id ? -1 : a.run_id > b.run_id ? 1 : 0));
-
-    // Latest persisted run summary (abstract.summary) in the parent/root
-    // ledger — shared with the always-on Overview scan above.
-    const latest_summary = latest_run_summary;
-
-    const summary_ms = latest_summary ? parse_iso_ms(latest_summary.generated_at || latest_summary.ts) : null;
-    let last_meaningful_ms: number | null = null;
-    for (const rec of all_records) {
-      const eff_type = typeof rec?.effect?.type === "string" ? String(rec.effect.type) : "";
-      if (eff_type === "emit_event") continue;
-      const ts_s = String(rec?.ended_at || rec?.started_at || "").trim();
-      const ms = parse_iso_ms(ts_s);
-      if (ms === null) continue;
-      if (last_meaningful_ms === null || ms > last_meaningful_ms) last_meaningful_ms = ms;
-    }
-    const summary_outdated = summary_ms !== null && last_meaningful_ms !== null ? last_meaningful_ms > summary_ms : false;
-
-    const computed: RunDigest = { overall, per_run, subruns, latest_summary, summary_outdated };
-    digest_cache_ref.current = computed;
-    return computed;
-  }, [records, child_records_for_digest, run_id, subrun_ids, discovered_tool_specs, right_tab, latest_run_summary]);
 
   // Follow the deepest active subworkflow run for status/event UX (not just the immediate child).
   useEffect(() => {
@@ -5284,7 +5002,11 @@ export function App(): React.ReactElement {
   const selected_next_ms = parse_iso_ms(wait_until);
   const selected_next_in =
     selected_run_is_scheduled_until && selected_next_ms !== null ? format_time_until_from_ms(selected_next_ms - Date.now()) : "";
-  const selected_run_status_label = selected_run_is_scheduled && selected_run_is_paused ? "Suspended" : selected_run_is_scheduled_waiting ? "Scheduled" : selected_run_status_raw;
+  const selected_run_status_label = selected_run_is_scheduled && selected_run_is_paused
+    ? "Suspended"
+    : selected_run_is_scheduled_waiting
+      ? "Scheduled"
+      : run_status_word({ status: selected_run_status_raw, paused: selected_run_is_paused });
 
   async function refresh_runtime_artifacts(): Promise<void> {
     if (!gateway_connected) return;
@@ -5418,7 +5140,7 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (!gateway_connected) return;
     if (audit_log_loading || audit_log_text) return;
-    if (page === "runtime" || (page === "observe" && right_tab === "providers")) void refresh_audit_log();
+    if (page === "runtime") void refresh_audit_log();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway_connected, page, right_tab]);
 
@@ -5635,12 +5357,31 @@ export function App(): React.ReactElement {
 
   const active_runtime_runs = useMemo(() => runtime_run_rows.filter((r) => active_run_status(r.status)), [runtime_run_rows]);
 
+  /* SHELL (redesign wave 1, 2026-07-13): sidebar nav + slim header — the
+   * benchmark shape (continuum's shell, flow's restraint). The shell names
+   * the page; the header holds page-scoped chrome; the connection control
+   * lives in the sidebar footer. Six pill tabs and the solid-accent active
+   * state are gone. */
+  const NAV_ITEMS: Array<{ id: typeof page; label: string; icon: React.ReactNode }> = [
+    { id: "board", label: "Board", icon: <Icon name="board" size={16} /> },
+    { id: "observe", label: "Observe", icon: <Icon name="history" size={16} /> },
+    { id: "runtime", label: "System", icon: <Icon name="server" size={16} /> },
+    { id: "launch", label: "Launch", icon: <Icon name="send" size={16} /> },
+  ];
+  const PAGE_TITLE: Record<string, string> = {
+    board: "Board",
+    observe: "Observe",
+    runtime: "System",
+    launch: "Launch",
+    settings: "Settings",
+  };
+
   return (
-    <div className="app-shell">
-      <div className="app-header">
-        <div className="logo" title="AbstractObserver (Web/PWA)">
-          <span className="logo-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <div className="app-shell shell">
+      <aside className="shell_sidebar">
+        <div className="shell_brand" title="AbstractObserver (Web/PWA)">
+          <span className="logo-icon shell_brand_mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
               <ellipse
                 cx="12"
                 cy="12"
@@ -5657,99 +5398,114 @@ export function App(): React.ReactElement {
               <circle cx="19" cy="13.6" r="1.2" fill="currentColor" />
             </svg>
           </span>
-          <span className="logo_name">AbstractObserver</span>
+          <span className="shell_brand_name">Observer</span>
         </div>
-        <div className="app_nav">
-          <button className={`nav_tab ${page === "board" ? "active" : ""}`} onClick={() => set_page("board")}>
-            Board
-          </button>
-          <button className={`nav_tab ${page === "observe" ? "active" : ""}`} onClick={() => set_page("observe")}>
-            Observe
-          </button>
-          <button className={`nav_tab ${page === "runtime" ? "active" : ""}`} onClick={() => set_page("runtime")}>
-            Runtime
-          </button>
-          <button className={`nav_tab ${page === "launch" ? "active" : ""}`} onClick={() => set_page("launch")}>
-            Launch
-          </button>
-          <button className={`nav_tab ${page === "mindmap" ? "active" : ""}`} onClick={() => set_page("mindmap")}>
-            Mindmap
-          </button>
-          {/* The entity app is its own deployment (abstractentity) — one
-              link ends the two-apps-are-mutually-invisible era. */}
-          <a className="nav_tab" href={entity_app_url} target="_blank" rel="noreferrer" title="Open the entity app (memory graph + visits)">
-            Entities ↗
+        <nav className="shell_nav">
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              className={`shell_nav_item ${page === item.id ? "active" : ""}`}
+              onClick={() => set_page(item.id)}
+              type="button"
+            >
+              <span className="shell_nav_icon">{item.icon}</span>
+              <span className="shell_nav_label">{item.label}</span>
+            </button>
+          ))}
+          {/* The entity app is its own deployment (abstractentity). */}
+          <a className="shell_nav_item" href={entity_app_url} target="_blank" rel="noreferrer" title="Open the entity app (memory graph + visits)">
+            <span className="shell_nav_icon"><Icon name="bot" size={16} /></span>
+            <span className="shell_nav_label">Entities ↗</span>
           </a>
-        </div>
-        <div className="status_pills">
-          {monitor_gpu_enabled ? (
-            <monitor-gpu
-              ref={monitor_gpu_ref as any}
-              mode="icon"
-              history-size="5"
-              tick-ms="1500"
-              base-url={settings.gateway_auth_mode === "session" ? "" : settings.gateway_url}
-              title="GPU usage (host)"
-              style={
-                {
-                  ["--monitor-gpu-width" as any]: "34px",
-                  ["--monitor-gpu-bars-height" as any]: "22px",
-                  ["--monitor-gpu-padding" as any]: "2px 4px",
-                  ["--monitor-gpu-radius" as any]: "999px",
-                  ["--monitor-gpu-bg" as any]: "rgba(0,0,0,0.22)",
-                  ["--monitor-gpu-border" as any]: "rgba(255,255,255,0.16)",
-                  flexShrink: 0,
-                } as React.CSSProperties
-              }
-            />
-          ) : null}
           <button
-            className={`header_icon_btn ${page === "settings" ? "active" : ""}`}
-            title="Settings"
-            aria-label="Settings"
-            type="button"
+            className={`shell_nav_item ${page === "settings" ? "active" : ""}`}
             onClick={() => set_page("settings")}
-          >
-            <Icon name="settings" size={16} />
-          </button>
-          {/* The LED is the connection CONTROL with a visible identity —
-              console parity: dot + who you are + one click to manage. */}
-          <button
-            className="gateway_led_btn"
             type="button"
-            onClick={() => set_connect_modal_open(true)}
-            title={
-              gateway_connected
-                ? "Gateway connection — click to manage or sign out"
-                : discovery_loading
-                  ? "Gateway: connecting…"
-                  : "Gateway: signed out — click to sign in"
-            }
-            aria-label="Gateway connection"
+          >
+            <span className="shell_nav_icon"><Icon name="settings" size={16} /></span>
+            <span className="shell_nav_label">Settings</span>
+          </button>
+        </nav>
+        <div className="shell_sidebar_footer">
+          {/* PASSIVE identity display — the top-bar pill is the ONE
+            * connect/disconnect control (unified top-bar adoption; one
+            * disconnect truth, c1640/c1663). */}
+          <div
+            className="shell_connection shell_connection_passive"
+            title={gateway_connected ? "Gateway connected" : discovery_loading ? "Gateway: connecting…" : "Gateway: signed out"}
           >
             <span className={`gateway_led ${gateway_connected ? "ok" : discovery_loading ? "warn" : "err"}`} aria-hidden="true" />
-            <span className="gateway_led_label mono">
+            <span className="shell_connection_label mono">
               {gateway_connected
                 ? connection_status?.gateway?.principal?.user_id || (settings.gateway_auth_mode === "direct" ? "direct dev" : "connected")
                 : discovery_loading
                   ? "connecting…"
-                  : "sign in"}
+                  : "signed out"}
             </span>
-          </button>
+          </div>
         </div>
-      </div>
+      </aside>
 
-      <GatewayConnectModal
-        isOpen={connect_modal_open}
-        onClose={() => set_connect_modal_open(false)}
-        appName="AbstractObserver"
-        defaultGatewayUrl={
-          (typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.gateway_url) || settings.gateway_url || DEFAULT_GATEWAY_URL
-        }
-        onStatusChange={handle_connection_status}
-      />
+      <div className="shell_main">
+        <header className="shell_header">
+          <div className="shell_header_title">{PAGE_TITLE[page] || "Observer"}</div>
+          <div className="shell_header_actions">
+            {monitor_gpu_enabled ? (
+              <monitor-gpu
+                ref={monitor_gpu_ref as any}
+                mode="icon"
+                history-size="5"
+                tick-ms="1500"
+                base-url={settings.gateway_auth_mode === "session" ? "" : settings.gateway_url}
+                title="GPU usage (host)"
+                style={
+                  {
+                    ["--monitor-gpu-width" as any]: "34px",
+                    ["--monitor-gpu-bars-height" as any]: "22px",
+                    ["--monitor-gpu-padding" as any]: "2px 4px",
+                    ["--monitor-gpu-radius" as any]: "999px",
+                    ["--monitor-gpu-bg" as any]: "rgba(0,0,0,0.22)",
+                    ["--monitor-gpu-border" as any]: "rgba(255,255,255,0.16)",
+                    flexShrink: 0,
+                  } as React.CSSProperties
+                }
+              />
+            ) : null}
+            {/* The unified upper-right cluster (same order in every
+              * AbstractFramework app): assistant → appearance → Disconnect. */}
+            <AfTopBarActions
+              assistant={{ open: assistant_open, onToggle: () => set_assistant_open((v) => !v), label: "Observer assistant (docs-grounded)" }}
+              appearance={{ onOpen: () => set_appearance_open(true) }}
+              connection={{
+                phase: gateway_connection.phase,
+                signingOut: gateway_connection.signingOut,
+                onConnect: () => gateway_connection.openModal(),
+                onDisconnect: () => disconnect_gateway(),
+              }}
+            />
+          </div>
+        </header>
 
-      <div className="app-body">
+        <GatewayConnectModal {...gateway_connection.modalProps} />
+
+        <AfAppearanceDialog
+          open={appearance_open}
+          onClose={() => set_appearance_open(false)}
+          value={appearance}
+          onChange={set_appearance}
+        />
+
+        {/* Keep-alive: mounted regardless of open so the conversation
+          * survives close/reopen (kit contract statement 10). */}
+        <AppAssistantDrawer
+          open={assistant_open}
+          onClose={() => set_assistant_open(false)}
+          connected={gateway_connected}
+          topOffset={44}
+          gateway={gateway}
+        />
+
+        <div className="app-body shell_content">
         {page === "board" ? (
           !gateway_connected ? (
             <div className="page page_scroll">
@@ -5763,7 +5519,7 @@ export function App(): React.ReactElement {
                     {discovery_error ? ` Last attempt: ${discovery_error}` : ""}
                   </p>
                   <div className="row" style={{ gap: "8px", alignItems: "center" }}>
-                    <button className="btn primary" onClick={() => set_connect_modal_open(true)} disabled={discovery_loading}>
+                    <button className="btn primary" onClick={() => gateway_connection.openModal()} disabled={discovery_loading}>
                       {discovery_loading ? "Connecting…" : "Sign in"}
                     </button>
                     <button className="btn" onClick={() => void on_discover_gateway({ open_modal_if_needed: true })} disabled={discovery_loading} title="Retry with an existing browser session or a direct dev token">
@@ -5804,20 +5560,10 @@ export function App(): React.ReactElement {
                 </div>
 
                 <div className="section_title">Appearance</div>
-                <div className="field">
-                  <label>Theme</label>
-                  <ThemeSelect value={settings.theme} onChange={(id) => set_settings((s) => ({ ...s, theme: id }))} />
-                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                    Stored locally in this browser (no server round-trip).
-                  </div>
-                </div>
-                <div className="field">
-                  <label>Font size</label>
-                  <FontScaleSelect value={settings.font_scale} onChange={(id) => set_settings((s) => ({ ...s, font_scale: id }))} />
-                </div>
-                <div className="field">
-                  <label>Header size</label>
-                  <HeaderDensitySelect value={settings.header_density} onChange={(id) => set_settings((s) => ({ ...s, header_density: id }))} />
+                <div className="help_text muted">
+                  Theme, font size, and header density moved to the header — the{" "}
+                  <button className="btn btn_sm" onClick={() => set_appearance_open(true)}>Appearance</button>{" "}
+                  button (shared across AbstractFramework apps, stored per app in this browser).
                 </div>
 
                 <div className="section_title">Gateway</div>
@@ -5827,7 +5573,7 @@ export function App(): React.ReactElement {
                     <span className={`mc_pill ${gateway_connected ? "" : "mc_pill_hot"}`}>
                       {gatewayStatusBadge(connection_status).label}
                     </span>
-                    <button className="btn primary" onClick={() => set_connect_modal_open(true)}>
+                    <button className="btn" onClick={() => gateway_connection.openModal()}>
                       Manage connection…
                     </button>
                     {gateway_connected ? (
@@ -5841,7 +5587,7 @@ export function App(): React.ReactElement {
                       {discovery_error}
                     </div>
                   ) : null}
-                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
+                  <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                     Sign-in is the shared AbstractFramework dialog: a Gateway user token exchanges for an HTTP-only browser
                     session (same flow as AbstractFlow and the gateway console). Raw tokens are never stored.
                   </div>
@@ -5857,7 +5603,7 @@ export function App(): React.ReactElement {
                   </select>
                 </div>
                 <details style={{ marginTop: "6px" }}>
-                  <summary className="mono muted" style={{ cursor: "pointer" }}>
+                  <summary className="help_text muted" style={{ cursor: "pointer" }}>
                     Advanced: direct dev connection (bearer token, cross-origin)
                   </summary>
                   <div className="field" style={{ marginTop: "8px" }}>
@@ -5909,7 +5655,7 @@ export function App(): React.ReactElement {
                     }))
                   }
                 />
-                <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
+                <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                   Used for in-editor maintenance chat. Defaults follow `ABSTRACTGATEWAY_PROVIDER` /
                   `ABSTRACTGATEWAY_MODEL`.
                 </div>
@@ -5917,7 +5663,7 @@ export function App(): React.ReactElement {
                 <div className="section_divider" />
                 <div className="section_title">Remote Tool Worker (MCP)</div>
                 <details>
-                  <summary className="mono muted" style={{ cursor: "pointer" }}>
+                  <summary className="help_text muted" style={{ cursor: "pointer" }}>
                     Advanced
                   </summary>
                   <div className="field" style={{ marginTop: "10px" }}>
@@ -5939,7 +5685,7 @@ export function App(): React.ReactElement {
                       placeholder="(optional)"
                     />
                   </div>
-                  <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
+                  <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)" }}>
                     Used to execute tool waits from the UI (advanced / potentially dangerous).
                   </div>
                 </details>
@@ -5952,23 +5698,17 @@ export function App(): React.ReactElement {
           <div className="page page_scroll">
             <div className="page_inner constrained">
               <div className="card">
-                <div className="title">
-                  <h1>Launch</h1>
-                </div>
+                {/* The shell header already names the page — the card leads
+                  * with what to do, not a second "Launch" heading. */}
+                <div className="help_text muted">Pick a workflow, fill its inputs, and start a run on the connected gateway.</div>
 
                 {!gateway_connected ? (
-                  <div className="log_item" style={{ borderColor: "rgba(245, 158, 11, 0.35)" }}>
-                    <div className="meta">
-                      <span className="mono">gateway</span>
-                      <span className="mono">{now_iso()}</span>
-                    </div>
-                    <div className="body mono">
-                      Not connected. Open{" "}
-                      <button className="btn" onClick={() => set_page("settings")}>
-                        Settings
-                      </button>{" "}
-                      to connect to a gateway.
-                    </div>
+                  <div className="warn_callout">
+                    Not connected.{" "}
+                    <button className="btn primary" onClick={() => gateway_connection.openModal()}>
+                      Sign in
+                    </button>{" "}
+                    to launch workflows on this gateway.
                   </div>
                 ) : null}
 
@@ -5988,7 +5728,7 @@ export function App(): React.ReactElement {
                     }}
                     disabled={discovery_loading || !workflow_options.length}
                   >
-                    <option value="">{workflow_options.length ? "(select workflow)" : "(connect in Settings)"}</option>
+                    <option value="">{workflow_options.length ? "(select workflow)" : "(sign in to load workflows)"}</option>
                     {workflow_options.map((w) => (
                       <option key={w.workflow_id} value={w.workflow_id}>
                         {w.label}
@@ -6001,12 +5741,12 @@ export function App(): React.ReactElement {
                     </div>
                 <div className="field">
                   {selected_entrypoint?.description ? (
-                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
+                    <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
                       {String(selected_entrypoint.description)}
                     </div>
                   ) : null}
                   {bundle_loading ? (
-                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
+                    <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)" }}>
                       Loading workflow…
                     </div>
                   ) : null}
@@ -6021,7 +5761,7 @@ export function App(): React.ReactElement {
                 <div className="section_title">Inputs</div>
 
                   {!bundle_id.trim() || !flow_id.trim() ? (
-                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                    <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                       Select a workflow above to configure inputs.
                     </div>
                   ) : input_data_obj === null ? (
@@ -6030,7 +5770,7 @@ export function App(): React.ReactElement {
                         <span className="mono">input error</span>
                         <span className="mono">{now_iso()}</span>
                       </div>
-                      <div className="body mono">Invalid input JSON. Fix it in Advanced JSON.</div>
+                      <div className="body mono">Invalid input JSON — reselect the workflow to reset its inputs.</div>
                     </div>
                   ) : has_adaptive_inputs ? (
                     <div className="launch_inputs">
@@ -6156,10 +5896,10 @@ export function App(): React.ReactElement {
                       auto-generated — no user-facing reason to expose either. */}
 
                   <details style={{ marginTop: "10px" }}>
-                    <summary className="mono muted" style={{ cursor: "pointer" }}>
+                    <summary className="help_text muted" style={{ cursor: "pointer" }}>
                       Workspace
                     </summary>
-                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                    <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                       Controls what the agent can access via filesystem tools.
                     </div>
 
@@ -6167,7 +5907,7 @@ export function App(): React.ReactElement {
                       <div className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
                         <label className="launch_label">Workspace Root</label>
                         <input className="mono" value={workspace_root_value} onChange={(e) => update_input_data_field("workspace_root", e.target.value)} placeholder="/path/to/workspace" disabled={connecting || resuming} />
-                        <div className="mono muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = gateway default (isolated per-run workspace)</div>
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = gateway default (isolated per-run workspace)</div>
                       </div>
                       <div className="launch_grid_cell">
                         <label className="launch_label">Access Mode</label>
@@ -6176,7 +5916,7 @@ export function App(): React.ReactElement {
                           <option value="workspace_or_allowed">workspace_or_allowed</option>
                           <option value="all_except_ignored">all_except_ignored</option>
                       </select>
-                        <div className="mono muted" style={{ fontSize: "var(--font-size-xxs)" }}>workspace_only: absolute paths must stay under root. workspace_or_allowed: allow additional roots.</div>
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>workspace_only: absolute paths must stay under root. workspace_or_allowed: allow additional roots.</div>
                       </div>
                     </div>
 
@@ -6184,14 +5924,14 @@ export function App(): React.ReactElement {
                       <div className="field" style={{ marginTop: "8px" }}>
                         <label className="launch_label">Allowed Paths</label>
                         <textarea className="mono" rows={3} value={workspace_allowed_paths_value} onChange={(e) => update_input_data_field("workspace_allowed_paths", e.target.value)} placeholder={"/path/to/project\n/path/to/workspace"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
-                        <div className="mono muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated directories (absolute or relative to workspace_root)</div>
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated directories (absolute or relative to workspace_root)</div>
                       </div>
                     ) : null}
 
                     <div className="field" style={{ marginTop: "8px" }}>
                       <label className="launch_label">Ignored Paths</label>
                       <textarea className="mono" rows={3} value={workspace_ignored_paths_value} onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)} placeholder={"node_modules\nruntime\nsecret"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
-                      <div className="mono muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated paths to block (absolute or relative to workspace_root)</div>
+                      <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated paths to block (absolute or relative to workspace_root)</div>
 	                    </div>
 	                  </details>
 
@@ -6243,7 +5983,7 @@ export function App(): React.ReactElement {
                 </div>
                 <label className="launch_checkbox" style={{ marginTop: "8px" }}>
                         <input type="checkbox" checked={schedule_share_context} onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))} />
-                  <span>Share context across executions <span className="mono muted" style={{ fontSize: "var(--font-size-xxs)", fontWeight: 400 }}>(when disabled, each run gets its own isolated session)</span></span>
+                  <span>Share context across executions <span className="help_text muted" style={{ fontSize: "var(--font-size-xxs)", fontWeight: 400 }}>(when disabled, each run gets its own isolated session)</span></span>
                       </label>
 
                 {/* ── Launch button ── */}
@@ -6254,42 +5994,37 @@ export function App(): React.ReactElement {
                     <span className="mono">{new_run_error}</span>
                     </div>
                 ) : null}
-                <div className="launch_actions_bar">
-                  <button className="launch_submit_btn" onClick={() => void submit_launch()} disabled={connecting || resuming || discovery_loading || bundle_loading || schedule_submitting || !gateway_connected || !bundle_id.trim() || !flow_id.trim() || input_data_obj === null}>
-                    {schedule_start_mode !== "now" || schedule_repeat_mode !== "once" ? "Launch (scheduled)" : "Launch now"}
-                  </button>
+                <div className="launch_actions_bar launch_actions_stack">
+                  {(() => {
+                    // A dead button must SAY WHY (adversary 2 P1-C2: nine
+                    // silent disable conditions read as "broken app").
+                    const disabled_reason = !gateway_connected
+                      ? "Sign in first"
+                      : !bundle_id.trim() || !flow_id.trim()
+                        ? "Select a workflow"
+                        : input_data_obj === null
+                          ? "Inputs contain invalid JSON"
+                          : connecting || resuming
+                            ? "Attaching to a run…"
+                            : discovery_loading || bundle_loading
+                              ? "Loading…"
+                              : schedule_submitting
+                                ? "Submitting…"
+                                : "";
+                    return (
+                      <>
+                        <button className="launch_submit_btn" onClick={() => void submit_launch()} disabled={Boolean(disabled_reason)} title={disabled_reason}>
+                          {schedule_submitting || connecting ? "Launching…" : schedule_start_mode !== "now" || schedule_repeat_mode !== "once" ? "Launch (scheduled)" : "Launch now"}
+                        </button>
+                        {disabled_reason && !schedule_submitting && !connecting ? (
+                          <span className="mono muted launch_disabled_reason">{disabled_reason}</span>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
-          </div>
-        ) : null}
-
-        {page === "mindmap" ? (
-          <div className="page mindmap_page">
-            {!gateway_connected ? (
-              <div className="page_inner constrained">
-                <div className="card">
-                  <div className="title">
-                    <h1>Mindmap</h1>
-                  </div>
-                  <div className="mono muted">
-                    Not connected.{" "}
-                    <button className="btn primary" onClick={() => set_connect_modal_open(true)}>
-                      Sign in
-                    </button>{" "}
-                    to watch this gateway.
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="mindmap_full">
-                <MindmapPanel
-                  gateway={gateway}
-                  selected_run_id={run_id}
-                  selected_session_id={session_id_for_run || start_session_id}
-                />
-              </div>
-            )}
           </div>
         ) : null}
 
@@ -6378,6 +6113,15 @@ export function App(): React.ReactElement {
             on_refresh_runs={() => void refresh_runs(gateway, { force: true })}
             on_reconnect={() => void on_discover_gateway({ open_modal_if_needed: true })}
             on_open_settings={() => set_page("settings")}
+            memory_panel={
+              gateway_connected ? (
+                <MindmapPanel
+                  gateway={gateway}
+                  selected_run_id={runtime_selected_run_id}
+                  selected_session_id={runtime_context_session_id}
+                />
+              ) : null
+            }
           />
         ) : null}
 
@@ -6392,6 +6136,8 @@ export function App(): React.ReactElement {
                 filter={observe_filter}
                 group_by={observe_group_by}
                 loading={runs_loading}
+                connected={gateway_connected}
+                on_sign_in={() => gateway_connection.openModal()}
                 total_runs={runtime_run_rows.length}
                 workflow_label_by_id={workflow_label_by_id}
                 on_search={set_observe_search}
@@ -6401,27 +6147,27 @@ export function App(): React.ReactElement {
                 on_select={(rid, root) => void attach_to_run(rid, { root_run_id: root || rid })}
               />
               <div className="observatory_main">
-            {/* ── Observe toolbar: run picker + controls ── */}
+            {/* ── Observe toolbar ──
+              * The navigator (left) is the ONE run selector; this row only
+              * names the selected run and offers actions on it. The old
+              * duplicate RunPicker dropdown is gone. */}
             <div className="observe_toolbar">
               <div className="observe_toolbar_row">
-                    <RunPicker
-                      runs={run_options}
-                      selected_run_id={run_id}
-                      workflow_label_by_id={workflow_label_by_id}
-                      disabled={!gateway_connected || runs_loading || discovery_loading || connecting || resuming}
-                      loading={runs_loading}
-                      onSelect={(rid) => void attach_to_run(rid)}
-                    />
-                <button className="btn btn_icon" onClick={() => void refresh_runs()} disabled={!gateway_connected || runs_loading || discovery_loading} title="Refresh runs">
-                  <Icon name="refresh" size={14} />
-                  {runs_loading ? "…" : "Refresh"}
-                    </button>
-                <button className="btn btn_icon" onClick={clear_run_view} disabled={!run_id.trim() && !connected} title="Disconnect from run">
-                  <Icon name="x" size={14} />
-                      Disconnect
-                    </button>
+                {run_id.trim() ? (
+                  <div className="observe_run_identity" title={run_id.trim()}>
+                    <span className="observe_run_name">
+                      {workflow_label_by_id[String(selected_run_summary?.workflow_id || "")] || String(selected_run_summary?.workflow_id || "").trim() || short_id(run_id.trim(), 22)}
+                    </span>
+                    <span className="chip mono muted">{short_id(run_id.trim(), 14)}</span>
+                    <span className={`chip ${run_status_class(selected_run_status_label || selected_run_status_raw)}`}>
+                      {selected_run_status_label || selected_run_status_raw || "unknown"}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="observe_run_identity_empty">Select a run from the list to observe it.</span>
+                )}
 
-                <span className="observe_toolbar_sep" />
+                <span className="observe_toolbar_spacer" />
 
 	                  <button
 	                    className="btn"
@@ -6460,6 +6206,9 @@ export function App(): React.ReactElement {
 	                  >
 	                    Cancel
 	                  </button>
+                  <button className="btn btn_icon" onClick={clear_run_view} disabled={!run_id.trim() && !connected} title="Clear the run view">
+                    <Icon name="x" size={14} />
+                  </button>
 	                </div>
 
               {/* STEERING (uic kit c1239, hooks P3): mid-run guidance via the
@@ -6506,8 +6255,11 @@ export function App(): React.ReactElement {
                 {is_waiting ? (
                     <div className="observe_context_card info">
                       <div className="observe_context_label">
-                        <span className="chip mono info">{is_scheduled_run ? (run_paused ? "suspended" : "scheduled") : "waiting"}</span>
-                        <span className="mono muted">{wait_reason || "unknown"}</span>
+                        {(() => {
+                          const word = is_scheduled_run ? (run_paused ? "suspended" : "scheduled") : "waiting";
+                          return <span className={`chip ${run_status_class(word)}`}>{word}</span>;
+                        })()}
+                        <span className="muted">{wait_reason || "unknown"}</span>
 	                    </div>
                       <div className="observe_context_body">
                         {wait_key ? (<span className="mono" title={wait_key}><span className="muted">wait_key</span>: {short_id(wait_key, 46)}</span>) : null}
@@ -6539,8 +6291,8 @@ export function App(): React.ReactElement {
                 {is_scheduled_run ? (
                     <div className="observe_context_card muted">
                       <div className="observe_context_label">
-                        <span className="chip mono muted">schedule</span>
-                        <span className="mono muted">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
+                        <span className="chip muted">schedule</span>
+                        <span className="muted">{is_scheduled_recurrent ? `every ${schedule_interval}` : "once"}</span>
                     </div>
                       <div className="observe_context_body">
                         {schedule_interval ? (<span className="mono"><span className="muted">interval</span>: {schedule_interval}</span>) : null}
@@ -6550,7 +6302,7 @@ export function App(): React.ReactElement {
                     {limits_pct !== null ? (
                         <div className="observe_context_budget">
                           <span className="mono muted">{typeof limits_used === "number" && typeof limits_budget === "number" ? `${limits_used.toLocaleString()} / ${limits_budget.toLocaleString()}` : ""}{` • ${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`}</span>
-                          <div className="observe_budget_bar"><div className="observe_budget_fill" style={{ width: `${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%`, background: limits_pct >= 0.9 ? "rgba(239, 68, 68, 0.9)" : limits_pct >= 0.75 ? "rgba(245, 158, 11, 0.9)" : "rgba(34, 197, 94, 0.9)" }} /></div>
+                          <div className="observe_budget_bar"><div className={`observe_budget_fill ${limits_pct >= 0.9 ? "danger" : limits_pct >= 0.75 ? "warn" : "ok"}`} style={{ width: `${Math.round(Math.max(0, Math.min(1, limits_pct)) * 100)}%` }} /></div>
                           </div>
                         ) : null}
                       <div className="observe_context_actions">
@@ -6562,7 +6314,7 @@ export function App(): React.ReactElement {
 
                   {error_text ? (
                     <div className="observe_context_card error">
-                      <span className="chip mono danger">error</span>
+                      <span className="chip danger">error</span>
                       <span className="mono">{error_text}</span>
                       </div>
                 ) : null}
@@ -6573,46 +6325,37 @@ export function App(): React.ReactElement {
             {/* ── Single full-width content panel ── */}
             <div className="card panel_card card_scroll observe_viewer observe_viewer_full">
               {/* Content tabs + inline contextual controls */}
-                <div className="tab_bar" style={{ justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
-                  <button className={`tab mono ${right_tab === "overview" ? "active" : ""}`} onClick={() => set_right_tab("overview")}>
-                    Overview
+                {/* FOUR tabs (redesign: nine → four). Story is the answer-
+                  * first narrative (outcome, waits, summary, produced,
+                  * chronology); Ledger is the raw truth; Flow the graph;
+                  * Ask the conversation. Timeline/Replay/Digest/Providers/
+                  * Attachments were re-renderings of the same ledger and
+                  * their unique content now lives inside Story or Runtime. */}
+                <div className="tab_bar">
+                  <div role="tablist" aria-label="Run views" className="observe_tablist">
+                  <button role="tab" aria-selected={right_tab === "overview"} className={`tab ${right_tab === "overview" ? "active" : ""}`} onClick={() => set_right_tab("overview")}>
+                    Story
                   </button>
-                  <button className={`tab mono ${right_tab === "timeline" ? "active" : ""}`} onClick={() => set_right_tab("timeline")}>
-                    Timeline
-                  </button>
-                  <button className={`tab mono ${right_tab === "replay" ? "active" : ""}`} onClick={() => set_right_tab("replay")}>
-                    Replay
-                  </button>
-                  <button className={`tab mono ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
+                  <button role="tab" aria-selected={right_tab === "ledger"} className={`tab ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
                     Ledger
                   </button>
-                  <button className={`tab mono ${right_tab === "providers" ? "active" : ""}`} onClick={() => set_right_tab("providers")}>
-                    Providers
+                  <button role="tab" aria-selected={right_tab === "graph"} className={`tab ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
+                    Flow
                   </button>
-                  <button className={`tab mono ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
-                    Graph
-                  </button>
-                  <button className={`tab mono ${right_tab === "digest" ? "active" : ""}`} onClick={() => set_right_tab("digest")}>
-                    Digest
-                  </button>
-                  <button className={`tab mono ${right_tab === "attachments" ? "active" : ""}`} onClick={() => set_right_tab("attachments")}>
-                    Attachments
-                  </button>
-                  <button className={`tab mono ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
-                    Chat
+                  <button role="tab" aria-selected={right_tab === "chat"} className={`tab ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
+                    Ask
                   </button>
                 </div>
 
                   {/* Ledger inline controls — only shown when ledger tab is active AND there is data */}
                   {right_tab === "ledger" && (visible_log.length > 0 || ledger_view === "cycles") ? (
                     <div className="tab_bar_controls">
-                      <div className="seg_toggle mono">
+                      <div className="seg_toggle">
                         <button className={`seg_btn ${ledger_view === "steps" ? "active" : ""}`} onClick={() => set_ledger_view("steps")}>Steps</button>
                         <button className={`seg_btn ${ledger_view === "cycles" ? "active" : ""}`} onClick={() => set_ledger_view("cycles")}>Cycles</button>
 	                  </div>
                       {ledger_view === "steps" ? (
-                        <button className={`seg_action mono ${ledger_condensed ? "active" : ""}`} onClick={() => set_ledger_condensed((v) => !v)} title={ledger_condensed ? "Showing condensed view" : "Showing all steps"}>
+                        <button className={`seg_action ${ledger_condensed ? "active" : ""}`} onClick={() => set_ledger_condensed((v) => !v)} title={ledger_condensed ? "Showing condensed view" : "Showing all steps"}>
                           {ledger_condensed ? "Condensed" : "All"}
                         </button>
                       ) : (
@@ -6636,7 +6379,7 @@ export function App(): React.ReactElement {
                           </select>
                       )}
                       <button
-                        className="seg_action mono"
+                        className="seg_action"
                         disabled={!records.length && !child_records_for_digest.length}
                         title="Copy full ledger as JSONL"
                         onClick={() => {
@@ -6664,10 +6407,10 @@ export function App(): React.ReactElement {
                   {/* Graph inline controls — only shown when graph tab is active */}
                   {right_tab === "graph" ? (
                     <div className="tab_bar_controls">
-                      <button className={`seg_action mono ${graph_show_subflows ? "active" : ""}`} onClick={() => set_graph_show_subflows((v) => !v)}>
+                      <button className={`seg_action ${graph_show_subflows ? "active" : ""}`} onClick={() => set_graph_show_subflows((v) => !v)}>
                         Subflows
                       </button>
-                      <button className={`seg_action mono ${graph_highlight_path ? "active" : ""}`} onClick={() => set_graph_highlight_path((v) => !v)}>
+                      <button className={`seg_action ${graph_highlight_path ? "active" : ""}`} onClick={() => set_graph_highlight_path((v) => !v)}>
                         Path
                       </button>
                       {graph_flow_options.length ? (
@@ -6687,18 +6430,6 @@ export function App(): React.ReactElement {
                     </div>
                   ) : null}
 
-                  {/* Digest inline controls — only shown when digest tab is active and has data */}
-                  {right_tab === "digest" && digest?.overall?.stats?.steps ? (
-                    <div className="tab_bar_controls">
-                      <button
-                        className="seg_action mono"
-                        onClick={() => { copy_to_clipboard(JSON.stringify(digest, null, 2)); }}
-                        disabled={!digest?.overall?.stats?.steps}
-                      >
-                        Copy JSON
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
 
                 {right_tab === "overview" ? (
@@ -6712,6 +6443,7 @@ export function App(): React.ReactElement {
                     subrun_ids={subrun_ids}
                     session_id={session_id_for_run}
                     records_count={records.length}
+                    records={records}
                     child_records_count={child_records_for_digest.length}
                     provider_activities={provider_activities}
                     attachments_count={session_attachments.length}
@@ -6720,57 +6452,26 @@ export function App(): React.ReactElement {
                     summary_generating={summary_generating}
                     summary_error={summary_error}
                     on_generate_summary={() => void generate_summary()}
-                    on_open_runtime={() => set_page("runtime")}
-                    on_open_subrun={(rid) => void attach_to_run(rid, { root_run_id: root_run_id || run_id || rid })}
-                  />
-                ) : null}
-
-                {right_tab === "timeline" ? (
-                  <HumanTimelinePanel
-                    items={timeline_items}
-                    node_index={node_index_for_run}
-                    workflow_label_by_id={workflow_label_by_id}
-                    on_copy={(text) => void copy_to_clipboard(text)}
-                  />
-                ) : null}
-
-                {right_tab === "replay" ? (
-                  <ReplayWorkbenchPanel
-                    bundle={replay_bundle_run_id === run_id.trim() ? replay_bundle : null}
-                    loading={replay_loading}
-                    error={replay_error}
-                    run_id={run_id.trim()}
-                    load_artifact_preview={fetch_runtime_embedded_preview}
-                    on_download_artifact={(artifact) => void download_runtime_artifact(artifact)}
-                    on_open_artifact_explorer={(artifact) => {
-                      const artifact_run_id = String(artifact?.run_id || run_id || "").trim();
-                      set_runtime_tab("artifacts");
-                      if (artifact_run_id) {
-                        set_runtime_artifact_run_filter(artifact_run_id);
-                        set_runtime_selected_run_id(artifact_run_id);
+                    on_open_runtime={() => {
+                      const rid = String(run_id || "").trim();
+                      if (rid) {
+                        set_runtime_selected_run_id(rid);
+                        set_runtime_artifact_run_filter(rid);
                         set_runtime_scope("run");
                       }
-                      if (artifact?.artifact_id) set_runtime_selected_artifact_id(artifact.artifact_id);
+                      set_runtime_tab("artifacts");
                       set_page("runtime");
                     }}
-                    on_refresh={() => void refresh_replay_bundle(true)}
-                    on_open_ledger={() => set_right_tab("ledger")}
-                    on_open_chat={() => {
-                      set_right_tab("chat");
-                      set_chat_input("Explain this run using the replay bundle, session turns, ledger timeline, provider activity, and produced artifacts.");
-                    }}
-                    on_copy={(text) => void copy_to_clipboard(text)}
-                  />
-                ) : null}
-
-                {right_tab === "providers" ? (
-                  <ProviderActivityPanel
-                    activities={provider_activities}
-                    audit_log_text={audit_log_text}
-                    audit_log_meta={audit_log_meta}
-                    audit_log_loading={audit_log_loading}
-                    audit_log_error={audit_log_error}
-                    on_refresh_audit={() => void refresh_audit_log()}
+                    on_open_subrun={(rid) => void attach_to_run(rid, { root_run_id: root_run_id || run_id || rid })}
+                    timeline_items={timeline_items}
+                    node_index={node_index_for_run}
+                    attachments={session_attachments}
+                    attachments_loading={session_attachments_loading}
+                    attachments_error={session_attachments_error}
+                    attachments_ready={Boolean(session_attachments_run_id.trim())}
+                    on_refresh_attachments={() => void refresh_session_attachments()}
+                    on_preview_attachment={(a) => void preview_session_attachment(a)}
+                    on_download_attachment={(a) => void download_session_attachment(a)}
                     on_copy={(text) => void copy_to_clipboard(text)}
                   />
                 ) : null}
@@ -6792,7 +6493,7 @@ export function App(): React.ReactElement {
                           />
                         ))}
                         {!visible_log.length ? (
-                          <div className="mono muted" style={{ padding: "10px 12px" }}>
+                          <div className="empty_state_inline">
                             (no ledger items)
                           </div>
                         ) : null}
@@ -6821,18 +6522,18 @@ export function App(): React.ReactElement {
                 {right_tab === "graph" ? (
                   <>
                     {graph_error ? (
-                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                      <div className="log_item log_item_danger">
                         <div className="meta">
-                          <span className="mono">graph error</span>
+                          <span>graph error</span>
                           <span className="mono">{now_iso()}</span>
                         </div>
                         <div className="body mono">{graph_error}</div>
                       </div>
                     ) : null}
                     {graph_loading ? (
-                      <div className="log_item" style={{ borderColor: "rgba(96, 165, 250, 0.25)" }}>
+                      <div className="log_item log_item_info">
                         <div className="meta">
-                          <span className="mono">loading</span>
+                          <span>loading</span>
                           <span className="mono">{scheduled_workflow_id.trim() ? scheduled_workflow_id.trim() : graph_flow_id}</span>
                         </div>
                         <div className="body mono">Loading graph…</div>
@@ -6860,230 +6561,46 @@ export function App(): React.ReactElement {
                   </>
                 ) : null}
 
-                {right_tab === "digest" ? (
-                  <div className="log log_scroll" style={{ marginTop: "6px" }}>
-
-                    <div
-                      className="log_item"
-                      style={{
-                        borderColor: digest?.latest_summary
-                          ? digest?.summary_outdated
-                            ? "rgba(239, 68, 68, 0.45)"
-                            : "rgba(34, 197, 94, 0.35)"
-                          : "rgba(96, 165, 250, 0.25)",
-                      }}
-                    >
-                      <div className="meta">
-                        <span className="mono">summary</span>
-                        <span className="mono">{digest?.latest_summary ? (digest?.summary_outdated ? "outdated" : "current") : "(none)"}</span>
-                      </div>
-                      <div className="body" style={{ whiteSpace: "pre-wrap" }}>
-                        {digest?.latest_summary ? (
-                          <>
-                            <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
-                              {digest.latest_summary.generated_at || digest.latest_summary.ts || ""} •{" "}
-                              {digest.latest_summary.provider || "provider?"} • {digest.latest_summary.model || "model?"}
-                            </div>
-                            <Markdown text={digest.latest_summary.text} />
-                          </>
-                        ) : (
-                          <div className="mono muted">No summary yet.</div>
-                        )}
-                      </div>
-                      <div className="actions">
-                        <button className="btn primary" onClick={() => void generate_summary()} disabled={!run_id.trim() || summary_generating}>
-                          {summary_generating ? "Generating…" : digest?.latest_summary ? "Regenerate" : "Generate"}
-                        </button>
-                      </div>
-                      {summary_error ? (
-                        <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-                          {summary_error}
-                        </div>
-                      ) : null}
-                    </div>
-                    {digest ? (
-                      <>
-                        <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                          <div className="meta">
-                            <span className="mono">overall</span>
-                            <span className="mono">{digest.overall?.stats?.steps ?? 0} steps</span>
-                          </div>
-                          <div className="body mono">
-                            <div>tools: {digest.overall?.stats?.tool_calls ?? 0} calls • {digest.overall?.stats?.unique_tools ?? 0} unique</div>
-                            <div>llm: {digest.overall?.stats?.llm_calls ?? 0} calls • missing {digest.overall?.stats?.llm_missing_responses ?? 0}</div>
-                            <div>
-                              tokens: {digest.overall?.stats?.prompt_tokens ?? 0} / {digest.overall?.stats?.completion_tokens ?? 0} • total{" "}
-                              {digest.overall?.stats?.total_tokens ?? 0}
-                            </div>
-                            <div>
-                              duration:{" "}
-                              {typeof digest.overall?.stats?.duration_s === "number"
-                                ? `${Math.round(digest.overall.stats.duration_s)}s`
-                                : digest.overall?.stats?.duration_s ?? 0}
-                              {" • "}errors: {digest.overall?.stats?.errors ?? 0}
-                            </div>
-                          </div>
-                        </div>
-
-                        {Array.isArray(digest.overall?.tools_used) && digest.overall.tools_used.length ? (
-                          <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                            <div className="meta">
-                              <span className="mono">tools used</span>
-                              <span className="mono">{digest.overall.tools_used.length}</span>
-                            </div>
-                            <div className="body mono">{digest.overall.tools_used.join(", ")}</div>
-                          </div>
-                        ) : null}
-
-                        <details style={{ marginTop: "10px" }}>
-                          <summary className="mono muted" style={{ cursor: "pointer" }}>
-                            Advanced: digest JSON
-                          </summary>
-                          <div className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)", marginTop: "10px" }}>
-                            <div className="body mono">
-                              <SharedJsonViewer value={digest as any} collapseAfterDepth={3} showCopy={true} />
-                            </div>
-                          </div>
-                        </details>
-                      </>
-                    ) : (
-                      <div className="mono muted" style={{ padding: "10px 12px" }}>
-                        (no digest)
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-
-                {right_tab === "attachments" ? (
-                  <div className="log log_scroll" style={{ marginTop: "6px" }}>
-                    <div className="log_actions" style={{ marginTop: "6px", flexWrap: "wrap" }}>
+                {/* Attachment preview modal (opened from Story's Session files list) */}
+                <Modal
+                  open={attachment_preview_open}
+                  title={attachment_preview_title || "Attachment"}
+                  onClose={() => {
+                    set_attachment_preview_open(false);
+                    set_attachment_preview_text("");
+                    set_attachment_preview_error("");
+                    set_attachment_preview_loading(false);
+                  }}
+                  actions={
+                    <>
                       <button
                         className="btn"
-                        onClick={() => void refresh_session_attachments()}
-                        disabled={!gateway_connected || session_attachments_loading || !session_id_for_run}
-                      >
-                        {session_attachments_loading ? "Refreshing…" : "Refresh"}
-                      </button>
-                      {session_id_for_run ? (
-                        <span className="chip mono muted" title={session_id_for_run}>
-                          session {short_id(session_id_for_run, 18)}
-                        </span>
-                      ) : (
-                        <span className="mono muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                          No session id (pick a run)
-                        </span>
-                      )}
-                      {session_attachments_run_id.trim() ? (
-                        <span className="chip mono muted" title={session_attachments_run_id}>
-                          store {short_id(session_attachments_run_id, 18)}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {session_attachments_error ? (
-                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                        <div className="meta">
-                          <span className="mono">error</span>
-                          <span className="mono">{now_iso()}</span>
-                        </div>
-                        <div className="body mono">{session_attachments_error}</div>
-                      </div>
-                    ) : null}
-
-                    <div className="log" style={{ marginTop: "10px" }}>
-                      {!session_attachments_loading && !session_attachments_error && !session_attachments.length ? (
-                        <div className="chat_empty_hint">No session attachments.</div>
-                      ) : null}
-                      {session_attachments.map((a: any) => {
-                        const artifact_id = String(a?.artifact_id || "").trim();
-                        if (!artifact_id) return null;
-                        const tags = a?.tags && typeof a.tags === "object" ? (a.tags as any) : {};
-                        const filename = String(tags?.filename || "").trim();
-                        const path = String(tags?.path || "").trim();
-                        const sha = String(tags?.sha256 || "").trim();
-                        const ct = String(a?.content_type || "").trim();
-                        const size_bytes = typeof a?.size_bytes === "number" ? Number(a.size_bytes) : null;
-                        const label = path ? `@${path}` : filename || artifact_id;
-                        return (
-                          <div key={artifact_id} className="log_item" style={{ borderColor: "rgba(148, 163, 184, 0.25)" }}>
-                            <div className="meta">
-                              <span className="mono">{label}</span>
-                              <span className="mono">{short_id(artifact_id, 18)}</span>
-                            </div>
-                            <div className="body">
-                              {sha ? (
-                                <div className="mono">
-                                  <span className="muted">sha256</span>: {short_id(sha, 18)}
-                                </div>
-                              ) : null}
-                              {ct ? (
-                                <div className="mono">
-                                  <span className="muted">type</span>: {ct}
-                                </div>
-                              ) : null}
-                              {typeof size_bytes === "number" ? (
-                                <div className="mono">
-                                  <span className="muted">size</span>: {size_bytes.toLocaleString()} bytes
-                                </div>
-                              ) : null}
-                            </div>
-                            <div className="actions">
-                              <button className="btn" onClick={() => void copy_to_clipboard(artifact_id)}>
-                                Copy id
-                              </button>
-                              <button className="btn" onClick={() => void preview_session_attachment(a)} disabled={!session_attachments_run_id.trim()}>
-                                Preview
-                              </button>
-                              <button className="btn" onClick={() => void download_session_attachment(a)} disabled={!session_attachments_run_id.trim()}>
-                                Download
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      <Modal
-                        open={attachment_preview_open}
-                        title={attachment_preview_title || "Attachment"}
-                        onClose={() => {
+                        onClick={() => {
                           set_attachment_preview_open(false);
                           set_attachment_preview_text("");
                           set_attachment_preview_error("");
                           set_attachment_preview_loading(false);
                         }}
-                        actions={
-                          <>
-                            <button
-                              className="btn"
-                              onClick={() => {
-                                set_attachment_preview_open(false);
-                                set_attachment_preview_text("");
-                                set_attachment_preview_error("");
-                                set_attachment_preview_loading(false);
-                              }}
-                            >
-                              Close
-                            </button>
-                          </>
-                        }
                       >
-                        {attachment_preview_loading ? (
-                          <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
-                            Loading…
-                          </div>
-                        ) : null}
-                        {attachment_preview_error ? (
-                          <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
-                            {attachment_preview_error}
-                          </div>
-                        ) : null}
-                        <pre className="mono" style={{ whiteSpace: "pre-wrap", maxHeight: "62vh", overflow: "auto", margin: 0 }}>
-                          {attachment_preview_text || "(empty)"}
-                        </pre>
-                      </Modal>
+                        Close
+                      </button>
+                    </>
+                  }
+                >
+                  {attachment_preview_loading ? (
+                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
+                      Loading…
                     </div>
-                  </div>
-                ) : null}
+                  ) : null}
+                  {attachment_preview_error ? (
+                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
+                      {attachment_preview_error}
+                    </div>
+                  ) : null}
+                  <pre className="mono" style={{ whiteSpace: "pre-wrap", maxHeight: "62vh", overflow: "auto", margin: 0 }}>
+                    {attachment_preview_text || "(empty)"}
+                  </pre>
+                </Modal>
 
                 {right_tab === "chat" ? (
                   <div className="log log_scroll" style={{ marginTop: "6px" }}>
@@ -7171,35 +6688,35 @@ export function App(): React.ReactElement {
                       <div className="chat_hint">Read-only. No tools. Grounded in the parent run + subflows ledger.</div>
                       {chat_thread_last_saved_at ? <div className="chat_hint">Last saved: {format_time_ago(chat_thread_last_saved_at)}</div> : null}
                       {chat_thread_save_error ? (
-                        <div className="chat_hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                        <div className="chat_hint chat_hint_danger">
                           {chat_thread_save_error}
                         </div>
                       ) : null}
                       {saved_chat_thread_load_error ? (
-                        <div className="chat_hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                        <div className="chat_hint chat_hint_danger">
                           {saved_chat_thread_load_error}
                         </div>
                       ) : null}
                       {saved_chat_threads_error ? (
-                        <div className="chat_hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                        <div className="chat_hint chat_hint_danger">
                           {saved_chat_threads_error}
                         </div>
                       ) : null}
                     </div>
 
                     {chat_error ? (
-                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                      <div className="log_item log_item_danger">
                         <div className="meta">
-                          <span className="mono">error</span>
+                          <span>error</span>
                           <span className="mono">{now_iso()}</span>
                         </div>
                         <div className="body mono">{chat_error}</div>
                       </div>
                     ) : null}
                     {chat_voice_error ? (
-                      <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                      <div className="log_item log_item_danger">
                         <div className="meta">
-                          <span className="mono">voice</span>
+                          <span>voice</span>
                           <span className="mono">{now_iso()}</span>
                         </div>
                         <div className="body mono">{chat_voice_error}</div>
@@ -7611,12 +7128,18 @@ export function App(): React.ReactElement {
               if (wait_key) set_dismissed_wait_key(wait_key);
             }}
             actions={
+              /* Sticky footer holds the PRIMARY decisions; the destructive
+               * Cancel run is demoted into the body (fable5 layout P0-4 —
+               * the most destructive action was the only always-visible
+               * one). Open ledger also dismisses: it used to open the page
+               * UNDER the still-open modal. */
               <>
                 <button
                   className="btn"
                   onClick={() => {
                     set_right_tab("ledger");
                     set_page("observe");
+                    if (wait_key) set_dismissed_wait_key(wait_key);
                   }}
                   disabled={!run_id.trim()}
                 >
@@ -7625,9 +7148,19 @@ export function App(): React.ReactElement {
                 <button className="btn" onClick={() => wait_key && set_dismissed_wait_key(wait_key)} disabled={resuming}>
                   Dismiss
                 </button>
-                <button className="btn danger" onClick={() => void cancel_visible_run(run_id.trim(), "Cancelled from wait prompt")} disabled={!run_id.trim() || resuming}>
-                  Cancel run
-                </button>
+                {tool_calls_for_wait.length ? (
+                  <>
+                    <button className="btn danger" disabled={resuming} onClick={() => resume_wait({ approved: false })}>
+                      Reject
+                    </button>
+                    <button className="btn" disabled={resuming} onClick={() => resume_wait({ approved: true })}>
+                      Approve only
+                    </button>
+                    <button className="btn primary" disabled={!worker || resuming} onClick={() => execute_tools_via_worker(tool_calls_for_wait)}>
+                      Approve and execute
+                    </button>
+                  </>
+                ) : null}
               </>
             }
           >
@@ -7728,14 +7261,8 @@ export function App(): React.ReactElement {
                 </div>
                 {!worker ? <div className="warn_callout">No tool worker is configured, so Observer cannot execute these calls directly.</div> : null}
                 <div className="actions">
-                  <button className="btn primary" disabled={!worker || resuming} onClick={() => execute_tools_via_worker(tool_calls_for_wait)}>
-                    Approve and execute
-                  </button>
-                  <button className="btn" disabled={resuming} onClick={() => resume_wait({ approved: true })}>
-                    Approve only
-                  </button>
-                  <button className="btn danger" disabled={resuming} onClick={() => resume_wait({ approved: false })}>
-                    Reject
+                  <button className="btn danger" onClick={() => void cancel_visible_run(run_id.trim(), "Cancelled from wait prompt")} disabled={!run_id.trim() || resuming}>
+                    Cancel whole run
                   </button>
                 </div>
                 <details className="runtime_raw_details">
@@ -7752,6 +7279,11 @@ export function App(): React.ReactElement {
 	                </div>
                 <div className="wait_prompt_text">{wait_request || "No explicit prompt was provided. Open the ledger for context before responding."}</div>
                 <AskForm wait={wait_state as WaitState} disabled={resuming} on_submit={(val) => resume_wait({ response: val })} />
+                <div className="actions">
+                  <button className="btn danger" onClick={() => void cancel_visible_run(run_id.trim(), "Cancelled from wait prompt")} disabled={!run_id.trim() || resuming}>
+                    Cancel whole run
+                  </button>
+                </div>
                 <details className="runtime_raw_details">
                   <summary className="mono muted">Diagnostics</summary>
                   <div className="wait_shared_json">
@@ -7762,6 +7294,7 @@ export function App(): React.ReactElement {
             )}
           </Modal>
         ) : null}
+        </div>
       </div>
     </div>
   );
@@ -7811,15 +7344,6 @@ function AskForm(props: { wait: WaitState; disabled?: boolean; on_submit: (value
       </div>
     </>
   );
-}
-
-function run_status_class(status: any): string {
-  const s = String(status || "").trim().toLowerCase();
-  if (s === "completed") return "ok";
-  if (s === "failed" || s === "cancelled") return "danger";
-  if (s === "waiting") return "warn";
-  if (s === "running") return "info";
-  return "muted";
 }
 
 function run_workflow_label(run: RunSummary | null | undefined, labels: Record<string, string>): string {
@@ -7876,6 +7400,8 @@ function WorkflowRunNavigator(props: {
   filter: RunFilterMode;
   group_by: "status" | "workflow" | "session";
   loading: boolean;
+  connected: boolean;
+  on_sign_in: () => void;
   total_runs: number;
   workflow_label_by_id: Record<string, string>;
   on_search: (value: string) => void;
@@ -7897,14 +7423,13 @@ function WorkflowRunNavigator(props: {
   );
 
   return (
-    <aside className="observatory_sidebar">
-      <div className="run_nav_header">
-        <div>
-          <div className="run_nav_title">Workflows</div>
-          <div className="run_nav_subtitle">
-            {props.total_runs.toLocaleString()} runs • {active_count.toLocaleString()} active
-          </div>
-        </div>
+    <aside className="observatory_sidebar pane">
+      <div className="run_nav_header pane_header">
+        <span className="pane_title">Runs</span>
+        <span className="pane_count">
+          {props.total_runs.toLocaleString()} runs • {active_count.toLocaleString()} active
+        </span>
+        <span className="pane_spacer" />
         <button className="btn btn_icon" onClick={props.on_refresh} disabled={props.loading} title="Refresh workflow runs">
           <Icon name="refresh" size={14} />
           {props.loading ? "…" : ""}
@@ -7913,32 +7438,42 @@ function WorkflowRunNavigator(props: {
 
       <div className="run_nav_controls">
         <input
-          className="mono"
           value={props.search}
           onChange={(e) => props.on_search(e.target.value)}
           placeholder="Search runs, sessions, workflows"
         />
-        <div className="seg_toggle mono run_nav_segments">
-          {(["active", "waiting", "terminal", "failed", "all"] as RunFilterMode[]).map((mode) => (
-            <button key={mode} className={`seg_btn ${props.filter === mode ? "active" : ""}`} onClick={() => props.on_filter(mode)}>
-              {mode}
-            </button>
-          ))}
+        <div className="run_nav_filter_row">
+          <div className="seg_toggle run_nav_segments">
+            {(["active", "waiting", "terminal", "failed", "all"] as RunFilterMode[]).map((mode) => (
+              <button key={mode} className={`seg_btn ${props.filter === mode ? "active" : ""}`} onClick={() => props.on_filter(mode)}>
+                {mode}
+              </button>
+            ))}
+          </div>
+          <select
+            className="seg_select"
+            value={props.group_by}
+            onChange={(e) => props.on_group_by(e.target.value as "status" | "workflow" | "session")}
+            title="Group workflow runs"
+          >
+            <option value="status">Group by status</option>
+            <option value="workflow">Group by workflow</option>
+            <option value="session">Group by session</option>
+          </select>
         </div>
-        <select
-          className="mono seg_select"
-          value={props.group_by}
-          onChange={(e) => props.on_group_by(e.target.value as "status" | "workflow" | "session")}
-          title="Group workflow runs"
-        >
-          <option value="status">Group by status</option>
-          <option value="workflow">Group by workflow</option>
-          <option value="session">Group by session</option>
-        </select>
       </div>
 
       <div className="run_tree">
-        {!props.sections.length ? <div className="run_tree_empty">No runs match the current filters.</div> : null}
+        {!props.sections.length ? (
+          props.connected ? (
+            <div className="run_tree_empty">No runs match the current filters.</div>
+          ) : (
+            <div className="run_tree_empty">
+              Gateway offline — runs are unavailable.{" "}
+              <button className="btn btn_sm" onClick={props.on_sign_in}>Sign in</button>
+            </div>
+          )
+        ) : null}
         {props.sections.map((section) => (
           <section key={section.key} className="run_tree_section">
             <div className="run_tree_section_header">
@@ -7958,7 +7493,7 @@ function WorkflowRunNavigator(props: {
                   >
                     <div className="run_tree_item_top">
                       <span className="run_tree_label">{run_workflow_label(root, props.workflow_label_by_id)}</span>
-                      <RunStatusPill status={root.status} />
+                      <RunStatusPill status={run_status_word(root)} />
                     </div>
                     <div className="run_tree_meta">
                       <span className="mono">{short_id(root_id, 13)}</span>
@@ -7979,7 +7514,7 @@ function WorkflowRunNavigator(props: {
                           >
                             <div className="run_tree_item_top">
                               <span className="run_tree_label">{run_workflow_label(child, props.workflow_label_by_id)}</span>
-                              <RunStatusPill status={child.status} />
+                              <RunStatusPill status={run_status_word(child)} />
                             </div>
                             <div className="run_tree_meta">
                               <span className="mono">{short_id(child_id, 13)}</span>
@@ -8001,406 +7536,6 @@ function WorkflowRunNavigator(props: {
   );
 }
 
-function replay_descriptor(a: any): Record<string, any> {
-  return a?.descriptor && typeof a.descriptor === "object" ? a.descriptor : {};
-}
-
-function replay_artifacts_from_bundle(bundle: any): any[] {
-  const out: any[] = [];
-  const seen = new Set<string>();
-  const add = (a: any) => {
-    const aid = String(a?.artifact_id || "").trim();
-    const rid = String(a?.run_id || replay_descriptor(a).run_id || "").trim();
-    const key = `${rid || "run"}:${aid}`;
-    if (!aid || seen.has(key)) return;
-    seen.add(key);
-    out.push(a);
-  };
-  const ledgers = bundle?.ledgers && typeof bundle.ledgers === "object" ? bundle.ledgers : {};
-  Object.values(ledgers).forEach((entry: any) => {
-    const artifacts = Array.isArray(entry?.artifacts) ? entry.artifacts : [];
-    artifacts.forEach(add);
-  });
-  const turns = Array.isArray(bundle?.session?.turns) ? bundle.session.turns : [];
-  turns.forEach((turn: any) => {
-    const artifacts = Array.isArray(turn?.artifacts) ? turn.artifacts : [];
-    artifacts.forEach(add);
-  });
-  return out;
-}
-
-function replay_artifact_preview_key(a: RuntimeArtifact): string {
-  return `${a.run_id || "run"}:${a.artifact_id}`;
-}
-
-function replay_artifact_sort_key(a: RuntimeArtifact): number {
-  const created = parse_iso_ms(a.created_at);
-  if (created !== null) return created;
-  const cursor = Number(a.ledger_cursor || a.turn_id || 0);
-  return Number.isFinite(cursor) ? cursor : 0;
-}
-
-function replay_artifact_can_preview(a: RuntimeArtifact): boolean {
-  return artifact_preview_kind(a) !== "binary";
-}
-
-function ReplayArtifactCards(props: {
-  artifacts: any[];
-  compact?: boolean;
-  load_artifact_preview?: RuntimeEmbeddedPreviewLoader;
-  on_open_artifact_explorer: (artifact: RuntimeArtifact) => void;
-  on_download_artifact?: (artifact: RuntimeArtifact) => void;
-}): React.ReactElement | null {
-  const artifacts = useMemo(() => {
-    const out: RuntimeArtifact[] = [];
-    const seen = new Set<string>();
-    for (const raw of Array.isArray(props.artifacts) ? props.artifacts : []) {
-      const artifact = normalize_artifact_item(raw, "run");
-      if (!artifact) continue;
-      const key = replay_artifact_preview_key(artifact);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(artifact);
-    }
-    out.sort((a, b) => replay_artifact_sort_key(a) - replay_artifact_sort_key(b) || artifact_label(a).localeCompare(artifact_label(b)));
-    return out;
-  }, [props.artifacts]);
-  const artifact_signature = artifacts.map(replay_artifact_preview_key).join("|");
-  const [previews, set_previews] = useState<Record<string, RuntimeEmbeddedPreview>>({});
-  const preview_urls_ref = useRef<Record<string, string>>({});
-  const visible = artifacts;
-
-  useEffect(() => {
-    return () => {
-      Object.values(preview_urls_ref.current).forEach((url) => URL.revokeObjectURL(url));
-      preview_urls_ref.current = {};
-    };
-  }, []);
-
-  useEffect(() => {
-    set_previews(() => {
-      Object.values(preview_urls_ref.current).forEach((url) => URL.revokeObjectURL(url));
-      preview_urls_ref.current = {};
-      return {};
-    });
-  }, [artifact_signature]);
-
-  const store_preview = (key: string, preview: RuntimeEmbeddedPreview) => {
-    set_previews((prev) => {
-      const old_url = preview_urls_ref.current[key];
-      if (old_url && old_url !== preview.url) URL.revokeObjectURL(old_url);
-      if (preview.url) preview_urls_ref.current[key] = preview.url;
-      else delete preview_urls_ref.current[key];
-      return { ...prev, [key]: preview };
-    });
-  };
-
-  const load_preview = (artifact: RuntimeArtifact, force = false) => {
-    const key = replay_artifact_preview_key(artifact);
-    const existing = previews[key];
-    if (!force && existing && !existing.error) return;
-    const kind = artifact_preview_kind(artifact);
-    if (!props.load_artifact_preview) {
-      store_preview(key, { artifact_id: artifact.artifact_id, kind, render_kind: "", text: "Preview loading is unavailable in this view.", url: "", loading: false, error: "" });
-      return;
-    }
-    store_preview(key, { artifact_id: artifact.artifact_id, kind, render_kind: "", text: "", url: "", loading: true, error: "" });
-    props.load_artifact_preview(artifact)
-      .then((preview) => store_preview(key, preview))
-      .catch((e: any) => {
-        store_preview(key, { artifact_id: artifact.artifact_id, kind, render_kind: "", text: "", url: "", loading: false, error: String(e?.message || e || "Preview failed") });
-      });
-  };
-
-  useEffect(() => {
-    if (!props.load_artifact_preview || !artifacts.length) return;
-    visible.filter(replay_artifact_can_preview).forEach((artifact) => load_preview(artifact));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifact_signature, props.load_artifact_preview]);
-
-  if (!artifacts.length) return null;
-  return (
-    <div className="replay_artifact_output">
-      <div className="replay_artifact_output_header">
-        <span>Outputs and artifacts linked to this turn</span>
-        <strong>{artifacts.length.toLocaleString()}</strong>
-      </div>
-      <div className="replay_artifact_grid">
-        {visible.map((artifact) => {
-          const key = replay_artifact_preview_key(artifact);
-          const preview = previews[key];
-          const label = artifact_human_title(artifact);
-          const type_label = artifact_display_type_label_for(artifact, {}, {}, preview?.text || "");
-          const media_fact = artifact_media_fact_label(artifact);
-          const provider_model = artifact_provider_model_label(artifact);
-          const prompt = artifact_generation_prompt(artifact);
-          const node = artifact_node_label(artifact);
-          const can_preview = replay_artifact_can_preview(artifact);
-          const loaded = Boolean(preview && !preview.loading && !preview.error);
-          const loading = Boolean(preview?.loading);
-          const created = display_datetime(artifact.created_at);
-          const provenance = artifact_provenance_label(artifact);
-          return (
-            <article key={key} className="replay_artifact_card">
-              <header className="replay_artifact_card_header">
-                <ArtifactGlyph artifact={artifact} size={18} />
-                <div>
-                  <h5>{label}</h5>
-                  <p>
-                    <span>{type_label}</span>
-                    <span>{format_bytes(artifact.size_bytes)}</span>
-                    {created !== "—" ? <span>{created}</span> : null}
-                    {node ? <span className="mono">{node}</span> : null}
-                  </p>
-                </div>
-              </header>
-              <div className="replay_artifact_facts">
-                {provider_model ? <span><b>Provider</b> {provider_model}</span> : null}
-                {media_fact ? <span><b>Media</b> {media_fact}</span> : null}
-                {provenance ? <span><b>Source</b> {provenance}</span> : null}
-                {artifact.turn_id || artifact.ledger_cursor ? <span><b>Turn</b> {artifact_turn_label(artifact)}</span> : null}
-              </div>
-              {prompt ? (
-                <details className="replay_artifact_prompt">
-                  <summary>Generation prompt</summary>
-                  <p>{prompt}</p>
-                </details>
-              ) : null}
-              {preview ? (
-                <RuntimeInlinePreview artifact={artifact} preview={preview} />
-              ) : (
-                <div className="runtime_inline_preview empty">
-                  {can_preview ? "Loading preview..." : "No inline preview for this artifact type."}
-                </div>
-              )}
-              <div className="replay_artifact_actions">
-                <button className="btn" onClick={() => load_preview(artifact, true)} disabled={!can_preview || loading || !props.load_artifact_preview}>
-                  {loading ? "Loading…" : loaded ? "Reload preview" : "Preview"}
-                </button>
-                <button className="btn" onClick={() => props.on_download_artifact?.(artifact)} disabled={!artifact.run_id || !props.on_download_artifact}>
-                  Download
-                </button>
-                <button className="btn" onClick={() => props.on_open_artifact_explorer(artifact)} disabled={!artifact.run_id}>
-                  Artifact explorer
-                </button>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function replay_status_copy(status: any): string {
-  const s = String(status || "").trim().toLowerCase();
-  if (s === "waiting") return "Waiting for response";
-  if (s === "running") return "In progress";
-  if (s === "completed") return "Completed";
-  if (s === "failed") return "Failed";
-  if (s === "cancelled") return "Cancelled";
-  return s ? s.replace(/[_-]+/g, " ") : "Unknown";
-}
-
-function replay_turn_title(turn: any, idx: number, root_run_id: string): string {
-  const rid = String(turn?.run_id || "").trim();
-  const status = String(turn?.status || "").trim().toLowerCase();
-  if (rid && rid === root_run_id) {
-    if (status === "waiting") return "Current request needing attention";
-    if (status === "running") return "Current request in progress";
-    return "Selected request";
-  }
-  return `Earlier request ${idx + 1}`;
-}
-
-function replay_turn_subtitle(turn: any): string {
-  const workflow = String(turn?.workflow_id || "").trim();
-  const kind = String(turn?.kind || "").trim();
-  return [workflow, kind && kind !== "run" ? kind : ""].filter(Boolean).join(" · ") || "Session turn";
-}
-
-function ReplayWorkbenchPanel(props: {
-  bundle: any | null;
-  loading: boolean;
-  error: string;
-  run_id: string;
-  load_artifact_preview?: RuntimeEmbeddedPreviewLoader;
-  on_download_artifact?: (artifact: RuntimeArtifact) => void;
-  on_open_artifact_explorer: (artifact?: RuntimeArtifact) => void;
-  on_refresh: () => void;
-  on_open_ledger: () => void;
-  on_open_chat: () => void;
-  on_copy: (text: string) => void;
-}): React.ReactElement {
-  const bundle = props.bundle;
-  const turns = Array.isArray(bundle?.session?.turns)
-    ? [...bundle.session.turns].sort((a: any, b: any) => {
-        const am = parse_iso_ms(a?.created_at || a?.updated_at) ?? 0;
-        const bm = parse_iso_ms(b?.created_at || b?.updated_at) ?? 0;
-        return am - bm;
-      })
-    : [];
-  const timeline = Array.isArray(bundle?.timeline) ? [...bundle.timeline] : [];
-  timeline.sort((a: any, b: any) => {
-    const am = parse_iso_ms(a?.started_at || a?.ended_at) ?? 0;
-    const bm = parse_iso_ms(b?.started_at || b?.ended_at) ?? 0;
-    return am - bm;
-  });
-  const ledgers = bundle?.ledgers && typeof bundle.ledgers === "object" ? bundle.ledgers : {};
-  const run_count = Object.keys(ledgers).length;
-  const artifacts = replay_artifacts_from_bundle(bundle);
-  const session_id = String(bundle?.session?.session_id || bundle?.run?.session_id || "").trim();
-  const root_run_id = String(bundle?.root_run_id || props.run_id || "").trim();
-
-  return (
-    <div className="replay_workbench">
-      <section className="replay_hero">
-        <div className="replay_hero_copy">
-          <span className="replay_eyebrow">Conversation replay</span>
-          <h3>Rebuild what led to this run</h3>
-          <p>
-            Read-only reconstruction of the session up to the selected run. Later session activity is intentionally excluded so the replay does not mix future retries or cancellations into this view.
-          </p>
-        </div>
-        <div className="replay_hero_actions">
-          <button className="btn" onClick={props.on_refresh} disabled={!props.run_id || props.loading}>{props.loading ? "Loading…" : "Refresh"}</button>
-          <button className="btn primary" onClick={props.on_open_chat} disabled={!props.run_id}>Ask about replay</button>
-          <button className="btn" onClick={props.on_open_ledger} disabled={!props.run_id}>Open ledger</button>
-          <button className="btn" onClick={() => props.on_open_artifact_explorer()} disabled={!props.run_id}>Runtime artifacts</button>
-          <button className="btn" onClick={() => props.on_copy(JSON.stringify(bundle || {}, null, 2))} disabled={!bundle}>Copy bundle</button>
-        </div>
-        <div className="replay_metric_grid">
-          <div><span>Selected run</span><strong className="mono">{root_run_id ? short_id(root_run_id, 22) : "—"}</strong></div>
-          <div><span>Session</span><strong className="mono">{session_id ? short_id(session_id, 22) : "—"}</strong></div>
-          <div><span>Turns shown</span><strong>{turns.length.toLocaleString()}</strong></div>
-          <div><span>Artifacts</span><strong>{artifacts.length.toLocaleString()}</strong></div>
-        </div>
-        <div className="replay_scope_note">
-          {bundle?.generated_at
-            ? `Replay refreshed ${display_datetime(bundle.generated_at)} from ${run_count.toLocaleString()} inspected run${run_count === 1 ? "" : "s"}.`
-            : props.loading
-              ? "Loading replay bundle."
-              : "Replay bundle has not been loaded yet."}
-        </div>
-        {props.error ? <div className="warn_callout">{props.error}</div> : null}
-      </section>
-
-      {!bundle && !props.loading ? (
-        <div className="chat_empty_hint">Select a run and refresh replay to load session turns, ledger timeline, and artifact summaries.</div>
-      ) : null}
-
-      {turns.length ? (
-        <section className="replay_panel">
-          <div className="replay_section_header">
-            <div>
-              <span className="replay_eyebrow">Session context</span>
-              <h3>Turns before this point</h3>
-            </div>
-            <span className="chip mono info">{turns.length} shown</span>
-          </div>
-          <div className="replay_turn_list">
-            {turns.map((turn: any, idx: number) => {
-              const turn_artifacts = Array.isArray(turn?.artifacts) ? turn.artifacts : [];
-              const prompt_split = split_runtime_metadata_envelope(String(turn?.prompt || "").trim());
-              const prompt = prompt_split.text;
-              const prompt_metadata = merge_runtime_metadata(
-                prompt_split.metadata,
-                turn?.prompt_metadata && typeof turn.prompt_metadata === "object" ? turn.prompt_metadata : null
-              );
-              const answer = String(turn?.answer || "").trim();
-              const stats = turn?.stats && typeof turn.stats === "object" ? turn.stats : {};
-              const turn_run_id = String(turn?.run_id || "").trim();
-              const selected = Boolean(turn_run_id && turn_run_id === root_run_id);
-              const status = String(turn?.status || "unknown").trim();
-              return (
-                <article key={`${turn_run_id || "turn"}:${idx}`} className={`replay_turn_card ${selected ? "selected" : ""}`}>
-                  <header className="replay_turn_header">
-                    <div className="replay_turn_number">#{idx + 1}</div>
-                    <div className="replay_turn_title">
-                      <h4>{replay_turn_title(turn, idx, root_run_id)}</h4>
-                      <p>{replay_turn_subtitle(turn)}</p>
-                    </div>
-                    <div className="replay_turn_state">
-                      <RunStatusPill status={status} />
-                      <time>{display_datetime(turn?.created_at || turn?.updated_at)}</time>
-                    </div>
-                  </header>
-                  {prompt ? (
-                    <div className="replay_message_block request">
-                      <span>Request</span>
-                      <RuntimeMetadataChips metadata={prompt_metadata} />
-                      <Markdown text={prompt} />
-                    </div>
-                  ) : (
-                    <div className="replay_message_block muted">
-                      <span>Request</span>
-                      <p>No user request was recoverable for this turn.</p>
-                    </div>
-                  )}
-                  {answer ? (
-                    <div className="replay_message_block outcome">
-                      <span>Outcome</span>
-                      <Markdown text={answer} />
-                    </div>
-                  ) : (
-                    <div className="replay_message_block muted">
-                      <span>Current state</span>
-                      <p>{replay_status_copy(status)}</p>
-                    </div>
-                  )}
-                  {turn_artifacts.length ? (
-                    <ReplayArtifactCards
-                      artifacts={turn_artifacts}
-                      compact
-                      load_artifact_preview={props.load_artifact_preview}
-                      on_download_artifact={props.on_download_artifact}
-                      on_open_artifact_explorer={props.on_open_artifact_explorer}
-                    />
-                  ) : null}
-                  <details className="runtime_raw_details replay_turn_details">
-                    <summary className="mono muted">Diagnostics</summary>
-                    <div className="artifact_detail_grid">
-                      <div><span>Workflow</span><strong>{String(turn?.workflow_id || "—")}</strong></div>
-                      <div><span>Run</span><strong className="mono">{turn_run_id ? short_id(turn_run_id, 28) : "—"}</strong></div>
-                      <div><span>Provider calls</span><strong>{Number(stats.llm_calls || 0).toLocaleString()}</strong></div>
-                      <div><span>Tool calls</span><strong>{Number(stats.tool_calls || 0).toLocaleString()}</strong></div>
-                    </div>
-                  </details>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      ) : bundle ? (
-        <div className="chat_empty_hint">No session turns were available in this bounded replay bundle.</div>
-      ) : null}
-
-      {timeline.length ? (
-        <section className="replay_panel compact">
-          <div className="replay_section_header">
-            <div>
-              <span className="replay_eyebrow">Execution trace</span>
-              <h3>Run timeline</h3>
-            </div>
-            <span className="chip mono muted">{timeline.length} events</span>
-          </div>
-          <div className="timeline_list">
-            {timeline.slice(-120).map((item: any, idx: number) => (
-              <div key={`${String(item?.run_id || "run")}:${String(item?.cursor || idx)}`} className="timeline_row">
-                <span className="mono">{display_datetime(item?.started_at || item?.ended_at)}</span>
-                <strong>{String(item?.node_id || "run")}</strong>
-                <span>{String(item?.effect_type || item?.status || "event")}</span>
-                <span className="mono muted">{item?.run_id ? short_id(String(item.run_id), 14) : ""}{item?.cursor ? ` · #${item.cursor}` : ""}</span>
-              </div>
-            ))}
-          </div>
-          {timeline.length > 120 ? <div className="chat_hint">Showing the latest 120 events from the bounded replay bundle.</div> : null}
-        </section>
-      ) : null}
-    </div>
-  );
-}
-
 function RunOverviewPanel(props: {
   run_id: string;
   run: RunSummary | null;
@@ -8411,6 +7546,7 @@ function RunOverviewPanel(props: {
   subrun_ids: string[];
   session_id: string;
   records_count: number;
+  records: Array<{ record: any }>;
   child_records_count: number;
   provider_activities: ProviderActivity[];
   attachments_count: number;
@@ -8421,8 +7557,38 @@ function RunOverviewPanel(props: {
   on_generate_summary: () => void;
   on_open_runtime: () => void;
   on_open_subrun: (run_id: string) => void;
+  /* STORY additions (redesign: Observe's nine tabs → four): the run's
+   * human chronology and its produced artifacts live IN the story —
+   * they were separate tabs re-rendering the same truth. */
+  timeline_items: LedgerRecordItem[];
+  node_index: Record<string, any>;
+  attachments: any[];
+  attachments_loading: boolean;
+  attachments_error: string;
+  /* Preview/Download need the attachment store's run id resolved; until
+   * then the buttons disable instead of silently no-oping. */
+  attachments_ready: boolean;
+  on_refresh_attachments: () => void;
+  on_preview_attachment: (a: any) => void;
+  on_download_attachment: (a: any) => void;
+  on_copy: (text: string) => void;
 }): React.ReactElement {
   const run_id = props.run_id.trim();
+  // Chronology renders the newest slice by default (see the section note).
+  const [chronology_expanded, set_chronology_expanded] = useState(false);
+
+  // NO-RUN EMPTY STATE (fable5 layout P1-13): the old render showed a hero
+  // titled "(workflow unknown)" over eight "—" tiles — it read as a broken
+  // run, not an empty view.
+  if (!run_id) {
+    return (
+      <div className="run_overview">
+        <div className="empty_state_inline" style={{ padding: "48px 24px", textAlign: "center" }}>
+          Select a run on the left to inspect it — or start one from Launch.
+        </div>
+      </div>
+    );
+  }
   const title = run_workflow_label(props.run, props.workflow_label_by_id);
   const started = run_started_at(props.run) || String(props.run_state?.started_at || props.run_state?.created_at || "").trim();
   const finished = run_finished_at(props.run) || (terminal_run_status(props.status_label) ? String(props.run_state?.updated_at || "").trim() : "");
@@ -8433,11 +7599,25 @@ function RunOverviewPanel(props: {
   const summary_text = String(props.latest_summary?.text || "").trim();
   const wait = props.wait_state;
 
+  // OUTCOME (fable5 layout P0-2): the Overview previously answered neither
+  // "why did it fail" (error lived only in the Runtime inspector) nor
+  // "what did it produce" (the answer hid behind per-card unfolds).
+  const is_terminal = terminal_run_status(props.status_label);
+  const error_text = run_error_label(props.run) || String(props.run_state?.error || "").trim();
+  let outcome_text = "";
+  for (let i = props.records.length - 1; i >= 0; i--) {
+    const t = extract_response_text_from_record(props.records[i]?.record);
+    if (t) {
+      outcome_text = t;
+      break;
+    }
+  }
+
   return (
     <div className="run_overview">
       <section className="run_hero">
         <div className="run_hero_main">
-          <div className="run_hero_eyebrow">Selected workflow</div>
+          <div className="run_hero_eyebrow">Run</div>
           <h2>{title}</h2>
           <div className="run_hero_meta">
             <RunStatusPill status={props.status_label} />
@@ -8446,11 +7626,11 @@ function RunOverviewPanel(props: {
           </div>
         </div>
         <div className="run_hero_actions">
-          <button className="btn primary" onClick={props.on_generate_summary} disabled={!run_id || props.summary_generating}>
-            {props.summary_generating ? "Summarizing…" : summary_text ? "Refresh Summary" : "Summarize"}
+          <button className="btn" onClick={props.on_generate_summary} disabled={!run_id || props.summary_generating}>
+            {props.summary_generating ? "Summarizing…" : summary_text ? "Refresh summary" : "Summarize"}
           </button>
-          <button className="btn" onClick={props.on_open_runtime}>
-            Runtime
+          <button className="btn" onClick={props.on_open_runtime} title="Open this run's artifacts in the System explorer">
+            Run artifacts
           </button>
         </div>
       </section>
@@ -8490,10 +7670,21 @@ function RunOverviewPanel(props: {
         </div>
       </div>
 
+      {is_terminal && (error_text || outcome_text) ? (
+        <section className="overview_panel">
+          <div className="overview_panel_header">
+            <h3>Outcome</h3>
+            {error_text ? <span className="chip mono danger">failed</span> : <span className="chip mono ok">completed</span>}
+          </div>
+          {error_text ? <div className="error_callout">{error_text}</div> : null}
+          {outcome_text ? <Markdown text={clamp_preview(outcome_text, { max_chars: 4000, max_lines: 60 })} /> : null}
+        </section>
+      ) : null}
+
       <div className="overview_columns">
         <section className="overview_panel">
           <div className="overview_panel_header">
-            <h3>What Is Happening</h3>
+            <h3>What is happening</h3>
             {wait ? <span className="chip mono info">waiting</span> : null}
           </div>
           {wait ? (
@@ -8506,7 +7697,26 @@ function RunOverviewPanel(props: {
               {wait.prompt ? <div><span>Prompt</span><strong>{clamp_preview(String(wait.prompt), { max_chars: 260, max_lines: 3 })}</strong></div> : null}
             </div>
           ) : (
-            <div className="empty_state_inline">No active wait is reported for this run.</div>
+            (() => {
+              // Busy run, no wait: answer "what is happening" with the last
+              // step instead of a shrug (adversary 3 F2 — the real answer
+              // used to sit at the page bottom in Chronology).
+              const last = props.timeline_items.length ? props.timeline_items[props.timeline_items.length - 1] : null;
+              const last_rec: any = last?.record || null;
+              const last_node = String(last_rec?.node_id || "").trim();
+              const node = last_node && props.node_index ? (props.node_index as any)[last_node] : null;
+              const last_label = String(node?.label || last_node || "").trim();
+              const last_effect = String(last_rec?.effect?.type || "").trim();
+              if (!is_terminal && (last_label || last_effect)) {
+                return (
+                  <div className="overview_fact_list">
+                    {last_label ? <div><span>Last step</span><strong>{last_label}</strong></div> : null}
+                    {last_effect ? <div><span>Effect</span><strong className="mono">{last_effect}</strong></div> : null}
+                  </div>
+                );
+              }
+              return <div className="empty_state_inline">No active wait is reported for this run.</div>;
+            })()
           )}
           {missing ? <div className="warn_callout">{missing} provider call(s) have missing responses or errors.</div> : null}
         </section>
@@ -8534,6 +7744,77 @@ function RunOverviewPanel(props: {
               </button>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {/* SESSION FILES (was the Attachments tab). Honest name: these are
+        * session-memory attachments (often user-supplied inputs), not
+        * verified run OUTPUTS — "Produced" over-claimed provenance the
+        * query doesn't check (adversary 1 P1-3). Run products live on the
+        * System page's artifact explorer. */}
+      {props.attachments.length || props.session_id ? (
+        <section className="overview_panel">
+          <div className="overview_panel_header">
+            <h3>Session files</h3>
+            <span className="mono muted">{props.attachments.length ? `${props.attachments.length} file${props.attachments.length === 1 ? "" : "s"}` : ""}</span>
+            <button className="btn btn_sm" onClick={props.on_refresh_attachments} disabled={props.attachments_loading || !props.session_id}>
+              {props.attachments_loading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+          {props.attachments_error ? <div className="warn_callout">{props.attachments_error}</div> : null}
+          {!props.attachments.length ? (
+            <div className="empty_state_inline">No files in this run's session yet.</div>
+          ) : (
+            <div className="produced_list">
+              {props.attachments.map((a: any) => {
+                const artifact_id = String(a?.artifact_id || "").trim();
+                if (!artifact_id) return null;
+                const tags = a?.tags && typeof a.tags === "object" ? (a.tags as any) : {};
+                const label = String(tags?.path || "").trim() ? `@${String(tags.path).trim()}` : String(tags?.filename || "").trim() || artifact_id;
+                const size_bytes = typeof a?.size_bytes === "number" ? Number(a.size_bytes) : null;
+                const busy = props.attachments_loading || !props.attachments_ready;
+                return (
+                  <div key={artifact_id} className="produced_row">
+                    <span className="produced_name mono" title={artifact_id}>{label}</span>
+                    <span className="mono muted">{size_bytes !== null ? `${size_bytes.toLocaleString()} B` : ""}</span>
+                    <span className="produced_actions">
+                      <button className="btn btn_sm" onClick={() => props.on_preview_attachment(a)} disabled={busy}>Preview</button>
+                      <button className="btn btn_sm" onClick={() => props.on_download_attachment(a)} disabled={busy}>Download</button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {/* CHRONOLOGY (was the Timeline tab): the run as a human-readable
+        * story, oldest → newest. Collapsed to the newest slice by default:
+        * rendering hundreds of scrollable articles at the bottom of the
+        * default tab was a wheel-capture gauntlet (adversary 1 P1-4), and
+        * the count must say when it is a slice. */}
+      {props.timeline_items.length ? (
+        <section className="overview_panel">
+          <div className="overview_panel_header">
+            <h3>Chronology</h3>
+            <span className="mono muted">
+              {chronology_expanded || props.timeline_items.length <= CHRONOLOGY_PREVIEW_COUNT
+                ? `${props.timeline_items.length} steps`
+                : `last ${CHRONOLOGY_PREVIEW_COUNT} of ${props.timeline_items.length} steps`}
+            </span>
+            {props.timeline_items.length > CHRONOLOGY_PREVIEW_COUNT ? (
+              <button className="btn btn_sm" onClick={() => set_chronology_expanded((v) => !v)}>
+                {chronology_expanded ? "Show fewer" : "Show all"}
+              </button>
+            ) : null}
+          </div>
+          <HumanTimelinePanel
+            items={chronology_expanded ? props.timeline_items : props.timeline_items.slice(-CHRONOLOGY_PREVIEW_COUNT)}
+            node_index={props.node_index}
+            workflow_label_by_id={props.workflow_label_by_id}
+            on_copy={props.on_copy}
+          />
         </section>
       ) : null}
     </div>
@@ -8628,109 +7909,6 @@ function HumanTimelinePanel(props: {
           </article>
         );
       })}
-    </div>
-  );
-}
-
-function ProviderActivityPanel(props: {
-  activities: ProviderActivity[];
-  audit_log_text: string;
-  audit_log_meta: string;
-  audit_log_loading: boolean;
-  audit_log_error: string;
-  on_refresh_audit: () => void;
-  on_copy: (text: string) => void;
-}): React.ReactElement {
-  const total_tokens = props.activities.reduce((n, a) => n + (Number(a.tokens.total) || 0), 0);
-  const missing = props.activities.filter((a) => a.missing_response || a.error).length;
-  const providers = Array.from(new Set(props.activities.map((a) => [a.provider, a.model].filter(Boolean).join("/")).filter(Boolean))).slice(0, 8);
-
-  return (
-    <div className="provider_panel">
-      <div className="metric_grid compact">
-        <div className="metric_tile">
-          <span>Calls</span>
-          <strong>{props.activities.length.toLocaleString()}</strong>
-        </div>
-        <div className="metric_tile">
-          <span>Tokens</span>
-          <strong>{total_tokens ? total_tokens.toLocaleString() : "—"}</strong>
-        </div>
-        <div className="metric_tile">
-          <span>Issues</span>
-          <strong>{missing.toLocaleString()}</strong>
-        </div>
-        <div className="metric_tile">
-          <span>Providers</span>
-          <strong>{providers.length ? providers.length.toLocaleString() : "—"}</strong>
-        </div>
-      </div>
-
-      <section className="overview_panel">
-        <div className="overview_panel_header">
-          <h3>Provider Calls In This Run</h3>
-          <span className="mono muted">{providers.join(", ") || "no model calls detected"}</span>
-        </div>
-        {!props.activities.length ? <div className="empty_state_inline">No LLM provider activity is present in the loaded ledger.</div> : null}
-        <div className="provider_activity_list">
-          {props.activities.map((a) => (
-            <article key={a.id} className={`provider_activity ${a.error || a.missing_response ? "danger" : ""}`}>
-              <div className="provider_activity_header">
-                <div>
-                  <h4>{[a.provider || "provider?", a.model || "model?"].join(" / ")}</h4>
-                  <div className="timeline_subtitle">
-                    <span className="mono">{short_id(a.run_id, 13)}</span>
-                    {a.node_id ? <span className="mono">{a.node_id}</span> : null}
-                    <span>{format_duration_ms(a.duration_ms)}</span>
-                  </div>
-                </div>
-                <div className="provider_tokens mono">
-                  {a.tokens.total ? a.tokens.total.toLocaleString() : "—"} tokens
-                </div>
-              </div>
-              <div className="provider_preview_grid">
-                <div>
-                  <span>Prompt</span>
-                  <p>{a.prompt_preview || "—"}</p>
-                </div>
-                <div>
-                  <span>Response</span>
-                  <p>{a.response_preview || (a.error ? a.error : "No response captured")}</p>
-                </div>
-              </div>
-              <div className="timeline_actions">
-                <button className="btn btn_icon" onClick={() => props.on_copy(a.prompt_preview)} disabled={!a.prompt_preview}>
-                  <Icon name="copy" size={14} />
-                  Prompt
-                </button>
-                <button className="btn btn_icon" onClick={() => props.on_copy(a.response_preview)} disabled={!a.response_preview}>
-                  <Icon name="copy" size={14} />
-                  Response
-                </button>
-                <button className="btn btn_icon" onClick={() => props.on_copy(JSON.stringify(a.raw, null, 2))}>
-                  <Icon name="copy" size={14} />
-                  JSON
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="overview_panel">
-        <div className="overview_panel_header">
-          <h3>Gateway Audit Tail</h3>
-          <div className="actions" style={{ marginTop: 0 }}>
-            {props.audit_log_meta ? <span className="mono muted">{props.audit_log_meta}</span> : null}
-            <button className="btn btn_icon" onClick={props.on_refresh_audit} disabled={props.audit_log_loading}>
-              <Icon name="refresh" size={14} />
-              {props.audit_log_loading ? "Loading…" : "Refresh"}
-            </button>
-          </div>
-        </div>
-        {props.audit_log_error ? <div className="warn_callout">{props.audit_log_error}</div> : null}
-        <pre className="mono audit_log_tail">{props.audit_log_text || "(audit tail not loaded)"}</pre>
-      </section>
     </div>
   );
 }
@@ -9128,29 +8306,35 @@ function RuntimeActivityConsole(props: {
 
   return (
     <div className="runtime_ops_layout">
-      <aside className="runtime_ops_filters">
-        <div className="runtime_ops_filter_header">
-          <strong>Queues</strong>
+      <aside className="pane runtime_ops_filters">
+        <div className="pane_header runtime_ops_filter_header">
+          <span className="pane_title">Queues</span>
+          <div className="pane_spacer" />
           <button className="btn btn_icon" onClick={props.gateway_connected ? props.on_refresh_runs : props.on_reconnect}>
             <Icon name="refresh" size={14} />
             {props.gateway_connected ? "Refresh" : "Reconnect"}
           </button>
         </div>
-        {filters.map((f) => (
-          <button key={f.key} className={`runtime_ops_filter ${filter === f.key ? "selected" : ""}`} aria-pressed={filter === f.key} onClick={() => set_filter(f.key)}>
-            <span>{f.label}</span>
-            <strong className="mono">{f.count.toLocaleString()}</strong>
-          </button>
-        ))}
-        <div className="runtime_ops_hint">
-          Counts are for the loaded runtime page. Refine search or refresh when supervising large runtimes.
+        <div className="pane_body scroll runtime_ops_queue_list">
+          {filters.map((f) => (
+            <button key={f.key} className={`runtime_ops_filter ${filter === f.key ? "selected" : ""}`} aria-pressed={filter === f.key} onClick={() => set_filter(f.key)}>
+              <span>{f.label}</span>
+              <strong>{f.count.toLocaleString()}</strong>
+            </button>
+          ))}
+          <div className="runtime_ops_hint">
+            Counts are for the loaded runtime page. Refine search or refresh when supervising large runtimes.
+          </div>
         </div>
       </aside>
 
-      <section className="runtime_ops_table_panel">
-        <div className="runtime_ops_toolbar">
-          <input className="mono" value={query} onChange={(e) => set_query(e.target.value)} placeholder="Search workflow, run, node, status, error" />
-          <select className="mono seg_select" value={sort} onChange={(e) => set_sort(e.target.value as any)}>
+      <section className="pane runtime_ops_table_panel">
+        <div className="pane_header runtime_ops_list_header">
+          <span className="pane_title">Runs</span>
+          <span className="pane_count">{rows.length.toLocaleString()}</span>
+          <div className="pane_spacer" />
+          <input value={query} onChange={(e) => set_query(e.target.value)} placeholder="Search workflow, run, node, status, error" />
+          <select className="seg_select" value={sort} onChange={(e) => set_sort(e.target.value as any)}>
             <option value="attention">Attention order</option>
             <option value="recent">Latest event</option>
             <option value="oldest">Oldest event</option>
@@ -9159,100 +8343,85 @@ function RuntimeActivityConsole(props: {
             <option value="workflow">Workflow</option>
           </select>
         </div>
-        <div className="runtime_ops_table_scroll">
-          <table className="runtime_ops_table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Workflow / Run</th>
-                <th>Blocking / Current Activity</th>
-                <th>Age</th>
-                <th>Last Event</th>
-                <th>Calls</th>
-                <th>Visible artifacts</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!rows.length ? (
-                <tr>
-                  <td colSpan={8} className="runtime_ops_empty">
-                    {props.gateway_connected ? "No runs match this queue." : "Gateway offline. Runtime activity cannot be loaded until the connection is restored."}
-                  </td>
-                </tr>
-              ) : null}
-              {rows.map((view) => {
-                const r = view.run as RunSummary;
-                const rid = String(r.run_id || "").trim();
-                const artifact_count = artifact_counts[rid] || 0;
-                return (
-                  <tr
-                    key={rid}
-                    className={rid === selected_run_id ? "selected" : ""}
-                    aria-selected={rid === selected_run_id}
-                    tabIndex={0}
-                    onClick={() => {
-                      set_selected_id(rid);
-                      props.on_select_run(rid);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        set_selected_id(rid);
-                        props.on_select_run(rid);
-                      }
-                    }}
-                  >
-                    <td><RunStatusPill status={r.status} /></td>
-                    <td>
-                      <strong>{run_workflow_label(r, props.workflow_label_by_id)}</strong>
-                      <span className="mono">{short_id(rid, 18)}</span>
-                      {r.session_id ? <span className="mono">session {short_id(String(r.session_id), 14)}</span> : null}
-                      {r.parent_run_id ? <span className="mono muted">child of {short_id(String(r.parent_run_id), 10)}</span> : null}
-                    </td>
-                    <td>
-                      <span>{view.reason}</span>
-                      {r.current_node ? <span className="mono muted">{String(r.current_node)}</span> : null}
-                      {view.is_stale ? <span className="chip mono warn">stale</span> : null}
-                    </td>
-                    <td>
-                      <span>{run_duration_label(r)}</span>
-                      <span className="muted">{display_datetime(run_started_at(r))}</span>
-                    </td>
-                    <td>{format_time_ago(r.updated_at || r.created_at)}</td>
-                    <td>
-                      <span className="mono">{Number(r.llm_calls || 0).toLocaleString()} llm</span>
-                      <span className="mono">{Number(r.tool_calls || 0).toLocaleString()} tools</span>
-                      <span className="mono">{Number(r.tokens_total || 0).toLocaleString()} tok</span>
-                    </td>
-                    <td className="mono">{artifact_count.toLocaleString()}</td>
-                    <td>
-                      <div className="runtime_ops_actions">
-                        {view.needs_user_action ? (
-                          <button className="btn primary" onClick={(e) => { e.stopPropagation(); props.on_open_run(rid); }}>{view.action_label}</button>
-                        ) : (
-                          <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_open_run(rid); }}>Open</button>
-	                        )}
-	                        <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_open_ledger(rid); }}>Ledger</button>
-	                        <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_select_run(rid); props.on_open_logs(); }}>Logs</button>
-	                        <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_filter_artifacts(rid); }}>Artifacts</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="pane_body scroll runtime_ops_rows">
+          {!rows.length ? (
+            <div className="runtime_ops_empty">
+              {props.gateway_connected ? "No runs match this queue." : "Gateway offline. Runtime activity cannot be loaded until the connection is restored."}
+            </div>
+          ) : null}
+          {rows.map((view) => {
+            const r = view.run as RunSummary;
+            const rid = String(r.run_id || "").trim();
+            const artifact_count = artifact_counts[rid] || 0;
+            return (
+              <div
+                key={rid}
+                className={`raised runtime_ops_row ${rid === selected_run_id ? "selected" : ""}`}
+                aria-current={rid === selected_run_id ? "true" : undefined}
+                tabIndex={0}
+                onClick={() => {
+                  set_selected_id(rid);
+                  props.on_select_run(rid);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    set_selected_id(rid);
+                    props.on_select_run(rid);
+                  }
+                }}
+              >
+                <div className="runtime_ops_row_top">
+                  <strong className="runtime_ops_row_name">{run_workflow_label(r, props.workflow_label_by_id)}</strong>
+                  {view.is_stale ? <span className="chip warn">stale</span> : null}
+                  <RunStatusPill status={r.status} />
+                </div>
+                <div className="runtime_ops_row_sub">
+                  <span className="mono">{short_id(rid, 18)}</span>
+                  <span>{format_time_ago(r.updated_at || r.created_at)}</span>
+                  <span>{run_duration_label(r)}</span>
+                  <span className="runtime_ops_row_reason" title={view.reason}>{view.reason}</span>
+                </div>
+                <div className="runtime_ops_row_foot">
+                  <span className="runtime_ops_row_facts">
+                    <span>{Number(r.llm_calls || 0).toLocaleString()} llm</span>
+                    <span>{Number(r.tool_calls || 0).toLocaleString()} tools</span>
+                    <span>{Number(r.tokens_total || 0).toLocaleString()} tok</span>
+                    <span>{artifact_count.toLocaleString()} artifacts</span>
+                  </span>
+                  <div className="runtime_ops_actions">
+                    {view.needs_user_action ? (
+                      <button className="btn primary" onClick={(e) => { e.stopPropagation(); props.on_open_run(rid); }}>{view.action_label}</button>
+                    ) : (
+                      <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_open_run(rid); }}>Open</button>
+                    )}
+                    <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_open_ledger(rid); }}>Ledger</button>
+                    <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_select_run(rid); props.on_open_logs(); }}>Logs</button>
+                    <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_filter_artifacts(rid); }}>Artifacts</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      <aside className="runtime_ops_inspector">
+      <aside className="pane runtime_ops_inspector">
+        <div className="pane_header">
+          <span className="pane_title">Run inspector</span>
+          {selected ? (
+            <>
+              <div className="pane_spacer" />
+              <RunStatusPill status={selected.status} />
+            </>
+          ) : null}
+        </div>
+        <div className="pane_body scroll runtime_ops_inspector_body">
         {!selected ? (
           <div className="empty_state_inline">Select a run to inspect why it is active or blocked.</div>
         ) : (
           <>
             <div className="runtime_ops_inspector_head">
-              <RunStatusPill status={selected.status} />
               <h3>{run_workflow_label(selected, props.workflow_label_by_id)}</h3>
               <span className="mono">{short_id(selected_run_id, 28)}</span>
             </div>
@@ -9316,14 +8485,14 @@ function RuntimeActivityConsole(props: {
                       <React.Fragment key={`${String((tc as any)?.name || "tool")}:${idx}`}>
                         <span className="chip mono warn">{String((tc as any)?.name || "tool")}</span>
                         {tool_risk_labels(tc).map((label) => (
-                          <span key={`${idx}:${label}`} className="chip mono muted">{label}</span>
+                          <span key={`${idx}:${label}`} className="chip muted">{label}</span>
                         ))}
                       </React.Fragment>
                     ))}
                   </div>
                 ) : null}
                 <details className="runtime_raw_details">
-                  <summary className="mono muted">Raw wait payload</summary>
+                  <summary className="muted">Raw wait payload</summary>
                   <SharedJsonViewer value={waiting} collapseAfterDepth={3} showCopy={true} />
                 </details>
               </div>
@@ -9338,6 +8507,7 @@ function RuntimeActivityConsole(props: {
             </div>
           </>
         )}
+        </div>
       </aside>
     </div>
   );
@@ -9406,6 +8576,11 @@ function RuntimeExplorerPage(props: {
   on_refresh_runs: () => void;
   on_reconnect: () => void;
   on_open_settings: () => void;
+  /* System page (redesign wave B): the knowledge-graph memory explorer
+   * (the old standalone Mindmap page) lives here as a tab, not as its
+   * own top-level page. It renders MEMORY assertions, not workflows —
+   * the tab must never be labeled "Workflows" (adversary-caught lie). */
+  memory_panel: React.ReactNode;
 }): React.ReactElement {
   const selected = props.selected_artifact;
   const artifact_type_options: RuntimeArtifactTypeFilter[] = ["voice", "music", "sound", "recording", "audio", "image", "video", "markdown", "html", "json", "document", "code", "text", "other"];
@@ -9418,6 +8593,10 @@ function RuntimeExplorerPage(props: {
   ];
   const selected_type_filters = useMemo(() => new Set(props.type_filters), [props.type_filters]);
   const artifact_total_count = Math.max(0, Number(props.artifact_total_count || 0));
+  // The header count is the FILTERED total when any artifact filter is on —
+  // label it so other tabs don't read it as the system inventory.
+  const artifact_filters_active =
+    Boolean(props.query.trim()) || props.type_filters.length > 0 || props.date_filter !== "all" || props.scope !== "all" || Boolean(props.artifact_run_filter.trim());
   const artifact_page_size = Math.max(1, Number(props.artifact_page_size || 500));
   const artifact_total_pages = Math.max(1, Math.ceil(artifact_total_count / artifact_page_size));
   const artifact_page = Math.min(Math.max(0, Number(props.artifact_page || 0)), artifact_total_pages - 1);
@@ -9555,12 +8734,20 @@ function RuntimeExplorerPage(props: {
     <div className="page runtime_page">
       <section className="runtime_header">
         <div>
-          <div className="run_hero_eyebrow">Runtime explorer</div>
-          <h2>{props.tab === "activity" ? "Activity monitor" : props.tab === "artifacts" ? "Artifact explorer" : "Runtime logs"}</h2>
+          <div className="run_hero_eyebrow">System</div>
+          <h2>{props.tab === "activity" ? "Activity monitor" : props.tab === "artifacts" ? "Artifact explorer" : props.tab === "memory" ? "Active memory" : "Logs"}</h2>
           <div className="run_hero_meta">
             <span className={`status_pill ${props.gateway_connected ? "ok" : "warn"}`}>{props.gateway_connected ? "gateway connected" : "gateway offline"}</span>
-            {props.tab === "artifacts" && props.artifact_run_filter ? <span className="mono">filtered run {short_id(props.artifact_run_filter, 18)}</span> : null}
-            {props.session_id ? <span className="mono">session {short_id(props.session_id, 18)}</span> : null}
+            {props.tab === "artifacts" && props.artifact_run_filter ? (
+              <span className="chip muted">
+                filtered run <span className="mono">{short_id(props.artifact_run_filter, 18)}</span>
+              </span>
+            ) : null}
+            {props.session_id ? (
+              <span className="chip muted">
+                session <span className="mono">{short_id(props.session_id, 18)}</span>
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="metric_grid compact runtime_header_metrics">
@@ -9577,14 +8764,14 @@ function RuntimeExplorerPage(props: {
             <strong>{runtime_metric_label(run_groups.failed.length)}</strong>
           </div>
           <div className="metric_tile">
-            <span>Artifacts</span>
+            <span>Artifacts{artifact_filters_active ? " (filtered)" : ""}</span>
             <strong>{runtime_metric_label(artifact_total_count)}</strong>
           </div>
         </div>
       </section>
 
-      <nav className="runtime_mode_tabs" role="tablist" aria-label="Runtime sections">
-        {(["activity", "artifacts", "logs"] as RuntimeTab[]).map((tab) => (
+      <nav className="runtime_mode_tabs" role="tablist" aria-label="System sections">
+        {(["activity", "artifacts", "memory", "logs"] as RuntimeTab[]).map((tab) => (
           <button
             key={tab}
             role="tab"
@@ -9592,8 +8779,8 @@ function RuntimeExplorerPage(props: {
             className={`runtime_mode_tab ${props.tab === tab ? "active" : ""}`}
             onClick={() => props.on_tab_change(tab)}
           >
-            <Icon name={tab === "activity" ? "history" : tab === "artifacts" ? "download" : "terminal"} size={14} />
-            <span>{tab === "activity" ? "Activity" : tab === "artifacts" ? "Artifacts" : "Logs"}</span>
+            <Icon name={tab === "activity" ? "history" : tab === "artifacts" ? "download" : tab === "memory" ? "agent" : "terminal"} size={14} />
+            <span>{tab === "activity" ? "Activity" : tab === "artifacts" ? "Artifacts" : tab === "memory" ? "Memory" : "Logs"}</span>
           </button>
         ))}
       </nav>
@@ -9602,7 +8789,7 @@ function RuntimeExplorerPage(props: {
         <div className="runtime_offline_banner" role="status">
           <div>
             <strong>Gateway offline</strong>
-            <span>Runtime activity, artifacts, and logs are unavailable until the gateway reconnects.</span>
+            <span>Activity, artifacts, memory, and logs are unavailable until the gateway reconnects.</span>
           </div>
           <div>
             <button className="btn primary" onClick={props.on_reconnect}>Reconnect</button>
@@ -9641,18 +8828,26 @@ function RuntimeExplorerPage(props: {
         />
       ) : null}
 
+      {props.tab === "memory" ? (
+        props.memory_panel ? (
+          <div className="runtime_memory_panel">{props.memory_panel}</div>
+        ) : (
+          <div className="empty_state_inline">The memory explorer needs a gateway connection — sign in to browse knowledge-graph assertions.</div>
+        )
+      ) : null}
+
       {props.tab === "artifacts" ? (
         <>
-          <section className="runtime_artifact_toolbar" aria-label="Find artifacts">
+          <section className="pane runtime_artifact_toolbar" aria-label="Find artifacts">
             <div className="runtime_artifact_toolbar_top">
               <label className="artifact_filter_field artifact_filter_search">
                 <span>Search</span>
-                <input className="mono" value={props.query} onChange={(e) => props.on_query_change(e.target.value)} placeholder="title, path, hash, run, workflow, tag" />
+                <input value={props.query} onChange={(e) => props.on_query_change(e.target.value)} placeholder="title, path, hash, run, workflow, tag" />
               </label>
               <label className="artifact_filter_field">
                 <span>Scope</span>
                 <select
-                  className="mono seg_select"
+                  className="seg_select"
                   value={props.scope}
                   onChange={(e) => {
                     const next = e.target.value as "all" | "session" | "run";
@@ -9669,7 +8864,7 @@ function RuntimeExplorerPage(props: {
               </label>
               <label className="artifact_filter_field">
                 <span>Group</span>
-                <select className="mono seg_select" value={props.group_by} onChange={(e) => props.on_group_by_change(e.target.value as RuntimeArtifactGroupMode)}>
+                <select className="seg_select" value={props.group_by} onChange={(e) => props.on_group_by_change(e.target.value as RuntimeArtifactGroupMode)}>
                   <option value="type">Type</option>
                   <option value="time">Date</option>
                   <option value="turn">Turn</option>
@@ -9682,7 +8877,7 @@ function RuntimeExplorerPage(props: {
               </label>
               <label className="artifact_filter_field">
                 <span>Sort</span>
-                <select className="mono seg_select" value={props.sort_by} onChange={(e) => props.on_sort_by_change(e.target.value as RuntimeArtifactSortMode)}>
+                <select className="seg_select" value={props.sort_by} onChange={(e) => props.on_sort_by_change(e.target.value as RuntimeArtifactSortMode)}>
                   <option value="newest">Newest</option>
                   <option value="oldest">Oldest</option>
                   <option value="last_access">Last accessed</option>
@@ -9715,7 +8910,7 @@ function RuntimeExplorerPage(props: {
                       onClick={() => toggle_type_filter(kind)}
                     >
                       <span>{label}</span>
-                      <span className="mono">{props.gateway_connected ? count.toLocaleString() : "—"}</span>
+                      <span className="artifact_chip_count">{props.gateway_connected ? count.toLocaleString() : "—"}</span>
                     </button>
                   );
                 })}
@@ -9750,43 +8945,49 @@ function RuntimeExplorerPage(props: {
             )}
           </div>
           <div className="runtime_artifacts_layout">
-            <aside className="artifact_filter_rail">
-              <button className={`artifact_filter_run ${!props.artifact_run_filter ? "selected" : ""}`} onClick={() => set_run_artifact_filter("")}>
-                <strong>All artifacts</strong>
-                <span>{props.gateway_connected ? `${artifact_total_count.toLocaleString()} match${artifact_total_count === 1 ? "" : "es"}` : "counts unavailable"}</span>
-              </button>
-              {artifact_filter_runs.map((r) => {
-                const rid = String(r.run_id || "").trim();
-                const highlighted = rid === props.artifact_run_filter || rid === selected?.run_id;
-                return (
-                  <button key={rid} className={`artifact_filter_run ${highlighted ? "selected" : ""}`} onClick={() => set_run_artifact_filter(rid)} title={rid}>
-                    <strong>{run_workflow_label(r, props.workflow_label_by_id)}</strong>
-                    <span className="mono">{short_id(rid, 15)}</span>
-                    <span>{run_duration_label(r)}</span>
-                  </button>
-                );
-              })}
+            <aside className="pane artifact_filter_rail">
+              <div className="pane_header">
+                <span className="pane_title">Runs</span>
+                <span className="pane_count">{artifact_filter_runs.length.toLocaleString()}</span>
+              </div>
+              <div className="pane_body scroll artifact_filter_rail_list">
+                <button className={`artifact_filter_run ${!props.artifact_run_filter ? "selected" : ""}`} onClick={() => set_run_artifact_filter("")}>
+                  <strong>All artifacts</strong>
+                  <span>{props.gateway_connected ? `${artifact_total_count.toLocaleString()} match${artifact_total_count === 1 ? "" : "es"}` : "counts unavailable"}</span>
+                </button>
+                {artifact_filter_runs.map((r) => {
+                  const rid = String(r.run_id || "").trim();
+                  const highlighted = rid === props.artifact_run_filter || rid === selected?.run_id;
+                  return (
+                    <button key={rid} className={`artifact_filter_run ${highlighted ? "selected" : ""}`} onClick={() => set_run_artifact_filter(rid)} title={rid}>
+                      <strong>{run_workflow_label(r, props.workflow_label_by_id)}</strong>
+                      <span className="mono">{short_id(rid, 15)}</span>
+                      <span>{run_duration_label(r)}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </aside>
-            <section className="runtime_artifact_browser">
-          <div className="overview_panel_header artifact_browser_header">
-            <div>
-              <h3>Artifact Explorer</h3>
-              <span className="mono muted">
-                {artifact_total_count
-                  ? `${artifact_page_start.toLocaleString()}-${artifact_page_end.toLocaleString()} of ${artifact_total_count.toLocaleString()}`
-                  : "0 items"}
-              </span>
-            </div>
+            <section className="pane runtime_artifact_browser">
+          <div className="pane_header artifact_browser_header">
+            <span className="pane_title">Artifacts</span>
+            <span className="pane_count">
+              {artifact_total_count
+                ? `${artifact_page_start.toLocaleString()}-${artifact_page_end.toLocaleString()} of ${artifact_total_count.toLocaleString()}`
+                : "0 items"}
+            </span>
+            <div className="pane_spacer" />
             {artifact_total_pages > 1 ? (
               <div className="artifact_pagination" aria-label="Artifact pages">
                 <button className="btn" onClick={() => props.on_artifact_page_change(0)} disabled={artifact_page <= 0}>First</button>
                 <button className="btn" onClick={() => props.on_artifact_page_change(artifact_page - 1)} disabled={artifact_page <= 0}>Prev</button>
-                <span className="mono muted">Page {(artifact_page + 1).toLocaleString()} / {artifact_total_pages.toLocaleString()}</span>
+                <span className="muted artifact_page_label">Page {(artifact_page + 1).toLocaleString()} / {artifact_total_pages.toLocaleString()}</span>
                 <button className="btn" onClick={() => props.on_artifact_page_change(artifact_page + 1)} disabled={artifact_page >= artifact_total_pages - 1}>Next</button>
                 <button className="btn" onClick={() => props.on_artifact_page_change(artifact_total_pages - 1)} disabled={artifact_page >= artifact_total_pages - 1}>Last</button>
               </div>
             ) : null}
           </div>
+          <div className="pane_body scroll artifact_browser_body">
           {!props.artifact_groups.length ? (
             <div className="empty_state_inline">
               {props.gateway_connected ? "No artifacts match the current filters." : "Gateway offline. Artifact inventory cannot be loaded until the connection is restored."}
@@ -9797,7 +8998,7 @@ function RuntimeExplorerPage(props: {
               <section key={group.key} className="artifact_group">
                 <div className="artifact_group_header">
                   <span>{group.key}</span>
-                  <span className="mono">{group.items.length}</span>
+                  <span className="artifact_group_count">{group.items.length}</span>
                 </div>
                 {group.items.map((a) => {
 	                  const row_run = a.run_id ? props.run_by_id[a.run_id] || null : null;
@@ -9848,6 +9049,7 @@ function RuntimeExplorerPage(props: {
                 })}
               </section>
             ))}
+          </div>
           </div>
             </section>
 
@@ -10188,8 +9390,7 @@ function LedgerCard(props: {
 
   const status = String(item.status || "").trim();
   const st = status.toLowerCase();
-  const status_cls =
-    st === "completed" ? "ok" : st === "failed" ? "danger" : st === "waiting" ? "warn" : st === "running" ? "info" : "muted";
+  const status_cls = run_status_class(st);
 
   const response_text = extract_response_text_from_record(item.data);
   const has_response = Boolean(response_text && response_text.trim());

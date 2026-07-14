@@ -26,6 +26,17 @@ function _join(base_url: string, path: string): string {
   return `${base}${path}`;
 }
 
+/** Default fetch deadline (30s), composable with a caller's abort signal.
+ * Loops without deadlines wedge silently — the entity strip, discovery,
+ * and subrun digest polls each froze forever on one stalled connection
+ * (fable5 code adversary P2, 2026-07-13). */
+function _deadline(caller?: AbortSignal, ms = 30_000): AbortSignal {
+  const timeout = AbortSignal.timeout(ms);
+  if (!caller) return timeout;
+  const any_fn = (AbortSignal as any).any;
+  return typeof any_fn === "function" ? any_fn([caller, timeout]) : caller;
+}
+
 function _auth_headers(token?: string): Record<string, string> {
   const t = (token || "").trim();
   const out: Record<string, string> = {};
@@ -397,10 +408,23 @@ export class GatewayClient {
   async list_entities(): Promise<{ entities: any[] }> {
     const r = await fetch(_join(this._cfg.base_url, "/api/gateway/entities"), {
       headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: _deadline(),
     });
     if (!r.ok) throw new Error(`list_entities failed: ${await _read_error(r)}`);
     const body = await r.json();
     return { entities: Array.isArray(body?.entities) ? body.entities : [] };
+  }
+
+  /** B3 cognition wire (gateway c1390): working truth + billed spend for
+   * one entity — {working, loop, visit, spend:{lifetime,live_visit,source},
+   * warnings[]}. 404 on pre-wire gateways; callers degrade to heuristics. */
+  async get_entity_cognition(name: string): Promise<any> {
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/entities/${encodeURIComponent(name)}/cognition`), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: _deadline(),
+    });
+    if (!r.ok) throw new Error(`get_entity_cognition failed: ${await _read_error(r)}`);
+    return await r.json();
   }
 
   async get_entity_card(name: string): Promise<any> {
@@ -408,12 +432,16 @@ export class GatewayClient {
     if (!n) throw new Error("get_entity_card: name is required");
     const r = await fetch(_join(this._cfg.base_url, `/api/gateway/entities/${encodeURIComponent(n)}/card`), {
       headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: _deadline(),
     });
     if (!r.ok) throw new Error(`get_entity_card failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
-  async get_ledger(run_id: string, opts: { after: number; limit: number }): Promise<{ items: any[]; next_after: number }> {
+  async get_ledger(
+    run_id: string,
+    opts: { after: number; limit: number; signal?: AbortSignal },
+  ): Promise<{ items: any[]; next_after: number }> {
     const after = Number(opts?.after || 0);
     const limit = Number(opts?.limit || 0);
     const url = _join(
@@ -426,6 +454,9 @@ export class GatewayClient {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
+      // Caller signal (attach abort) + deadline: replay paging was the one
+      // loop that could neither be cancelled nor time out (fable5 P0).
+      signal: _deadline(opts?.signal),
     });
     if (!r.ok) throw new Error(`get_ledger failed: ${r.status}`);
     const body = await r.json();
@@ -447,6 +478,7 @@ export class GatewayClient {
         ..._auth_headers(this._cfg.auth_token),
       },
       body: JSON.stringify({ runs, limit }),
+      signal: _deadline(),
     });
     if (!r.ok) throw new Error(`get_ledger_batch failed: ${r.status}`);
     const body = await r.json();
@@ -635,6 +667,9 @@ export class GatewayClient {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
+      // Discovery rides this call — a hang left discovery_loading true
+      // forever (Reload/Upload disabled, "Connecting…" persisting).
+      signal: _deadline(),
     });
     if (!r.ok) throw new Error(`list_bundles failed: ${r.status}`);
     return await r.json();

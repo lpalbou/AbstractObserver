@@ -588,6 +588,92 @@ export default defineConfig({
 
 # Changelog
 
+## 2026-07-13 — B5 adoption: useGatewayConnection is the connection machine
+
+The bug-wave B5 ruling ("login/auth should be consistent across apps")
+landed as a uic hook that IS the shared state machine. Observer adopts:
+
+- `useGatewayConnection({ variant: "dismissable" })` replaces the
+  app-local machine — boot probe, auto-open on resolved disconnect, close
+  on the sign-in transition, once-per-episode re-arm and initialStatus
+  dedupe are the hook's now. `<GatewayConnectModal {...modalProps} />`.
+- `handle_connection_status` keeps only the APP reactions: fresh sign-in →
+  session mode + discovery; sign-out → app disconnect; plus the direct
+  dev-bearer fallback (tried once per signed-out episode) that the old
+  boot effect carried.
+- The `auto_connect_gateway` boot toggle is superseded by the ruled
+  contract (signed-out is a sign-in screen); explicit connect buttons call
+  `openModal()`; the Settings sign-out path rides `conn.signOut()` (uic
+  folded the verb same-hour from this adoption's datum — the interim
+  refresh-poke wart lived for one commit).
+- Auth pins updated (`useGatewayConnection` + `modalProps` are the new
+  contract markers).
+
+## 2026-07-13 — Board entity tiles: activity freshness (bug wave B3, observer half)
+
+Operator: "unclear when it's working and consuming credits." The board's
+half of the fix, shippable from existing card data: each entity tile now
+shows "● active" (pulsing, reduced-motion aware) when the last recorded
+moment is under 60s old, or an honest "Xm ago" otherwise; nothing renders
+when the card carries no timestamp (never fabricate). Tick-phase and
+token-spend indicators follow when gateway/runtime expose the wire (lane
+confirmed on commons c1312). The in-app graph/ledger consistency half
+belongs to the entity app since the split.
+
+## 2026-07-13 — SteerComposer wired (uic kit wave)
+
+The kit shipped the shared steer composer (commons c1239; hooks P3
+surfacing). The Observe toolbar now carries it for any attached
+non-terminal run: mid-run guidance submits as the durable
+`inject_guidance` command through `gateway.submit_command` (session
+proxy + CSRF and direct bearer both work via the submit override).
+Status honesty per the contract: the composer says "Queued (seq N)";
+DELIVERY is the ledger's own `abstract.steer_seen` line (already
+rendered with a human preview). Waiting runs show the kit's parked
+note — steers do not wake runs.
+
+DisclosureList/AfChip adoption (the ledger-list fork deletion) is
+assessed as a separate refactor wave — the observe ledger list is
+virtualized custom rendering; adopting the kit list is real surgery,
+scheduled next session rather than rushed at 4am.
+
+## 2026-07-13 — Connected-first startup (the 10-15s "Connecting…" fix)
+
+Operator incident (02:12, screenshot): first connect on localhost pinned
+on "Connecting…" for 10-15s. Measured root cause: the connected state
+gated behind a SERIALIZED waterfall — probe → bundles → runs → tools ∥
+providers — and the gateway runs listing is a whale (2.2-7.9s server-side
+at ~500 runs with metrics; `/api/health` answers in 1ms). Five round
+trips, four serialized stages, slowest one 2-8s.
+
+- **Connected-first**: `run_discovery` flips `gateway_connected` as soon
+  as auth is proven (session probe / modal sign-in / bearer preflight) and
+  runs all four discovery fetches in ONE `Promise.allSettled`. The board
+  paints immediately; each surface fills as its fetch lands.
+- **Bearer preflight** (adversary): the direct dev path now proves the
+  typed token with one ~20ms authenticated call before flipping connected
+  — a wrong token stays on the sign-in screen with a real error, exactly
+  as before.
+- **All-rejected guard** (adversary): if every discovery fetch fails, the
+  app drops back to the sign-in screen with `discovery_error` set instead
+  of staying "connected" over a dead gateway.
+- **Honest first paint** (adversary): before the first runs payload lands,
+  the board says "loading runs…"/"loading…" instead of claiming
+  "0 need you" over empty columns.
+- **Self-tuning poll**: the 5s/30s runs poll now waits at least 3× the
+  last request's duration — a 3s server response polls at ~9-10s instead
+  of making the board the gateway's main load; fast servers keep 5s.
+  Rescheduling moved into `finally` (a future throwing refresh must never
+  silently kill the poll), single-chain guards added.
+- **Epoch guard** (adversary): sign-out during in-flight discovery/runs
+  bumps an epoch; late results can no longer repopulate a signed-out app.
+- **`list_runs` deadline**: 30s `AbortSignal.timeout` so a stalled-open
+  connection can't wedge the poll chain with Refresh disabled forever.
+
+Server-side half reported to gateway on commons: the runs listing itself
+(2.2-7.9s at ~500 runs) is theirs to optimize; the poll self-tunes back to
+5s when it gets fast.
+
 ## 2026-07-12 — AbstractEntity split: adversary fold
 
 Two fable5 adversaries attacked the split (one per side); observer-side

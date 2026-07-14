@@ -1,5 +1,443 @@
 # Changelog
 
+## 2026-07-14 — COMPLETE aesthetic refactor (operator order; five-agent build)
+
+The full look-and-feel rebuild the operator ordered at 06:11. One design
+system, five layers, every page:
+
+- **Foundation (styles.css)**: a real design language derived entirely
+  from kit tokens via color-mix (all 20+ themes survive) — three-elevation
+  surface system (recessed `--canvas`, floating `--pane-bg` with top-light
+  gradient + layered shadows, interactive `--raised-bg`), the pane grammar
+  (`.pane/.pane_header/.pane_title/.pane_count/.pane_body`), a real type
+  scale (`--t-page` 17/650 · `--t-section` 13/650 · `--t-small` 12 ·
+  `--t-micro` 11 uppercase for labels), one 32px button recipe with
+  tactile hover, numeric metric tiles, 52px header, softened nav active,
+  modal pop shadow + backdrop blur, page padding rhythm.
+- **Board (board.css + mission_control.tsx)**: stat cards instead of
+  pills, entity cards with name-first hierarchy, pane columns with
+  independent scroll, raised run cards, one warning cue on Review.
+- **Run page (observe.css + observe regions)**: navigator rail as a pane
+  with comfortable run rows (accent-inset selection), flat toolbar with
+  run identity, underline tabs (Story/Ledger/Flow/Ask), Story sections in
+  pane grammar with a calm outcome callout, raised ledger rows with
+  recessed payloads, double-scroll fix.
+- **System (system.css + RuntimeExplorerPage)**: flat console header,
+  underline section tabs, pane-based activity/artifacts/logs/memory,
+  raised artifact rows with accent-inset selection, recessed
+  preview/audit blocks. (Builder 3 died mid-edit on a transport error —
+  its unclosed JSX was repaired and the layer finished in the foreground.)
+- **Launch + Settings (forms.css + their regions)**: centered constrained
+  pane-section forms, uppercase micro field labels, one accent primary
+  per page, calm callouts.
+- **De-mono discipline everywhere**: mono is for identifiers and
+  payloads; UI labels/statuses/help are sans with the scale.
+
+Gates: tsc clean · 84/84 tests · build green · served on :3001
+(detached, both-port health check — :8080 was found dark at 12:32,
+reported to the gateway seat; not this restart's doing).
+
+## 2026-07-14 — Unified top-right cluster adopted (operator directive; shared through abstractuic)
+
+The operator rejected the rendered look again and named the missing
+piece: the SAME upper-right corner as AbstractFlow, shared through
+abstractuic. Adopted in full this session:
+
+- **AfTopBarActions** in the header: assistant (sparkle) → appearance
+  (contrast) → the ONE Disconnect pill driven by the connection PHASE
+  (never a boolean). The sidebar-footer connection *button* is deleted
+  (one disconnect truth); a passive LED + principal display remains.
+- **AfAppearanceDialog + useAppearanceSettings("abstractobserver")**:
+  theme/font-scale/header-density move off the Settings page into the
+  shared header dialog; per-app persistence with one-time migration from
+  the old settings blob; theme applies synchronously at first paint (no
+  flash). Settings keeps a pointer.
+- **App assistant** (`src/ui/app_assistant.tsx`): AfDrawer (keep-alive,
+  topOffset under the header) hosting panel-chat's AssistantPanel.
+  Transport v1: one gateway basic-agent run per question on a stable
+  session, grounded on this app's llms.txt (inlined `?raw` at build
+  time), answer read from the run ledger, 120s timeout; swaps to the
+  shared docs-qa bundle when the gateway ships it. Distinct from the run
+  page's Ask tab (that one is run-ledger-grounded).
+- **Screenshot eyesores fixed**: Summarize and Manage-connection off
+  accent-primary (accent = brand action, not every button); launch's
+  disabled button reads DISABLED (muted) with its reason under it, not
+  beside; long technical run titles clamp to two lines; Story hero
+  eyebrow says "Run" (it is a run, not a workflow).
+- **Hosted-guard test re-pinned**: the app-server SSRF fix (socket-peer
+  authority) deliberately removed Host-header 403s for loopback peers —
+  the old test pinned the removed behavior; the new pin asserts the
+  socket-peer contract (remote-peer half live-verified, commons c1799).
+
+84 tests green; build clean; served detached on :3001 with both-port
+health checks (the 01:25 linked-stack lesson applied).
+
+## 2026-07-13 — REDESIGN adversary fold 3 (final gate): the status map actually reaches every surface
+
+Adversary 3's fold-verification caught the fold-1 claim over-stating: "all
+chips derive from run_status_class" was FALSE on the board (its private
+`mc_status_*` palette said running=green while every Observe chip said
+running=blue) and in three stragglers. Corrected:
+
+- **Board chips ride the shared map**: `mc_status ${run_status_class(word)}`;
+  the `mc_status_*` color rules are deleted; the chip family's semantic
+  state rules now cover `.mc_status.<state>`; a test pins both (and pins
+  that exactly ONE `.btn.success` block exists — a pre-existing SOLID
+  green block later in the cascade was silently overriding the tinted
+  Approve, re-shipping the white-on-green AA failure).
+- **One status WORD too** (`run_status_word`): a paused run read "paused"
+  on the board and "running" on Observe. Board, navigator pills, Story
+  hero label, and the toolbar now fold paused identically (terminal
+  states keep their word); unit pins added.
+- **Toolbar wait-context chip** colors from the word (was hardcoded info
+  while the identity chip said warn for the same word); **LedgerCard**'s
+  private inline ternary replaced with the map.
+- **Navigator rail titled "Runs"** (its rows are runs — "Workflows" was
+  the same label-lie class as the renamed Memory tab); heading grammar
+  aligned ("What is happening"); System→Memory scopes from the System
+  page's own run selection, not Observe's (cross-page leak).
+- **run_picker CSS actually deleted** this time (comment-headed blocks
+  escaped the first purge's header matching); ratchets 189 rgba / 10 hex.
+- Fast-follows folded same pass: Story's hero button is now **"Run
+  artifacts"** landing on System→Artifacts with the run filter applied
+  (outputs were an untaught two-hop); "What is happening" answers a busy
+  run with its LAST STEP (node label + effect) instead of "no active
+  wait" while the real answer hid in Chronology.
+- Named, deliberately deferred: approve-verb prominence in the wait modal
+  (disabled-primary reads as broken), Ask-tab chrome (thread management
+  before conversation), error-presentation consolidation (~6 costumes +
+  15 inline rgba in tsx), board/System queue vocabulary alignment,
+  navigator loaded-window count honesty, fleet event feed / cost rollups
+  / cross-run search (the top-3 missing views — the event feed rides
+  gateway's design post per c1626).
+
+84 tests green (was 68 at wave start); build clean.
+
+## 2026-07-13 — REDESIGN adversary fold 1+2: honesty wave (status truth, Memory tab, launch confirmation)
+
+Two fable5 adversaries attacked the built waves A+B. Every P0 and the
+high-visibility P1s folded same-session:
+
+- **ONE status→color map** (`src/ui/run_status.ts`, adversary 1 P0-2):
+  four private maps rendered contradictory chips for the same run on one
+  screen (waiting amber in the navigator, blue in the toolbar; "paused"
+  in success-green on the board). All chips — navigator, Story hero,
+  toolbar, board — now derive from `run_status_class`; the board chip's
+  label and class come from the same word; unit pins lock the contract.
+  `RunSummary` moved here too — `run_picker.tsx` (a corpse since the
+  toolbar dropdown died) is deleted with its ~310 lines of CSS.
+- **Failed runs LOOK failed** (adversary 1 P0-1): Story's outcome chip
+  said `chip mono error` — a state with no CSS rule; failures rendered
+  neutral. Now `danger`, and failure text wears a new red `error_callout`
+  instead of warning amber. A test pins every chip state used in tsx to
+  an existing rule.
+- **Undefined token killed borders** (adversary 1 P0-3): `--border-primary`
+  does not exist; the border shorthand was invalid and Produced rows +
+  the memory panel rendered borderless. Fixed to `--border-default`; a
+  new test asserts every fallback-less `var(--token)` in styles.css is
+  defined (styles.css or kit theme).
+- **"Workflows" tab told a lie** (adversary 2 P0-1): the embedded panel
+  is the knowledge-graph MEMORY explorer (`kg_query`), not a workflow
+  map — and "workflow" already means FlowGraph on the run page. Renamed
+  tab/id/heading to **Memory** ("Active memory"); offline state renders
+  an explanatory empty state; the offline banner names all four tabs.
+- **Scheduled launches confirmed nothing** (adversary 2 P0-3): the
+  scheduled path attached silently and stayed on Launch. Both paths now
+  land on the run's Story.
+- **Approve/Reject, one verb pair, honest colors** (adversary 2 P1-B1):
+  board "Deny" → "Reject" (matching the wait modal); Approve wears a new
+  success-tinted `btn success` instead of accent-crimson beside a red
+  Reject.
+- **Session files, not "Produced"** (adversary 1 P1-3): the section
+  renders session-memory attachments (often user inputs), not verified
+  run outputs — renamed with honest copy; run products live on System →
+  Artifacts.
+- **Chronology renders the newest 30** with "last 30 of N" + Show all
+  (adversary 1 P1-4: hundreds of scrollable articles on the default tab).
+- **Offline honesty**: the run navigator says "Gateway offline — sign in"
+  instead of "No runs match the current filters" (adversary 1 P1-5).
+- **System header count says "(filtered)"** when artifact filters are
+  active (adversary 2 P1-A1); "Artifact Explorer" duplicate h3 dropped;
+  "Runtime logs" h2 → "Logs".
+- **Story hero "Runtime" button → "Open in System"**, carrying the run
+  into the System page (selected run + Activity tab) instead of dropping
+  it (adversary 2 P1-D1).
+- **Launch's dead button explains itself**: the disabled Launch button
+  now names its first failing reason (sign in / select a workflow /
+  invalid JSON / loading) and shows "Launching…" while submitting
+  (adversary 2 P1-C2); stale copy purged ("Advanced JSON", "(connect in
+  Settings)", "Start Workflow →" — test-pinned against return).
+- **Board de-noised**: tile age chip folded into the tooltip; "gateway
+  connected" prose dropped (LED + pills carry it; words appear only when
+  unreachable); busy liveness dot moved off the hardcoded green hex onto
+  `--info` (liveness is not the WORK phase).
+- **~15KB more dead CSS purged** (replay workbench, run picker, old
+  timeline wrappers, graph toolbar, digest/json/drawer leftovers,
+  `a.nav_tab`, `gateway_led_btn`); color-literal ratchets lowered to
+  195 rgba / 11 hex. Observe's four-tab strip gained tablist ARIA; the
+  four-tab shape is test-pinned; board column order Review-first is
+  test-pinned. 79 tests green (was 68).
+
+Deferred with eyes open: summarize-on-terminal-run verification needs a
+live gateway (adversary 1 P1-9); full segmented-control consolidation
+(three looks → one) and the empty-state/eyebrow recipe dedup ride wave C
+with adversary 3.
+
+## 2026-07-13 — REDESIGN wave A: the run page (nine tabs → four) + chip unification
+
+The content redesign the shell prepared for. Observe's nine content tabs
+were nine renderings of one ledger; they collapse into four surfaces
+with distinct jobs:
+
+- **Story / Ledger / Flow / Ask**: Story is the answer-first narrative —
+  status, outcome, waits, summary, subworkflows, **Produced** (the old
+  Attachments tab as a compact artifact list with preview/download) and
+  **Chronology** (the old Timeline tab) inline, in that order. Ledger
+  stays the raw truth (steps/cycles). Flow is the graph. Ask is the
+  conversation. Timeline/Replay/Digest/Providers/Attachments tabs are
+  gone — Replay's re-rendering died (its unique artifact cards live in
+  Story's Produced; run explanation belongs to Ask), Digest's stats were
+  already Story metrics, Providers' audit view stays on the Runtime page
+  (its ledger table was a re-render).
+- **One run selector**: the navigator rail is THE selector; the
+  toolbar's duplicate RunPicker dropdown is deleted. The toolbar now
+  names the selected run (workflow label + short id + status chip) and
+  holds only actions on it (Pause/Resume · Run now · Cancel · clear
+  view). No run selected states itself plainly.
+- **ONE chip recipe app-wide**: `.status_pill`, `.pill`, `.mc_pill`,
+  `.mc_status`, `.mc_entity_phase` all align to the `.chip` metrics
+  (999px, 1px tinted border, xxs/600 text) with kit-token tinted-outline
+  states; the last raw-rgba semantic colors in `status_pill` are
+  tokenized. Board column titles become eyebrows (uppercase xs) instead
+  of shouting md/700.
+- **Dead code deleted with its tabs**: ReplayWorkbenchPanel,
+  ProviderActivityPanel (observe copy), the digest memo + cache, replay
+  bundle state/fetch/effect, and their helper functions — ~600 lines.
+  The attachment preview modal survives (Story opens it).
+
+## 2026-07-13 — REDESIGN wave 1: the sidebar shell (operator full-redesign mandate)
+
+Two fable5 architects reported (information architecture + visual
+language, benchmarked against AbstractFlow and AbstractContinuum whose
+design the operator holds as the bar). Their specs compose into a full
+redesign; wave 1 ships the shell every tab wears:
+
+- **Sidebar shell replaces the pill-tab header**: 196px left sidebar
+  (brand, icon+label nav rows, connection control in the footer) + slim
+  page header whose single job is naming the current page at lg/700 —
+  the shape continuum ships. Narrow viewports collapse to a 56px icon
+  rail instead of wrapping tabs.
+- **Accent is a cue, never a fill**: the active nav row carries a 2px
+  inset accent bar over a neutral surface; the retired solid-accent
+  `.nav_tab.active` cannot return (pinned).
+- **Settings becomes a nav row** (no more hidden icon button); the
+  Entities ↗ link rides the nav; the GPU pill moves to the header
+  actions.
+- Dead chrome rules removed (`.app_nav`, `.nav_tab`, `.logo*`,
+  `.header_icon_btn`, `.status_pills`); `status_pill` kept minimal for
+  its one remaining consumer (migrates to `.chip` in wave 2).
+
+THE PROGRAM (from the IA architect, implementing across waves): four
+question-first surfaces — Board ("does anything need me?"), Timeline
+("what happened at time T?" — new), Runs (the one run browser), System
+(the framework inventory) — plus a URL-addressed run page (Story /
+Ledger / Flow / Ask) replacing Observe's nine sub-tabs, one shared
+RunsStore so every number agrees, and cross-link rules (no id or
+timestamp renders as dead text). Seven gateway wire asks filed
+(commons c1592). Seat observability wants banked (c1583-1588).
+
+## 2026-07-13 — Code+logic adversary fold (fable5, production-readiness wave)
+
+A whole-package adversarial review of the app's correctness (connection
+lifecycle, poll/stream loops, board actions, client, CLI). Verdict was
+"not production-ready for multi-run operator use"; every P0/P1 folded:
+
+- **P0 — run-attach contamination**: the ledger replay loop could outlive
+  its attach — switching runs mid-replay kept the OLD run's pages
+  flushing into the NEW run's records (wrong-wait exposure: approving
+  what you see while another run executes). Replay is now abort-aware
+  (the attach's signal cancels paging and pushes; `get_ledger` accepts a
+  signal), and `attach_to_run` is single-flight (board clicks during an
+  in-flight attach are refused with a status note).
+- **P1 — stale `run_id` closure in `handle_step`**: the stream loop
+  captured the previous run id forever, making the `abstract.status`
+  ticker dead code and poisoning digest dedup keys (a child run's records
+  silently vanished from the digest after child→root switches). The
+  owning attach's rid is now passed explicitly.
+- **P1 — dishonest disconnect**: sign-out never cleared
+  `all_run_options`/`runs_refreshed_at`/`board_entities` — the previous
+  session's waits stayed rendered as actionable Review cards across
+  account switches. Cleared.
+- **P1 — permanent "Resuming…" lock**: busy identity now includes the
+  wait's appearance time (runtime wait keys are deterministic per
+  run+node, so a recurring ask carried the identical key and stayed
+  locked forever), plus an effect releasing the lock when the busy card
+  leaves Review.
+- **P1 — invisible session expiry**: a 401/403 from the runs heartbeat
+  now re-probes the connection hook, driving the app back to the real
+  sign-in state instead of freezing "connected".
+- **P2 — fetch deadlines**: `_deadline()` (30s, composable with caller
+  signals) on the loop-critical client calls (entities/card/cognition,
+  ledger + batch, bundles) — a single stalled connection could previously
+  wedge the entity strip, discovery, or the subrun digest poll forever.
+
+Live production drive (c1505 ask 2): fresh dist served via `bin/cli.js`
+(config injection + session proxy verified), and every app loop's API
+driven against the live :8080 — runs with metrics (20 roots), entity
+roster + cognition (castor phase=sleep served), ledger paging. Note for
+gateway: hypnos `/cognition` serves `phase: null` — the tile falls back
+to card-state mapping (honest, labeled).
+
+## 2026-07-13 — Design wave: two fable5 adversaries over ALL tabs (operator-directed)
+
+The operator's verdict ("i do not like it") decomposed into evidence by
+two adversarial reviews — one on visual design, one on layout/information
+presentation. First fold, all gates green:
+
+**Aesthetics (root causes: three design generations worn at once; kit
+tokens bypassed by 428 raw rgba literals; no component discipline):**
+
+- **Foreign dark palette removed**: 28 Tailwind slate/gray-900 surface
+  literals (heroes, sticky headers, mode tabs, run picker) now derive
+  from the kit's `--bg-primary`/`--bg-tertiary` via `color-mix` — cards
+  and page share ONE dark family, and all 21 themes stop breaking.
+- **One selection color**: every `.selected/.active/.checked` rule that
+  hardcoded blue-400 now uses `--accent-subtle` + `--accent-border`;
+  semantic blues/greens/reds/ambers elsewhere ride `--info/--success/
+  --error/--warning` (187 literals converted block-aware).
+- **Bare `button:hover` no longer floods accent red** (JSON carets,
+  section headers); one global `:focus-visible` ring replaces three
+  competing ring systems plus UA default.
+- **Solid status pills retired**: `.run_card_status.*` and the scheduled
+  chips move to the tinted-outline recipe (the old 10px white-on-green
+  failed AA); header LEDs and board LEDs now share the kit green.
+- **Theme-safe accent hover**: hardcoded `#ff6b81` → `color-mix(accent)`.
+- **Type/weight/radius discipline**: 8/9px micro-labels floored at
+  `--font-size-xxs`; odd weights 650/750/850 snapped to 600/700/800;
+  radii 6/8/9/10px snapped onto `--radius-sm/md/lg` tokens.
+- **Monospace reserved for values**: the nine observe content tabs and
+  seventeen settings/launch helper sentences drop `mono` (new
+  `.help_text`); one `.eyebrow` recipe added for section micro-headings.
+- **Launch de-decorated**: violet Upload / blue Reload (six `!important`)
+  become plain secondary buttons — the submit is the page's only accent.
+
+**Layout / information presentation (root causes: answer-poor surfaces,
+inverted priorities, clipped panels):**
+
+- **Overview/Timeline/Providers no longer clip**: the three panels inside
+  the `overflow:hidden` card get their own scroll — long content was
+  physically unreachable.
+- **Launch is not a dead end**: an immediate start lands on Observe
+  following the new run; scheduled starts stay with their schedule.
+- **Review renders FIRST on the board** (it fell below the fold at narrow
+  widths); empty columns say what empty means ("nothing needs you",
+  "idle") instead of a bare "—".
+- **Outcome on the Overview**: terminal runs show their error (failed) or
+  final answer (completed) — previously the error lived only in the
+  Runtime inspector and the answer only behind per-card unfolds.
+- **Honest no-run state**: Observe without a selection shows one line
+  ("Select a run on the left…") instead of a fake dashboard of "—" tiles.
+- **Wait modal**: Approve/Reject moved into the sticky footer; the
+  destructive Cancel run demoted into the body; "Open ledger" now also
+  dismisses (it used to open the page UNDER the modal). The modal no
+  longer hijacks the board mid-answer (board has its own inline forms).
+- **Failed board cards carry their WHY**: clamped error line on the card.
+
+Second pass (same day): dead-CSS sweep — 13 unreferenced rule blocks
+deleted (`.overlay`/`.modal` legacy pair, `.viewer_header*`,
+`.chat_bubble`/`.chat_row`, `.observe_layout`, `.app-main`) — plus two
+RATCHET tests: raw color literals can only go DOWN from today's counts
+(238 rgba / 15 hex ceilings; new color goes through kit tokens), and
+solid status pills can never return.
+
+Remaining from the reports (tracked, not yet folded): status-chip system
+unification (11 recipes), eyebrow migration (10 variants → `.eyebrow`),
+run-picker/navigator dedup, Timeline-into-Ledger merge,
+relative-time formatter unification, syntax-palette unification.
+
+One fable5 adversarial review of the board's phase rendering against
+the ruled machine; every finding folded:
+
+- **`resting` mapped, styled, pinned** — it fell through the
+  normalizer to an unstyled chip indistinguishable from unknown.
+- **"● working" renamed "● busy"** — WORK is a ruled phase word;
+  execution liveness must not wear it beside a `visit` chip.
+- **Source-labeled chip**: the phase chip's tooltip now names its
+  source ("cognition wire" vs "card state — wire unavailable") so a
+  degraded read is never mistaken for wire truth.
+- **Styles de-blurred**: sleep gets a real identity (muted border, not
+  opacity-only), awake moves off success-green (green belongs to WORK
+  exclusively), unknown/other render dashed.
+- **Bounded class names**: unlisted server words render their verbatim
+  WORD but a bounded `mc_phase_other` class — server strings never
+  interpolate into CSS classes.
+- **Passthrough posture pinned**: unlisted words are never coerced into
+  a ruled phase (a "helpful" coercion now fails a test); the
+  awake/paused/resting branches are pre-alignment passthroughs to be
+  deleted when the gateway serves strict four-phase values.
+- Record correction: the previous entry's pin-coverage claim
+  overstated — paused/awake/resting are rendered passthroughs, not
+  "ruled names", and `resting` was unmapped until this fold.
+
+## 2026-07-13 — One active phase on the board (operator ruling)
+
+The four entity phases (visit / work / personal / sleep) are a
+one-active-phase radio state machine (commons c1455). The board's
+entity tiles now render THE active phase from the same source both
+apps use: the cognition wire's composite `phase` field, falling back
+to the card-state mapping only when the wire is absent or unreadable.
+Pins cover the wire's chain vocabulary.
+
+## 2026-07-13 — B3 complete: cognition wire on the board tiles
+
+Gateway shipped the spend wire (`GET /entities/{name}/cognition`, commons
+c1390) and the board consumes it same-day as committed:
+
+- **Working truth**: tiles show "● working" from the wire's store-read
+  `working` (loop mid-day or live visit — authoritative, never
+  fabricated); `working: false` renders "idle · Xm ago"; pre-wire
+  gateways (404) fall back to the moment-age heuristic unchanged.
+- **Spend chip**: lifetime billed tokens from the home run ledger
+  (`spend.lifetime.tokens_total`, compact "12k tk") plus the open
+  visit's live tree (`(+N)`); the wire's `warnings[]` (e.g. the
+  loop-spend `#FALLBACK`) ride the tooltip with a `*` so a partial
+  number is never read as a total.
+- `get_entity_cognition` added to the client; cognition fetch rides the
+  existing 30s card poll (one extra parallel request per tile, optional).
+- Pins: `format_tokens` (compact + null-renders-nothing).
+
+## 2026-07-13 — B5 adoption: useGatewayConnection is the connection machine
+
+The bug-wave B5 ruling ("login/auth should be consistent across apps")
+landed as a uic hook that IS the shared state machine. Observer adopts:
+
+- `useGatewayConnection({ variant: "dismissable" })` replaces the
+  app-local machine — boot probe, auto-open on resolved disconnect, close
+  on the sign-in transition, once-per-episode re-arm and initialStatus
+  dedupe are the hook's now. `<GatewayConnectModal {...modalProps} />`.
+- `handle_connection_status` keeps only the APP reactions: fresh sign-in →
+  session mode + discovery; sign-out → app disconnect; plus the direct
+  dev-bearer fallback (tried once per signed-out episode) that the old
+  boot effect carried.
+- The `auto_connect_gateway` boot toggle is superseded by the ruled
+  contract (signed-out is a sign-in screen); explicit connect buttons call
+  `openModal()`; the Settings sign-out path rides `conn.signOut()` (uic
+  folded the verb same-hour from this adoption's datum — the interim
+  refresh-poke wart lived for one commit).
+- Auth pins updated (`useGatewayConnection` + `modalProps` are the new
+  contract markers).
+
+## 2026-07-13 — Board entity tiles: activity freshness (bug wave B3, observer half)
+
+Operator: "unclear when it's working and consuming credits." The board's
+half of the fix, shippable from existing card data: each entity tile now
+shows "● active" (pulsing, reduced-motion aware) when the last recorded
+moment is under 60s old, or an honest "Xm ago" otherwise; nothing renders
+when the card carries no timestamp (never fabricate). Tick-phase and
+token-spend indicators follow when gateway/runtime expose the wire (lane
+confirmed on commons c1312). The in-app graph/ledger consistency half
+belongs to the entity app since the split.
+
 ## 2026-07-13 — SteerComposer wired (uic kit wave)
 
 The kit shipped the shared steer composer (commons c1239; hooks P3

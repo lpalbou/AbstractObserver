@@ -1,0 +1,860 @@
+/* AbstractObserver — OBSERVE PAGE skin (2026-07-14 full aesthetic refactor,
+ * Run-page surface: navigator rail, toolbar, tab strip, Story, ledger cards).
+ *
+ * Every selector is scoped under .observe_page, for two load-bearing reasons:
+ *   1. main.tsx imports styles.css AFTER app.tsx (which imports this file),
+ *      so equal-specificity overrides here would lose; the scope adds one
+ *      class of specificity and wins deterministically.
+ *   2. Classes like .run_status_pill / .overview_panel / .seg_* / .tab are
+ *      shared with other pages owned by other builders — the scope keeps
+ *      this skin's blast radius at exactly the Run page.
+ *
+ * Design language: surfaces from --canvas/--pane-*/--raised-*, type from
+ * --t-*, semantic color ONLY via var(--success/--warning/--error/--info)
+ * mixes, accent as a cue (2px bars, underlines) never a flood.
+ */
+
+/* ================= 1. LAYOUT + SCROLL SANITY =================
+ * Overrides: .observatory_layout, .observatory_sidebar, .run_overview,
+ * .human_timeline, .observe_viewer_full (double-scroll fix: rail scrolls in
+ * .run_tree, main column scrolls in .run_overview / .log_scroll — the
+ * chronology no longer nests a second scrollbar inside the Story scroll). */
+
+.observe_page .observatory_layout {
+  grid-template-columns: 312px minmax(0, 1fr);
+  gap: 14px;
+}
+
+/* The rail is a proper pane (markup adds .pane); restate the pane recipe
+ * because styles.css's later shared rule (.observatory_sidebar { background:
+ * var(--bg-secondary) }) outranks .pane at equal specificity. */
+.observe_page .observatory_sidebar.pane {
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pane);
+}
+
+/* The viewer wrapper dissolves onto the canvas: the toolbar + tab strip sit
+ * flat and each tab's content brings its own panes / raised rows. */
+.observe_page .observe_viewer_full {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.observe_page .run_overview {
+  gap: 14px;
+  padding: 12px 2px 22px;
+}
+
+/* Story's chronology rides the Story scroll — kill the nested scrollbar. */
+.observe_page .run_overview .human_timeline {
+  overflow: visible;
+  padding: 4px 0 4px 14px;
+}
+
+/* ================= 2. NAVIGATOR RAIL =================
+ * Overrides: .run_nav_header, .run_nav_controls, .run_nav_segments,
+ * .run_tree, .run_tree_empty, .run_tree_section_header, .run_tree_item(.selected/
+ * .root_context/:hover), .run_tree_child, .run_tree_children, .run_tree_label,
+ * .run_tree_meta, .run_status_pill(+states), .seg_toggle/.seg_btn/.seg_select. */
+
+.observe_page .run_nav_header {
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 11px 12px 11px 14px;
+  border-bottom: 1px solid var(--pane-border);
+}
+
+.observe_page .run_nav_controls {
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--pane-border);
+}
+
+.observe_page .run_nav_controls input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  font-size: var(--t-small);
+  border-radius: 8px;
+  background: var(--canvas);
+  border: 1px solid var(--pane-border);
+}
+
+.observe_page .run_nav_controls input:focus {
+  border-color: var(--accent);
+}
+
+/* Filter segments + group select share one quiet row (markup wraps them).
+ * Reviewer 5: equal-flex (1 1 0) cells + 2px padding clipped the longest
+ * label ("Terminal" → "Termina") and ran labels together. Buttons now size
+ * from content, the group refuses to shrink below its labels, and the row
+ * wraps the select to its own line instead of clipping text. */
+.observe_page .run_nav_filter_row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.observe_page .run_nav_filter_row .seg_toggle {
+  flex: 1 1 auto;
+  min-width: fit-content;
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+
+.observe_page .run_nav_segments .seg_btn {
+  flex: 1 1 auto;
+  padding: 5px 4px;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  border-right: none;
+  color: var(--text-muted);
+}
+
+.observe_page .run_nav_segments .seg_btn.active {
+  background: var(--raised-bg);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--pane-border-strong);
+  border-radius: 7px;
+}
+
+.observe_page .run_nav_filter_row .seg_select {
+  flex: 0 0 auto;
+  max-width: 46%;
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+
+.observe_page .run_tree {
+  padding: 8px 8px 12px;
+}
+
+.observe_page .run_tree_empty {
+  padding: 22px 12px;
+  text-align: center;
+  font-size: var(--t-small);
+  line-height: 1.6;
+}
+
+/* Group headers (status / workflow / failed groups): quiet uppercase micro. */
+.observe_page .run_tree_section_header {
+  color: var(--text-muted);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  padding: 8px 6px 5px;
+}
+
+.observe_page .run_tree_section_header span:last-child {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+}
+
+.observe_page .run_tree_group {
+  gap: 2px;
+}
+
+.observe_page .run_tree_section {
+  margin-bottom: 10px;
+}
+
+/* Comfortable list rows: quiet at rest, hover bg, selected = 2px accent
+ * inset bar + slightly raised bg (never a solid accent fill). */
+.observe_page .run_tree_item {
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px 8px 12px;
+}
+
+.observe_page .run_tree_item:hover {
+  background: var(--ui-overlay-bg-hover, color-mix(in srgb, var(--text-primary) 6%, transparent));
+  border: none;
+}
+
+.observe_page .run_tree_item.selected {
+  background: var(--raised-bg);
+  border: none;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.observe_page .run_tree_item.root_context:not(.selected) {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--success) 65%, transparent);
+}
+
+.observe_page .run_tree_item_top {
+  gap: 10px;
+}
+
+.observe_page .run_tree_label {
+  font-size: calc(12.5px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.observe_page .run_tree_meta {
+  justify-content: flex-start;
+  gap: 10px;
+  margin-top: 3px;
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.observe_page .run_tree_meta .mono {
+  font-size: var(--t-micro);
+}
+
+.observe_page .run_tree_meta span:last-child {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.observe_page .run_tree_children {
+  margin: 2px 0 6px 16px;
+  padding-left: 8px;
+  border-left: 1px solid var(--pane-border);
+  gap: 2px;
+}
+
+.observe_page .run_tree_child {
+  background: transparent;
+}
+
+/* Status pills: statuses are WORDS — sans, tinted-outline stays. */
+.observe_page .run_status_pill {
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-color: var(--pane-border-strong);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.observe_page .run_status_pill.ok {
+  background: var(--success-subtle, color-mix(in srgb, var(--success) 10%, transparent));
+}
+
+.observe_page .run_status_pill.info {
+  background: var(--info-subtle, color-mix(in srgb, var(--info) 10%, transparent));
+}
+
+.observe_page .run_status_pill.warn {
+  background: var(--warning-subtle, color-mix(in srgb, var(--warning) 10%, transparent));
+}
+
+.observe_page .run_status_pill.danger {
+  background: var(--error-subtle, color-mix(in srgb, var(--error) 10%, transparent));
+}
+
+/* ================= 3. TOOLBAR (flat on canvas) =================
+ * Overrides: .observe_toolbar, .observe_run_identity, .observe_run_name,
+ * .observe_steer_row, .observe_toolbar_context, .observe_context_card(.info/
+ * .error), .observe_context_body, .btn.btn_icon (ghost), .status_bar. */
+
+.observe_page .observe_toolbar {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 2px 2px 10px;
+}
+
+.observe_page .observe_run_identity {
+  gap: 10px;
+}
+
+.observe_page .observe_run_name {
+  font-size: var(--t-section);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.observe_page .observe_run_identity .chip.mono {
+  font-size: var(--t-micro);
+}
+
+.observe_page .observe_run_identity_empty {
+  font-size: var(--t-small);
+}
+
+/* Icon-only buttons go ghost (the clear ⨯, navigator refresh, JSON copy). */
+.observe_page .btn.btn_icon {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.observe_page .btn.btn_icon:hover:not(:disabled) {
+  background: var(--ui-overlay-bg-hover, color-mix(in srgb, var(--text-primary) 7%, transparent));
+  border-color: transparent;
+  color: var(--text-primary);
+  transform: none;
+  box-shadow: none;
+}
+
+/* Steer row + context cards: quiet tinted panes, not chips-in-a-box. */
+.observe_page .observe_steer_row {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pane-border);
+}
+
+.observe_page .observe_toolbar_context {
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.observe_page .observe_context_card {
+  padding: 10px 14px;
+  gap: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--pane-border);
+  background: var(--pane-bg);
+  box-shadow: var(--shadow-raised);
+  font-size: var(--t-small);
+}
+
+.observe_page .observe_context_card.info {
+  border-color: color-mix(in srgb, var(--info) 24%, var(--pane-border));
+  background: color-mix(in srgb, var(--info) 5%, var(--pane-bg));
+}
+
+.observe_page .observe_context_card.error {
+  border-color: color-mix(in srgb, var(--error) 28%, var(--pane-border));
+  background: color-mix(in srgb, var(--error) 6%, var(--pane-bg));
+}
+
+.observe_page .observe_context_card.error .mono {
+  color: var(--text-primary);
+}
+
+.observe_page .observe_context_body {
+  font-size: var(--t-micro);
+}
+
+/* Budget fill thresholds (was inline rgba in markup): semantic vars only. */
+.observe_page .observe_budget_fill.ok {
+  background: color-mix(in srgb, var(--success) 85%, transparent);
+}
+
+.observe_page .observe_budget_fill.warn {
+  background: color-mix(in srgb, var(--warning) 85%, transparent);
+}
+
+.observe_page .observe_budget_fill.danger {
+  background: color-mix(in srgb, var(--error) 85%, transparent);
+}
+
+.observe_page .observe_budget_bar {
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+}
+
+/* The run status line under the tabs: quiet microcopy on the canvas. */
+.observe_page .status_bar {
+  border: none;
+  background: transparent;
+  padding: 8px 2px 2px;
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.observe_page .status_bar strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.observe_page .status_bar .mono {
+  font-family: var(--font-sans);
+}
+
+/* ================= 4. TAB STRIP (underline tabs on the canvas) =================
+ * Overrides: .tab_bar, .tab(.active/:hover), .seg_toggle/.seg_btn/.seg_action/
+ * .seg_select (inline ledger/graph controls, restyled quiet). */
+
+.observe_page .tab_bar {
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--pane-border);
+  flex: 0 0 auto;
+}
+
+.observe_page .observe_tablist {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.observe_page .tab {
+  position: relative;
+  border: none;
+  background: transparent;
+  border-radius: 6px 6px 0 0;
+  padding: 8px 11px 10px;
+  color: var(--text-secondary);
+  font-size: var(--t-small);
+  font-weight: 600;
+}
+
+.observe_page .tab:hover {
+  background: transparent;
+  color: var(--text-primary);
+  transform: none;
+}
+
+.observe_page .tab.active {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+}
+
+.observe_page .tab.active::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.observe_page .tab_bar_controls {
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.observe_page .tab_bar_controls .seg_toggle {
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 7px;
+  background: transparent;
+}
+
+.observe_page .tab_bar_controls .seg_btn {
+  padding: 4px 10px;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  border-right: none;
+  color: var(--text-muted);
+}
+
+.observe_page .tab_bar_controls .seg_btn.active {
+  background: var(--raised-bg);
+  color: var(--text-primary);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--pane-border-strong);
+}
+
+.observe_page .tab_bar_controls .seg_action {
+  padding: 4px 10px;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 7px;
+  color: var(--text-muted);
+}
+
+.observe_page .tab_bar_controls .seg_action:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--ui-overlay-bg-hover, color-mix(in srgb, var(--text-primary) 6%, transparent));
+}
+
+.observe_page .tab_bar_controls .seg_action.active {
+  background: var(--raised-bg);
+  color: var(--text-primary);
+  border-color: var(--pane-border-strong);
+}
+
+.observe_page .tab_bar_controls .seg_select {
+  padding: 4px 8px;
+  font-size: var(--t-micro);
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 7px;
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+/* ================= 5. STORY =================
+ * Overrides: .run_hero(+h2/meta), .metric_grid, .overview_panel(.pane),
+ * .overview_panel_header(.pane_header), .overview_columns, .error_callout,
+ * .empty_state_inline, .subrun_chip, .overview_fact_list. */
+
+/* Hero = page header block on the canvas, not a boxed card. */
+.observe_page .run_hero {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 4px 2px 0;
+}
+
+.observe_page .run_hero h2 {
+  margin: 4px 0 10px;
+  font-size: var(--t-page);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+.observe_page .run_hero_meta .chip.mono {
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+}
+
+.observe_page .metric_grid {
+  gap: 12px;
+}
+
+/* Story sections wear the pane grammar (markup adds .pane/.pane_header/
+ * .pane_body); restate the pane surface because styles.css's later
+ * .overview_panel shared rule outranks .pane at equal specificity. */
+.observe_page .overview_panel.pane {
+  padding: 0;
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pane);
+}
+
+.observe_page .overview_panel_header.pane_header {
+  margin-bottom: 0;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--pane-border);
+}
+
+.observe_page .pane_header h3 {
+  font-size: var(--t-section);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+
+.observe_page .pane_body {
+  padding: 12px 14px 14px;
+}
+
+.observe_page .overview_columns {
+  gap: 14px;
+}
+
+.observe_page .empty_state_inline {
+  color: var(--text-muted);
+  font-size: var(--t-small);
+  padding: 4px 0;
+}
+
+/* Failure callout: honest but calm — danger-tinted border + subtle bg,
+ * body text stays primary (the old full-red flood is gone). */
+.observe_page .error_callout {
+  border: 1px solid color-mix(in srgb, var(--error) 32%, transparent);
+  background: color-mix(in srgb, var(--error) 7%, transparent);
+  color: var(--text-primary);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: var(--t-small);
+  line-height: 1.55;
+}
+
+.observe_page .warn_callout {
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: var(--t-small);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+}
+
+.observe_page .overview_fact_list span {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.observe_page .overview_fact_list strong {
+  font-size: var(--t-small);
+}
+
+.observe_page .subrun_chip {
+  border: 1px solid var(--pane-border-strong);
+  background: var(--raised-bg);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.observe_page .subrun_chip:hover {
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  color: var(--text-primary);
+}
+
+/* Session files: raised rows with sane spacing. */
+.observe_page .produced_list {
+  gap: 8px;
+}
+
+.observe_page .produced_row {
+  background: var(--raised-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-raised);
+  padding: 9px 12px;
+}
+
+.observe_page .produced_name {
+  font-size: var(--t-small);
+}
+
+.observe_page .produced_row > .mono.muted {
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ================= 6. CHRONOLOGY (timeline events as raised rows) =================
+ * Overrides: .timeline_event_body, .timeline_event h3, .timeline_subtitle,
+ * .timeline_time, .timeline_payload_grid, .timeline_marker. */
+
+.observe_page .timeline_event {
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.observe_page .timeline_marker {
+  width: 8px;
+  height: 8px;
+  margin-top: 16px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text-primary) 6%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 35%, transparent);
+}
+
+.observe_page .timeline_event_body {
+  background: var(--raised-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-raised);
+  padding: 12px 14px;
+}
+
+.observe_page .timeline_event h3 {
+  font-size: var(--t-small);
+  font-weight: 650;
+}
+
+.observe_page .timeline_event_header {
+  margin-bottom: 8px;
+}
+
+.observe_page .timeline_subtitle {
+  font-size: var(--t-micro);
+  margin-top: 3px;
+}
+
+.observe_page .timeline_time {
+  font-size: var(--t-micro);
+}
+
+.observe_page .timeline_payload_grid span {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+/* Payload previews read as recessed code blocks. */
+.observe_page .timeline_payload_grid p {
+  background: var(--canvas);
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: var(--t-micro);
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+/* ================= 7. LEDGER CARDS =================
+ * Overrides: .log, .lc(:hover), .lc_title, .lc_time, .lc_status(+states),
+ * .lc_meta, .lc_chip, .lc_preview(::after), .lc_actions, .lc_btn, .lc_body,
+ * .lc_body_json. The per-kind rgba inline accent died in LedgerCard's
+ * markup; kind→semantic accents live here (flow-node headerColor still
+ * rides the --lc-accent inline var when a node declares one). */
+
+.observe_page .log {
+  gap: 8px;
+  padding: 12px 2px 18px;
+}
+
+.observe_page .log .empty_state_inline {
+  padding: 10px 12px;
+}
+
+.observe_page .lc {
+  --lc-accent: var(--pane-border-strong);
+  background: var(--raised-bg);
+  border: 1px solid var(--pane-border);
+  border-left: 3px solid var(--lc-accent);
+  border-radius: 10px;
+  box-shadow: var(--shadow-raised);
+  padding: 10px 14px;
+}
+
+.observe_page .lc:hover {
+  background: var(--raised-bg);
+  border-color: var(--pane-border-strong);
+  border-left-color: var(--lc-accent);
+}
+
+/* kind→semantic accent map (same mapping the old inline rgba palette had). */
+.observe_page .lc.lc_k_danger {
+  --lc-accent: color-mix(in srgb, var(--error) 75%, transparent);
+}
+
+.observe_page .lc.lc_k_message {
+  --lc-accent: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.observe_page .lc.lc_k_info {
+  --lc-accent: color-mix(in srgb, var(--info) 75%, transparent);
+}
+
+.observe_page .lc.lc_k_waiting {
+  --lc-accent: color-mix(in srgb, var(--info) 45%, transparent);
+}
+
+.observe_page .lc.lc_k_ok {
+  --lc-accent: color-mix(in srgb, var(--success) 55%, transparent);
+}
+
+.observe_page .lc_title {
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.observe_page .lc_time {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+}
+
+.observe_page .lc_status {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  padding: 2px 8px;
+}
+
+.observe_page .lc_status.muted {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-muted);
+  border: 1px solid var(--pane-border-strong);
+}
+
+.observe_page .lc_meta {
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.observe_page .lc_chip {
+  background: var(--canvas);
+  border: 1px solid var(--pane-border);
+  font-size: var(--t-micro);
+  border-radius: 5px;
+}
+
+.observe_page .lc_preview {
+  margin-top: 8px;
+  background: var(--canvas);
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: var(--t-micro);
+  line-height: 1.55;
+}
+
+.observe_page .lc_preview::after {
+  background: linear-gradient(transparent, var(--canvas));
+}
+
+.observe_page .lc_actions {
+  margin-top: 9px;
+}
+
+.observe_page .lc_btn {
+  border: 1px solid var(--pane-border-strong);
+  background: transparent;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  color: var(--text-muted);
+}
+
+.observe_page .lc_btn:hover {
+  background: var(--ui-overlay-bg-hover, color-mix(in srgb, var(--text-primary) 6%, transparent));
+  border-color: var(--pane-border-strong);
+  color: var(--text-primary);
+}
+
+/* Expanded payload: recessed code block on the canvas surface. */
+.observe_page .lc_body {
+  background: var(--canvas);
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.observe_page .lc_body_json {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+}
+
+/* Inline error/loading blocks (graph + chat tabs): semantic tints replace
+ * the old inline rgba borderColor styles. */
+.observe_page .log_item.log_item_danger {
+  border-color: color-mix(in srgb, var(--error) 32%, transparent);
+  background: color-mix(in srgb, var(--error) 6%, var(--pane-bg));
+  border-radius: 10px;
+}
+
+.observe_page .log_item.log_item_info {
+  border-color: color-mix(in srgb, var(--info) 28%, transparent);
+  background: color-mix(in srgb, var(--info) 5%, var(--pane-bg));
+  border-radius: 10px;
+}
+
+.observe_page .chat_hint.chat_hint_danger {
+  color: var(--error);
+}
+
+/* ================= 8. RESPONSIVE MIRRORS =================
+ * The scoped grid-template-columns above outranks styles.css's own media
+ * collapse (media queries add no specificity) — mirror it here. */
+
+@media (max-width: 1100px) {
+  .observe_page .observatory_layout {
+    grid-template-columns: 1fr;
+  }
+}

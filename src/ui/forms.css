@@ -1,0 +1,380 @@
+/* ============================================================
+   forms.css — the form pages (Launch + Settings).
+   Loads AFTER styles.css: everything here is scoped through the
+   .form_stack wrapper so other pages are untouched.
+
+   Grammar: each page is ONE centered constrained column of .pane
+   sections on the canvas; inside a pane every field follows one
+   recipe (micro uppercase label / comfortable control / quiet
+   help); the page has exactly ONE accent action (Launch).
+   ============================================================ */
+
+/* ── Page column ── */
+
+.form_stack {
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding-bottom: 24px;
+}
+
+.form_stack.form_stack_launch {
+  max-width: 720px;
+}
+
+.form_stack.form_stack_settings {
+  max-width: 680px;
+}
+
+/* Lead line under the page header — plain prose, not a card. */
+.form_lead {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+  line-height: 1.5;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+
+/* ── Pane body rhythm: one vertical beat for every form section ── */
+
+.form_pane_body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The legacy .field spacing is neutralized inside the stack — the
+   pane body's gap IS the rhythm. */
+.form_stack .field {
+  margin: 0;
+  gap: 0;
+}
+
+/* ── Field recipe: label / control / help ── */
+
+.form_stack .field label,
+.form_stack .launch_label {
+  display: block;
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.form_stack .launch_label_type {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* Help text: quiet prose under (or between) controls. */
+.form_stack .help_text,
+.form_stack .f_help {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-micro);
+  line-height: 1.55;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* Help directly inside the body flow (no control above) carries no
+   extra offset — the body gap already spaces it. */
+.form_pane_body > .help_text,
+.form_pane_body > .f_help {
+  margin-top: 0;
+}
+
+/* Controls: full-width, comfortable, sans by default. Mono stays an
+   explicit opt-in (.mono) for identifiers, paths and JSON. */
+.form_stack input:not([type="checkbox"]):not([type="radio"]),
+.form_stack select,
+.form_stack textarea {
+  width: 100%;
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+}
+
+.form_stack input.mono,
+.form_stack select.mono,
+.form_stack textarea.mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Error rows: calm danger-tinted pane rows (no shouting chips) ── */
+
+.form_error_row {
+  border: 1px solid color-mix(in srgb, var(--error) 28%, transparent);
+  background: color-mix(in srgb, var(--error) 7%, transparent);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--error) 55%, var(--text-primary));
+  overflow-wrap: anywhere;
+}
+
+/* Inline JSON-pin errors follow the same calm voice. */
+.form_stack .launch_field_error {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-micro);
+  margin-top: 6px;
+}
+
+/* ── Disclosure panes (Workspace) — a pane whose header is a caret
+      summary; closed it reads as a one-line pane. ── */
+
+details.form_disclosure {
+  display: block;
+  padding: 0;
+}
+
+details.form_disclosure > summary.form_disclosure_summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  user-select: none;
+  border-radius: 12px;
+}
+
+details.form_disclosure > summary.form_disclosure_summary::-webkit-details-marker {
+  display: none;
+}
+
+details.form_disclosure > summary.form_disclosure_summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--text-muted);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+
+details.form_disclosure[open] > summary.form_disclosure_summary {
+  border-bottom: 1px solid var(--pane-border);
+  border-radius: 12px 12px 0 0;
+}
+
+details.form_disclosure[open] > summary.form_disclosure_summary::before {
+  transform: rotate(90deg);
+}
+
+.form_disclosure_hint {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* ── Quiet sub-disclosures (Advanced sections inside a pane) ── */
+
+details.form_subdisclosure > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  user-select: none;
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+  color: var(--text-muted);
+}
+
+details.form_subdisclosure > summary:hover {
+  color: var(--text-secondary);
+}
+
+details.form_subdisclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.form_subdisclosure > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid var(--text-muted);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+
+details.form_subdisclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.form_subdisclosure_body {
+  margin-top: 12px;
+  padding-left: 14px;
+  border-left: 2px solid var(--pane-border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Empty state (Inputs pane before a workflow is picked) ── */
+
+.form_empty {
+  text-align: center;
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+  color: var(--text-muted);
+  padding: 18px 12px;
+}
+
+/* ── Settings: info row (Appearance pointer) ── */
+
+.form_info_row {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+/* ── Settings: gateway connection status as a raised row ── */
+
+.form_conn_row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--raised-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-raised);
+}
+
+.form_conn_text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.form_conn_state {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.form_conn_principal {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form_conn_actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* ── Launch: layout polish over the existing recipes ── */
+
+/* The pane body owns spacing — strip the legacy standalone margins. */
+.form_pane_body .launch_workflow_bar {
+  margin-bottom: 0;
+}
+
+.form_pane_body .launch_inputs {
+  margin-top: 0;
+  gap: 14px;
+}
+
+.form_stack .launch_grid {
+  gap: 12px;
+  margin-top: 0;
+}
+
+/* Schedule controls live IN a pane now — the extra box around them
+   would be a pane-in-a-pane. Keep the layout, drop the chrome. */
+.form_stack .sched_grid {
+  margin-top: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+}
+
+.form_stack .launch_checkbox {
+  margin-top: 0;
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+}
+
+/* ── The ONE accent action: Launch ── */
+
+.form_stack .launch_actions_bar {
+  padding: 4px 0 0;
+}
+
+.form_stack .launch_submit_btn {
+  width: 100%;
+  max-width: 360px;
+  height: 40px;
+  padding: 0 28px;
+  margin: 0 auto;
+  border-radius: 10px;
+  font-family: var(--font-sans, inherit);
+  font-size: calc(15px * var(--font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-on-accent, #fff);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 86%, white),
+    var(--accent) 55%,
+    color-mix(in srgb, var(--accent) 90%, black)
+  );
+  box-shadow:
+    0 1px 2px color-mix(in srgb, black 30%, transparent),
+    0 6px 18px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.form_stack .launch_submit_btn:hover:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 74%, white),
+    color-mix(in srgb, var(--accent) 92%, white) 55%,
+    var(--accent)
+  );
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  transform: translateY(-1px);
+  box-shadow:
+    0 2px 4px color-mix(in srgb, black 30%, transparent),
+    0 10px 26px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.form_stack .launch_submit_btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.form_stack .launch_submit_btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The disabled reason is prose, not an identifier. */
+.form_stack .launch_disabled_reason {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}

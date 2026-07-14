@@ -1,0 +1,350 @@
+/* THE BOARD (Mission Control) — component stylesheet, 2026-07-14 aesthetic
+ * wave.
+ *
+ * Loads AFTER styles.css (imported by mission_control.tsx; main.tsx pulls
+ * ./ui/styles.css before ./ui/app.tsx → mission_control), so equal-
+ * specificity rules here deliberately OVERRIDE the legacy flat mc_* block
+ * in styles.css.
+ *
+ * Discipline:
+ * - Every color derives from the shipped tokens (:root in styles.css + the
+ *   kit theme) via var()/color-mix — no new palette, no raw literals.
+ * - Surfaces ride the pane/raised recipes; this file only refines metrics.
+ * - Accent restraint: warning/error tint only where a number or the Review
+ *   column demands attention; zero counts and idle surfaces stay calm.
+ * - Type: sans everywhere; .mono is applied in markup ONLY to run ids.
+ */
+
+/* ---------- page rhythm ---------- */
+
+.mc_page {
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+/* ---------- health strip: stat cards + right-aligned controls ---------- */
+
+/* The strip itself is chrome-free — the stat tiles carry their own
+ * surfaces (overrides the styles.css bordered-box .mc_health). */
+.mc_health {
+  border: none;
+  background: none;
+  padding: 0;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.mc_stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Metric-tile recipe (styles.css .metric_tile) sized for glanceability:
+ * big tabular number over a small uppercase label. Not interactive — no
+ * .raised hover lift, no fake affordance. */
+.mc_stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 122px;
+  padding: 10px 14px 11px;
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--raised-bg);
+  box-shadow: var(--shadow-raised);
+}
+
+.mc_stat_label {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mc_stat_value {
+  font-size: calc(21px * var(--font-scale, 1));
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* Semantic tint only when the number demands attention (a zero stays calm —
+ * accent discipline). */
+.mc_stat.is_hot { border-color: color-mix(in srgb, var(--warning) 42%, transparent); }
+.mc_stat.is_hot .mc_stat_value { color: var(--warning); }
+.mc_stat.is_bad { border-color: color-mix(in srgb, var(--error) 42%, transparent); }
+.mc_stat.is_bad .mc_stat_value { color: var(--error); }
+
+/* Honest first paint: before the first payload there are no counts to
+ * claim — the loading line reserves the stat row's height so the board
+ * doesn't jump when the numbers land. */
+.mc_loading {
+  display: flex;
+  align-items: center;
+  min-height: 58px;
+  font-size: var(--t-small);
+}
+
+.mc_health_side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+}
+
+/* ---------- resume-error callout ---------- */
+
+.mc_error {
+  border: 1px solid color-mix(in srgb, var(--error) 38%, transparent);
+  background: var(--error-subtle);
+  color: var(--error);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: var(--t-small);
+  line-height: 1.45;
+}
+
+/* ---------- entities pane ---------- */
+
+/* Reassert the pane surface: styles.css .mc_entities predates the pane
+ * grammar and would clobber .pane's background/border/padding. */
+.mc_entities {
+  padding: 0;
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+}
+
+.mc_entities_body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 4px;
+}
+
+.mc_entities_error {
+  font-size: var(--t-small);
+}
+
+.mc_entity_link {
+  font-size: var(--t-small);
+}
+
+/* Horizontal rail; the bottom padding gives the raised shadows room
+ * instead of clipping them at the scroll edge. */
+.mc_entities_row {
+  gap: 10px;
+  padding: 3px 3px 12px;
+}
+
+/* Entity tile = raised card (markup adds .raised for shadow + hover lift);
+ * overrides the cramped styles.css .mc_entity box and neutralizes its
+ * info hover border (the lift + strong border is the affordance). */
+.mc_entity {
+  gap: 6px;
+  min-width: 178px;
+  max-width: 244px;
+  padding: 12px 13px;
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--raised-bg);
+}
+
+.mc_entity:hover {
+  border-color: var(--pane-border-strong);
+}
+
+.mc_entity_name {
+  font-size: var(--t-section);
+  font-weight: 650;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc_entity_status_row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.mc_entity_moment {
+  font-size: var(--t-micro);
+}
+
+.mc_entity_idle {
+  font-size: var(--t-micro);
+}
+
+.mc_entity_spend {
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- board columns as panes ---------- */
+
+.mc_board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+/* Column = pane (overrides the flat styles.css .mc_column box). The
+ * Review column's SINGLE warning cue lives on the header underline below —
+ * the old treatment stacked three (column border + title color + card
+ * tint). */
+.mc_column {
+  padding: 0;
+  min-height: 220px;
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+}
+
+.mc_column_review > .pane_header {
+  border-bottom-color: color-mix(in srgb, var(--warning) 55%, transparent);
+}
+
+.mc_column_hint {
+  font-size: var(--t-micro);
+  line-height: 1.4;
+  padding: 8px 14px 0;
+}
+
+/* Cards scroll independently at a max height; the page keeps its own
+ * scroll for everything else. */
+.mc_column_cards {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: 10px;
+  max-height: clamp(280px, 62vh, 720px);
+}
+
+/* Empty microcopy: centered, muted, comfortable — words, not a sad dash. */
+.mc_empty {
+  padding: 26px 10px;
+  font-size: var(--t-small);
+  text-align: center;
+}
+
+.mc_more {
+  align-self: center;
+  margin: 2px 0 4px;
+}
+
+@media (max-width: 1240px) {
+  .mc_board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 660px) {
+  .mc_board { grid-template-columns: 1fr; }
+}
+
+/* ---------- run cards ---------- */
+
+/* Raised card (markup adds .raised for shadow + hover lift); overrides
+ * the cramped styles.css .mc_card, neutralizes its info hover border, and
+ * retires the review card's warning flood — the column header carries the
+ * review cue, the chips + buttons carry the card's own signal. */
+.mc_card {
+  gap: 7px;
+  padding: 12px 13px;
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--raised-bg);
+}
+
+.mc_card:hover {
+  border-color: var(--pane-border-strong);
+}
+
+.mc_card_failed {
+  border-color: color-mix(in srgb, var(--error) 38%, transparent);
+}
+
+.mc_card_failed:hover {
+  border-color: color-mix(in srgb, var(--error) 55%, transparent);
+}
+
+.mc_card_head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mc_card_title {
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* id / duration / tokens / tools: one muted micro fact row — sans; only
+ * the run id span wears .mono (markup). */
+.mc_card_meta {
+  gap: 8px;
+  row-gap: 3px;
+  font-size: var(--t-micro);
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.mc_card_line {
+  font-size: var(--t-micro);
+}
+
+/* Failed cards carry their WHY inline — a tinted danger callout (keeps
+ * the styles.css error-subtle background + 2-line clamp; refines shape). */
+.mc_card_error {
+  font-size: var(--t-micro);
+  line-height: 1.45;
+  border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+  border-radius: 8px;
+  padding: 7px 9px;
+  margin-top: 0;
+}
+
+/* ---------- review body (the act zone) ---------- */
+
+.mc_card_review_body {
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 9px;
+  border-top: 1px solid var(--pane-border);
+}
+
+.mc_card_reason {
+  font-size: var(--t-body);
+  font-weight: 550;
+  line-height: 1.45;
+}
+
+.mc_card_waiting {
+  font-size: var(--t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc_card_actions {
+  gap: 8px;
+}
+
+/* Approve / Reject / Answer share one visual weight (32px .btn recipe). */
+.mc_card_actions .btn {
+  min-width: 88px;
+}
+
+.mc_answer {
+  font-size: var(--t-body);
+  min-height: 56px;
+}

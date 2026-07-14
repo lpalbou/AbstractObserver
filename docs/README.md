@@ -23,6 +23,11 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
 
+## Reports
+- `reports/2026-07-13_redesign_program.md` — the full redesign program
+  report (three build waves + three adversary folds; what changed, what
+  was verified, what is deferred by name)
+
 Observer’s Runtime views work with Gateway/Runtime artifact inventories, not
 with browser-local files or arbitrary server filesystem browsing:
 

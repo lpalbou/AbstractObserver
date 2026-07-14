@@ -1,0 +1,252 @@
+/* system.css — System page aesthetic layer (loads after styles.css).
+ * The framework-inventory console: flat header on canvas, underline
+ * section tabs, pane-grammar sections, raised rows, recessed payloads. */
+
+/* ── Page + header ── */
+.runtime_page {
+  gap: 14px;
+}
+
+.runtime_header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  border: none;
+  background: transparent;
+  padding: 2px 2px 0;
+}
+
+.runtime_header h2 {
+  font-size: var(--t-page);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  margin: 2px 0 8px;
+}
+
+.runtime_header .run_hero_eyebrow {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 650;
+}
+
+.runtime_header_metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(96px, 1fr));
+  gap: 10px;
+  min-width: 420px;
+}
+
+/* ── Section tabs: quiet text + accent underline ── */
+.runtime_mode_tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--pane-border);
+  padding: 0 2px;
+}
+
+.runtime_mode_tab {
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  min-height: 36px;
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: var(--t-small);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  transition: color 0.14s;
+}
+
+.runtime_mode_tab:hover {
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.runtime_mode_tab.active {
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+}
+
+.runtime_mode_tab.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+}
+
+/* ── Offline banner: calm warning pane ── */
+.runtime_offline_banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--warning-border, color-mix(in srgb, var(--warning) 35%, transparent));
+  background: var(--warning-subtle, color-mix(in srgb, var(--warning) 8%, transparent));
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.runtime_offline_banner strong {
+  display: block;
+  font-size: var(--t-section);
+  font-weight: 650;
+  margin-bottom: 2px;
+}
+
+.runtime_offline_banner span {
+  color: var(--text-secondary);
+  font-size: var(--t-small);
+}
+
+/* ── Activity: panes + raised rows ── */
+.runtime_ops_grid section,
+.runtime_activity_panel,
+.runtime_queue {
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pane);
+}
+
+.runtime_run_card {
+  background: var(--raised-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-raised);
+  transition: border-color 0.15s, transform 0.12s;
+}
+
+.runtime_run_card:hover {
+  border-color: var(--pane-border-strong);
+  transform: translateY(-1px);
+}
+
+.runtime_run_card.selected {
+  border-color: var(--accent-border, color-mix(in srgb, var(--accent) 40%, transparent));
+  box-shadow: inset 2.5px 0 0 var(--accent), var(--shadow-raised);
+}
+
+/* ── Artifacts: toolbar, rail, rows, detail ── */
+.runtime_artifact_toolbar {
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pane);
+  padding: 12px 14px;
+}
+
+.artifact_filter_field span,
+.artifact_filter_label {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.artifact_filter_chip {
+  border-radius: 999px;
+  font-size: var(--t-micro);
+  font-weight: 600;
+}
+
+.runtime_artifact_browser .pane_header .btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--t-micro);
+}
+
+.artifact_row {
+  background: var(--raised-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-raised);
+  transition: border-color 0.15s, transform 0.12s;
+}
+
+.artifact_row:hover {
+  border-color: var(--pane-border-strong);
+  transform: translateY(-1px);
+}
+
+.artifact_row.selected {
+  border-color: var(--accent-border, color-mix(in srgb, var(--accent) 40%, transparent));
+  box-shadow: inset 2.5px 0 0 var(--accent), var(--shadow-raised);
+}
+
+.artifact_row_title strong {
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  font-weight: 600;
+}
+
+.artifact_group_header {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 650;
+}
+
+.runtime_artifact_detail {
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pane);
+}
+
+.artifact_detail_grid span {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.artifact_detail_grid strong {
+  font-weight: 550;
+  font-size: var(--t-small);
+}
+
+/* Recessed preview/payload blocks */
+.runtime_preview_block,
+.artifact_preview_text,
+.audit_log_tail,
+.runtime_inline_preview pre,
+.runtime_artifact_detail pre {
+  background: var(--canvas);
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+/* ── Logs ── */
+.runtime_logs_panel,
+.runtime_log_pane {
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pane);
+}
+
+/* ── Memory tab ── */
+.runtime_memory_panel {
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pane);
+  background: var(--pane-bg);
+}

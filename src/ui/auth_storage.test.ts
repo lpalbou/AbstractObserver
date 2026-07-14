@@ -13,7 +13,9 @@ describe("hosted Gateway auth UX", () => {
     expect(src).toContain("handle_connection_status");
     // The settings copy states the contract in words.
     expect(src).toContain("exchanges for an HTTP-only browser");
-    // Session-first boot: an existing browser session wins over stored tokens.
-    expect(src).toContain("fetchGatewayConnection");
+    // B5 (2026-07-13): the uic hook IS the connection machine — the app
+    // never hand-rolls boot-probe/auto-open/close-on-status again.
+    expect(src).toContain("useGatewayConnection");
+    expect(src).toContain("gateway_connection.modalProps");
   });
 });

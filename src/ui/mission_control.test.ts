@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { board_card, board_column, board_columns, entity_phase, format_age } from "./mission_control";
-import type { RunSummary } from "./run_picker";
+import { ACTIVE_WINDOW_MS, COLUMN_EMPTY, COLUMN_HINT, COLUMN_LABEL, board_card, board_column, board_columns, entity_activity_age, entity_phase, format_age, format_tokens } from "./mission_control";
+import type { RunSummary } from "./run_status";
 
 // The board's promise: column = STATE TRUTH, never prose. Review means a
 // HUMAN is the blocker; parked residents are Working; scheduled waits are
@@ -132,6 +132,44 @@ describe("entity_phase", () => {
     expect(entity_phase("awake")).toBe("awake");
     expect(entity_phase("")).toBe("unknown");
   });
+
+  it("maps the cognition wire's composite chain (c1454) onto the ruled four", () => {
+    expect(entity_phase("visiting")).toBe("visit");
+    expect(entity_phase("asleep")).toBe("sleep");
+    expect(entity_phase("personal")).toBe("personal");
+    expect(entity_phase("paused")).toBe("paused");
+    expect(entity_phase("resting")).toBe("resting");
+    expect(entity_phase("working")).toBe("work");
+    expect(entity_phase("own time")).toBe("personal");
+  });
+
+  it("STOP (liveness axis, c1523) is not a phase — it renders as the emergency state", () => {
+    expect(entity_phase("stop")).toBe("stopped");
+    expect(entity_phase("stopped")).toBe("stopped");
+  });
+
+  it("unlisted server words pass through VERBATIM — never coerced into a ruled phase", () => {
+    // Documents the honest-passthrough posture (fable5 adversary, c1475):
+    // a future "helpful" coercion of unknown words must fail this test.
+    expect(entity_phase("hibernating")).toBe("hibernating");
+  });
+
+  it("pins the normalizer against THE canonical phase-graph artifact (entity-owned, c1492)", async () => {
+    // One source, N pins: the artifact's phase keys — not a copy of them —
+    // are the enum this board renders. Skips (visibly) when the sibling
+    // repo is absent (standalone CI); in the workspace, drift fails here.
+    const fs = await import("node:fs");
+    const path = new URL("../../../abstractentity/spec/entity_phases.json", import.meta.url).pathname;
+    if (!fs.existsSync(path)) {
+      console.warn("#FALLBACK phase-graph artifact absent (standalone checkout) — cross-repo pin skipped");
+      return;
+    }
+    const spec = JSON.parse(fs.readFileSync(path, "utf8"));
+    const keys = Object.keys(spec.phases).sort();
+    expect(keys).toEqual(["personal", "sleep", "visit", "work"]);
+    for (const key of keys) expect(entity_phase(key)).toBe(key);
+    expect(spec.initial_phase).toBe("sleep");
+  });
 });
 
 describe("format_age", () => {
@@ -141,5 +179,56 @@ describe("format_age", () => {
     expect(format_age(now - 5 * 60_000, now)).toBe("5m");
     expect(format_age(now - 2 * 3_600_000, now)).toBe("2.0h");
     expect(format_age(null, now)).toBe("");
+  });
+});
+
+describe("entity_activity_age (B3 tile freshness — never fabricate liveness)", () => {
+  const now = Date.parse("2026-07-13T12:00:00Z");
+
+  it("recent moments read as ages within the active window", () => {
+    const age = entity_activity_age("2026-07-13T11:59:30Z", now);
+    expect(age).toBe(30_000);
+    expect(age! <= ACTIVE_WINDOW_MS).toBe(true);
+  });
+
+  it("older moments fall outside the active window", () => {
+    const age = entity_activity_age("2026-07-13T11:00:00Z", now);
+    expect(age).toBe(3_600_000);
+    expect(age! > ACTIVE_WINDOW_MS).toBe(true);
+  });
+
+  it("missing or unparseable timestamps yield null — the tile renders NOTHING", () => {
+    expect(entity_activity_age("", now)).toBeNull();
+    expect(entity_activity_age("not-a-date", now)).toBeNull();
+  });
+
+  it("clock skew (future timestamps) clamps to zero, never negative", () => {
+    expect(entity_activity_age("2026-07-13T12:05:00Z", now)).toBe(0);
+  });
+});
+
+describe("format_tokens (B3 spend chip — compact, never fabricated)", () => {
+  it("renders honest magnitudes", () => {
+    expect(format_tokens(812)).toBe("812");
+    expect(format_tokens(12_340)).toBe("12k");
+    expect(format_tokens(4_230)).toBe("4.2k");
+    expect(format_tokens(4_200_000)).toBe("4.2M");
+  });
+
+  it("null/invalid renders NOTHING", () => {
+    expect(format_tokens(null)).toBe("");
+    expect(format_tokens(Number.NaN)).toBe("");
+    expect(format_tokens(-5)).toBe("");
+  });
+});
+
+describe("board column contract (adversary 2 pin)", () => {
+  it("renders Review FIRST — the action column leads, and the three key maps stay in sync", () => {
+    // Column render order IS Object.keys(COLUMN_LABEL) insertion order
+    // (mission_control.tsx render loop); Review-first was a deliberate
+    // layout ruling and is one careless key-reorder from regressing.
+    expect(Object.keys(COLUMN_LABEL)).toEqual(["review", "working", "pending", "done"]);
+    expect(Object.keys(COLUMN_EMPTY).sort()).toEqual(Object.keys(COLUMN_LABEL).sort());
+    expect(Object.keys(COLUMN_HINT).sort()).toEqual(Object.keys(COLUMN_LABEL).sort());
   });
 });
