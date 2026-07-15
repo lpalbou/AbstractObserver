@@ -497,6 +497,86 @@
  * .empty_state_inline, .subrun_chip, .overview_fact_list. */
 
 /* Hero = page header block on the canvas, not a boxed card. */
+/* ── Single-line run hero (operator 2026-07-15): identity + actions on
+ * ONE row; the old stacked eyebrow/title/meta spent three lines
+ * duplicating the toolbar. ── */
+.observe_page .run_hero.run_hero_line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  padding: 10px 14px;
+}
+
+.observe_page .run_hero_title {
+  margin: 0;
+  font-size: var(--t-section);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.observe_page .run_hero_spacer {
+  flex: 1 1 auto;
+}
+
+.observe_page .run_hero_line .btn {
+  flex: 0 0 auto;
+}
+
+/* Artifact rows: name | type | size | actions on one line each. */
+.run_artifact_list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.run_artifact_row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--raised-bg);
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.run_artifact_name {
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  font-weight: 560;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.run_artifact_size {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+.run_artifact_actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.run_artifact_actions .btn {
+  height: 24px;
+  padding: 0 9px;
+  font-size: var(--t-micro);
+}
+
 .observe_page .run_hero {
   background: transparent;
   border: none;

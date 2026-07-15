@@ -7,8 +7,9 @@
 
 import * as http from 'http';
 import { readFileSync, existsSync, statSync } from 'fs';
-import { join, extname, dirname } from 'path';
+import { join, extname, dirname, resolve, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import { createGatewaySessionProxy } from '@abstractframework/app-server';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -116,10 +117,70 @@ const gatewaySessionProxy = createGatewaySessionProxy({
   defaultGatewayUrl: DEFAULT_GATEWAY_URL,
 });
 
+// ── LOCAL FOLDER REVEAL (operator 2026-07-15: a folder button on the run
+// opens its workspace). Only meaningful when this server runs on the SAME
+// machine as the gateway (the local-first posture). Gateway workspace roots
+// are often RELATIVE to the gateway process cwd — resolve against
+// ABSTRACTOBSERVER_GATEWAY_DIR (default: the workspace parent this repo
+// lives in, matching the launcher layout).
+const GATEWAY_DIR = String(process.env.ABSTRACTOBSERVER_GATEWAY_DIR || join(__dirname, '..', '..')).trim();
+
+function resolveWorkspacePath(raw) {
+  const p = String(raw || '').trim();
+  if (!p || p.includes('\0')) return null;
+  const abs = isAbsolute(p) ? p : resolve(GATEWAY_DIR, p);
+  try {
+    if (existsSync(abs) && statSync(abs).isDirectory()) return abs;
+  } catch {}
+  return null;
+}
+
+function handleRevealRequest(req, res, pathname) {
+  if (pathname !== '/api/local/reveal' || req.method !== 'POST') return false;
+  // Loopback only: revealing Finder windows on a remotely-served observer
+  // is someone else's desktop. The socket peer is the truth (Host spoofable).
+  const peer = String(req.socket?.remoteAddress || '');
+  const loopback = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
+  if (!loopback) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'Folder reveal is only available on the machine running the observer.' }));
+    return true;
+  }
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
+  req.on('end', () => {
+    let path = '';
+    try { path = String(JSON.parse(body || '{}').path || ''); } catch {}
+    const abs = resolveWorkspacePath(path);
+    if (!abs) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: `Workspace folder not found on this machine: ${path || '(empty)'}` }));
+      return;
+    }
+    const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+    try {
+      // `open <dir>` reveals a folder; never a shell, never arbitrary exec.
+      spawn(cmd, [abs], { stdio: 'ignore', detached: true }).unref();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, path: abs }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: String(e && e.message || e) }));
+    }
+  });
+  return true;
+}
+
 const server = http.createServer((req, res) => {
   // Remove query strings and normalize path
   const url = new URL(req.url, `http://${req.headers.host}`);
   let pathname = url.pathname;
+
+  // Local-machine folder reveal (before the proxy: /api/local/* is OURS,
+  // never forwarded to the gateway).
+  if (handleRevealRequest(req, res, pathname)) {
+    return;
+  }
 
   // Connection endpoint + everything under /api/ (proxied to the gateway
   // with session cookies swapped for gateway headers).

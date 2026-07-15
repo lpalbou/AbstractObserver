@@ -1605,6 +1605,13 @@ export function App(): React.ReactElement {
   const [session_attachments, set_session_attachments] = useState<any[]>([]);
   const [session_attachments_loading, set_session_attachments_loading] = useState(false);
   const [session_attachments_error, set_session_attachments_error] = useState<string>("");
+  /* Run workspace + durable artifacts (operator 2026-07-15): the folder
+   * button reveals the run's workspace locally; the Story lists what the
+   * runtime durably recorded for THIS run. */
+  const [run_workspace_root, set_run_workspace_root] = useState<string>("");
+  const [run_artifacts, set_run_artifacts] = useState<any[]>([]);
+  const [run_artifacts_loading, set_run_artifacts_loading] = useState(false);
+  const [run_artifacts_error, set_run_artifacts_error] = useState<string>("");
   const [attachment_preview_open, set_attachment_preview_open] = useState(false);
   const [attachment_preview_title, set_attachment_preview_title] = useState<string>("");
   const [attachment_preview_text, set_attachment_preview_text] = useState<string>("");
@@ -2697,6 +2704,33 @@ export function App(): React.ReactElement {
     }
   }
 
+  /** Reveal the run's workspace folder in the local file manager. Served
+   * by the observer's own cli.js (/api/local/reveal, loopback-only) —
+   * meaningful in the local-first posture where observer + gateway share
+   * the machine; elsewhere it reports the honest refusal. */
+  async function reveal_run_workspace(): Promise<void> {
+    const ws = run_workspace_root.trim();
+    if (!ws) {
+      set_status("This run recorded no workspace folder", 2);
+      return;
+    }
+    try {
+      const r = await fetch("/api/local/reveal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: ws }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (r.ok && (body as any)?.ok) {
+        set_status(`Opened ${String((body as any).path || ws)}`, 2);
+      } else {
+        set_status(String((body as any)?.error || `Folder reveal failed (${r.status})`), 3);
+      }
+    } catch (e: any) {
+      set_status(String(e?.message || e || "Folder reveal failed"), 3);
+    }
+  }
+
   async function download_session_attachment(item: any): Promise<void> {
     const rid = String(session_attachments_run_id || "").trim();
     if (!rid) {
@@ -3367,6 +3401,9 @@ export function App(): React.ReactElement {
     set_status_text("");
     set_run_state(null);
     set_dismissed_wait_key("");
+    set_run_workspace_root("");
+    set_run_artifacts([]);
+    set_run_artifacts_error("");
     set_active_node_id("");
     active_node_ref.current = "";
     set_recent_nodes({});
@@ -3422,9 +3459,36 @@ export function App(): React.ReactElement {
         if (data) {
           set_input_data_text(JSON.stringify(data, null, 2));
         }
+        // The run's workspace folder (operator 2026-07-15: folder button).
+        // Gateway serves it beside input_data; often RELATIVE to the
+        // gateway process cwd — the local reveal endpoint resolves that.
+        const ws = (inp as any)?.workspace;
+        const ws_root = typeof ws?.workspace_root === "string" ? String(ws.workspace_root).trim() : "";
+        set_run_workspace_root(ws_root);
       } catch {
-        // ignore
+        set_run_workspace_root("");
       }
+
+      // Durable run artifacts for the Story panel (products + internal
+      // offloads; the panel separates them). Best-effort — never blocks;
+      // the attach AbortController is the staleness guard (a newer attach
+      // aborts this one before its state lands).
+      void (async () => {
+        set_run_artifacts_loading(true);
+        set_run_artifacts_error("");
+        try {
+          const resp = await gateway.list_run_artifacts(rid, { limit: 200 });
+          const items = Array.isArray((resp as any)?.items) ? (resp as any).items : [];
+          if (!abort.signal.aborted) set_run_artifacts(items);
+        } catch (e: any) {
+          if (!abort.signal.aborted) {
+            set_run_artifacts([]);
+            set_run_artifacts_error(String(e?.message || e || "artifact listing failed"));
+          }
+        } finally {
+          if (!abort.signal.aborted) set_run_artifacts_loading(false);
+        }
+      })();
 
       if (inferred_bundle_id && inferred_flow_id) {
         set_bundle_id(inferred_bundle_id);
@@ -6557,6 +6621,13 @@ export function App(): React.ReactElement {
                     }}
                     on_open_subrun={(rid) => void attach_to_run(rid, { root_run_id: root_run_id || run_id || rid })}
                     on_answer_wait={() => set_dismissed_wait_key("")}
+                    workspace_root={run_workspace_root}
+                    on_reveal_workspace={() => void reveal_run_workspace()}
+                    run_artifacts={run_artifacts}
+                    run_artifacts_loading={run_artifacts_loading}
+                    run_artifacts_error={run_artifacts_error}
+                    on_preview_run_artifact={(a) => void preview_runtime_artifact(a as RuntimeArtifact)}
+                    on_download_run_artifact={(a) => void download_runtime_artifact(a as RuntimeArtifact)}
                     timeline_items={timeline_items}
                     node_index={node_index_for_run}
                     attachments={session_attachments}
@@ -7638,6 +7709,16 @@ function WorkflowRunNavigator(props: {
   );
 }
 
+/** Folder glyph — the kit icon set has no folder yet (asked of uic);
+ * local SVG keeps the button honest instead of borrowing a wrong glyph. */
+function FolderGlyph(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9L9.2 3.9A2 2 0 0 0 7.5 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+    </svg>
+  );
+}
+
 function RunOverviewPanel(props: {
   run_id: string;
   run: RunSummary | null;
@@ -7662,6 +7743,14 @@ function RunOverviewPanel(props: {
   /** Reopens the wait-context modal (clears the dismissal) — the Story's
    * way back into "review & answer" for a user wait. */
   on_answer_wait?: () => void;
+  /* Workspace + durable artifacts (operator 2026-07-15). */
+  workspace_root: string;
+  on_reveal_workspace: () => void;
+  run_artifacts: any[];
+  run_artifacts_loading: boolean;
+  run_artifacts_error: string;
+  on_preview_run_artifact: (a: any) => void;
+  on_download_run_artifact: (a: any) => void;
   /* STORY additions (redesign: Observe's nine tabs → four): the run's
    * human chronology and its produced artifacts live IN the story —
    * they were separate tabs re-rendering the same truth. */
@@ -7720,24 +7809,33 @@ function RunOverviewPanel(props: {
 
   return (
     <div className="run_overview">
-      <section className="run_hero">
-        <div className="run_hero_main">
-          <div className="run_hero_eyebrow">Run</div>
-          <h2>{title}</h2>
-          <div className="run_hero_meta">
-            <RunStatusPill status={props.status_label} />
-            {run_id ? <span className="mono" title={run_id}>{short_id(run_id, 22)}</span> : <span className="mono">(no run selected)</span>}
-            {props.root_run_id && props.root_run_id !== run_id ? <span className="mono">root {short_id(props.root_run_id, 14)}</span> : null}
-          </div>
-        </div>
-        <div className="run_hero_actions">
-          <button className="btn" onClick={props.on_generate_summary} disabled={!run_id || props.summary_generating}>
-            {props.summary_generating ? "Summarizing…" : summary_text ? "Refresh summary" : "Summarize"}
+      {/* ONE LINE (operator 2026-07-15): identity left, actions right —
+        * the stacked eyebrow/title/meta hero spent three lines repeating
+        * what the toolbar already says. */}
+      <section className="run_hero run_hero_line">
+        <h2 className="run_hero_title" title={title}>{title}</h2>
+        <RunStatusPill status={props.status_label} />
+        {run_id ? <span className="chip mono muted" title={run_id}>{short_id(run_id, 18)}</span> : null}
+        {props.root_run_id && props.root_run_id !== run_id ? (
+          <span className="chip mono muted" title={props.root_run_id}>root {short_id(props.root_run_id, 12)}</span>
+        ) : null}
+        <span className="run_hero_spacer" />
+        {props.workspace_root ? (
+          <button
+            className="btn btn_icon"
+            onClick={props.on_reveal_workspace}
+            title={`Open the run's workspace folder\n${props.workspace_root}`}
+          >
+            <FolderGlyph />
+            Folder
           </button>
-          <button className="btn" onClick={props.on_open_runtime} title="Open this run's artifacts in the System explorer">
-            Run artifacts
-          </button>
-        </div>
+        ) : null}
+        <button className="btn" onClick={props.on_generate_summary} disabled={!run_id || props.summary_generating}>
+          {props.summary_generating ? "Summarizing…" : summary_text ? "Refresh summary" : "Summarize"}
+        </button>
+        <button className="btn" onClick={props.on_open_runtime} title="Open this run's artifacts in the System explorer">
+          Run artifacts
+        </button>
       </section>
 
       {/* OUTCOME FIRST (usability defender): a terminal run's story answers
@@ -7758,6 +7856,79 @@ function RunOverviewPanel(props: {
           ) : null}
         </section>
       ) : null}
+
+      {/* DURABLE ARTIFACTS (operator 2026-07-15): what the runtime actually
+        * recorded for THIS run — file products lead; internal state
+        * offloads (run-store/node-trace vars) fold behind a disclosure.
+        * Files a workflow wrote only to its workspace folder are NOT here
+        * by construction (not durable) — the Folder button reaches those. */}
+      {(() => {
+        const arts = Array.isArray(props.run_artifacts) ? props.run_artifacts : [];
+        const is_offload = (a: any) => {
+          const src = String((a?.tags && typeof a.tags === "object" ? (a.tags as any).source : "") || "").trim();
+          return src === "run_store_offload" || src === "node_trace_offload";
+        };
+        const art_name = (a: any) => {
+          const tags = a?.tags && typeof a.tags === "object" ? (a.tags as any) : {};
+          const fname = String(a?.filename || tags.filename || "").trim();
+          if (fname) return fname;
+          const path = String(tags.path || a?.source_path || "").trim();
+          if (path) return path.split("/").pop() || path;
+          const title = String(a?.title || "").trim();
+          return title || String(a?.artifact_id || "").slice(0, 14);
+        };
+        const art_row = (a: any) => (
+          <div key={String(a?.artifact_id || Math.random())} className="run_artifact_row">
+            <span className="run_artifact_name" title={String((a?.tags as any)?.path || a?.source_path || a?.artifact_id || "")}>{art_name(a)}</span>
+            <span className="chip mono muted">{String(a?.content_type || "?").replace(/^application\//, "").replace(/^text\//, "")}</span>
+            <span className="run_artifact_size">{typeof a?.size_bytes === "number" ? `${(a.size_bytes / 1024).toFixed(a.size_bytes > 100_000 ? 0 : 1)} kB` : ""}</span>
+            <span className="run_artifact_actions">
+              <button className="btn" onClick={() => props.on_preview_run_artifact(a)}>Preview</button>
+              <button className="btn" onClick={() => props.on_download_run_artifact(a)}>Download</button>
+            </span>
+          </div>
+        );
+        const products = arts.filter((a) => !is_offload(a));
+        const internals = arts.filter(is_offload);
+        return (
+          <section className="overview_panel">
+            <div className="overview_panel_header">
+              <h3>Artifacts</h3>
+              <span className="mono muted">{arts.length ? arts.length.toLocaleString() : ""}</span>
+              {props.workspace_root ? (
+                <>
+                  <span className="pane_spacer" />
+                  <button className="btn btn_icon" onClick={props.on_reveal_workspace} title={`Open the run's workspace folder\n${props.workspace_root}`}>
+                    <FolderGlyph />
+                    Workspace
+                  </button>
+                </>
+              ) : null}
+            </div>
+            {props.run_artifacts_error ? <div className="warn_callout">{props.run_artifacts_error}</div> : null}
+            {props.run_artifacts_loading && !arts.length ? <div className="empty_state_inline">Loading artifacts…</div> : null}
+            {!props.run_artifacts_loading && !arts.length && !props.run_artifacts_error ? (
+              <div className="empty_state_inline">
+                The runtime recorded no durable artifacts for this run.
+                {props.workspace_root ? " Files written to the workspace folder (if any) are reachable via the Folder button." : ""}
+              </div>
+            ) : null}
+            {products.length ? <div className="run_artifact_list">{products.map(art_row)}</div> : null}
+            {!products.length && arts.length ? (
+              <div className="empty_state_inline">
+                No file products — this run's durable artifacts are internal state offloads (below).
+                {props.workspace_root ? " Report files written to the workspace are reachable via the Folder button." : ""}
+              </div>
+            ) : null}
+            {internals.length ? (
+              <details className="runtime_raw_details">
+                <summary className="muted">Internal state offloads ({internals.length})</summary>
+                <div className="run_artifact_list">{internals.map(art_row)}</div>
+              </details>
+            ) : null}
+          </section>
+        );
+      })()}
 
       <div className="metric_grid">
         <div className="metric_tile">

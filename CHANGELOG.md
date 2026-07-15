@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-07-15 — Run workspace folder button + durable artifacts on the Story + one-line hero
+
+Operator directives (11:11), all three shipped:
+
+- **Folder button**: the run Story now carries a Folder action (hero +
+  Artifacts panel header) that opens the run's workspace directory in
+  the local file manager. Served by the observer's own cli.js
+  (`POST /api/local/reveal`): loopback-only (socket-peer check — a
+  remotely served observer refuses with the honest reason), directory
+  existence validated, `open`/`xdg-open` with args only (never a
+  shell). Gateway workspace roots are usually RELATIVE to the gateway
+  process cwd; the endpoint resolves against
+  `ABSTRACTOBSERVER_GATEWAY_DIR` (default: the workspace parent).
+  The run's workspace root now loads with the run (from
+  `/input_data`'s workspace block).
+- **Durable artifacts panel**: the Story lists what the runtime
+  actually recorded for the run (`/runs/{id}/artifacts`): file
+  products lead; internal state offloads (`run_store_offload` /
+  `node_trace_offload`) fold behind a disclosure; honest empty state
+  when a run recorded nothing. Preview/Download reuse the System
+  explorer's artifact machinery. Live finding on co-scientist run
+  e13cae51…: its md/pdf/docx reports exist ONLY in the workspace
+  folder — zero file products in the artifact store. Backlog filed in
+  abstractflow (`2026-07-15_coscientist_reports_as_durable_artifacts.md`)
+  asking report files to be registered as durable run artifacts; agora
+  notify pending (hub down at ship time — connection refused; a
+  watcher re-posts when it returns).
+- **One-line run hero**: the stacked eyebrow/title/meta block spent
+  three lines repeating the toolbar; now title · status chip · id chip
+  · root chip left, Folder/Summarize/Run artifacts right, single row
+  with ellipsized title.
+
+Gates: tsc clean · 88/88 · build green · serving :3001. Verified
+headless signed-in on the live co-scientist run: one-line hero, the
+Artifacts panel showing the honest "no file products" state with 54
+offloads folded + the workflow snapshot as a product row, Folder
+button present; reveal endpoint verified end-to-end (resolved the
+relative gateway path, opened Finder).
+
 ## 2026-07-14 — Geometry audit tool + System margin/padding root causes (operator round 4)
 
 The operator's screenshot showed the System page still colliding. Built
