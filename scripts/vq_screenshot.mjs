@@ -10,10 +10,23 @@ const want = (t) => TARGETS.length === 0 || TARGETS.includes(t);
 
 const VIEWPORT = { width: 1560, height: 940 };
 const USER = "admin";
-// The operator-provided literal was rejected by the gateway; the machine's own
-// persisted admin bearer (from ~/.abstractassistant/gateway_connection.json)
-// signs in through the identical direct path.
-const TOKEN = process.env.VQ_GATEWAY_TOKEN || "agw_2L8jyWIx2T6KpWyGFE2skleL5PieNIMQ2y0UYLuOui0";
+// Never hardcode a bearer here — this file is tracked. Provide the token via
+// env, or let the harness read the machine's persisted admin bearer (the same
+// one the assistant app uses) at run time.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+function resolveToken() {
+  const env = String(process.env.VQ_GATEWAY_TOKEN || "").trim();
+  if (env) return env;
+  try {
+    const raw = readFileSync(`${homedir()}/.abstractassistant/gateway_connection.json`, "utf8");
+    const tok = String(JSON.parse(raw).token || "").trim();
+    if (tok) return tok;
+  } catch {}
+  console.error("No gateway token: set VQ_GATEWAY_TOKEN or persist a connection first.");
+  process.exit(1);
+}
+const TOKEN = resolveToken();
 
 async function signIn(page, origin) {
   // Direct path: same endpoint the connect modal posts to.

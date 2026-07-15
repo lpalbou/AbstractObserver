@@ -13,11 +13,17 @@
  */
 
 :root {
-  /* Surfaces (three elevations over the theme's bg tokens) */
+  /* Surfaces (three elevations over the theme's bg tokens).
+   * FAMILY RULE (operator verdict 2026-07-14 "look and feel way off"):
+   * panes/raised derive from --bg-secondary — the hue every sibling app
+   * (flow, continuum) builds its surfaces from. The previous white/black
+   * mixes of --bg-primary desaturated the theme into a grayscale app;
+   * measured: continuum cards #16213e (navy) vs observer panes #242437
+   * (gray). Mixing white INTO bg-secondary keeps the theme's own hue. */
   --canvas: color-mix(in srgb, var(--bg-primary) 94%, black);
-  --pane-bg: color-mix(in srgb, var(--bg-primary) 97%, white);
-  --pane-bg-2: color-mix(in srgb, var(--bg-primary) 92%, white);
-  --raised-bg: color-mix(in srgb, var(--bg-primary) 88%, white);
+  --pane-bg: color-mix(in srgb, var(--bg-secondary) 96%, white);
+  --pane-bg-2: color-mix(in srgb, var(--bg-secondary) 90%, white);
+  --raised-bg: color-mix(in srgb, var(--bg-secondary) 88%, white);
   --pane-border: color-mix(in srgb, var(--text-primary) 9%, transparent);
   --pane-border-strong: color-mix(in srgb, var(--text-primary) 16%, transparent);
   --pane-top-light: color-mix(in srgb, var(--text-primary) 5%, transparent);
@@ -177,7 +183,9 @@ button.primary:hover:not(:disabled) {
   flex: 0 0 208px;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg-primary) 90%, black);
+  /* bg-secondary, exactly like continuum's sidebar — the black-mix of
+   * bg-primary read as a colorless void next to the sibling apps. */
+  background: var(--bg-secondary);
   border-right: 1px solid var(--pane-border);
   min-height: 0;
 }
@@ -318,7 +326,10 @@ button.primary:hover:not(:disabled) {
   height: 52px;
   padding: 0 18px;
   border-bottom: 1px solid var(--pane-border);
-  background: color-mix(in srgb, var(--bg-primary) 97%, white);
+  /* Header sits on the theme's base surface (flow/continuum both do);
+   * the canvas below is slightly recessed, so the border reads as a
+   * real chrome edge instead of two near-identical grays meeting. */
+  background: var(--bg-primary);
 }
 
 .shell_header_title {
@@ -715,6 +726,21 @@ button.primary:hover:not(:disabled) {
 
 .pane_body.scroll {
   overflow-y: auto;
+}
+
+/* SQUEEZE GUARD (operator 2026-07-14, Settings overlap): inside a
+ * SCROLLING page the flex algorithm was shrinking panes below their
+ * content height (flex-shrink:1 + min-height:0 default) — with
+ * overflow visible, the squeezed pane's content drew OVER the next
+ * pane. In a scroll context the page grows instead; panes never
+ * shrink. Viewport-clamped layouts (observe/system grids) are not
+ * .page_scroll flex children, so their internal scrolling is
+ * untouched. */
+.page_scroll .page_inner,
+.page_scroll .page_inner > .pane,
+.page_scroll .form_stack > .pane,
+.page_scroll .form_stack {
+  flex-shrink: 0;
 }
 
 /* Raised interactive card (tiles, rows that act like buttons) */
@@ -1241,7 +1267,7 @@ button.primary:hover:not(:disabled) {
   appearance: none;
   border: none;
   background: transparent;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   padding: 3px 10px;
   font-size: var(--font-size-xs);
   cursor: pointer;
@@ -1270,7 +1296,7 @@ button.primary:hover:not(:disabled) {
   border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.14));
   border-radius: var(--radius-sm, 4px);
   background: transparent;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   padding: 3px 10px;
   font-size: var(--font-size-xs);
   cursor: pointer;
@@ -5131,4 +5157,27 @@ button.primary:hover:not(:disabled) {
  * (.af-drawer is a documented-public kit class family.) */
 .af-drawer {
   background: var(--pane-bg);
+}
+
+/* Inputs and their hints are SANS (operator: launch field hints rendered
+ * monospace). Mono inputs are opt-in via .mono on the control itself
+ * (JSON editors, id fields). */
+input,
+textarea,
+select {
+  font-family: var(--font-sans);
+}
+
+input::placeholder,
+textarea::placeholder {
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+}
+
+input.mono,
+textarea.mono,
+select.mono,
+input.mono::placeholder,
+textarea.mono::placeholder {
+  font-family: var(--font-mono);
 }

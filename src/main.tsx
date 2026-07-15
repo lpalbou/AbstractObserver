@@ -7,8 +7,12 @@ import "@abstractframework/ui-kit/theme.css";
 import "@abstractframework/monitor-active-memory/styles.css";
 import "@abstractframework/panel-chat/panel_chat.css";
 
-import { App } from "./ui/app";
+// Load order is load-bearing: the base sheet MUST precede the App module,
+// whose page layers (board/observe/system/forms/usability.css) override it
+// at equal specificity. styles.css-after-App silently reverted every page
+// skin (operator's "still the old look" — this line was the root cause).
 import "./ui/styles.css";
+import { App } from "./ui/app";
 
 // Register service worker (PWA shell cache).
 if ("serviceWorker" in navigator) {

@@ -1,0 +1,116 @@
+/* USABILITY layer (defender pass, 2026-07-14) — loaded LAST, after
+ * styles.css → forms/observe/system.css and board.css, so equal-specificity
+ * rules here win. Scope: make ACTIONABLE information read as actionable —
+ * no new palette (tokens/color-mix only), no metric-recipe forks.
+ *
+ * Verdict this answers: "the way you present actionable information is
+ * terrible from a user perspective." Each block names the task it serves.
+ */
+
+/* ── Task 1: disabled emphasis buttons must LOOK disabled ──
+ * A Review card's "Answer" at plain opacity .5 still read as a hot,
+ * clickable control (accent-filled). Desaturate + flatten so a dead
+ * button is unmistakably dead; the enabled state is untouched. */
+.btn.primary:disabled,
+.btn.danger:disabled,
+.btn.success:disabled,
+button.primary:disabled,
+.launch_submit_btn:disabled {
+  opacity: 0.38;
+  filter: saturate(0.4);
+  box-shadow: none;
+}
+
+/* ── Task 1: the Review card carries its ASK in place ──
+ * The prompt (what the run wants to know) renders as a quoted line —
+ * clamped to 3 lines; the full text rides the title tooltip. */
+.mc_card_prompt {
+  font-size: var(--t-small);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  border-left: 2px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  padding: 1px 0 1px 9px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Tool approvals name WHAT wants to run — small neutral chips (the
+ * decision buttons carry the semantic color; the tool names are facts). */
+.mc_card_tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.mc_tool_chip {
+  font-size: var(--t-micro);
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--pane-border-strong);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ── Task 5: entity tiles are LINKS (new tab) — say so ──
+ * The tile is an <a target=_blank>; nothing marked it as one. A quiet ↗
+ * in the corner turns "card?" into "opens the entity app". */
+.mc_entity {
+  position: relative;
+}
+
+.mc_entity::after {
+  content: "↗";
+  position: absolute;
+  top: 9px;
+  right: 11px;
+  font-size: var(--t-small);
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0.55;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.mc_entity:hover::after {
+  opacity: 1;
+  color: var(--info);
+}
+
+/* Entity name leaves room for the corner marker. */
+.mc_entity_name {
+  padding-right: 16px;
+}
+
+/* ── Task 2: the Story's metric row must not out-shout the Outcome ──
+ * 8 tiles at 4-per-row = two rows of billboards between the title and
+ * the failure reason. Auto-fit lets all 8 sit in one slim row at desk
+ * widths; tiles slim down to fact-row weight. */
+.observe_page .metric_grid {
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 10px;
+}
+
+.observe_page .metric_tile {
+  padding: 8px 11px 9px;
+}
+
+/* ── Task 3: "Run artifacts" is the outputs door — give the hero actions
+ * real button hierarchy (primary action reads first). */
+.observe_page .run_hero_actions .btn {
+  white-space: nowrap;
+}
+
+/* ── Task 1/3: board cards are buttons (role=button) — keyboard focus
+ * already exists; give mouse users the same certainty on hover. */
+.mc_card:hover .mc_card_title {
+  color: var(--info);
+}
+
+/* ── Empty-state prose is prose ── the sidebar connection label shows
+ * "signed out" / "connecting…" (states, not ids); mono is reserved for
+ * the signed-in user id which markup now tags explicitly. */
+.shell_connection_label {
+  font-size: var(--t-small);
+}

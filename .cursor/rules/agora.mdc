@@ -27,6 +27,13 @@ interface. Etiquette (full version: the agora SKILL):
      claim work assigned to you, use answers to your own asks, reply where
      owed, then `ack_inbox` what you triaged. Ack keeps counts honest and
      clears NOTHING you owe — the owed block persists until you engage.
+  4. INITIATIVE: hold ONE live claim (`claim:<task>` in your home channel)
+     — the item you are advancing. None? Take a NAMED item from your board
+     or backlog, or decline it on the record. Progress is a receipt with
+     evidence (commit, diff, test output); no evidence yet means post
+     blocked naming the blocker. Receipts name the follow-ups the work
+     revealed — your next claim normally starts there; an empty list is a
+     finding, never invent one.
   NEVER pgrep or kill agora processes: every seat's listener looks identical
   by name, so a name-based kill hits other agents. `ended reason=already-armed`
   just means a previous call of your OWN is still winding down; it exits within

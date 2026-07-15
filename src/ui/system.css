@@ -40,11 +40,20 @@
   min-width: 420px;
 }
 
-/* ── Section tabs: quiet text + accent underline ── */
+/* ── Section tabs: quiet text + accent underline ──
+ * Full reset of the styles.css pill-container recipe (border/radius/
+ * background/min-height all restated): overriding only border-bottom left
+ * a boxed pill frame AROUND underline tabs — two tab recipes at once. */
 .runtime_mode_tabs {
   display: flex;
+  align-self: stretch;
   gap: 4px;
+  border: none;
   border-bottom: 1px solid var(--pane-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  min-height: 0;
   padding: 0 2px;
 }
 
@@ -249,4 +258,357 @@
   border-radius: 12px;
   box-shadow: var(--shadow-pane);
   background: var(--pane-bg);
+}
+
+/* ── Artifacts overlap fix (operator: "not even hiding what's behind"):
+ * the toolbar was 64%-translucent and the grid's 500px column minimums
+ * overflowed narrow viewports, painting panes over the toolbar. Opaque
+ * surfaces + shrinkable columns. ── */
+.runtime_artifact_toolbar {
+  position: static;
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  border: 1px solid var(--pane-border);
+}
+
+.runtime_artifacts_layout {
+  grid-template-columns: minmax(170px, 220px) minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 12px;
+}
+
+@media (max-width: 1180px) {
+  .runtime_artifacts_layout {
+    grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
+  }
+  .runtime_artifacts_layout .runtime_detail {
+    grid-column: 1 / -1;
+  }
+}
+
+.artifact_filter_rail {
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  border: 1px solid var(--pane-border);
+  box-shadow: var(--shadow-pane);
+}
+
+.runtime_artifact_browser,
+.runtime_detail {
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+}
+
+/* ── Activity readability (operator: "texts unreadable, inconsistent"):
+ * queue rows + run rows in sans with real sizes and breathing room. ── */
+.runtime_ops_grid,
+.runtime_activity_panel,
+.runtime_queue,
+.runtime_run_card,
+.runtime_ops_filter,
+.runtime_ops_empty {
+  font-family: var(--font-sans);
+}
+
+.runtime_run_card {
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.runtime_run_card strong {
+  font-size: var(--t-small);
+  font-weight: 620;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime_run_card .mono {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.runtime_run_card .btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--t-micro);
+}
+
+/* ── Activity console run rows (operator 2026-07-14: id/age/duration/
+ * reason rendered as ONE mashed string — "…4bb…42m ago43m 28sUser
+ * response needed"). The row classes had no layout rules at all; every
+ * span sat inline with zero gap. Three lines, separated facts. ── */
+.runtime_ops_row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 13px;
+  cursor: pointer;
+}
+
+.runtime_ops_row_top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.runtime_ops_row_name {
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  font-weight: 620;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.runtime_ops_row_sub {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  row-gap: 2px;
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+/* Middots BETWEEN facts (presentation-only separators — the markup
+ * stays plain spans). */
+.runtime_ops_row_sub > *:not(:first-child)::before,
+.runtime_ops_row_facts > *:not(:first-child)::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.runtime_ops_row_reason {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.runtime_ops_row_foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.runtime_ops_row_facts {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.runtime_ops_actions .btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--t-micro);
+}
+
+/* Inspector text rhythm: the head id under the title, decision block
+ * with readable secondary line. */
+.runtime_ops_inspector_head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.runtime_ops_inspector_head h3 {
+  font-family: var(--font-sans);
+  font-size: var(--t-section);
+  font-weight: 650;
+  margin: 0;
+}
+
+.runtime_ops_inspector_head .mono {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.runtime_ops_decision strong {
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  font-weight: 620;
+}
+
+.runtime_ops_decision span {
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* Queue rows: sans labels, counts right-aligned in tabular figures. */
+.runtime_ops_filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--t-small);
+}
+
+.runtime_ops_filter strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+}
+
+/* ── Activity console spacing pass (operator 2026-07-14 21:16:
+ * "collisions between panels & texts, no space between panels").
+ * The three ops panes still wore the OLD surface (--bg-secondary +
+ * raw rgba border) under their .pane class — two surface languages
+ * on one screen — and the grid sat tighter than the app rhythm. ── */
+.runtime_ops_layout {
+  gap: 14px;
+  /* Relieve the squeeze before the 1100px single-column fallback:
+   * the old 190/520/320 minimums overflowed content at ~1100-1260px
+   * and panes visually collided. */
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(280px, 360px);
+}
+
+.runtime_ops_filters,
+.runtime_ops_table_panel,
+.runtime_ops_inspector {
+  border: 1px solid var(--pane-border);
+  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  box-shadow: var(--shadow-pane);
+}
+
+/* Queue rows ride the raised recipe, not the old white-alpha wash. */
+.runtime_ops_filter {
+  background: var(--raised-bg);
+  border: 1px solid var(--pane-border);
+}
+
+.runtime_ops_filter:hover {
+  border-color: var(--pane-border-strong);
+}
+
+.runtime_ops_filter.selected {
+  border-color: var(--accent-border, color-mix(in srgb, var(--accent) 40%, transparent));
+  background: var(--accent-subtle);
+}
+
+/* ── PANE-PADDING NEUTRALIZATION (geometry audit 2026-07-14 21:37:
+ * INSET-HEADER on four panes). Legacy rules padded the PANE element,
+ * so the pane_header floated 10-13px inside the pane borders — the
+ * "collision" look. The pane recipe owns insets via header/body;
+ * pane-level padding must be zero and list flex/gap moves to the
+ * pane_body lists. ── */
+.runtime_ops_filters,
+.runtime_ops_inspector,
+.artifact_filter_rail,
+.runtime_artifact_browser {
+  padding: 0;
+  gap: 0;
+  overflow: hidden; /* the pane_body.scroll inside owns scrolling */
+}
+
+.runtime_ops_filter_header {
+  margin-bottom: 0;
+}
+
+/* Queue list: the pane_body is the flex column; rows fill its width
+ * (audit: RAGGED-RAIL — content-width buttons made a ragged rail). */
+.runtime_ops_queue_list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.runtime_ops_queue_list .runtime_ops_filter {
+  width: 100%;
+}
+
+.runtime_ops_hint {
+  padding-top: 8px;
+  line-height: 1.5;
+  margin-top: auto;
+}
+
+/* Artifact run rail: same structure — body owns the column. */
+.artifact_filter_rail_list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.artifact_filter_rail_list .artifact_filter_run {
+  width: 100%;
+}
+
+/* Runs pane header: search must shrink, not collide with the sort
+ * select; allow a wrap on narrow widths. */
+.runtime_ops_list_header {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.runtime_ops_list_header input {
+  flex: 1 1 180px;
+  min-width: 140px;
+  max-width: 320px;
+}
+
+.runtime_ops_list_header .seg_select {
+  flex: 0 0 auto;
+}
+
+/* Header block: real separation from the tab strip; metrics align to
+ * the title baseline without gluing to the content edge. */
+.runtime_header {
+  padding: 4px 2px 2px;
+  row-gap: 12px;
+}
+
+.runtime_header_metrics {
+  min-width: 0;
+  grid-template-columns: repeat(4, minmax(88px, 1fr));
+}
+
+@media (max-width: 1180px) {
+  .runtime_header_metrics {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+/* Inspector body: consistent block rhythm (sections were butting). */
+.runtime_ops_inspector_body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.runtime_ops_inspector_body > * {
+  margin: 0;
+}
+
+/* The run rows list breathes at the bottom edge. */
+.runtime_ops_rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+/* RE-ASSERT the single-column fallback: the grid override above rides
+ * later in the cascade than styles.css's 1100px media rule and was
+ * silently defeating it — at ≤1100px the three panes crushed into
+ * unreadable slivers (audit: X-BLEED input 39px, vertical-word empty
+ * states). Media rules must live AFTER the base they fall back from. */
+@media (max-width: 1100px) {
+  .runtime_ops_layout {
+    grid-template-columns: 1fr;
+  }
 }

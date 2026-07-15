@@ -66,6 +66,9 @@ import { merge_runtime_metadata, split_runtime_metadata_envelope, type RuntimeMe
 import { run_status_class, run_status_word, type RunSummary } from "./run_status";
 import { useGatewayVoice } from "./use_gateway_voice";
 import "./system.css";
+// Usability layer LAST: it corrects actionable-information presentation and
+// must win equal-specificity fights with every page sheet above.
+import "./usability.css";
 
 type Settings = {
   gateway_url: string;
@@ -80,6 +83,7 @@ type Settings = {
   auto_connect_gateway: boolean;
   maintenance_ai_provider: string;
   maintenance_ai_model: string;
+  assistant_skill_names: string[];
 };
 
 type UiLogItem = {
@@ -131,6 +135,11 @@ type WorkflowOption = {
   flow_id: string;
   label: string;
   description?: string;
+  /** True when the entrypoint declares at least one interface contract —
+   * the launchable set (operator 2026-07-14: Launch surfaces ONLY
+   * executable workflows; interface-less scratch bundles stay out of the
+   * picker but keep their labels for run display). */
+  has_interface: boolean;
 };
 
 type RunFilterMode = "all" | "active" | "waiting" | "terminal" | "failed";
@@ -702,6 +711,7 @@ function load_settings(): Settings {
       header_density: String(parsed?.header_density || parsed?.headerDensity || "standard").trim() || "standard",
       auto_connect_gateway: parsed?.auto_connect_gateway === false ? false : true,
       maintenance_ai_provider: String(parsed?.maintenance_ai_provider || ""),
+      assistant_skill_names: Array.isArray(parsed?.assistant_skill_names) ? parsed.assistant_skill_names.map((x: any) => String(x || "").trim()).filter(Boolean) : [],
       maintenance_ai_model: String(parsed?.maintenance_ai_model || ""),
     };
   } catch {
@@ -717,6 +727,7 @@ function load_settings(): Settings {
       header_density: "standard",
       auto_connect_gateway: true,
       maintenance_ai_provider: "",
+      assistant_skill_names: [],
       maintenance_ai_model: "",
     };
   }
@@ -1406,6 +1417,11 @@ export function App(): React.ReactElement {
     onStatusChange: (s) => handle_connection_status(s),
   });
   const [connection_status, set_connection_status] = useState<GatewayConnectionState | null>(null);
+  /* Skills inventory for the Assistant section (feature-detected: the
+   * gateway may not serve the abstractskill shelf yet — null renders the
+   * honest absent state, never a fabricated list). */
+  const [assistant_skills, set_assistant_skills] = useState<Array<{ name: string; description?: string; version?: string }> | null>(null);
+  const [assistant_skills_probed, set_assistant_skills_probed] = useState(false);
   /* Unified top-right cluster (operator directive + plans/unified-top-bar.md):
    * assistant drawer + shared appearance dialog + the ONE disconnect pill.
    * Appearance persistence is the kit's per-app hook (theme/font/header
@@ -1828,6 +1844,16 @@ export function App(): React.ReactElement {
     return out;
   }, [workflow_options]);
 
+  /* LAUNCHABLE SET (operator 2026-07-14): the Launch picker surfaces only
+   * entrypoints that declare an interface contract — scratch/dev bundles
+   * (test, yoda, basic…) publish none and are not operator-facing. The
+   * FULL option list stays for run labels, so runs of unlisted bundles
+   * still display their names everywhere else. */
+  const launchable_workflow_options = useMemo(
+    () => workflow_options.filter((w) => w.has_interface),
+    [workflow_options],
+  );
+
   const available_providers = useMemo(() => {
     const out = new Set<string>();
     for (const p of Array.isArray(discovered_providers) ? discovered_providers : []) {
@@ -1996,11 +2022,15 @@ export function App(): React.ReactElement {
       for (const ep of eps) {
         const fid = String(ep?.flow_id || "").trim();
         if (!fid) continue;
+        // Deprecated entrypoints are not launch candidates.
+        if (ep?.deprecated === true) continue;
         const workflow_id = `${bid}:${fid}`;
         const name = String(ep?.name || "").trim();
         const label = name ? `${bid} · ${name}` : `${bid} · ${fid}`;
         const description = String(ep?.description || "").trim();
-        out.push({ workflow_id, bundle_id: bid, flow_id: fid, label, description: description || undefined });
+        const interfaces = Array.isArray(ep?.interfaces) ? ep.interfaces : [];
+        const has_interface = interfaces.some((i: any) => String(i || "").trim().length > 0);
+        out.push({ workflow_id, bundle_id: bid, flow_id: fid, label, description: description || undefined, has_interface });
       }
     }
     out.sort((a, b) => a.label.localeCompare(b.label));
@@ -5357,6 +5387,21 @@ export function App(): React.ReactElement {
 
   const active_runtime_runs = useMemo(() => runtime_run_rows.filter((r) => active_run_status(r.status)), [runtime_run_rows]);
 
+  useEffect(() => {
+    if (page !== "settings" || !gateway_connected || assistant_skills_probed) return;
+    let stopped = false;
+    (async () => {
+      const items = await gateway.list_skills();
+      if (stopped) return;
+      set_assistant_skills(items);
+      set_assistant_skills_probed(true);
+    })();
+    return () => {
+      stopped = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, gateway_connected, assistant_skills_probed]);
+
   /* SHELL (redesign wave 1, 2026-07-13): sidebar nav + slim header — the
    * benchmark shape (continuum's shell, flow's restraint). The shell names
    * the page; the header holds page-scoped chrome; the connection control
@@ -5435,7 +5480,9 @@ export function App(): React.ReactElement {
             title={gateway_connected ? "Gateway connected" : discovery_loading ? "Gateway: connecting…" : "Gateway: signed out"}
           >
             <span className={`gateway_led ${gateway_connected ? "ok" : discovery_loading ? "warn" : "err"}`} aria-hidden="true" />
-            <span className="shell_connection_label mono">
+            {/* Prose states ("signed out", "connecting…") are sentences, not
+              * identifiers — mono only when showing the signed-in user id. */}
+            <span className={`shell_connection_label ${gateway_connected && connection_status?.gateway?.principal?.user_id ? "mono" : ""}`}>
               {gateway_connected
                 ? connection_status?.gateway?.principal?.user_id || (settings.gateway_auth_mode === "direct" ? "direct dev" : "connected")
                 : discovery_loading
@@ -5553,143 +5600,172 @@ export function App(): React.ReactElement {
 
         {page === "settings" ? (
           <div className="page page_scroll">
-            <div className="page_inner constrained">
-              <div className="card">
-                <div className="title">
-                  <h1>Settings</h1>
-                </div>
+            <div className="page_inner settings_col">
 
-                <div className="section_title">Appearance</div>
-                <div className="help_text muted">
-                  Theme, font size, and header density moved to the header — the{" "}
-                  <button className="btn btn_sm" onClick={() => set_appearance_open(true)}>Appearance</button>{" "}
-                  button (shared across AbstractFramework apps, stored per app in this browser).
+              {/* ── Gateway ── */}
+              <section className="pane">
+                <div className="pane_header">
+                  <span className="pane_title">Gateway</span>
+                  <span className="pane_spacer" />
+                  <span className={`chip ${gateway_connected ? "ok" : "warn"}`}>{gatewayStatusBadge(connection_status).label}</span>
                 </div>
-
-                <div className="section_title">Gateway</div>
-                <div className="field">
-                  <label>Connection</label>
-                  <div className="field_inline">
-                    <span className={`mc_pill ${gateway_connected ? "" : "mc_pill_hot"}`}>
-                      {gatewayStatusBadge(connection_status).label}
-                    </span>
-                    <button className="btn" onClick={() => gateway_connection.openModal()}>
-                      Manage connection…
-                    </button>
-                    {gateway_connected ? (
-                      <button className="btn" onClick={() => disconnect_gateway()} title="Sign this browser out of the gateway (this app's session only — the entity app signs in on its own deployment)">
-                        Sign out
-                      </button>
-                    ) : null}
-                  </div>
-                  {discovery_error ? (
-                    <div className="mono" style={{ color: "var(--error)", fontSize: "var(--font-size-sm)" }}>
-                      {discovery_error}
+                <div className="pane_body settings_body">
+                  <div className="settings_row">
+                    <div className="settings_row_main">
+                      <div className="settings_row_title">Connection</div>
+                      <div className="settings_row_help">
+                        The shared AbstractFramework sign-in: a gateway user token exchanges for an HTTP-only browser session. Raw tokens are never stored.
+                      </div>
                     </div>
-                  ) : null}
-                  <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                    Sign-in is the shared AbstractFramework dialog: a Gateway user token exchanges for an HTTP-only browser
-                    session (same flow as AbstractFlow and the gateway console). Raw tokens are never stored.
+                    <div className="settings_row_actions">
+                      <button className="btn" onClick={() => gateway_connection.openModal()}>Manage connection…</button>
+                      {gateway_connected ? (
+                        <button className="btn" onClick={() => disconnect_gateway()} title="Sign this browser out of the gateway (this app's session only)">Sign out</button>
+                      ) : null}
+                    </div>
                   </div>
+                  {discovery_error ? <div className="warn_callout">{discovery_error}</div> : null}
+                  <div className="settings_row">
+                    <div className="settings_row_main">
+                      <div className="settings_row_title">Auto-connect on load</div>
+                      <div className="settings_row_help">Reuse the browser session automatically when the app opens.</div>
+                    </div>
+                    <div className="settings_row_actions">
+                      <select
+                        value={settings.auto_connect_gateway ? "on" : "off"}
+                        onChange={(e) => set_settings((s) => ({ ...s, auto_connect_gateway: e.target.value === "on" }))}
+                      >
+                        <option value="on">On</option>
+                        <option value="off">Off</option>
+                      </select>
+                    </div>
+                  </div>
+                  <details className="settings_advanced">
+                    <summary>Advanced: direct dev connection (bearer token, cross-origin)</summary>
+                    <div className="field" style={{ marginTop: "8px" }}>
+                      <label>Gateway URL</label>
+                      <input
+                        value={settings.gateway_url}
+                        onChange={(e) => set_settings((s) => ({ ...s, gateway_url: e.target.value }))}
+                        placeholder={DEFAULT_GATEWAY_URL}
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Dev bearer token</label>
+                      <input
+                        type="password"
+                        value={settings.auth_token}
+                        onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value, gateway_auth_mode: "direct" }))}
+                        placeholder="development only — prefer the sign-in dialog"
+                      />
+                    </div>
+                    <button className="btn" onClick={() => void on_discover_gateway({ prefer_direct: true })} disabled={discovery_loading}>
+                      {discovery_loading ? "Connecting…" : "Connect directly"}
+                    </button>
+                  </details>
                 </div>
-                <div className="field">
-                  <label>Auto-connect to gateway on load</label>
-                  <select
-                    value={settings.auto_connect_gateway ? "on" : "off"}
-                    onChange={(e) => set_settings((s) => ({ ...s, auto_connect_gateway: e.target.value === "on" }))}
-                  >
-                    <option value="on">On</option>
-                    <option value="off">Off</option>
-                  </select>
-                </div>
-                <details style={{ marginTop: "6px" }}>
-                  <summary className="help_text muted" style={{ cursor: "pointer" }}>
-                    Advanced: direct dev connection (bearer token, cross-origin)
-                  </summary>
-                  <div className="field" style={{ marginTop: "8px" }}>
-                    <label>Gateway URL</label>
-                    <input
-                      value={settings.gateway_url}
-                      onChange={(e) => set_settings((s) => ({ ...s, gateway_url: e.target.value }))}
-                      placeholder={DEFAULT_GATEWAY_URL}
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Dev bearer token</label>
-                    <input
-                      type="password"
-                      value={settings.auth_token}
-                      onChange={(e) => set_settings((s) => ({ ...s, auth_token: e.target.value, gateway_auth_mode: "direct" }))}
-                      placeholder="development only — prefer the sign-in dialog"
-                    />
-                  </div>
-                  <button className="btn" onClick={() => void on_discover_gateway({ prefer_direct: true })} disabled={discovery_loading}>
-                    {discovery_loading ? "Connecting…" : "Connect directly"}
-                  </button>
-                </details>
+              </section>
 
-                <div className="section_title">Maintenance AI</div>
-                <ProviderModelSelect
-                  className="field"
-                  providerLabel="Provider (blank = gateway default)"
-                  modelLabel="Model (blank = gateway default)"
-                  providerPlaceholder="lmstudio"
-                  modelPlaceholder="qwen/qwen3-next-80b"
-                  provider={settings.maintenance_ai_provider}
-                  model={settings.maintenance_ai_model}
-                  providers={discovered_provider_options}
-                  models={maintenance_models_for_provider.models}
-                  loadingProviders={discovery_loading}
-                  loadingModels={maintenance_models_loading}
-                  modelError={maintenance_provider_selected ? maintenance_models_for_provider.error : ""}
-                  allowCustomProvider
-                  allowCustomModel
-                  allowGatewayDefault
-                  gatewayDefaultLabel="(gateway default)"
-                  selectClassName="mono"
-                  onChange={(next) =>
-                    set_settings((s) => ({
-                      ...s,
-                      maintenance_ai_provider: next.provider,
-                      maintenance_ai_model: next.model,
-                    }))
-                  }
-                />
-                <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
-                  Used for in-editor maintenance chat. Defaults follow `ABSTRACTGATEWAY_PROVIDER` /
-                  `ABSTRACTGATEWAY_MODEL`.
+              {/* ── Assistant (model + skills + MCP) ── */}
+              <section className="pane">
+                <div className="pane_header">
+                  <span className="pane_title">Assistant</span>
+                  <span className="pane_spacer" />
+                  <span className="chip muted">docs Q&A + run Ask</span>
                 </div>
+                <div className="pane_body settings_body">
+                  <div className="settings_row_help" style={{ marginTop: 0 }}>
+                    The model answering the header assistant and the run page's Ask tab. Blank fields follow the gateway defaults.
+                  </div>
+                  <ProviderModelSelect
+                    className="field"
+                    providerLabel="Provider"
+                    modelLabel="Model"
+                    providerPlaceholder="(gateway default)"
+                    modelPlaceholder="(gateway default)"
+                    provider={settings.maintenance_ai_provider}
+                    model={settings.maintenance_ai_model}
+                    providers={discovered_provider_options}
+                    models={maintenance_models_for_provider.models}
+                    loadingProviders={discovery_loading}
+                    loadingModels={maintenance_models_loading}
+                    modelError={maintenance_provider_selected ? maintenance_models_for_provider.error : ""}
+                    allowCustomProvider
+                    allowCustomModel
+                    allowGatewayDefault
+                    gatewayDefaultLabel="(gateway default)"
+                    onChange={(next) =>
+                      set_settings((s) => ({
+                        ...s,
+                        maintenance_ai_provider: next.provider,
+                        maintenance_ai_model: next.model,
+                      }))
+                    }
+                  />
 
-                <div className="section_divider" />
-                <div className="section_title">Remote Tool Worker (MCP)</div>
-                <details>
-                  <summary className="help_text muted" style={{ cursor: "pointer" }}>
-                    Advanced
-                  </summary>
-                  <div className="field" style={{ marginTop: "10px" }}>
-                    <label>Tool worker endpoint (MCP HTTP)</label>
+                  <div className="settings_subhead">Skills</div>
+                  {assistant_skills === null ? (
+                    <div className="settings_row_help">
+                      {gateway_connected
+                        ? assistant_skills_probed
+                          ? "The gateway does not serve a skills inventory yet — the abstractskill shelf list lights up here the day it ships."
+                          : "Probing the gateway for the skills inventory…"
+                        : "Connect to the gateway to list installable skills (abstractskill shelf)."}
+                    </div>
+                  ) : !assistant_skills.length ? (
+                    <div className="settings_row_help">The gateway serves an empty skills inventory.</div>
+                  ) : (
+                    <div className="settings_choice_list">
+                      {assistant_skills.map((sk) => {
+                        const on = settings.assistant_skill_names.includes(sk.name);
+                        return (
+                          <label key={sk.name} className={`settings_choice ${on ? "on" : ""}`} title={sk.description || sk.name}>
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={(e) =>
+                                set_settings((s) => ({
+                                  ...s,
+                                  assistant_skill_names: e.target.checked
+                                    ? Array.from(new Set([...s.assistant_skill_names, sk.name]))
+                                    : s.assistant_skill_names.filter((n) => n !== sk.name),
+                                }))
+                              }
+                            />
+                            <span className="settings_choice_name">{sk.name}{sk.version ? <em> v{sk.version}</em> : null}</span>
+                            {sk.description ? <span className="settings_choice_desc">{sk.description}</span> : null}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="settings_row_help">
+                    Selected skills ride the assistant's runs once the gateway's skills-attachment lane serves them; the selection persists here meanwhile.
+                  </div>
+
+                  <div className="settings_subhead">MCP servers</div>
+                  <div className="settings_row_help" style={{ marginTop: 0 }}>
+                    Remote tool endpoints the assistant may call. The gateway does not serve an MCP inventory yet — one manual endpoint is supported (advanced / potentially dangerous: it executes tool waits from this browser).
+                  </div>
+                  <div className="settings_mcp_row">
                     <input
                       className="mono"
                       value={settings.worker_url}
                       onChange={(e) => set_settings((s) => ({ ...s, worker_url: e.target.value }))}
                       placeholder="https://your-mcp-worker-endpoint"
                     />
-                  </div>
-                  <div className="field">
-                    <label>Tool worker token (Authorization: Bearer …)</label>
                     <input
                       className="mono"
                       type="password"
                       value={settings.worker_token}
                       onChange={(e) => set_settings((s) => ({ ...s, worker_token: e.target.value }))}
-                      placeholder="(optional)"
+                      placeholder="Bearer token (optional)"
                     />
+                    <span className={`chip ${settings.worker_url.trim() ? "ok" : "muted"}`}>{settings.worker_url.trim() ? "configured" : "none"}</span>
                   </div>
-                  <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                    Used to execute tool waits from the UI (advanced / potentially dangerous).
-                  </div>
-                </details>
-              </div>
+                </div>
+              </section>
+
             </div>
           </div>
         ) : null}
@@ -5726,10 +5802,18 @@ export function App(): React.ReactElement {
                       set_graph_flow_id(parsed.flow_id);
                       await load_bundle_info(parsed.bundle_id);
                     }}
-                    disabled={discovery_loading || !workflow_options.length}
+                    disabled={discovery_loading || !launchable_workflow_options.length}
                   >
-                    <option value="">{workflow_options.length ? "(select workflow)" : "(sign in to load workflows)"}</option>
-                    {workflow_options.map((w) => (
+                    <option value="">
+                      {launchable_workflow_options.length
+                        ? "(select workflow)"
+                        : connected
+                          ? discovery_loading
+                            ? "(loading workflows…)"
+                            : "(no executable workflows published on this gateway)"
+                          : "(sign in to load workflows)"}
+                    </option>
+                    {launchable_workflow_options.map((w) => (
                       <option key={w.workflow_id} value={w.workflow_id}>
                         {w.label}
                       </option>
@@ -6164,11 +6248,18 @@ export function App(): React.ReactElement {
                     </span>
                   </div>
                 ) : (
-                  <span className="observe_run_identity_empty">Select a run from the list to observe it.</span>
+                  // The body's empty state carries the instruction; the
+                  // toolbar states the fact once (was a duplicate
+                  // "Select a run…" sentence at two heights).
+                  <span className="observe_run_identity_empty">No run selected</span>
                 )}
 
                 <span className="observe_toolbar_spacer" />
 
+                {/* Actions only exist when a run is selected — a row of disabled
+                  * buttons in the empty state reads as broken, not as guidance. */}
+                {run_id.trim() ? (
+                  <>
 	                  <button
 	                    className="btn"
 	                    onClick={() => {
@@ -6189,7 +6280,7 @@ export function App(): React.ReactElement {
 	                    <button
 	                      className="btn primary"
 	                      onClick={() => void run_scheduled_now()}
-	                      disabled={!run_id.trim() || connecting || resuming || run_terminal || run_paused}
+	                      disabled={connecting || resuming || run_terminal || run_paused}
 	                    >
 	                      Run now
 	                    </button>
@@ -6202,13 +6293,15 @@ export function App(): React.ReactElement {
 	                      set_run_control_error("");
 	                      set_run_control_open(true);
 	                    }}
-	                    disabled={!run_id.trim() || connecting || resuming || run_terminal}
+	                    disabled={connecting || resuming || run_terminal}
 	                  >
 	                    Cancel
 	                  </button>
-                  <button className="btn btn_icon" onClick={clear_run_view} disabled={!run_id.trim() && !connected} title="Clear the run view">
+                  <button className="btn btn_icon" onClick={clear_run_view} title="Clear the run view">
                     <Icon name="x" size={14} />
                   </button>
+                  </>
+                ) : null}
 	                </div>
 
               {/* STEERING (uic kit c1239, hooks P3): mid-run guidance via the
@@ -6463,6 +6556,7 @@ export function App(): React.ReactElement {
                       set_page("runtime");
                     }}
                     on_open_subrun={(rid) => void attach_to_run(rid, { root_run_id: root_run_id || run_id || rid })}
+                    on_answer_wait={() => set_dismissed_wait_key("")}
                     timeline_items={timeline_items}
                     node_index={node_index_for_run}
                     attachments={session_attachments}
@@ -6603,14 +6697,22 @@ export function App(): React.ReactElement {
                 </Modal>
 
                 {right_tab === "chat" ? (
-                  <div className="log log_scroll" style={{ marginTop: "6px" }}>
-                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "6px" }}>
-                      Using Maintenance AI from Settings: {settings.maintenance_ai_provider.trim() || "(gateway default)"} /{" "}
-                      {settings.maintenance_ai_model.trim() || "(gateway default)"}
+                  <div className="ask_tab log_scroll" style={{ marginTop: "6px" }}>
+                    {/* Conversation-first (operator 13:07): the thread leads;
+                      * model identity is a quiet chip; history/export live
+                      * behind one disclosure. Kit components render the chat. */}
+                    <div className="ask_header">
+                      <span className="ask_title">Ask about this run</span>
+                      <span className="chip muted" title="Model comes from Settings → Assistant (blank = gateway default)">
+                        {(settings.maintenance_ai_provider.trim() || "gateway") + " / " + (settings.maintenance_ai_model.trim() || "default")}
+                      </span>
+                      <span className="pane_spacer" />
+                      <span className="ask_hint">Read-only · grounded in this run + subflows</span>
                     </div>
 
-                    <div className="field" style={{ marginTop: "10px" }}>
-                      <label>Saved discussions</label>
+                    <details className="ask_manage">
+                      <summary>History & export</summary>
+                      <div className="field" style={{ marginTop: "10px" }}>
                       <div className="actions" style={{ justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", marginTop: 0 }}>
                         <div style={{ flex: 1, minWidth: 260 }}>
                           <AfSelect
@@ -6685,7 +6787,6 @@ export function App(): React.ReactElement {
                         </button>
                       </div>
 
-                      <div className="chat_hint">Read-only. No tools. Grounded in the parent run + subflows ledger.</div>
                       {chat_thread_last_saved_at ? <div className="chat_hint">Last saved: {format_time_ago(chat_thread_last_saved_at)}</div> : null}
                       {chat_thread_save_error ? (
                         <div className="chat_hint chat_hint_danger">
@@ -6702,7 +6803,8 @@ export function App(): React.ReactElement {
                           {saved_chat_threads_error}
                         </div>
                       ) : null}
-                    </div>
+                      </div>
+                    </details>
 
                     {chat_error ? (
                       <div className="log_item log_item_danger">
@@ -6811,16 +6913,16 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
-                <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
-                  <strong>Run</strong>:{" "}
-                  {run_id.trim() ? (
+                {/* Status line only makes sense with a run on screen; without one
+                  * it rendered an orphaned "Run: (none)" floating in the panel. */}
+                {run_id.trim() ? (
+                  <div className={`status_bar ${status_pulse ? "pulse" : ""}`}>
+                    <strong>Run</strong>:{" "}
                     <span className="mono">{selected_run_status_label || selected_run_status_raw || "unknown"}</span>
-                  ) : (
-                    <span className="mono">(none)</span>
-                  )}
-                  {run_id.trim() && selected_run_is_scheduled_until && selected_next_in ? <span className="mono muted"> • next in {selected_next_in}</span> : null}
-                  {status_text ? <span className="mono muted"> • {status_text}</span> : null}
-              </div>
+                    {selected_run_is_scheduled_until && selected_next_in ? <span className="mono muted"> • next in {selected_next_in}</span> : null}
+                    {status_text ? <span className="mono muted"> • {status_text}</span> : null}
+                  </div>
+                ) : null}
             </div>
               </div>
             </div>
@@ -7557,6 +7659,9 @@ function RunOverviewPanel(props: {
   on_generate_summary: () => void;
   on_open_runtime: () => void;
   on_open_subrun: (run_id: string) => void;
+  /** Reopens the wait-context modal (clears the dismissal) — the Story's
+   * way back into "review & answer" for a user wait. */
+  on_answer_wait?: () => void;
   /* STORY additions (redesign: Observe's nine tabs → four): the run's
    * human chronology and its produced artifacts live IN the story —
    * they were separate tabs re-rendering the same truth. */
@@ -7635,6 +7740,25 @@ function RunOverviewPanel(props: {
         </div>
       </section>
 
+      {/* OUTCOME FIRST (usability defender): a terminal run's story answers
+        * "how did it end" before the numbers — the metric row used to stand
+        * between the title and the failure reason, pushing the WHY toward
+        * the fold. Terminal runs with no captured text still get an honest
+        * panel that teaches where produced files live. */}
+      {is_terminal ? (
+        <section className="overview_panel">
+          <div className="overview_panel_header">
+            <h3>Outcome</h3>
+            <span className={`chip mono ${run_status_class(props.status_label)}`}>{props.status_label || (error_text ? "failed" : "completed")}</span>
+          </div>
+          {error_text ? <div className="error_callout">{error_text}</div> : null}
+          {outcome_text ? <Markdown text={clamp_preview(outcome_text, { max_chars: 4000, max_lines: 60 })} /> : null}
+          {!error_text && !outcome_text ? (
+            <div className="empty_state_inline">No final text output was recorded for this run — produced files, if any, live under Run artifacts (above).</div>
+          ) : null}
+        </section>
+      ) : null}
+
       <div className="metric_grid">
         <div className="metric_tile">
           <span>Started</span>
@@ -7670,21 +7794,12 @@ function RunOverviewPanel(props: {
         </div>
       </div>
 
-      {is_terminal && (error_text || outcome_text) ? (
-        <section className="overview_panel">
-          <div className="overview_panel_header">
-            <h3>Outcome</h3>
-            {error_text ? <span className="chip mono danger">failed</span> : <span className="chip mono ok">completed</span>}
-          </div>
-          {error_text ? <div className="error_callout">{error_text}</div> : null}
-          {outcome_text ? <Markdown text={clamp_preview(outcome_text, { max_chars: 4000, max_lines: 60 })} /> : null}
-        </section>
-      ) : null}
-
       <div className="overview_columns">
         <section className="overview_panel">
           <div className="overview_panel_header">
-            <h3>What is happening</h3>
+            {/* Tense honesty (usability defender): a finished run is not
+              * "happening" — the panel answers "what happened last" there. */}
+            <h3>{is_terminal ? "What happened" : "What is happening"}</h3>
             {wait ? <span className="chip mono info">waiting</span> : null}
           </div>
           {wait ? (
@@ -7695,27 +7810,42 @@ function RunOverviewPanel(props: {
                 <div><span>Subworkflow</span><strong className="mono">{short_id(String((wait as any).details.sub_run_id), 24)}</strong></div>
               ) : null}
               {wait.prompt ? <div><span>Prompt</span><strong>{clamp_preview(String(wait.prompt), { max_chars: 260, max_lines: 3 })}</strong></div> : null}
+              {/* Re-entry to the answering surface: the context modal pops on
+                * attach but is dismissable — without this button a dismissed
+                * question left no way back short of re-attaching the run. */}
+              {props.on_answer_wait && wait.wait_key && String(wait.reason || "") === "user" ? (
+                <div className="overview_fact_actions">
+                  <button className="btn primary" onClick={props.on_answer_wait}>
+                    Review &amp; answer…
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : (
             (() => {
-              // Busy run, no wait: answer "what is happening" with the last
-              // step instead of a shrug (adversary 3 F2 — the real answer
-              // used to sit at the page bottom in Chronology).
+              // No wait: answer with the last step instead of a shrug
+              // (adversary 3 F2 — the real answer used to sit at the page
+              // bottom in Chronology). Terminal runs show it too: the last
+              // recorded step is where the run ended.
               const last = props.timeline_items.length ? props.timeline_items[props.timeline_items.length - 1] : null;
               const last_rec: any = last?.record || null;
               const last_node = String(last_rec?.node_id || "").trim();
               const node = last_node && props.node_index ? (props.node_index as any)[last_node] : null;
               const last_label = String(node?.label || last_node || "").trim();
               const last_effect = String(last_rec?.effect?.type || "").trim();
-              if (!is_terminal && (last_label || last_effect)) {
+              if (last_label || last_effect) {
                 return (
                   <div className="overview_fact_list">
-                    {last_label ? <div><span>Last step</span><strong>{last_label}</strong></div> : null}
+                    {last_label ? <div><span>{is_terminal ? "Ended at" : "Last step"}</span><strong>{last_label}</strong></div> : null}
                     {last_effect ? <div><span>Effect</span><strong className="mono">{last_effect}</strong></div> : null}
                   </div>
                 );
               }
-              return <div className="empty_state_inline">No active wait is reported for this run.</div>;
+              return (
+                <div className="empty_state_inline">
+                  {is_terminal ? "Nothing in flight — the run is finished." : "No active wait is reported for this run."}
+                </div>
+              );
             })()
           )}
           {missing ? <div className="warn_callout">{missing} provider call(s) have missing responses or errors.</div> : null}
@@ -7763,7 +7893,9 @@ function RunOverviewPanel(props: {
           </div>
           {props.attachments_error ? <div className="warn_callout">{props.attachments_error}</div> : null}
           {!props.attachments.length ? (
-            <div className="empty_state_inline">No files in this run's session yet.</div>
+            <div className="empty_state_inline">
+              {is_terminal ? "No files were attached to this run's session." : "No files in this run's session yet."}
+            </div>
           ) : (
             <div className="produced_list">
               {props.attachments.map((a: any) => {

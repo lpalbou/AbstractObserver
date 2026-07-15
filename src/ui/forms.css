@@ -378,3 +378,346 @@ details.form_subdisclosure[open] > summary::before {
   font-size: var(--t-micro);
   color: var(--text-muted);
 }
+
+/* ── Settings redesign (operator 13:07): pane sections, no appearance
+ * section (header owns it), assistant = model + skills + MCP. ── */
+.settings_col {
+  max-width: 720px;
+  margin: 0 auto;
+  gap: 14px;
+}
+
+.settings_body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings_row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.settings_row_main {
+  min-width: 0;
+}
+
+.settings_row_title {
+  font-size: var(--t-small);
+  font-weight: 620;
+}
+
+.settings_row_help {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.settings_row_actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.settings_advanced {
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--canvas);
+}
+
+.settings_advanced summary {
+  cursor: pointer;
+  font-size: var(--t-small);
+  color: var(--text-secondary);
+  font-weight: 550;
+}
+
+.settings_subhead {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  font-weight: 650;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pane-border);
+}
+
+.settings_choice_list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings_choice {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--raised-bg);
+  cursor: pointer;
+  transition: border-color 0.14s;
+}
+
+.settings_choice:hover {
+  border-color: var(--pane-border-strong);
+}
+
+.settings_choice.on {
+  border-color: var(--accent-border, color-mix(in srgb, var(--accent) 40%, transparent));
+}
+
+.settings_choice_name {
+  font-size: var(--t-small);
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.settings_choice_name em {
+  font-style: normal;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: var(--t-micro);
+}
+
+.settings_choice_desc {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings_mcp_row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ============================================================
+   ADVERSARY B (visual design) — Settings page vs the framework bar.
+   Reference: AbstractFlow run-preflight + appearance modals
+   (/tmp/setB_ref_flow_*.png). Scope: ONLY the Settings page
+   (.settings_col / .settings_body); appended block, out-specifies
+   earlier rules instead of editing them. Tokens + color-mix only.
+   ============================================================ */
+
+/* ── B1. Dark-theme contrast of the quiet tones ──
+   Almost every line of prose on this page was --text-muted (#666 on
+   the pane bg ≈ 3.0:1) — helps, subheads and muted chips sat below
+   AA and the page read washed-out next to Flow's helps. Lift the
+   quiet ladder one step (secondary↔muted mixes) while keeping it
+   clearly quieter than titles. */
+.settings_col .settings_row_help,
+.settings_col .settings_choice_desc,
+.settings_col .form_disclosure_hint {
+  color: color-mix(in srgb, var(--text-secondary) 72%, var(--text-muted));
+}
+
+.settings_col .chip.muted {
+  color: color-mix(in srgb, var(--text-secondary) 70%, var(--text-muted));
+}
+
+/* ── B2. Subheads must not impersonate field labels ──
+   SKILLS / MCP SERVERS wore the exact voice of PROVIDER / MODEL
+   (uppercase micro, muted, 600-ish): section structure dissolved.
+   Brighter tone + wider tracking + asymmetric air (more above the
+   rule than below the label) bind each subhead to ITS content. */
+.settings_col .settings_subhead {
+  color: color-mix(in srgb, var(--text-secondary) 85%, var(--text-muted));
+  letter-spacing: 0.08em;
+  margin-top: 10px; /* above-rule air 14(gap)+10 > 14 below: binds down */
+}
+
+/* ── B3. Row grammar: prose measure + wrap safety + deliberate
+   control column ──
+   Help lines ran wall-to-wall into the actions column; the On/Off
+   select rendered as a stub narrower than every button above it. */
+.settings_col .settings_row {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.settings_col .settings_row_main {
+  flex: 1 1 320px;
+}
+
+.settings_col .settings_row_help {
+  max-width: 56ch; /* readable measure for 11px prose */
+}
+
+.settings_col .settings_row_actions {
+  margin-left: auto; /* stays right-aligned even after a wrap */
+}
+
+.settings_col .settings_row_actions select {
+  min-width: 96px; /* a control column edge, not a stub */
+}
+
+/* ── B4. Control consistency with the family form recipe ──
+   Launch (form_stack) sets controls to sans/--t-small; Settings
+   inherited the 14px base and drifted. One recipe per family:
+   sans + t-small, mono as explicit opt-in (identifiers/URLs). */
+.settings_body input:not([type="checkbox"]):not([type="radio"]),
+.settings_body select,
+.settings_body textarea {
+  font-family: var(--font-sans, inherit);
+  font-size: var(--t-small);
+}
+
+.settings_body input.mono,
+.settings_body textarea.mono {
+  font-family: var(--font-mono);
+}
+
+/* Placeholder tone: quiet but legible (the MCP placeholder is a
+   content-bearing example URL, not decoration). */
+.settings_body input::placeholder,
+.settings_body textarea::placeholder {
+  color: color-mix(in srgb, var(--text-secondary) 45%, var(--text-muted));
+}
+
+/* Focus: one calm accent ring. The base sheet stacks full-accent
+   border + 3px ring (+ outline when :focus-visible) — three layers
+   read harsh on the near-black field. Mouse focus gets the soft
+   ring; keyboard focus keeps the crisp a11y outline alone. */
+.settings_body input:not([type="checkbox"]):not([type="radio"]):focus,
+.settings_body select:focus,
+.settings_body textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.settings_body input:focus-visible,
+.settings_body select:focus-visible,
+.settings_body textarea:focus-visible {
+  box-shadow: none;
+}
+
+/* The kit's transient "Loading providers…" hint renders mono — on a
+   settings form, status prose speaks sans like every other help line
+   (mono stays reserved for identifiers). Inputs are untouched. */
+.settings_body div.mono.muted {
+  font-family: var(--font-sans, inherit);
+  color: color-mix(in srgb, var(--text-secondary) 72%, var(--text-muted));
+}
+
+/* ── B5. Advanced disclosure: family caret + raised row ──
+   It rendered with the native ▶ marker on a --canvas inset well —
+   reading as a giant text input, while forms.css disclosures draw
+   their own caret on a raised row. Align it with the family. */
+.settings_col details.settings_advanced {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--text-primary) 3%, transparent), transparent 34px),
+    var(--raised-bg);
+  border-radius: 10px;
+  padding: 0; /* summary + children own their insets below */
+  box-shadow: var(--shadow-raised);
+  transition: border-color 0.15s;
+}
+
+.settings_col details.settings_advanced:hover {
+  border-color: var(--pane-border-strong);
+}
+
+.settings_col .settings_advanced > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  user-select: none;
+  border-radius: 10px;
+}
+
+.settings_col .settings_advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings_col .settings_advanced > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid var(--text-muted);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+
+.settings_col .settings_advanced[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.settings_col .settings_advanced[open] > summary {
+  border-bottom: 1px solid var(--pane-border);
+  border-radius: 10px 10px 0 0;
+  color: var(--text-primary);
+}
+
+/* Open body: direct children (.field, .btn) get the box's insets —
+   the closed state stays a one-line row with zero dead padding. */
+.settings_col .settings_advanced > .field {
+  margin: 10px 12px 0;
+}
+
+.settings_col .settings_advanced > .btn {
+  margin: 12px 12px 12px;
+}
+
+/* ── B6. Skills shelf: designed emptiness ──
+   The empty inventory was two stacked muted paragraphs — it read as
+   missing content. Structural contract: under a subhead, a help line
+   immediately followed by ANOTHER help line is the empty-state
+   message + its footnote (a populated shelf puts .settings_choice_list
+   between them, so this never fires when skills render). The message
+   becomes a quiet dashed placeholder box; the footnote stays prose. */
+.settings_body .settings_subhead + .settings_row_help:has(+ .settings_row_help) {
+  max-width: none;
+  border: 1px dashed color-mix(in srgb, var(--text-primary) 16%, transparent);
+  border-radius: 10px;
+  padding: 16px 14px;
+  text-align: center;
+  background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+}
+
+/* ── B7. Skills choices (populated shelf): center the checkbox with
+   the name row and give keyboard users the family focus cue. ── */
+.settings_col .settings_choice {
+  align-items: center;
+}
+
+.settings_col .settings_choice input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.settings_col .settings_choice:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* ── B8. MCP grid at narrow widths: stack url / token / chip instead
+   of squeezing three columns. ── */
+@media (max-width: 760px) {
+  .settings_body .settings_mcp_row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings_body .settings_mcp_row .chip {
+    justify-self: start;
+  }
+}
+
+/* ── B9. Page column: 720px matches Launch and the Flow modal scale;
+   keep it, and give the stack the same scroll tail as form_stack. ── */
+.settings_col {
+  padding-bottom: 24px;
+}

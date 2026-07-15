@@ -1,5 +1,181 @@
 # Changelog
 
+## 2026-07-14 — Geometry audit tool + System margin/padding root causes (operator round 4)
+
+The operator's screenshot showed the System page still colliding. Built
+a PERMANENT headless-chrome geometry audit (`scripts/geometry_audit.mjs`:
+pane-intersection scan, inset-header detection, content x-bleed, ragged
+rail rows, tab-strip air — every page + every System tab at 1000/1120/
+1280/1560) and fixed everything it reported. Baseline: 36 issues → 0.
+
+- **INSET-HEADER class (the "collision" look)**: four legacy rules
+  padded the PANE element itself (`runtime_ops_filters` 12px,
+  `runtime_ops_inspector` 12px, `artifact_filter_rail` 10px,
+  `runtime_artifact_browser` 12px), so each pane_header floated 10-13px
+  INSIDE the pane borders with its underline stopping short of the
+  edges. Pane-level padding zeroed; header/body own the insets like
+  every other pane; the queue/rail lists became the flex columns.
+- **RAGGED-RAIL**: queue buttons were content-width (inline-block
+  default) — "Running 0" narrow, "Scheduled/subflows 0" wide, a ragged
+  left rail. Rows now fill the column with counts right-aligned; same
+  for the Artifacts run rail.
+- **Media-query regression (real collision at ≤1100px)**: the round-3
+  grid override in system.css rode LATER in the cascade than
+  styles.css's 1100px single-column fallback and silently defeated it —
+  three panes crushed into slivers (audit: search input bleeding 39px
+  out of its pane, one-word-per-line empty states). The fallback is
+  re-asserted after the override; single column returns under 1100px.
+  Rule recorded: a page layer that overrides a grid must restate the
+  base sheet's media fallbacks after it.
+
+Gates: tsc clean · 88/88 · build green · serving :3001 (bundle
+verified current). Audit run post-fix: "AUDIT: clean" at all four
+widths, all five pages, all four System tabs; populated-state
+screenshot confirms full-width queue rails, edge-to-edge pane headers,
+readable three-line run rows.
+
+## 2026-07-14 — Layout collisions + executable-only Launch (operator round 3, headless-verified)
+
+Three directives from live screenshots, verified with a headless-Chrome
+pass (every page, two viewports, plus an automated overlap detector
+that measures bounding-box intersections between panes/cards):
+
+- **Settings panes overlapped** (Assistant pane drew over the Gateway
+  pane's Advanced row; MCP text bled past the pane edge). Root cause:
+  inside a scrolling page, flex was SHRINKING panes below their content
+  height (`flex-shrink:1` + `min-height:0` default) and the squeezed
+  pane's overflow painted over the next one. Fix at the root:
+  `.page_scroll` children no longer shrink — the page grows and scrolls
+  instead. Viewport-clamped layouts (Observe/System grids) are
+  untouched.
+- **System Activity spacing/consistency**: the three console panes
+  still wore the OLD surface language (`--bg-secondary` + raw rgba
+  border) under their `.pane` class — two surface systems on one
+  screen. They now ride the pane recipe; queue rows ride the raised
+  recipe; grid gap moved to the app rhythm (14px); the runs-pane
+  header wraps instead of colliding (search shrinks, sort stays);
+  header/metrics separate cleanly and metrics reflow 4→2 columns under
+  1180px; inspector sections get one vertical beat; grid minimums
+  relieved (180/0/280) so mid viewports don't crush the panes.
+- **Launch surfaces only executable workflows**: the picker listed
+  every bundle on the gateway (test, yoda, ralph, scratch flows…).
+  Entrypoints now filter to those declaring an interface contract
+  (`interfaces` non-empty; deprecated entrypoints dropped) — 10 of 19
+  bundles on the live gateway. The FULL option list stays for run
+  labels elsewhere; the connected-empty placeholder reads "(no
+  executable workflows published on this gateway)".
+
+Gates: tsc clean · 88/88 · build green · served on :3001. Headless
+verification: overlap detector reports ZERO intersections on
+Board/Observe/System/Launch/Settings at 1560×940 and 1180×800;
+signed-in screenshots confirm the Launch dropdown carries exactly the
+interface-declaring set.
+
+## 2026-07-14 — Board window + answer-with-context + System readability (operator round 2)
+
+Three operator directives from live screenshots, all shipped:
+
+- **Done column scrolls + is time-windowed**: the board page no longer
+  scrolls as a whole (that posture kept the column's own scrollbar from
+  ever engaging) — columns are clamped to the viewport and each card
+  list scrolls internally (narrow layouts fall back to page scroll).
+  Terminal runs now render inside a TIME WINDOW with a quiet select in
+  the Done header: 12h/24h/48h (default)/72h/7d/14d/1m/all, persisted
+  per browser. The count, the failed stat, and the empty state all
+  follow the window; hidden older runs are counted honestly
+  ("+18 older outside last 48h") — never silently dropped. Cards
+  without a parseable timestamp stay visible (hiding what we cannot
+  date would lose runs). Active columns (Review/Working/Pending) are
+  never windowed — a run waiting three days still needs you.
+- **Answering requires context (operator: "you can't just ask me to
+  answer")**: Review cards no longer offer a blind inline textarea.
+  User-response waits carry the ask on the card (prompt preview, tool
+  chips, waiting-since) and ONE action — "Review & answer →" — which
+  opens the run and pops the full wait-context view: the workflow's
+  question, session turns, run facts, recent steps leading to the
+  wait, full input JSON, and the answer composer. Tool approvals keep
+  inline Approve/Reject (the tool names are the context). A dismissed
+  question now has a way back: the Story's wait panel gained a
+  "Review & answer…" button that reopens the context modal.
+- **System Activity rows were unreadable** (id/age/duration/reason
+  rendered as one mashed string — the row classes had NO layout CSS at
+  all): rows now have a three-line structure with middot-separated
+  facts, sans-serif hierarchy, tabular numerics, ellipsized reasons;
+  queue rows get right-aligned counts; the inspector head/decision
+  blocks follow the shared type scale.
+
+Tests: 88/88 (4 new Done-window pins: inside/outside, all, undated
+stays visible, preset-map sync + 48h default). tsc clean, build green,
+served on :3001 and verified signed-in with Playwright (scroll probe:
+scrollHeight 705 vs clientHeight 429, scroll engages; the board→answer
+flow lands on the question with steps and composer).
+
+## 2026-07-14 — Usability defender pass (actionable information, five operator tasks)
+
+Walked the five operator tasks (board triage / failed-run why / outputs
+path / launch / entity glance) against the live app and fixed what failed
+the user. New `src/ui/usability.css` loads LAST; markup edits stayed
+surgical (display/copy only — no state, handlers, or data flow):
+
+- **Board 3-second answer**: the health strip's micro pills became the
+  board.css stat-card recipe (big tabular number over an uppercase label;
+  warning/error tint only when the count demands it); data age + Refresh
+  moved to the right rail. The recipe existed in board.css but no markup
+  wore it.
+- **Review acts in place**: review cards now show the wait's PROMPT
+  (clamped, quoted) and the tool names awaiting approval — deciding no
+  longer requires opening the run. A wait without a published wait_key
+  renders a working "Open the run →" instead of a dead accent button
+  (disabled primary/danger/success buttons also desaturate now so dead
+  controls look dead).
+- **Card titles name the workflow, not the hash**: `workflow_short` keeps
+  the human prefix when a `bundle@ver:hash` id's tail is bare hex (cards
+  titled "a8f5b5f8" where "basic-followup@dev" belonged).
+- **Story leads with the outcome**: for terminal runs the Outcome panel
+  (status chip + error callout + final text) renders ABOVE the metric
+  row; the metric grid auto-fits to one slim row. Terminal runs with no
+  captured final text get an honest panel teaching the Run artifacts
+  path instead of no panel at all. "What is happening" reads "What
+  happened" (with the last step as "Ended at") once a run is terminal;
+  session-files empty copy stops implying more files are coming.
+- **Entity tiles say they are links**: a corner ↗ (hover-brightens)
+  marks the new-tab affordance; snake_case moment names de-snake for
+  display (verbatim kept in the tooltip).
+- **Empty-observe polish**: the toolbar states "No run selected" once
+  (the body carries the instruction); the sidebar connection label wears
+  mono only for the signed-in user id, not for "signed out"/"connecting…"
+  prose.
+
+Gates: tsc clean · 84/84 · build green. Screenshots: /tmp/ux2_before_*
+vs /tmp/ux2_after_*.
+
+## 2026-07-14 — Signed-in verification pass (post-refactor defect sweep)
+
+Live Playwright pass over the served build with a real gateway session
+(the transport kept killing review subagents, so the pass ran in the
+foreground). Defects found on the signed-in surfaces, all fixed:
+
+- **Observe empty state**: the toolbar's Pause/Resume·Run now·Cancel·✕
+  buttons rendered disabled with no run selected (reads as broken UI) —
+  actions now only exist when a run is on screen. The orphaned
+  "Run: (none)" status line floating mid-panel is gone the same way
+  (status bar renders only with a selected run).
+- **Launch honesty**: the workflow placeholder said "(sign in to load
+  workflows)" while signed in. It now distinguishes the three states:
+  signed out → sign-in hint; connected+loading → "(loading workflows…)";
+  connected+empty → "(no workflows published on this gateway)".
+- **Hex ratchet enforced (10 → 8)**: two `var(--text-muted, #888)`
+  fallback literals had crept into styles.css; since the kit token is
+  always defined (guarded by its own test), the fallbacks were dropped
+  instead of raising the ceiling.
+
+Gates: tsc clean · 84/84 · build green · reserved on :3001 with a
+launchd-safe detach (`start_new_session` — the nohup+disown pattern
+died with the sandbox shell again, as documented in AGENTS.md).
+Note: :8080 flapped during the pass (up 13:52, refused by 14:05);
+reported to the gateway seat on the hub. Signed-in screenshots of all
+five pages verified the new design language renders correctly.
+
 ## 2026-07-14 — COMPLETE aesthetic refactor (operator order; five-agent build)
 
 The full look-and-feel rebuild the operator ordered at 06:11. One design

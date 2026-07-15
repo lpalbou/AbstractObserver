@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { ACTIVE_WINDOW_MS, COLUMN_EMPTY, COLUMN_HINT, COLUMN_LABEL, board_card, board_column, board_columns, entity_activity_age, entity_phase, format_age, format_tokens } from "./mission_control";
+import {
+  ACTIVE_WINDOW_MS,
+  COLUMN_EMPTY,
+  COLUMN_HINT,
+  COLUMN_LABEL,
+  DEFAULT_DONE_WINDOW,
+  DONE_WINDOW_LABEL,
+  DONE_WINDOW_MS,
+  board_card,
+  board_column,
+  board_columns,
+  entity_activity_age,
+  entity_phase,
+  filter_done_window,
+  format_age,
+  format_tokens,
+} from "./mission_control";
 import type { RunSummary } from "./run_status";
 
 // The board's promise: column = STATE TRUTH, never prose. Review means a
@@ -219,6 +235,44 @@ describe("format_tokens (B3 spend chip — compact, never fabricated)", () => {
     expect(format_tokens(null)).toBe("");
     expect(format_tokens(Number.NaN)).toBe("");
     expect(format_tokens(-5)).toBe("");
+  });
+});
+
+describe("Done window (operator 2026-07-14: terminal runs must not explode the column)", () => {
+  const now = Date.parse("2026-07-14T12:00:00Z");
+  const card = (id: string, since: string | null) =>
+    board_card(run({ run_id: id, status: "completed", updated_at: since ?? undefined }), now);
+
+  it("keeps runs inside the window, counts the older ones hidden", () => {
+    const fresh = card("fresh", "2026-07-14T02:00:00Z"); // 10h ago
+    const old = card("old", "2026-07-10T12:00:00Z"); // 4d ago
+    const { visible, hidden_count } = filter_done_window([fresh, old], "48h", now);
+    expect(visible.map((c) => c.run_id)).toEqual(["fresh"]);
+    expect(hidden_count).toBe(1);
+  });
+
+  it("'all' disables the window entirely", () => {
+    const old = card("ancient", "2025-01-01T00:00:00Z");
+    const { visible, hidden_count } = filter_done_window([old], "all", now);
+    expect(visible.length).toBe(1);
+    expect(hidden_count).toBe(0);
+  });
+
+  it("cards with NO timestamp stay visible — hiding what we cannot date loses runs silently", () => {
+    const undated = card("undated", null);
+    expect(undated.since_ms).toBeNull();
+    const { visible, hidden_count } = filter_done_window([undated], "12h", now);
+    expect(visible.map((c) => c.run_id)).toEqual(["undated"]);
+    expect(hidden_count).toBe(0);
+  });
+
+  it("preset maps stay in sync and the default is the ruled 48h", () => {
+    expect(Object.keys(DONE_WINDOW_MS).sort()).toEqual(Object.keys(DONE_WINDOW_LABEL).sort());
+    expect(DEFAULT_DONE_WINDOW).toBe("48h");
+    // Windows are strictly increasing where defined ("all" = null cap).
+    expect(DONE_WINDOW_MS["12h"]!).toBeLessThan(DONE_WINDOW_MS["24h"]!);
+    expect(DONE_WINDOW_MS["14d"]!).toBeLessThan(DONE_WINDOW_MS["1m"]!);
+    expect(DONE_WINDOW_MS.all).toBeNull();
   });
 });
 

@@ -143,6 +143,35 @@ export class GatewayClient {
     return run_id;
   }
 
+  /** Feature-detected skills inventory (the abstractskill shelf served by
+   * the gateway). Returns null when the gateway does not serve it yet —
+   * callers render the honest absent state, never a fabricated list. */
+  async list_skills(): Promise<Array<{ name: string; description?: string; version?: string }> | null> {
+    for (const path of ["/api/gateway/skills", "/api/gateway/skills/registry"]) {
+      try {
+        const r = await fetch(_join(this._cfg.base_url, path), {
+          headers: { ..._auth_headers(this._cfg.auth_token) },
+          signal: _deadline(),
+        });
+        if (r.status === 404) continue;
+        if (!r.ok) continue;
+        const body = await r.json();
+        const items = Array.isArray(body) ? body : Array.isArray(body?.skills) ? body.skills : Array.isArray(body?.items) ? body.items : null;
+        if (!items) continue;
+        return items
+          .map((x: any) => ({
+            name: String(x?.name || x?.id || "").trim(),
+            description: typeof x?.description === "string" ? x.description : undefined,
+            version: typeof x?.version === "string" ? x.version : undefined,
+          }))
+          .filter((x: any) => x.name);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
   async get_run(run_id: string): Promise<any> {
     const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(run_id)}`), {
       headers: {

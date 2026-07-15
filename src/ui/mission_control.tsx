@@ -14,6 +14,7 @@
 // - Staleness is visible (data age chip) because the board is only as live
 //   as its poll — pretending otherwise is the old dashboard lie.
 import { useEffect, useMemo, useState } from "react";
+import "./board.css";
 
 import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
 import type { WaitState } from "../lib/types";
@@ -217,6 +218,56 @@ export function board_columns(
   return out;
 }
 
+/* ── Done window (operator, 2026-07-14): terminal runs accumulate without
+ * bound — a fleet's Done column would explode. The column shows a TIME
+ * WINDOW (default 48h) with quick presets; active columns are never
+ * windowed (a run waiting three days still needs you). ── */
+export type DoneWindowKey = "12h" | "24h" | "48h" | "72h" | "7d" | "14d" | "1m" | "all";
+
+export const DONE_WINDOW_MS: Record<DoneWindowKey, number | null> = {
+  "12h": 12 * 3_600_000,
+  "24h": 24 * 3_600_000,
+  "48h": 48 * 3_600_000,
+  "72h": 72 * 3_600_000,
+  "7d": 7 * 86_400_000,
+  "14d": 14 * 86_400_000,
+  "1m": 30 * 86_400_000,
+  all: null,
+};
+
+export const DONE_WINDOW_LABEL: Record<DoneWindowKey, string> = {
+  "12h": "last 12h",
+  "24h": "last 24h",
+  "48h": "last 48h",
+  "72h": "last 72h",
+  "7d": "last 7 days",
+  "14d": "last 14 days",
+  "1m": "last month",
+  all: "all loaded",
+};
+
+export const DEFAULT_DONE_WINDOW: DoneWindowKey = "48h";
+
+/** Split Done cards into the window's visible set + the hidden-older count.
+ * Cards without a parseable timestamp stay VISIBLE (hiding what we cannot
+ * date would silently lose runs — the honesty rule). */
+export function filter_done_window(
+  cards: BoardCard[],
+  window: DoneWindowKey,
+  now_ms = Date.now(),
+): { visible: BoardCard[]; hidden_count: number } {
+  const span = DONE_WINDOW_MS[window] ?? null;
+  if (span === null) return { visible: cards, hidden_count: 0 };
+  const cutoff = now_ms - span;
+  const visible: BoardCard[] = [];
+  let hidden = 0;
+  for (const card of cards) {
+    if (card.since_ms === null || card.since_ms >= cutoff) visible.push(card);
+    else hidden += 1;
+  }
+  return { visible, hidden_count: hidden };
+}
+
 /** Milliseconds since an entity's last recorded moment; null when the card
  * carried no parseable timestamp (render nothing — never fabricate). */
 export function entity_activity_age(last_moment_at: string, now_ms = Date.now()): number | null {
@@ -253,7 +304,14 @@ function short_run_id(run_id: string): string {
 
 function workflow_short(workflow: string): string {
   const s = String(workflow || "");
-  const tail = s.includes(":") ? s.slice(s.lastIndexOf(":") + 1) : s;
+  let tail = s.includes(":") ? s.slice(s.lastIndexOf(":") + 1) : s;
+  // "bundle@ver:hash" ids: a bare hex tail would title the card by HASH
+  // (usability defender — the operator read "a8f5b5f8" where the run's
+  // NAME belonged). Keep the human prefix; the id still rides the meta row.
+  if (s.includes(":") && /^[0-9a-f]{6,}$/i.test(tail.trim())) {
+    const head = s.slice(0, s.lastIndexOf(":"));
+    if (/[a-z]/i.test(head) && !/^[0-9a-f]+$/i.test(head.replace(/[@.\-_]/g, ""))) tail = head;
+  }
   return tail.length > 34 ? `${tail.slice(0, 32)}…` : tail;
 }
 
@@ -312,14 +370,28 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
     [props.runs, props.all_runs],
   );
   const [busy_wait, set_busy_wait] = useState<string>("");
-  const [answer_for, set_answer_for] = useState<string>("");
-  const [answer_text, set_answer_text] = useState<string>("");
   const [act_error, set_act_error] = useState<string>("");
   const [show_done, set_show_done] = useState(false);
+  // Done window: persisted operator preference (survives reloads).
+  const [done_window, set_done_window] = useState<DoneWindowKey>(() => {
+    try {
+      const saved = localStorage.getItem("abstractobserver_done_window_v1") as DoneWindowKey | null;
+      return saved && saved in DONE_WINDOW_MS ? saved : DEFAULT_DONE_WINDOW;
+    } catch {
+      return DEFAULT_DONE_WINDOW;
+    }
+  });
+  const done_view = useMemo(
+    () => filter_done_window(columns.done, done_window, now_ms),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [columns.done, done_window],
+  );
 
   const data_age = format_age(props.runs_refreshed_at, now_ms);
   const review_count = columns.review.length;
-  const failed_count = columns.done.filter((c) => c.failed).length;
+  // The failed stat matches what the Done column SHOWS (the window) — a
+  // two-week-old failure alarming forever is noise, not signal.
+  const failed_count = done_view.visible.filter((c) => c.failed).length;
 
   /** Busy identity includes the wait's APPEARANCE (since_ms): runtime wait
    * keys are deterministic per run+node, so a recurring ask at the same
@@ -341,8 +413,6 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
     set_act_error("");
     try {
       await props.on_resume_wait(card.run_id, card.wait_key, payload);
-      set_answer_for("");
-      set_answer_text("");
       // Deliberately KEEP busy until the poll moves the card out of Review:
       // "command accepted" is not "run resumed", and re-enabling the buttons
       // in that window invited a double-approve (adversary P2).
@@ -382,15 +452,15 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
             return <span className={`mc_status ${run_status_class(status_word)}`}>{status_word === "unknown" ? "?" : status_word}</span>;
           })()}
         </div>
-        <div className="mc_card_meta mono">
-          <span title={card.run_id}>{short_run_id(card.run_id)}</span>
+        <div className="mc_card_meta">
+          <span className="mono" title={card.run_id}>{short_run_id(card.run_id)}</span>
           {card.is_subrun ? <span title="This wait lives in a child run of an agent workflow">subrun</span> : null}
           {card.duration_ms >= 0 ? <span>{format_duration(card.duration_ms)}</span> : null}
           {card.tokens_total !== null ? <span>{card.tokens_total.toLocaleString()} tk</span> : null}
           {card.tool_calls !== null && card.tool_calls > 0 ? <span>{card.tool_calls} tools</span> : null}
         </div>
         {card.is_scheduled && card.schedule_interval ? (
-          <div className="mc_card_line mono">every {card.schedule_interval}</div>
+          <div className="mc_card_line">every {card.schedule_interval}</div>
         ) : null}
         {card.failed && card.error ? (
           <div className="mc_card_error" title={card.error}>
@@ -404,64 +474,59 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
             onKeyDown={(e) => e.stopPropagation()}
           >
             <div className="mc_card_reason">{card.reason || "Needs a decision"}</div>
-            {card.since_ms !== null ? <div className="mc_card_waiting mono">waiting {format_age(card.since_ms, now_ms)}</div> : null}
+            {/* THE ASK, in place (usability defender): a review card that
+              * hides what the run wants — the question text, the tools
+              * awaiting approval — forces the open-the-run detour the
+              * column exists to remove. Both render from card fields the
+              * wire already carries; the full prompt rides the tooltip. */}
+            {card.prompt ? (
+              <div className="mc_card_prompt" title={card.prompt}>
+                {card.prompt.length > 240 ? `${card.prompt.slice(0, 238)}…` : card.prompt}
+              </div>
+            ) : null}
+            {card.tool_names.length ? (
+              <div className="mc_card_tools" title="Tool calls awaiting your approval">
+                {card.tool_names.slice(0, 4).map((t, i) => (
+                  <span key={`${t}_${i}`} className="mc_tool_chip mono">{t}</span>
+                ))}
+                {card.tool_names.length > 4 ? <span className="mc_tool_chip">+{card.tool_names.length - 4} more</span> : null}
+              </div>
+            ) : null}
+            {card.since_ms !== null ? <div className="mc_card_waiting">waiting {format_age(card.since_ms, now_ms)}</div> : null}
             {no_wait_key ? (
               <div className="mc_card_line" title="The wait has not registered a wait_key yet — open the run to inspect.">
                 wait key not published yet — open the run
               </div>
             ) : null}
-            {card.wait_kind === "tool_approval" ? (
+            {no_wait_key ? (
+              /* No wait key = nothing can resume from here. A disabled
+               * accent button read as a broken control; the ONE working
+               * move (open the run) becomes the button instead. */
               <div className="mc_card_actions">
-                <button className="btn success" disabled={busy || no_wait_key} onClick={() => void act(card, { approved: true })}>
+                <button className="btn" onClick={() => props.on_open_run(card.run_id)}>
+                  Open the run →
+                </button>
+              </div>
+            ) : card.wait_kind === "tool_approval" ? (
+              <div className="mc_card_actions">
+                <button className="btn success" disabled={busy} onClick={() => void act(card, { approved: true })}>
                   {busy ? "Resuming…" : "Approve"}
                 </button>
-                <button className="btn danger" disabled={busy || no_wait_key} onClick={() => void act(card, { approved: false })}>
+                <button className="btn danger" disabled={busy} onClick={() => void act(card, { approved: false })}>
                   Reject
                 </button>
               </div>
-            ) : !card.allow_free_text ? (
-              // Choice waits render a select in the run view — the board
-              // never fakes a free-text answer onto a choices contract.
+            ) : (
+              /* USER-RESPONSE waits never take a blind inline answer
+               * (operator, 2026-07-14: "to answer, I would require to
+               * understand the context — build the proper view over the
+               * context"). The card states the ask; the button opens the
+               * run's full context view, where the question sits over the
+               * session turns and recent steps with the composer. */
               <div className="mc_card_actions">
                 <button className="btn primary" onClick={() => props.on_open_run(card.run_id)}>
-                  Open to answer (choices)
+                  Review &amp; answer →
                 </button>
-              </div>
-            ) : (
-              <div className="mc_card_actions">
-                {answer_for === card.run_id ? (
-                  <>
-                    <textarea
-                      className="mc_answer"
-                      rows={2}
-                      autoFocus
-                      value={answer_text}
-                      placeholder={card.prompt ? card.prompt.slice(0, 120) : "Your answer…"}
-                      onChange={(e) => set_answer_text(e.target.value)}
-                    />
-                    <button
-                      className="btn primary"
-                      disabled={busy || no_wait_key || !answer_text.trim()}
-                      onClick={() => void act(card, { response: answer_text.trim() })}
-                    >
-                      {busy ? "Resuming…" : "Send"}
-                    </button>
-                    <button className="btn" disabled={busy} onClick={() => set_answer_for("")}>
-                      Keep waiting
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    className="btn primary"
-                    disabled={no_wait_key}
-                    onClick={() => {
-                      set_answer_for(card.run_id);
-                      set_answer_text("");
-                    }}
-                  >
-                    Answer
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -473,31 +538,45 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
   return (
     <div className="page page_scroll mc_page">
       <div className="mc_health">
-        {/* The LED + pills carry the answer; "gateway connected" prose
+        {/* The LED + stat cards carry the answer; "gateway connected" prose
           * duplicated the sidebar footer's connection control (adversary 2
           * board #5). The words only appear when something is WRONG. */}
         <span className={`mc_led ${props.gateway_connected ? "ok" : "bad"}`} title={props.gateway_connected ? "Gateway connected" : "Gateway unreachable"} />
-        {!props.gateway_connected ? <span className="mono">gateway unreachable</span> : null}
-        {data_age ? <span className="mono muted">data {data_age} old</span> : null}
+        {!props.gateway_connected ? <span className="mc_health_text">gateway unreachable</span> : null}
         {/* HONEST FIRST PAINT (connected-first fix, 2026-07-13): before the
           * first runs payload lands there are no counts to claim — "0 need
           * you" over a still-loading list is a false empty. */}
         {props.runs_refreshed_at === null ? (
-          <span className="mono muted">loading runs…</span>
+          <span className="mc_health_text muted mc_loading">loading runs…</span>
         ) : (
-          <>
-            <span className={`mc_pill ${review_count ? "mc_pill_hot" : ""}`}>{review_count} need you</span>
-            <span className={`mc_pill ${failed_count ? "mc_pill_bad" : ""}`}>{failed_count} failed</span>
-            <span className="mc_pill">{columns.working.length} working</span>
-          </>
+          /* The three-second answer wears the board.css stat-card recipe
+           * (big tabular number over an uppercase label) — the old micro
+           * pills buried the ONE number the page exists to surface. */
+          <div className="mc_stats">
+            <div className={`mc_stat ${review_count ? "is_hot" : ""}`} title="runs blocked on a human decision (Review column)">
+              <span className="mc_stat_value">{review_count}</span>
+              <span className="mc_stat_label">need you</span>
+            </div>
+            <div className={`mc_stat ${failed_count ? "is_bad" : ""}`} title="failed runs in the Done column">
+              <span className="mc_stat_value">{failed_count}</span>
+              <span className="mc_stat_label">failed</span>
+            </div>
+            <div className="mc_stat" title="runs executing or parked listening">
+              <span className="mc_stat_value">{columns.working.length}</span>
+              <span className="mc_stat_label">working</span>
+            </div>
+          </div>
         )}
         <span className="mc_spacer" />
-        <button className="btn" onClick={props.on_refresh} disabled={props.refreshing}>
-          {props.refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="mc_health_side">
+          {data_age ? <span className="mc_health_text muted" title="age of the last runs poll — the board is only as live as this">data {data_age} old</span> : null}
+          <button className="btn" onClick={props.on_refresh} disabled={props.refreshing}>
+            {props.refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
-      {act_error ? <div className="mc_error mono">{act_error}</div> : null}
+      {act_error ? <div className="mc_error">{act_error}</div> : null}
 
       {props.entities.length || props.entities_error ? (
         <div className="mc_entities">
@@ -510,7 +589,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
               open the entity app →
             </a>
           </div>
-          {props.entities_error ? <div className="mono muted">{props.entities_error}</div> : null}
+          {props.entities_error ? <div className="muted">{props.entities_error}</div> : null}
           <div className="mc_entities_row">
             {props.entities.map((e) => (
               <a
@@ -539,7 +618,9 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                     </span>
                   );
                 })()}
-                {e.last_moment ? <span className="mc_entity_moment">{e.last_moment}</span> : null}
+                {/* Moment kinds arrive as snake_case event names — display
+                  * de-snakes for reading; the tooltip keeps the verbatim. */}
+                {e.last_moment ? <span className="mc_entity_moment" title={e.last_moment}>{e.last_moment.replace(/_/g, " ")}</span> : null}
                 {/* WORKING / FRESHNESS (B3, 2026-07-13): the cognition wire's
                   * store-read `working` is authoritative when present
                   * (gateway c1390); pre-wire gateways fall back to the
@@ -559,7 +640,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                   const age = entity_activity_age(e.last_moment_at, now_ms);
                   if (e.working === false) {
                     return (
-                      <span className="mono muted" title="idle (cognition wire)">
+                      <span className="mc_entity_live muted" title="idle (cognition wire)">
                         idle{age !== null ? ` · ${format_age(now_ms - age, now_ms)} ago` : ""}
                       </span>
                     );
@@ -570,7 +651,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                       ● active
                     </span>
                   ) : (
-                    <span className="mono muted" title="time since the last recorded moment">
+                    <span className="mc_entity_live muted" title="time since the last recorded moment">
                       {format_age(now_ms - age, now_ms)} ago
                     </span>
                   );
@@ -581,7 +662,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                   * never read as total. */}
                 {e.tokens_total !== null ? (
                   <span
-                    className="mono muted mc_entity_spend"
+                    className="muted mc_entity_spend"
                     title={`lifetime billed tokens (home run ledger)${e.live_visit_tokens !== null ? `; open visit: ${format_tokens(e.live_visit_tokens)} tk` : ""}${e.spend_warning ? `; ${e.spend_warning}` : ""}`}
                   >
                     {format_tokens(e.tokens_total)} tk{e.live_visit_tokens !== null ? ` (+${format_tokens(e.live_visit_tokens)})` : ""}
@@ -596,24 +677,61 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
 
       <div className="mc_board">
         {(Object.keys(COLUMN_LABEL) as BoardColumnId[]).map((col) => {
-          const cards = columns[col];
-          const visible = col === "done" && !show_done ? cards.slice(0, 8) : cards;
+          // Done is WINDOWED (operator 2026-07-14): terminal runs grow
+          // without bound, active columns never hide anything.
+          const windowed = col === "done" ? done_view.visible : columns[col];
+          const visible = col === "done" && !show_done ? windowed.slice(0, 8) : windowed;
           return (
             <div key={col} className={`mc_column mc_column_${col}`}>
               <div className="mc_column_head">
                 <span className="mc_column_title">{COLUMN_LABEL[col]}</span>
-                <span className="mc_column_count mono">{cards.length}</span>
+                {col === "done" ? (
+                  <select
+                    className="mc_window_select"
+                    value={done_window}
+                    title="Show terminal runs from this time window"
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const v = e.target.value as DoneWindowKey;
+                      set_done_window(v);
+                      set_show_done(false);
+                      try {
+                        localStorage.setItem("abstractobserver_done_window_v1", v);
+                      } catch {}
+                    }}
+                  >
+                    {(Object.keys(DONE_WINDOW_MS) as DoneWindowKey[]).map((k) => (
+                      <option key={k} value={k}>
+                        {DONE_WINDOW_LABEL[k]}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <span className="mc_column_count" title={col === "done" && done_view.hidden_count ? `${done_view.hidden_count} older run(s) outside this window` : undefined}>
+                  {windowed.length}
+                </span>
               </div>
               <div className="mc_column_hint muted">{COLUMN_HINT[col]}</div>
               <div className="mc_column_cards">
                 {visible.map((card) => render_card(card))}
-                {!cards.length ? (
-                  <div className="mc_empty muted">{props.runs_refreshed_at === null ? "loading…" : COLUMN_EMPTY[col]}</div>
+                {!windowed.length ? (
+                  <div className="mc_empty muted">
+                    {props.runs_refreshed_at === null
+                      ? "loading…"
+                      : col === "done" && done_view.hidden_count
+                        ? `none in the ${DONE_WINDOW_LABEL[done_window]} — ${done_view.hidden_count} older`
+                        : COLUMN_EMPTY[col]}
+                  </div>
                 ) : null}
-                {col === "done" && cards.length > 8 && !show_done ? (
+                {col === "done" && windowed.length > 8 && !show_done ? (
                   <button className="btn mc_more" onClick={() => set_show_done(true)}>
-                    show all {cards.length}
+                    show all {windowed.length}
                   </button>
+                ) : null}
+                {col === "done" && done_view.hidden_count && windowed.length ? (
+                  <div className="mc_window_note muted" title="Widen the window above to see older terminal runs">
+                    +{done_view.hidden_count} older outside {DONE_WINDOW_LABEL[done_window]}
+                  </div>
                 ) : null}
               </div>
             </div>

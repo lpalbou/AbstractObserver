@@ -858,3 +858,64 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Ask tab (conversation-first, kit chat components) ── */
+.observe_page .ask_tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.observe_page .ask_header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 0;
+}
+
+.observe_page .ask_title {
+  font-size: var(--t-section);
+  font-weight: 650;
+}
+
+.observe_page .ask_hint {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.observe_page .ask_manage {
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--pane-bg);
+  padding: 8px 12px;
+}
+
+.observe_page .ask_manage summary {
+  cursor: pointer;
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.observe_page .ask_manage[open] summary {
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.observe_page .chat_messages {
+  flex: 1 1 auto;
+  min-height: 220px;
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+  background: var(--canvas);
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.observe_page .chat_empty_hint {
+  color: var(--text-muted);
+  font-size: var(--t-small);
+  text-align: center;
+  padding: 32px 12px;
+}
