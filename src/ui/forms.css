@@ -721,3 +721,61 @@ details.form_subdisclosure[open] > summary::before {
 .settings_col {
   padding-bottom: 24px;
 }
+
+/* ── Launch Capabilities: run-level skills shelf (0087 lane).
+   Rows follow the settings_choice grammar; trust verdicts ride chips;
+   blocked rows stay VISIBLE but unmistakably refused (skill c2372:
+   hidden ≠ honest). ── */
+.launch_skill_list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.launch_skill_row {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--raised-bg);
+  cursor: pointer;
+  font-family: var(--font-sans, inherit);
+  transition: border-color 0.14s;
+}
+
+.launch_skill_row:hover {
+  border-color: var(--pane-border-strong);
+}
+
+.launch_skill_row.is_on {
+  border-color: var(--accent-border, color-mix(in srgb, var(--accent) 40%, transparent));
+}
+
+.launch_skill_row.is_blocked {
+  cursor: not-allowed;
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.launch_skill_row input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.launch_skill_name {
+  font-size: var(--t-small);
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.launch_skill_desc {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}

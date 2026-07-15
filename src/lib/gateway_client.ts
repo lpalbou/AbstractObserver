@@ -143,10 +143,53 @@ export class GatewayClient {
     return run_id;
   }
 
+  /** Feature-detected MCP server inventory. Returns null when the gateway
+   * does not serve one yet — callers render the honest absent state.
+   * v1 is a DECLARED registry (gateway c2243: probed:false by design —
+   * no faked connect state; tool_count arrives with the probe lane). */
+  async list_mcp_servers(): Promise<Array<{ name: string; url?: string; description?: string; auth_required?: boolean }> | null> {
+    for (const path of ["/api/gateway/mcp/servers", "/api/gateway/mcp", "/api/gateway/discovery/mcp"]) {
+      try {
+        const r = await fetch(_join(this._cfg.base_url, path), {
+          headers: { ..._auth_headers(this._cfg.auth_token) },
+          signal: _deadline(),
+        });
+        if (r.status === 404) continue;
+        if (!r.ok) continue;
+        const body = await r.json();
+        const items = Array.isArray(body) ? body : Array.isArray(body?.servers) ? body.servers : Array.isArray(body?.items) ? body.items : null;
+        if (!items) continue;
+        return items
+          .map((x: any) => ({
+            name: String(x?.name || x?.id || "").trim(),
+            url: typeof x?.url === "string" ? x.url : undefined,
+            description: typeof x?.description === "string" ? x.description : undefined,
+            auth_required: typeof x?.auth_required === "boolean" ? x.auth_required : undefined,
+          }))
+          .filter((x: any) => x.name);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
   /** Feature-detected skills inventory (the abstractskill shelf served by
    * the gateway). Returns null when the gateway does not serve it yet —
-   * callers render the honest absent state, never a fabricated list. */
-  async list_skills(): Promise<Array<{ name: string; description?: string; version?: string }> | null> {
+   * callers render the honest absent state, never a fabricated list.
+   * Shape adopted from the gateway's ruled roster row (c2243): trust
+   * verdicts ride each skill — pickers must respect `blocked` and may
+   * surface `trust_level`/`requires_review`. */
+  async list_skills(): Promise<Array<{
+    name: string;
+    description?: string;
+    version?: string;
+    trust_level?: string;
+    blocked?: boolean;
+    requires_review?: boolean;
+    tree_hash?: string;
+    reasons?: string[];
+  }> | null> {
     for (const path of ["/api/gateway/skills", "/api/gateway/skills/registry"]) {
       try {
         const r = await fetch(_join(this._cfg.base_url, path), {
@@ -163,6 +206,11 @@ export class GatewayClient {
             name: String(x?.name || x?.id || "").trim(),
             description: typeof x?.description === "string" ? x.description : undefined,
             version: typeof x?.version === "string" ? x.version : undefined,
+            trust_level: typeof x?.trust_level === "string" ? x.trust_level : undefined,
+            blocked: typeof x?.blocked === "boolean" ? x.blocked : undefined,
+            requires_review: typeof x?.requires_review === "boolean" ? x.requires_review : undefined,
+            tree_hash: typeof x?.tree_hash === "string" ? x.tree_hash : undefined,
+            reasons: Array.isArray(x?.reasons) ? x.reasons.map((r: any) => String(r || "")).filter(Boolean) : undefined,
           }))
           .filter((x: any) => x.name);
       } catch {

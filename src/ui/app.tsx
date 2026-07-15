@@ -1420,8 +1420,14 @@ export function App(): React.ReactElement {
   /* Skills inventory for the Assistant section (feature-detected: the
    * gateway may not serve the abstractskill shelf yet — null renders the
    * honest absent state, never a fabricated list). */
-  const [assistant_skills, set_assistant_skills] = useState<Array<{ name: string; description?: string; version?: string }> | null>(null);
+  const [assistant_skills, set_assistant_skills] = useState<Array<{ name: string; description?: string; version?: string; trust_level?: string; blocked?: boolean; requires_review?: boolean; tree_hash?: string; reasons?: string[] }> | null>(null);
   const [assistant_skills_probed, set_assistant_skills_probed] = useState(false);
+  /** Feature-detected MCP server inventory (null = gateway doesn't serve
+   * one yet — Launch renders the honest absent state). */
+  const [gateway_mcp_servers, set_gateway_mcp_servers] = useState<Array<{ name: string; url?: string; description?: string }> | null>(null);
+  /** Run-level skills selection for the NEXT launch (rides
+   * input_data.skills — the 0087 lane). Reset with the workflow. */
+  const [launch_skills, set_launch_skills] = useState<string[]>([]);
   /* Unified top-right cluster (operator directive + plans/unified-top-bar.md):
    * assistant drawer + shared appearance dialog + the ONE disconnect pill.
    * Appearance persistence is the kit's per-app hook (theme/font/header
@@ -1442,6 +1448,11 @@ export function App(): React.ReactElement {
   // closure, so a state-based guard is frozen there (adversary P1 — the
   // stale closure made the dedup claim false and let slow requests stack).
   const runs_inflight_ref = useRef(false);
+  /* Gateway 429 courtesy (operator 2026-07-15): while the auth-lockout
+   * window is open, every poller stands down instead of keeping the lock
+   * warm. until=epoch-ms gate; backoff doubles 15s→120s, reset on success. */
+  const rate_limited_until_ref = useRef(0);
+  const rate_limit_backoff_ref = useRef(0);
   const [bundles_reloading, set_bundles_reloading] = useState(false);
   const [discovered_tool_specs, set_discovered_tool_specs] = useState<any[]>([]);
   const [discovered_providers, set_discovered_providers] = useState<any[]>([]);
@@ -1982,9 +1993,12 @@ export function App(): React.ReactElement {
     }
 
     if (typeof value === "string") {
-      const trimmed = String(value || "").trim();
-      if (!trimmed) delete obj[k];
-      else obj[k] = trimmed;
+      // AS TYPED (operator 2026-07-15: "the space key doesn't work"): this
+      // ran on EVERY keystroke of a controlled input, so trimming here ate
+      // the trailing space the user just typed. Whitespace hygiene belongs
+      // at SUBMIT (build_launch_input_data), never mid-edit.
+      if (!value) delete obj[k];
+      else obj[k] = value;
     } else if (Array.isArray(value)) {
       const cleaned = value.map((x) => x).filter((x) => x !== undefined && x !== null);
       if (!cleaned.length) delete obj[k];
@@ -2091,6 +2105,9 @@ export function App(): React.ReactElement {
       set_run_options(next);
       set_all_run_options(normalize_runs(all_items).filter((r) => Boolean(r.run_id)));
       set_runs_refreshed_at(Date.now());
+      // First success clears any rate-limit backoff.
+      rate_limit_backoff_ref.current = 0;
+      rate_limited_until_ref.current = 0;
     } catch (e: any) {
       const msg = String(e?.message || e || "");
       push_log({ ts: now_iso(), kind: "error", title: "Refresh runs failed", preview: clamp_preview(msg) });
@@ -2100,6 +2117,17 @@ export function App(): React.ReactElement {
       // failed. Re-probing through the hook drives the real sign-in flow.
       if (/\b40[13]\b/.test(msg) || /unauthorized|forbidden/i.test(msg)) {
         void gateway_connection.refresh().catch(() => undefined);
+      }
+      // RATE-LIMIT COURTESY (operator incident 2026-07-15 19:41, "Too Many
+      // Requests (auth lockout)"): a locked gateway answers 429 FAST, so the
+      // duration-based self-tuning never backs off — several apps polling
+      // at 5s keep the lock warm forever. On 429 the pollers go quiet
+      // (15s → 30s → 60s → 120s, reset on the first success).
+      if (/\b429\b/.test(msg) || /too many requests/i.test(msg)) {
+        const next = Math.min(120_000, Math.max(15_000, rate_limit_backoff_ref.current * 2 || 15_000));
+        rate_limit_backoff_ref.current = next;
+        rate_limited_until_ref.current = Date.now() + next;
+        push_log({ ts: now_iso(), kind: "info", title: `Gateway rate-limited — pausing polls ${Math.round(next / 1000)}s` });
       }
     } finally {
       runs_inflight_ref.current = false;
@@ -2429,6 +2457,8 @@ export function App(): React.ReactElement {
 
     let stopped = false;
     const poll = async () => {
+      // Stand down during a gateway auth-lockout window (429 courtesy).
+      if (rate_limited_until_ref.current > Date.now()) return;
       try {
         const st = await gateway.get_run(rid);
         if (!stopped) set_run_state(st);
@@ -2468,6 +2498,14 @@ export function App(): React.ReactElement {
       // flight would fork a second setTimeout chain forever (each chain
       // reschedules itself); the running chain already reschedules.
       if (ticking) return;
+      // Rate-limit gate: while the gateway's lockout window is open, wait
+      // it out instead of feeding it (429s answer fast, so the duration
+      // heuristic below never backs off on its own).
+      const wait_429 = rate_limited_until_ref.current - Date.now();
+      if (wait_429 > 0) {
+        schedule(wait_429 + 500);
+        return;
+      }
       ticking = true;
       const started = Date.now();
       try {
@@ -2506,6 +2544,8 @@ export function App(): React.ReactElement {
     let stop = false;
     let timer: number | null = null;
     const load = async () => {
+      // Stand down during a gateway auth-lockout window (429 courtesy).
+      if (rate_limited_until_ref.current > Date.now()) return;
       try {
         const roster = await gateway.list_entities();
         const names = roster.entities
@@ -3607,6 +3647,15 @@ export function App(): React.ReactElement {
 	          return msg;
 	        }
 	      }
+      // Whitespace hygiene lives HERE, at submit — mid-edit trimming ate
+      // the space key (operator 2026-07-15). Interior whitespace is the
+      // user's; only the accidental edges go. Empty-after-trim = unset.
+      for (const [k, v] of Object.entries(input_data)) {
+        if (typeof v !== "string") continue;
+        const t = v.trim();
+        if (!t) delete (input_data as any)[k];
+        else (input_data as any)[k] = t;
+      }
 	      // Best-effort contract for common agent workflows: require prompt only when declared.
 	      const prompt_pin = (adaptive_pins || []).find((p) => p && typeof p === "object" && (p as any).id === "prompt");
 	      const prompt_default_specified =
@@ -4970,6 +5019,8 @@ export function App(): React.ReactElement {
       if (stopped) return;
       if (subrun_poll_inflight_ref.current) return;
       if (!subrun_ids.length) return;
+      // Stand down during a gateway auth-lockout window (429 courtesy).
+      if (rate_limited_until_ref.current > Date.now()) return;
       subrun_poll_inflight_ref.current = true;
       try {
         const ids = subrun_ids.map((x) => String(x || "").trim()).filter(Boolean);
@@ -5452,12 +5503,15 @@ export function App(): React.ReactElement {
   const active_runtime_runs = useMemo(() => runtime_run_rows.filter((r) => active_run_status(r.status)), [runtime_run_rows]);
 
   useEffect(() => {
-    if (page !== "settings" || !gateway_connected || assistant_skills_probed) return;
+    // Skills + MCP inventories feed BOTH Settings (assistant) and Launch
+    // (skills/mcp pins) — probe on either page, once per connection.
+    if ((page !== "settings" && page !== "launch") || !gateway_connected || assistant_skills_probed) return;
     let stopped = false;
     (async () => {
-      const items = await gateway.list_skills();
+      const [items, mcp] = await Promise.all([gateway.list_skills(), gateway.list_mcp_servers()]);
       if (stopped) return;
       set_assistant_skills(items);
+      set_gateway_mcp_servers(mcp);
       set_assistant_skills_probed(true);
     })();
     return () => {
@@ -5864,6 +5918,8 @@ export function App(): React.ReactElement {
                       set_bundle_id(parsed.bundle_id);
                       set_flow_id(parsed.flow_id);
                       set_graph_flow_id(parsed.flow_id);
+                      // Capabilities are per-launch state; a new workflow starts clean.
+                      set_launch_skills([]);
                       await load_bundle_info(parsed.bundle_id);
                     }}
                     disabled={discovery_loading || !launchable_workflow_options.length}
@@ -5932,7 +5988,10 @@ export function App(): React.ReactElement {
                           const pid = String((p as any).id || "").trim();
                           if (!pid) continue;
                           const ptype = String((p as any).type || "").trim().toLowerCase();
-                          const is_wide = ptype === "tools" || ptype === "array" || is_json_pin_type(ptype) || pid === "prompt" || pid === "system";
+                          const is_wide =
+                            ptype === "tools" || ptype === "skills" || ptype === "mcp" || ptype === "mcp_servers" ||
+                            pid === "skills" || pid === "mcp" || pid === "mcp_servers" ||
+                            ptype === "array" || is_json_pin_type(ptype) || pid === "prompt" || pid === "system";
                           if (is_wide) wide_pins.push(p);
                           else compact_pins.push(p);
                         }
@@ -5947,7 +6006,14 @@ export function App(): React.ReactElement {
                         const ptype = String((p as any).type || "").trim().toLowerCase();
                         const has_default = Object.prototype.hasOwnProperty.call(p, "default");
                         const default_val = has_default ? (p as any).default : undefined;
-                        const default_s = has_default ? safe_json_inline(default_val, 80) : "";
+                        // Bare strings for string defaults (operator 2026-07-15: provider/
+                        // model placeholders showed JSON quotes — `"lmstudio"`). JSON
+                        // rendering is for structured defaults only.
+                        const default_s = has_default
+                          ? typeof default_val === "string"
+                            ? default_val
+                            : safe_json_inline(default_val, 80)
+                          : "";
                         const cur = (input_data_obj as any)?.[pid];
                         const placeholder_default = has_default ? `${default_s}` : "";
 
@@ -5956,6 +6022,33 @@ export function App(): React.ReactElement {
                           const default_tools = Array.isArray(default_val) ? (default_val as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
                           const merged_options = Array.from(new Set([...available_tool_names, ...selected, ...default_tools])).sort();
                           return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><MultiSelect options={merged_options} value={selected} disabled={disabled} placeholder="(no tools selected)" onChange={(next) => update_input_data_field(pid, next)} /></div>);
+                        }
+                        /* SKILLS / MCP pins (operator 2026-07-15): same picker shape
+                         * as Tools, fed by the gateway's feature-detected inventories
+                         * (abstractskill shelf / MCP registry). A workflow declaring
+                         * the pin against a gateway that serves no inventory gets the
+                         * honest absent line — never a fabricated list. Alignment
+                         * thread with gateway/skill on agora (same day). */
+                        if (ptype === "skills" || pid === "skills") {
+                          const selected = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
+                          if (assistant_skills === null && !selected.length) {
+                            return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><div className="help_text muted">This gateway does not serve a skills inventory yet — skill selection lights up here when it ships (abstractskill shelf via abstractgateway).</div></div>);
+                          }
+                          // Trust verdicts are the gateway's (c2243): BLOCKED skills
+                          // never enter the selectable set. A previously-selected
+                          // name stays visible (user state), never silently dropped.
+                          const names = (assistant_skills || []).filter((s) => s.blocked !== true).map((s) => s.name);
+                          const merged = Array.from(new Set([...names, ...selected])).sort();
+                          return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><MultiSelect options={merged} value={selected} disabled={disabled} placeholder="(no skills selected)" onChange={(next) => update_input_data_field(pid, next)} /></div>);
+                        }
+                        if (ptype === "mcp" || ptype === "mcp_servers" || pid === "mcp" || pid === "mcp_servers") {
+                          const selected = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
+                          if (gateway_mcp_servers === null && !selected.length) {
+                            return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><div className="help_text muted">This gateway does not serve an MCP server inventory yet — MCP selection lights up here when it ships.</div></div>);
+                          }
+                          const names = (gateway_mcp_servers || []).map((s) => s.name);
+                          const merged = Array.from(new Set([...names, ...selected])).sort();
+                          return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><MultiSelect options={merged} value={selected} disabled={disabled} placeholder="(no MCP servers selected)" onChange={(next) => update_input_data_field(pid, next)} /></div>);
                         }
                         if (ptype === "provider" || ptype === "provider_text") {
                           const sel = typeof cur === "string" ? String(cur) : "";
@@ -5966,7 +6059,7 @@ export function App(): React.ReactElement {
                           const prov = String((input_data_obj as any)?.provider || "").trim();
                           const found = prov ? discovered_models_by_provider[prov] : undefined;
                           const models = found && Array.isArray(found.models) ? found.models.map((x) => String(x || "").trim()).filter(Boolean) : [];
-                          return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label>{models.length ? (<select value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}><option value="">{placeholder_default || "(select)"}</option>{models.map((m) => (<option key={m} value={m}>{m}</option>))}</select>) : (<input className="mono" value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default || "model id"} disabled={disabled} />)}</div>);
+                          return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label>{models.length ? (<select value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} disabled={disabled}><option value="">{placeholder_default || "(select)"}</option>{models.map((m) => (<option key={m} value={m}>{m}</option>))}</select>) : (<input value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default || "model id"} disabled={disabled} />)}</div>);
                         }
                         if (ptype === "boolean") {
                           const sel = typeof cur === "boolean" ? (cur ? "true" : "false") : "";
@@ -5985,11 +6078,13 @@ export function App(): React.ReactElement {
                           const err = String(pin_json_error_by_id[pid] || "").trim();
                           return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label} <span className="launch_label_type">{ptype}</span></label><textarea className="mono" value={val} onChange={(e) => { const next = String(e.target.value ?? ""); set_pin_json_text_by_id((prev) => ({ ...prev, [pid]: next })); const trimmed = next.trim(); if (!trimmed) { set_pin_json_error_by_id((prev) => { const out = { ...prev }; delete out[pid]; return out; }); update_input_data_field(pid, undefined); return; } try { const parsed = JSON.parse(trimmed); set_pin_json_error_by_id((prev) => { const out = { ...prev }; delete out[pid]; return out; }); update_input_data_field(pid, parsed); } catch (e: any) { set_pin_json_error_by_id((prev) => ({ ...prev, [pid]: String(e?.message || e || "Invalid JSON") })); } }} placeholder={placeholder_default || "{...}"} rows={3} disabled={disabled} />{err ? <div className="launch_field_error">{err}</div> : null}</div>);
                         }
-                        /* Default: string */
+                        /* Default: string — PROSE fields speak the framework sans
+                         * (operator 2026-07-15); mono stays an explicit opt-in for
+                         * JSON/array editors and path fields. */
                         const sel = typeof cur === "string" ? String(cur) : "";
                         const is_textarea = pid === "prompt" || pid === "system";
-                        if (is_textarea) return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><textarea className="mono" value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default || (pid === "prompt" ? "What should the agent do?" : "System instructions (optional)")} rows={3} disabled={disabled} /></div>);
-                        return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label><input className="mono" value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default} disabled={disabled} /></div>);
+                        if (is_textarea) return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><textarea value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default || (pid === "prompt" ? "What should the agent do?" : "System instructions (optional)")} rows={3} disabled={disabled} /></div>);
+                        return (<div key={pid} className={grid_class || "launch_field"}><label className="launch_label">{display_label}</label><input value={sel} onChange={(e) => update_input_data_field(pid, e.target.value)} placeholder={placeholder_default} disabled={disabled} /></div>);
                         };
 
                         wide_pins.sort((a, b) => { const order: Record<string, number> = { system: 0, prompt: 1, tools: 2 }; return (order[String((a as any).id || "")] ?? 10) - (order[String((b as any).id || "")] ?? 10); });
@@ -6002,7 +6097,6 @@ export function App(): React.ReactElement {
                       <div className="field" style={{ marginTop: "10px" }}>
                         <label>Prompt (common)</label>
                         <textarea
-                          className="mono"
                           value={prompt_value}
                           onChange={(e) => update_input_data_field("prompt", e.target.value)}
                           placeholder="What do you want the workflow/agent to do?"
@@ -6015,7 +6109,6 @@ export function App(): React.ReactElement {
                           <div className="field">
                             <label>Provider (common)</label>
                             <input
-                              className="mono"
                               value={provider_value}
                               onChange={(e) => update_input_data_field("provider", e.target.value)}
                               placeholder="lmstudio / ollama / openai / ..."
@@ -6027,7 +6120,6 @@ export function App(): React.ReactElement {
                           <div className="field">
                             <label>Model (common)</label>
                             <input
-                              className="mono"
                               value={model_value}
                               onChange={(e) => update_input_data_field("model", e.target.value)}
                               placeholder="qwen/qwen3-next-80b / gpt-4.1 / ..."
@@ -6038,6 +6130,71 @@ export function App(): React.ReactElement {
                       </div>
                     </>
                   )}
+
+                  {/* ── CAPABILITIES: run-level skills attachment (operator directive
+                    * 2026-07-15 16:22; contract = decision:launch-skills-selection-
+                    * contract). Selection rides input_data.skills (names); the
+                    * gateway resolves through the trust gate into
+                    * _runtime.skills_block (card 0087, closed end-to-end c2442).
+                    * Render rules are skill's (c2372, adopted c2376): attachable =
+                    * selectable · requires_review = selectable with the verdict
+                    * visible (the gateway HOLDS unverified at start — selecting is
+                    * safe, the resolution records it) · blocked = visible but
+                    * refused, with reasons. Never a fabricated list: no inventory
+                    * → honest absent line. ── */}
+                  {bundle_id.trim() && flow_id.trim() ? (
+                    <details className="launch_capabilities" style={{ marginTop: "10px" }}>
+                      <summary className="help_text muted" style={{ cursor: "pointer" }}>
+                        Capabilities{launch_skills.length ? ` · ${launch_skills.length} skill${launch_skills.length === 1 ? "" : "s"}` : ""}
+                      </summary>
+                      <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                        Skills attach knowledge procedures to this run. The gateway resolves selections through the trust gate at start: validated skills activate, unverified ones are held for review, blocked ones never ride.
+                      </div>
+                      {assistant_skills === null ? (
+                        <div className="help_text muted" style={{ marginTop: "8px" }}>
+                          This gateway does not serve a skills inventory yet — the shelf lights up here when it ships.
+                        </div>
+                      ) : !assistant_skills.length ? (
+                        <div className="help_text muted" style={{ marginTop: "8px" }}>The gateway's skills shelf is empty.</div>
+                      ) : (
+                        <div className="launch_skill_list">
+                          {assistant_skills.map((s) => {
+                            const selected = launch_skills.includes(s.name);
+                            const blocked = s.blocked === true;
+                            const review = s.requires_review === true && !blocked;
+                            return (
+                              <label
+                                key={s.name}
+                                className={`launch_skill_row ${blocked ? "is_blocked" : ""} ${selected ? "is_on" : ""}`}
+                                title={[s.description || "", s.tree_hash ? `tree ${s.tree_hash.slice(0, 16)}…` : "", blocked && s.reasons?.length ? `blocked: ${s.reasons.join("; ")}` : ""].filter(Boolean).join("\n")}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  disabled={blocked || connecting || resuming}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? Array.from(new Set([...launch_skills, s.name]))
+                                      : launch_skills.filter((n) => n !== s.name);
+                                    set_launch_skills(next);
+                                    update_input_data_field("skills", next.length ? next : undefined);
+                                  }}
+                                />
+                                <span className="launch_skill_name">{s.name}</span>
+                                {s.trust_level ? <span className={`chip ${blocked ? "danger" : review ? "warn" : "muted"}`}>{blocked ? "blocked" : review ? "review" : s.trust_level}</span> : null}
+                                {s.description ? <span className="launch_skill_desc">{s.description}</span> : null}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {launch_skills.length ? (
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)", marginTop: "6px" }}>
+                          Selected skills ride the run as input_data.skills; the resolved verdicts land in the run's record.
+                        </div>
+                      ) : null}
+                    </details>
+                  ) : null}
 
                   {/* Advanced JSON + session_id removed: raw JSON is an implementation
                       detail (form fields are the source of truth), and session_id is

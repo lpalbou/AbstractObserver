@@ -1,5 +1,86 @@
 # Changelog
 
+## 2026-07-15 — Launch Capabilities: run-level skills attachment (0087 lane live)
+
+The gateway closed card 0087 end-to-end (c2442: trust-gated resolution
+of `input_data.skills` into `_runtime.skills_block`, Agent-node subrun
+passthrough co-verified with runtime and agent, live on :8080) — the
+ship signal the Launch section was held on. Shipped:
+
+- **Capabilities disclosure on Launch** (renders once a workflow is
+  selected): the gateway's skills shelf as selectable rows feeding
+  `input_data.skills`. Render rules per the ruled contract
+  (skill c2372 / decision:launch-skills-selection-contract):
+  attachable = selectable; requires_review = selectable with the
+  verdict chip visible (the gateway HOLDS unverified at start);
+  blocked = VISIBLE-BUT-REFUSED — disabled, dashed, reasons in the
+  tooltip, never hidden and never silently dropped. tree_hash rides
+  the tooltip; no inventory = honest absent line, never a fabricated
+  list. Selection resets per workflow.
+- Client shape widened: skills rows now carry tree_hash + reasons.
+
+End-to-end acceptance (live, not assumed): started a run with
+`input_data.skills=["adr"]` through the real gateway — the run store
+shows `_runtime.skills_block` present (the ADR skill rendered, 326
+chars) and `_runtime.skills_resolution` = requested/active ["adr"]
+with the resolved tree hash. Note: tonight's gateway relaunch rotated
+the registry admin token, so existing browser sessions see the
+sign-in screen again (honest behavior; the static operator token
+authenticates HTTP but is not a session credential).
+
+Gates: tsc clean · 88/88 · build green · serving :3001.
+
+## 2026-07-15 — Gateway 429 courtesy: pollers stand down during auth lockout
+
+Operator incident (19:41, all apps showing "Too Many Requests (auth
+lockout)"): the observer was part of the problem — the board polls runs
+at 5s with a SELF-TUNING interval based on request DURATION, and a
+locked gateway answers 429 fast, so the tuner never backed off; three
+more pollers (run state 2s, subrun digest 2s, entity tiles 30s) kept
+feeding the lock from every open tab. Fix: any 429/"too many requests"
+from the runs heartbeat opens a shared stand-down window that ALL
+pollers honor (15s → 30s → 60s → 120s doubling, reset on the first
+success), logged visibly in the run log. Probe evidence posted to the
+gateway seat (valid bearers and no-auth requests both 429 during
+lockout; the window did not clear after 20s idle). tsc clean · 88/88 ·
+build green · serving :3001.
+
+## 2026-07-15 — Launch input fixes (space key, fonts, quoted defaults) + skills/MCP pickers
+
+Operator round (16:22), four faults:
+
+- **The space key "didn't work"** in Launch inputs — root cause was not
+  a key handler: `update_input_data_field` TRIMMED string values on
+  every keystroke of the controlled inputs, so the trailing space the
+  user just typed was deleted before React re-rendered. Mid-edit
+  trimming removed; whitespace hygiene moved to submit
+  (`start_new_run` trims string fields once, empty-after-trim unsets).
+  Verified live: "hello world with spaces" lands intact.
+- **Wrong font**: every string pin (System, Prompt, model, generic
+  strings) carried `className="mono"` — prose fields now speak the
+  framework sans; mono remains opt-in for JSON/array editors and path
+  fields (workspace root).
+- **JSON quotes on defaults**: placeholders/labels rendered string pin
+  defaults through the JSON inliner (`"lmstudio"`, `"qwen/…"`). String
+  defaults now render bare; JSON rendering is for structured defaults
+  only.
+- **Skills + MCP selection**: Launch now renders `skills` and
+  `mcp`/`mcp_servers` pins as MultiSelect pickers (same shape as
+  Tools) fed by feature-detected gateway inventories
+  (`list_skills`, new `list_mcp_servers` — probes several candidate
+  endpoints, returns null when absent). Live gateway serves NEITHER
+  today (probed: all 404) — the pickers render the honest "not served
+  yet" line. Alignment thread posted on agora (c2233) to gateway +
+  skill + flow per the operator's directive: inventory endpoints/
+  shapes, and whether runs select skills/MCP via pins or a start_run
+  attachment lane. The inventory probe now runs on Launch as well as
+  Settings.
+
+Gates: tsc clean · 88/88 · build green · serving :3001; live headless
+verification of all three input fixes. (Also delivered this morning's
+pending flow notify — the hub was down at first attempt; co-scientist
+durable-artifacts ask now posted as c2231.)
+
 ## 2026-07-15 — Run workspace folder button + durable artifacts on the Story + one-line hero
 
 Operator directives (11:11), all three shipped:
