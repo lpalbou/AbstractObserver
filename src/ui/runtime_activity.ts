@@ -61,35 +61,14 @@ export type RuntimeActivityView = {
 
 export type RuntimeActivityCounts = Record<RuntimeActivityQueue, number>;
 
-export function terminal_run_status(status: any): boolean {
-  const s = String(status || "").trim().toLowerCase();
-  return s === "completed" || s === "failed" || s === "cancelled";
-}
+// Run-clock + time parsing live in format.ts now (ui-rethink P1 step 1):
+// this module's private copies had DRIFTED from app.tsx's — its
+// parse_iso_ms lacked the microsecond clamp (`.123456Z` backends), so a
+// waiting run's age could read "—" here and a real age there. Re-exported
+// so existing consumers (mission_control, tests) keep their import path.
+import { parse_iso_ms, run_duration_ms, run_finished_at, run_started_at, terminal_run_status } from "./format";
 
-export function parse_iso_ms(value: any): number | null {
-  const s = String(value || "").trim();
-  if (!s) return null;
-  const ms = Date.parse(s);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-export function run_started_at(run: RuntimeActivityRun | null | undefined): string {
-  return String((run as any)?.started_at || run?.created_at || "").trim();
-}
-
-export function run_finished_at(run: RuntimeActivityRun | null | undefined): string {
-  const st = String(run?.status || "").trim();
-  if (!terminal_run_status(st)) return "";
-  return String((run as any)?.finished_at || run?.updated_at || "").trim();
-}
-
-export function run_duration_ms(run: RuntimeActivityRun | null | undefined, now_ms = Date.now()): number {
-  const start = parse_iso_ms(run_started_at(run));
-  if (start === null) return -1;
-  const end = parse_iso_ms(run_finished_at(run));
-  const stop = end !== null ? end : now_ms;
-  return Math.max(0, stop - start);
-}
+export { parse_iso_ms, run_duration_ms, run_finished_at, run_started_at, terminal_run_status };
 
 function wait_object(run: RuntimeActivityRun | null | undefined): WaitState | null {
   const wait = run?.waiting;

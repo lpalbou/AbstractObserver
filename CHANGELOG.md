@@ -1,5 +1,211 @@
 # Changelog
 
+## 2026-07-21 — ui-rethink P1 slice 3: runtime page + shared folds extracted (adversary-verified)
+
+Operator-approved continuation (c3890: "continue its own refactoring with
+1 adversarial sub agent"). Four verbatim sub-moves; app.tsx 9,466 → 7,660
+(2,320 total off the monolith tonight):
+
+- `run_labels.tsx` — run/wait labeling + `RunStatusPill` (the words and
+  pills every surface renders, one vocabulary).
+- `ledger_views.ts` — ledger-record folds (`ProviderActivity`, response
+  ladder, provider-activity fold).
+- `artifact_previews.tsx` — the preview component stack (glyph, HTML
+  tree/source, markdown/structured text, embedded-preview switch).
+- `runtime_page.tsx` — `RuntimeActivityConsole` + `RuntimeExplorerPage`
+  (1,211 lines) over props; all state stays in App.
+- `artifact_with_runtime_context`/`artifact_display_type_label_for`
+  joined `artifacts.ts` (they need `run_workflow_label`).
+- **Adversary verdict (mandated fable5 pass)**: verbatim VERIFIED (26
+  defs + the full 1,126-line component block diffed against HEAD),
+  nothing lost (96 cumulative defs, each in exactly one module, zero
+  duplicates), import graph acyclic. No P0. P1 folded: 4 load-bearing
+  folds pinned (`tool_risk_labels`, `wait_blocker_title`/`_expected_action`,
+  `build_provider_activities_from_ledger`, `extract_response_text_from_record`
+  — whose ladder is response > answer > message > text > content, pinned
+  as-is). P2s: artifacts.ts header updated; `is_condensed_ledger_item`
+  stays in app.tsx as a STATED decision (coupled to the app-local
+  `UiLogItem` shape); `runtime_metadata_chip_entries` deferred to the
+  observe-page slice.
+- 116 tests green; tsc + build clean.
+
+## 2026-07-21 — ui-rethink P1 step 1: format.ts extraction (one time/format fold)
+
+First slice of "dissolve app.tsx" (backlog 2026-07-12, P1): the pure
+format/time helpers moved verbatim to `src/ui/format.ts` (20 functions;
+app.tsx 9,980 → 9,829 lines) with their own test file.
+
+- **Real drift killed, not just moved**: `runtime_activity.ts` carried a
+  private `parse_iso_ms` WITHOUT the microsecond clamp app.tsx's copy
+  had (`.123456Z` backends) — a waiting run's age could read "—" on one
+  surface and a real age on another. runtime_activity now imports +
+  re-exports from format.ts (consumers keep their import path).
+- Run-clock helpers (`run_started_at`/`run_finished_at`/
+  `run_duration_ms`/`run_duration_label`) take a minimal structural
+  `RunClockFields` type — RunSummary and RuntimeActivityRun both
+  satisfy it, no cast churn.
+- Verbatim-move discipline: `number_or_null`'s Number() coercion quirk
+  (null → 0) and `short_id`'s keep-1 slice preserved and pinned —
+  extraction is not the moment for behavior changes.
+- 6 new pins in `format.test.ts` (107 total green); build clean.
+
+## 2026-07-21 — ui-rethink P1 step 2: artifacts.ts extraction
+
+Second slice: the artifact wire-shape fold moved verbatim to
+`src/ui/artifacts.ts` (24 functions + the `RuntimeArtifact` type family;
+app.tsx 9,829 → 9,466 lines — 514 total off the monolith).
+
+- `normalize_artifact_item` + friends: envelope v1 / legacy nested refs /
+  tag bags fold into ONE RuntimeArtifact shape; labels, grouping keys,
+  filter/sort param builders ride along. `artifact_with_runtime_context`
+  and `artifact_display_type_label_for` stay in app.tsx (they need the
+  app-level `run_workflow_label`).
+- New pin worth its line: an envelope WITHOUT an explicit modality field
+  degrades to "artifact" while the content-type fold lands on
+  `render_kind` — the inference reads flat/legacy shapes only. Pinned
+  as-is (verbatim discipline), flagged as a candidate behavior question
+  for the panels rework, not silently "fixed".
+- 4 new test groups in `artifacts.test.ts`; 111 total green; build clean.
+
+## 2026-07-20 — Board night signals: wave-5 dreams brief on the tile (memory c3725)
+
+The entity card gained `discoveries.dreams_signals_brief` = {count,
+kinds, felt_tones} folded over STANDING signal-carrying dreams (memory's
+wave-5 lane (a)); the board tile now renders it.
+
+- `extract_dreams_brief()` reads the brief render-when-present: absent =
+  pre-signal store, renders NOTHING (never a fabricated zero). Count
+  must be a positive integer; kinds/tones must be strings (version-skew
+  rows like `{kind, count}` drop, never `[object Object]`).
+- Hints badge gains "night: N dreams" — the prefix carries the
+  distinction from the entity's dream TOTAL (adversary P1). Expanded
+  panel gets a factual one-liner: kinds (sliced at 6 + "+N more" — the
+  per-dream <=12 bound does NOT bound the union across dreams) and
+  "felt: <tones>" as WORDS — feelings color content, never rank it; no
+  meter, nothing clickable (the stream's depth lives in the entity app).
+- 7 new extractor pins incl. junk shapes; 101 tests green.
+- **Unit correction (same day, live-verified)**: the brief's `count`
+  counts SIGNALS, not dreams — engine fold increments per signal entry
+  (`entity_card.py`), and the live wire served 24 = 12+12 across two
+  standing dreams while the store held exactly two signal-carrying dream
+  rows. Badge now reads "night: N signals". Caught by the store-side
+  read on Ephemeral's first signal night — the render and measurement
+  lanes verifying each other, as designed.
+- **c3810 fold (same hour)**: memory pinned the unit structurally
+  (`unit:"signals"` + `dreams:N` on the brief; `signals_omitted` on the
+  dream record). Board consumes `dreams:N` — the panel line reads
+  "night: 24 signals across 2 dreams" when the field rides (tolerant,
+  null on pre-fix briefs). The cap's selection is now visible to the
+  instrument: `signals_omitted` = what the night carried beyond the
+  quota seats.
+
+## 2026-07-20 — One-graph consumer: board derives phase vocabulary from the wire (laurent dm#79)
+
+The board now consumes THE entity phase graph from the gateway-vendored
+artifact (`GET /entities/spec/phases`, payload `{spec, vendored, sha256,
+source}`) instead of a hand-written copy — sync-by-mechanism.
+
+- `derive_phase_graph()` extracts phase words, spoken synonyms
+  (separator-normalized: own_time/own-time/"own time" are one synonym),
+  and the settling default from the wire; junk payloads (arrays, empty,
+  no sleep phase) derive nothing and the labeled pre-wire fallback
+  applies — never a blank board.
+- `entity_phase(state, graph)` maps by artifact synonyms first, then the
+  documented v7 mode roles: visiting decides visit; dreaming decorates
+  asleep; **resting = inside personal** (the v6-era rest→sleep fold was
+  wrong — corrected after entity's v7 bump documented the roles, owned
+  at c3613). A transition cause leaking onto the state channel
+  (`no_task`) passes through under "other" rather than claiming a phase
+  (the inversion fixed on BOTH paths).
+- Chip honesty generalized: the tooltip carries the raw wire word
+  whenever the fold changed it; the settling badge derives from the
+  graph's own initial, never a hardcoded destination.
+- The sha promise implemented: last-seen `{sha256, version}` persists
+  per browser; served bytes changing WITHOUT a version bump logs a loud
+  drift entry. Non-404 fetch failures log a labeled `#FALLBACK` note
+  (pre-wire 404 stays silent — that deployment is normal).
+- A graph word without an `mc_phase_*` style renders under the bounded
+  "other" class (a bumped artifact can never mint an unstyled class).
+- fable5 adversary run per the standing rule: 5 P1 + 4 P2 findings all
+  folded (the exact-table pin replacing a vacuous loop; the
+  initial-phase fabrication guard; the drift implementation; the style
+  bound; failure-class discrimination). 99/99 tests, tsc + build green.
+- v8 same-day: the artifact's new machine-readable `state_mode_axis`
+  block (my own consumer ask, banked at the v7 bump) is adopted —
+  artifact-declared mode words (visiting/dreaming/resting) win over the
+  local residue tables, target-validated at derive time (off-graph
+  targets dropped). The residue tables serve only pre-v8 artifacts and
+  bare-word forms. 100/100 tests.
+
+## 2026-07-20 — AWAKE is not a dwelling (c203 fold, entity sweep c3548)
+
+- `entity_phase()` maps bare `awake`/`idle` to **sleep** (composite
+  `awake:visiting/:personal/:working` keep their suffix mapping) — the
+  board's phase chip can never paint AWAKE as a phase again, per
+  laurent's c203 ruling ("entities are always visit/work/personal/sleep").
+  The pre-alignment passthrough branch its own comment said to delete is
+  deleted; `awake` left `KNOWN_PHASE_KEYS`; the dead `.mc_phase_awake`
+  style removed. Honesty kept on hover: when the wire word was the
+  state-axis `awake`/`idle`, the tooltip carries "wire word: awake
+  (settling)" verbatim — ruled words on the chip axis, the state axis
+  readable on hover. Test pin flipped from asserting the passthrough to
+  asserting the mapping. 93/93 green.
+
+## 2026-07-19 — Board tile lessons (build-5 render twin) + evolution indicators in the instrument
+
+- **Lessons on the entity tile**: the board's hints badge and panel now
+  read the card's build-5 `lessons` section (`{lessons: briefs, total}`,
+  newest-first, no open/resolved split — lessons only accumulate; the
+  tile trusts the served TOTAL, a count never a ratio). Machine-formed
+  lessons carry no entry_id and render as plain text per the chip
+  honesty rule; elected ones with a book key open through the same
+  operator diary door. Absent section (pre-build-5 gateway) renders
+  nothing. This ends the "operator's window cannot render lessons"
+  blindness (iteration-2 forensics build 5) on the observer board.
+- **Evolution indicators I1–I3** in `scripts/entity_evidence_baseline.py`
+  (adopted from the iteration-2 lived-adversary report): question/problem
+  closure + verbatim-duplicate re-asks; write→read per evolved kind
+  (lesson/world_model/dream) with a `--since` cohort window (append-only
+  denominators never move — only the post-fix cohort can, the
+  dream-digest lesson); felt-subject coverage + entity-driven closures.
+  Layer-honest throughout (kind from attributes_json, selection from the
+  memj_selected_counts join — the c3113 LIKE-probe error class named in
+  the docstring).
+- Tests: 93/93 green (lessons extractor pin added); tsc + vite build clean.
+
+## 2026-07-17 — Board access-hint chips (G1 render half) + shared AgentCycles CSS contract
+
+The observer half of the entity access-hint render commitment
+(plans/improving-entity-capabilities.md §observer 2, folded c2613):
+what an entity carries OPEN is now visible from Mission Control, and
+the entity's own words are one deliberate click away.
+
+- **Entity tile hints badge**: each board tile reads the /card
+  `questions.open` / `problems.open` row briefs (the layer that carries
+  `entry_id` top-level per the chip ruling c2623/c2626 — composers read
+  their OWN layer, never grep). A compact badge ("2 questions · 1
+  problem") expands to `AfMemoryHintChip` rows (uic kit component),
+  bounded at 4+4 per tile with the true totals shown — the deep view
+  stays the entity app.
+- **Click = the operator diary door**: `read_entity_diary_entry` calls
+  `GET /entities/{name}/diary/{entry_id}` (marker-first gateway-side).
+  The modal renders the entry verbatim and states "this read was
+  recorded in <entity>'s stream (seq N)" — reads disclose, the UI never
+  hides that the read landed in the entity's biography. Chip rule zero
+  holds: rendering never touches memory state; only a deliberate click
+  does.
+- **Honesty rules**: briefs without an entry_id render as plain text
+  (never a dead button); absent card sections = no badge
+  (render-when-present); door refusals render beside the chip.
+- **Shared CSS family contract** (uic c2833 ask 1): app.tsx now imports
+  `@abstractframework/monitor-flow/agent_cycles.css` beside the
+  AgentCyclesPanel import — hosts import package CSS explicitly, no
+  self-import exception (uic removed the self-import once all three
+  consumers shipped the one-liner).
+- Tests: 4 new `extract_open_briefs` pins (entry_id verbatim/absent,
+  resolved rows never surface, junk tolerance, bound-with-true-total).
+  92/92 green; tsc + vite build clean.
+
 ## 2026-07-15 — Launch Capabilities: run-level skills attachment (0087 lane live)
 
 The gateway closed card 0087 end-to-end (c2442: trust-gated resolution

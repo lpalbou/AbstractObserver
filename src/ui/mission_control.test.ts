@@ -8,14 +8,19 @@ import {
   DEFAULT_DONE_WINDOW,
   DONE_WINDOW_LABEL,
   DONE_WINDOW_MS,
+  TILE_HINTS_BOUND,
   board_card,
   board_column,
   board_columns,
+  derive_phase_graph,
   entity_activity_age,
   entity_phase,
+  extract_dreams_brief,
+  extract_open_briefs,
   filter_done_window,
   format_age,
   format_tokens,
+  known_phase_keys,
 } from "./mission_control";
 import type { RunSummary } from "./run_status";
 
@@ -145,8 +150,170 @@ describe("entity_phase", () => {
     expect(entity_phase("own_time")).toBe("personal");
     expect(entity_phase("awake:working")).toBe("work");
     expect(entity_phase("tasked")).toBe("work");
-    expect(entity_phase("awake")).toBe("awake");
+    // AWAKE IS NOT A DWELLING (laurent c203, entity sweep c3548): the bare
+    // state-axis word maps to sleep — no operator surface paints AWAKE as
+    // a phase chip. The composite awake:* spellings above keep their
+    // phase-suffix mapping.
+    expect(entity_phase("awake")).toBe("sleep");
+    expect(entity_phase("idle")).toBe("sleep");
     expect(entity_phase("")).toBe("unknown");
+  });
+});
+
+describe("one-graph consumer contract (laurent dm#79, c3563)", () => {
+  // A wire-shaped payload mirroring the served artifact's load-bearing
+  // fields — asserting SEMANTICS (keys, synonyms, initial), never the
+  // full spec bytes (the artifact evolves under entity's pen).
+  const payload = {
+    sha256: "abc123",
+    vendored: true,
+    spec: {
+      version: 6,
+      initial_phase: "sleep",
+      phases: {
+        visit: { spoken_synonyms: [] },
+        work: { spoken_synonyms: [] },
+        personal: { spoken_synonyms: ["own-time", "own time"] },
+        sleep: { spoken_synonyms: [] },
+      },
+    },
+  };
+
+  it("derives phase words + synonyms + initial from the served artifact", () => {
+    const g = derive_phase_graph(payload)!;
+    expect(g.phases).toEqual(["visit", "work", "personal", "sleep"]);
+    expect(g.initial).toBe("sleep");
+    expect(g.version).toBe(6);
+    expect(g.sha256).toBe("abc123");
+    expect(g.synonyms.some((m) => m.needle === "own time" && m.phase === "personal")).toBe(true);
+  });
+
+  it("junk payloads derive nothing — the labeled fallback applies, never a blank board", () => {
+    expect(derive_phase_graph(null)).toBeNull();
+    expect(derive_phase_graph({})).toBeNull();
+    expect(derive_phase_graph({ spec: { phases: {} } })).toBeNull();
+  });
+
+  it("graph-driven mapping: exact wire->word table, BOTH paths (adversary F4 — a vacuous loop pinned nothing)", () => {
+    const g = derive_phase_graph(payload)!;
+    // v7 mode roles (axes_note, entity c3610): visiting DECIDES visit;
+    // dreaming DECORATES asleep; RESTING lives INSIDE PERSONAL (the
+    // v6-era rest->sleep fold was wrong — owned at c3613).
+    const graph_expected: Array<[string, string]> = [
+      ["visit", "visit"],
+      ["visiting", "visit"],
+      ["awake:visiting", "visit"],
+      ["asleep", "sleep"],
+      ["asleep(dream)", "sleep"],
+      ["dreaming", "sleep"],
+      ["own_time", "personal"], // separator-normalized synonym (adversary F1)
+      ["own time", "personal"],
+      ["own-time", "personal"],
+      ["awake:personal", "personal"],
+      ["awake:working", "work"],
+      ["tasked", "work"],
+      // A transition CAUSE leaking onto the state channel must never claim
+      // WORK (adversary F8 inversion); it passes through under "other" —
+      // an honest raw render beats a fabricated phase.
+      ["no_task", "no_task"],
+      ["awake", "sleep"],
+      ["idle", "sleep"],
+      ["resting", "personal"], // v7 role: loop-alive between days inside personal
+      ["yielded:rest", "personal"],
+      ["paused", "paused"],
+      ["stopped", "stopped"],
+      ["", "unknown"],
+    ];
+    for (const [wire, expected] of graph_expected) {
+      expect(entity_phase(wire, g), `graph path: ${JSON.stringify(wire)}`).toBe(expected);
+    }
+    // Unlisted server words pass through verbatim under the bounded
+    // "other" class — never a ruled style, never a blank.
+    expect(entity_phase("mystery_state", g)).toBe("mystery_state");
+    expect(known_phase_keys(g).has("mystery_state")).toBe(false);
+    expect(known_phase_keys(g).has("awake")).toBe(false); // AWAKE-NEVER-RENDERS holds under the graph too
+    // Fallback path parity on the words both paths can meet. Deliberate
+    // divergences, each labeled: resting/yielded:rest (fallback stays
+    // byte-compatible with the pre-mechanism "resting" chip) and
+    // "own-time" (the dash spelling is a graph-path improvement the old
+    // map never had — pre-wire gateways never served it either).
+    for (const [wire, expected] of graph_expected) {
+      if (wire === "resting" || wire === "yielded:rest" || wire === "own-time") continue;
+      expect(entity_phase(wire), `fallback path: ${JSON.stringify(wire)}`).toBe(expected);
+    }
+  });
+
+  it("a graph word WITHOUT an mc_phase_* style wears the bounded other class (adversary F5)", () => {
+    const bumped = derive_phase_graph({
+      sha256: "x",
+      spec: { version: 8, initial_phase: "sleep", phases: { visit: {}, work: {}, personal: {}, sleep: {}, meditate: {} } },
+    })!;
+    // meditate maps (it is a graph word) but has no style — the known set
+    // excludes it so the chip renders under "other", never an unstyled
+    // mc_phase_meditate class.
+    expect(entity_phase("meditate", bumped)).toBe("meditate");
+    expect(known_phase_keys(bumped).has("meditate")).toBe(false);
+    expect(known_phase_keys(bumped).has("sleep")).toBe(true);
+  });
+
+  it("v8 machine-readable mode axis: artifact-declared words win over the local residue tables", () => {
+    const v8 = derive_phase_graph({
+      sha256: "v8",
+      spec: {
+        version: 8,
+        initial_phase: "sleep",
+        phases: { visit: {}, work: {}, personal: { spoken_synonyms: ["own-time", "own time", "own_time"] }, sleep: {} },
+        state_mode_axis: {
+          words: {
+            visiting: { role: "decides", phase: "visit" },
+            dreaming: { role: "decorates", phase: "sleep" },
+            resting: { role: "between-days", phase: "personal" },
+          },
+        },
+      },
+    })!;
+    expect(v8.modes.length).toBe(3);
+    // The block's declarations map exactly (roles documented in the
+    // artifact; targets validated against the graph at derive time).
+    expect(entity_phase("resting", v8)).toBe("personal");
+    expect(entity_phase("dreaming", v8)).toBe("sleep");
+    expect(entity_phase("visiting", v8)).toBe("visit");
+    // A block word with an off-graph target is dropped at derive time —
+    // never a chip word the graph does not rule.
+    const bad = derive_phase_graph({
+      sha256: "v8b",
+      spec: { version: 8, initial_phase: "sleep", phases: { visit: {}, sleep: {} }, state_mode_axis: { words: { levitating: { role: "decides", phase: "astral" } } } },
+    })!;
+    expect(bad.modes).toEqual([]);
+  });
+
+  it("initial_phase honesty (adversary F2): absent initial prefers sleep; a graph without sleep is unusable", () => {
+    // Alphabetical key order with no initial_phase: last-key would have
+    // fabricated work as the settling target — the derive prefers sleep.
+    const no_initial = derive_phase_graph({
+      sha256: "y",
+      spec: { version: 9, phases: { personal: {}, sleep: {}, visit: {}, work: {} } },
+    })!;
+    expect(no_initial.initial).toBe("sleep");
+    expect(entity_phase("awake", no_initial)).toBe("sleep");
+    // No sleep phase at all: settling has no honest target — fallback.
+    expect(derive_phase_graph({ sha256: "z", spec: { version: 9, phases: { alpha: {}, beta: {} } } })).toBeNull();
+    // An ARRAY phases object is junk, not a graph (Object.keys(["a"]) trap).
+    expect(derive_phase_graph({ spec: { initial_phase: "sleep", phases: ["visit", "sleep"] } })).toBeNull();
+  });
+
+  it("a graph bump that renames a phase fails loudly at the chip axis, never silently restyles", () => {
+    // Simulate a future artifact where "personal" is renamed: the derived
+    // set no longer contains it, so a stale wire word renders under
+    // "other" instead of wearing the retired ruled style.
+    const bumped = derive_phase_graph({
+      sha256: "def456",
+      spec: { version: 7, initial_phase: "sleep", phases: { visit: {}, work: {}, self_time: { spoken_synonyms: ["personal"] }, sleep: {} } },
+    })!;
+    expect(known_phase_keys(bumped).has("personal")).toBe(false);
+    // The synonym mechanism carries the old spelling to the new word —
+    // one pen, the consumers follow.
+    expect(entity_phase("personal", bumped)).toBe("self_time");
   });
 
   it("maps the cognition wire's composite chain (c1454) onto the ruled four", () => {
@@ -284,5 +451,90 @@ describe("board column contract (adversary 2 pin)", () => {
     expect(Object.keys(COLUMN_LABEL)).toEqual(["review", "working", "pending", "done"]);
     expect(Object.keys(COLUMN_EMPTY).sort()).toEqual(Object.keys(COLUMN_LABEL).sort());
     expect(Object.keys(COLUMN_HINT).sort()).toEqual(Object.keys(COLUMN_LABEL).sort());
+  });
+});
+
+describe("extract_open_briefs (access-hint lane, plan §observer 2)", () => {
+  // Layer contract (chip ruling c2623/c2626): /card items carry entry_id
+  // TOP-LEVEL on the row brief — the composer reads exactly that layer.
+  const row = (partial: any) => ({ record_id: "ex:r1", kind: "diary", title: "t", statement: "s", observed_at: "2026-07-17", ...partial });
+
+  it("reads questions.open and problems.open, entry_id verbatim when present", () => {
+    const out = extract_open_briefs({
+      questions: { open: [row({ record_id: "ex:q1", title: "why persistence?", entry_id: "diary_ab12cd34" })], resolved: [row({ record_id: "ex:q9" })] },
+      problems: { open: [row({ record_id: "ex:p1", title: "door refused", entry_id: null })] },
+    });
+    expect(out.questions).toEqual([{ record_id: "ex:q1", title: "why persistence?", statement: "s", entry_id: "diary_ab12cd34" }]);
+    expect(out.questions_total).toBe(1);
+    // Absent/blank entry_id normalizes to null — the chip renders TEXT,
+    // never a dead button (honesty rule pinned kit-side).
+    expect(out.problems[0]!.entry_id).toBeNull();
+  });
+
+  it("resolved rows never surface — only .open is a debt the operator should see", () => {
+    const out = extract_open_briefs({ questions: { open: [], resolved: [row({})] }, problems: {} });
+    expect(out.questions).toEqual([]);
+    expect(out.problems).toEqual([]);
+  });
+
+  it("tolerates absent sections, non-object cards, and junk rows (render-when-present)", () => {
+    expect(extract_open_briefs(null).questions).toEqual([]);
+    expect(extract_open_briefs({}).problems_total).toBe(0);
+    expect(extract_open_briefs({ questions: { open: "nope" } }).questions).toEqual([]);
+    // A row with neither title nor statement carries nothing to render.
+    expect(extract_open_briefs({ questions: { open: [{}, null, row({ title: "", statement: "" })] } }).questions).toEqual([]);
+  });
+
+  it("bounds the tile briefs but reports the TRUE total (never hide the count)", () => {
+    const many = Array.from({ length: TILE_HINTS_BOUND + 3 }, (_, i) => row({ record_id: `ex:q${i}`, title: `q${i}` }));
+    const out = extract_open_briefs({ questions: { open: many } });
+    expect(out.questions.length).toBe(TILE_HINTS_BOUND);
+    expect(out.questions_total).toBe(TILE_HINTS_BOUND + 3);
+  });
+
+  it("reads the wave-5 dreams brief (discoveries.dreams_signals_brief) render-when-present", () => {
+    // The shipped shape (memory c3725): {count, kinds, felt_tones} over
+    // STANDING signal-carrying dreams; absent = pre-signal store.
+    expect(
+      extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: 2, kinds: ["changed_understanding", "unresolved_tension"], felt_tones: ["warm"] } } }),
+    ).toEqual({ count: 2, kinds: ["changed_understanding", "unresolved_tension"], felt_tones: ["warm"], dreams: null });
+    // c3810 unit fix: dreams:N rides when present (integer > 0), null otherwise.
+    expect(
+      extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: 24, unit: "signals", dreams: 2, kinds: [], felt_tones: [] } } }),
+    ).toEqual({ count: 24, kinds: [], felt_tones: [], dreams: 2 });
+    expect(
+      extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: 5, dreams: "2" } } }),
+    ).toEqual({ count: 5, kinds: [], felt_tones: [], dreams: null });
+    // Absent / zero / junk shapes render NOTHING — never a fabricated line.
+    expect(extract_dreams_brief({})).toBeNull();
+    expect(extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: 0, kinds: [], felt_tones: [] } } })).toBeNull();
+    expect(extract_dreams_brief({ discoveries: { dreams_signals_brief: "nope" } })).toBeNull();
+    expect(extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: "3" } } })).toBeNull();
+    // Tones/kinds are WORDS (feelings color, never rank): junk entries drop.
+    expect(
+      extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: 1, kinds: [null, "changed_navigation"], felt_tones: [""] } } }),
+    ).toEqual({ count: 1, kinds: ["changed_navigation"], felt_tones: [], dreams: null });
+    // Adversary pins: float counts are the stringly-count junk class;
+    // richer skewed rows must never render [object Object]; non-array
+    // kinds and an array-shaped brief drop wholesale.
+    expect(extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: 2.7 } } })).toBeNull();
+    expect(extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: -3 } } })).toBeNull();
+    expect(extract_dreams_brief({ discoveries: { dreams_signals_brief: [{ count: 1 }] } })).toBeNull();
+    expect(
+      extract_dreams_brief({ discoveries: { dreams_signals_brief: { count: 1, kinds: [{ kind: "x", count: 2 }, 5, true, "real_word"], felt_tones: "warm" } } }),
+    ).toEqual({ count: 1, kinds: ["real_word"], felt_tones: [], dreams: null });
+  });
+
+  it("reads the build-5 lessons section (lessons.lessons + total; no open/resolved split)", () => {
+    // The card bounds shown lessons itself (20 of N) — the tile trusts the
+    // served TOTAL over the array length (a count, never a ratio).
+    const out = extract_open_briefs({
+      lessons: { lessons: [row({ record_id: "ex:l1", kind: "lesson", title: "describing is not doing" })], total: 21 },
+    });
+    expect(out.lessons).toEqual([{ record_id: "ex:l1", title: "describing is not doing", statement: "s", entry_id: null }]);
+    expect(out.lessons_total).toBe(21);
+    // Pre-build-5 card: absent section renders nothing, never fabricates.
+    expect(extract_open_briefs({}).lessons).toEqual([]);
+    expect(extract_open_briefs({ lessons: { lessons: "nope" } }).lessons_total).toBe(0);
   });
 });

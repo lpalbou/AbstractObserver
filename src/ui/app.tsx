@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractframework/monitor-flow";
+import "@abstractframework/monitor-flow/agent_cycles.css";
 import {
   ChatComposer,
   ChatThread,
@@ -9,7 +10,6 @@ import {
   chatToMarkdown,
   copyText,
   downloadTextFile,
-  tryParseJson,
   type ChatMessage,
 } from "@abstractframework/panel-chat";
 import {
@@ -34,6 +34,63 @@ import "./forms.css";
 
 import "./observe.css";
 
+import {
+  active_run_status,
+  clamp_preview,
+  display_datetime,
+  format_duration_ms,
+  format_time_ago,
+  format_time_until_from_ms,
+  now_iso,
+  parse_iso_ms,
+  run_duration_label,
+  run_finished_at,
+  run_started_at,
+  safe_json,
+  safe_json_inline,
+  sanitize_filename_part,
+  short_id,
+  terminal_run_status,
+} from "./format";
+import {
+  artifact_display_type_label_for,
+  artifact_with_runtime_context,
+  artifact_facets_from_search_response,
+  artifact_group_key,
+  artifact_label,
+  format_bytes,
+  normalize_artifact_item,
+  runtime_created_after_for_filter,
+  runtime_sort_gateway_params,
+  type RuntimeArtifact,
+  type RuntimeArtifactDateFilter,
+  type RuntimeArtifactGroupMode,
+  type RuntimeArtifactSortMode,
+  type RuntimeArtifactTypeFilter,
+} from "./artifacts";
+import {
+  RunStatusPill,
+  extract_conversation_context,
+  is_generic_wait_prompt,
+  run_error_label,
+  run_workflow_label,
+  tool_risk_labels,
+  wait_blocker_title,
+  wait_expected_action,
+  wait_request_detail,
+  wait_json_value,
+} from "./run_labels";
+import {
+  build_provider_activities_from_ledger,
+  extract_response_text_from_record,
+  extract_textish,
+  format_step_summary,
+  is_waiting_status,
+  ledger_record_human_summary,
+  type ProviderActivity,
+} from "./ledger_views";
+import { RuntimeStructuredTextPreview, type RuntimeEmbeddedPreview } from "./artifact_previews";
+import { RuntimeExplorerPage, type RuntimeLedgerLogItem, type RuntimeLogSource, type RuntimeTab } from "./runtime_page";
 import { GatewayClient } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
 import { McpWorkerClient } from "../lib/mcp_worker_client";
@@ -41,28 +98,16 @@ import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_rec
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
 import { RecordBuffer } from "./record_buffer";
 import {
-  artifact_display_kind,
   artifact_preview_kind,
   artifact_text_render_kind,
-  format_html_source,
-  parse_markdown_report,
   type ArtifactPreviewKind,
-  type ArtifactTextRenderKind,
 } from "./artifact_rendering";
 import { FlowGraph } from "./flow_graph";
 import { MindmapPanel } from "./mindmap_panel";
-import { MissionControlPage, type EntityTile as BoardEntityTile } from "./mission_control";
+import { MissionControlPage, derive_phase_graph, extract_dreams_brief, extract_open_briefs, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
-import {
-  build_runtime_activity_views,
-  count_runtime_activity_queues,
-  filter_runtime_activity_views,
-  sort_runtime_activity_views,
-  type RuntimeActivityQueue,
-  type RuntimeActivitySort,
-} from "./runtime_activity";
-import { merge_runtime_metadata, split_runtime_metadata_envelope, type RuntimeMetadata } from "./runtime_metadata";
+import { type RuntimeMetadata } from "./runtime_metadata";
 import { run_status_class, run_status_word, type RunSummary } from "./run_status";
 import { useGatewayVoice } from "./use_gateway_voice";
 import "./system.css";
@@ -159,119 +204,20 @@ type LatestRunSummary = {
   source?: any;
 };
 
-type RuntimeArtifact = {
-  artifact_id: string;
-  run_id: string;
-  content_type: string;
-  modality: string;
-  semantic_kind: string;
-  render_kind: string;
-  task: string;
-  classification_source: string;
-  session_id: string;
-  workflow_id: string;
-  node_id: string;
-  step_id: string;
-  effect_id: string;
-  turn_id: string;
-  ledger_cursor: string;
-  parent_run_id: string;
-  actor_id: string;
-  title: string;
-  created_at: string;
-  size_bytes: number | null;
-  filename: string;
-  source_path: string;
-  sha256: string;
-  tags: Record<string, string>;
-  producer: Record<string, any>;
-  provenance: Record<string, any>;
-  generation: Record<string, any>;
-  media: Record<string, any>;
-  source_refs: any[];
-  access: Record<string, any>;
-  links: Record<string, any>;
-  available_actions: string[];
-  provider_trace_available: boolean;
-  audit_available: boolean;
-  legacy_inferred: boolean;
-  descriptor: Record<string, any>;
-  source: "search" | "run" | "session";
-  raw: any;
-};
-
-type RuntimeArtifactGroupMode = "type" | "run" | "time" | "turn" | "node" | "workflow" | "location" | "source";
-type RuntimeArtifactSortMode = "newest" | "oldest" | "size_desc" | "size_asc" | "last_access" | "turn" | "type";
-type RuntimeArtifactDateFilter = "all" | "hour" | "today" | "week" | "month";
-type RuntimeArtifactTypeFilter = "voice" | "music" | "sound" | "recording" | "audio" | "image" | "video" | "markdown" | "html" | "json" | "document" | "code" | "text" | "other";
-type RuntimeTab = "activity" | "artifacts" | "logs" | "memory";
 
 /* Story → Chronology renders this many newest steps until expanded. */
 const CHRONOLOGY_PREVIEW_COUNT = 30;
 const RUNTIME_ARTIFACT_PAGE_SIZE = 500;
 const DEFAULT_GATEWAY_URL = "http://127.0.0.1:8080";
 
-type RuntimeEmbeddedPreview = {
-  artifact_id: string;
-  kind: ArtifactPreviewKind;
-  render_kind: ArtifactTextRenderKind | "";
-  text: string;
-  url: string;
-  loading: boolean;
-  error: string;
-};
 
 
-type ProviderActivity = {
-  id: string;
-  cursor: number;
-  ts: string;
-  run_id: string;
-  node_id: string;
-  provider: string;
-  model: string;
-  prompt_preview: string;
-  response_preview: string;
-  missing_response: boolean;
-  tokens: { prompt: number; completion: number; total: number };
-  duration_ms: number | null;
-  status: string;
-  error: string;
-  raw: StepRecord;
-};
 
-type RuntimeLogSource = "run_ledger" | "provider_calls" | "gateway_audit";
-type RuntimeLedgerLogItem = { cursor: number; record: StepRecord };
 
 type RunTreeRow = { run: RunSummary; children: RunSummary[] };
 type RunTreeSection = { key: string; label: string; rows: RunTreeRow[] };
 
 // === UI feature flags (runtime config injected by CLI) ===
-function now_iso(): string {
-  return new Date().toISOString();
-}
-
-function safe_json(v: any): string {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
-}
-
-function safe_json_inline(v: any, max_len: number): string {
-  try {
-    const s = JSON.stringify(v);
-    if (typeof s !== "string") return String(v);
-    if (s.length <= max_len) return s;
-    return `${s.slice(0, Math.max(0, max_len - 1))}…`;
-  } catch {
-    const s = String(v);
-    if (s.length <= max_len) return s;
-    return `${s.slice(0, Math.max(0, max_len - 1))}…`;
-  }
-}
-
 function parse_namespaced_workflow_id(workflow_id: string): { bundle_id: string; flow_id: string } | null {
   const s = String(workflow_id || "").trim();
   const idx = s.indexOf(":");
@@ -350,93 +296,10 @@ function extract_start_pins_from_visualflow(raw: any): BundlePinDef[] {
   return out;
 }
 
-function clamp_preview(text: string, opts?: { max_chars?: number; max_lines?: number }): string {
-  const max_chars = typeof opts?.max_chars === "number" ? opts.max_chars : 360;
-  const max_lines = typeof opts?.max_lines === "number" ? opts.max_lines : 2;
-  const raw = String(text || "");
-  const lines = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const head = lines.slice(0, Math.max(1, max_lines)).join("\n");
-  const more_lines = lines.length > max_lines;
-  const trimmed = head.length > max_chars ? `${head.slice(0, Math.max(0, max_chars - 1))}…` : head;
-  if (more_lines && trimmed === head) return `${head}…`;
-  return trimmed;
-}
 
-function raw_text_from_message_content(value: any): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value.trim();
-  if (Array.isArray(value)) return value.map((item) => raw_text_from_message_content(item)).filter(Boolean).join("\n").trim();
-  if (typeof value === "object") {
-    const direct = value.text ?? value.content ?? value.message ?? value.value;
-    if (direct !== value) {
-      const text = raw_text_from_message_content(direct);
-      if (text) return text;
-    }
-  }
-  return "";
-}
 
-function message_text_and_metadata(value: any): { text: string; runtime_metadata: RuntimeMetadata | null } {
-  const split = split_runtime_metadata_envelope(raw_text_from_message_content(value));
-  return { text: split.text, runtime_metadata: split.metadata };
-}
 
-function extract_last_user_request_detail(input: Record<string, any> | null): { text: string; runtime_metadata: RuntimeMetadata | null } {
-  if (!input) return { text: "", runtime_metadata: null };
-  const direct = typeof input.prompt === "string" ? String(input.prompt).trim() : "";
-  if (direct) {
-    const split = split_runtime_metadata_envelope(direct);
-    return { text: split.text, runtime_metadata: split.metadata };
-  }
-  const candidates = [input.context?.messages, input.messages, input.conversation, input.history].filter(Array.isArray) as any[][];
-  for (const messages of candidates) {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const msg = messages[i];
-      const role = String(msg?.role || msg?.speaker || "").trim().toLowerCase();
-      if (role && role !== "user" && role !== "human") continue;
-      const parsed = message_text_and_metadata(msg?.content ?? msg?.text ?? msg);
-      if (parsed.text) {
-        return {
-          text: parsed.text,
-          runtime_metadata: merge_runtime_metadata(
-            parsed.runtime_metadata,
-            msg?.runtime_metadata && typeof msg.runtime_metadata === "object" ? msg.runtime_metadata : null,
-            msg?.metadata?.runtime_metadata && typeof msg.metadata.runtime_metadata === "object" ? msg.metadata.runtime_metadata : null
-          ),
-        };
-      }
-    }
-  }
-  return { text: "", runtime_metadata: null };
-}
 
-function ledger_record_effect_label(rec: any): string {
-  const status = String(rec?.status || "").trim();
-  const effect_type = String(rec?.effect?.type || "").trim();
-  const emit = rec?.effect?.payload && typeof rec.effect.payload === "object" ? String(rec.effect.payload.name || "").trim() : "";
-  if (effect_type === "emit_event" && emit) return emit;
-  if (effect_type) return effect_type;
-  return status || "record";
-}
-
-function ledger_record_human_summary(rec: any): string {
-  if (!rec || typeof rec !== "object") return "Ledger record";
-  const node = String(rec.node_id || "").trim();
-  const status = String(rec.status || "").trim();
-  const effect = ledger_record_effect_label(rec);
-  const wait = extract_wait_from_record(rec);
-  if (wait) {
-    const reason = String(wait.reason || "").trim();
-    const prompt = String(wait.prompt || "").trim();
-    if (prompt) return `${node || "node"} is waiting for a response`;
-    if (reason) return `${node || "node"} is waiting (${reason})`;
-  }
-  if (rec.error) return `${node || "node"} failed`;
-  if (status === "completed") return `${node || "node"} completed ${effect}`;
-  if (status === "running") return `${node || "node"} started ${effect}`;
-  if (status === "waiting") return `${node || "node"} is waiting`;
-  return [node, status, effect].filter(Boolean).join(" · ") || "Ledger record";
-}
 
 function gateway_connect_error_message(value: any, settings: Settings): string {
   const msg = String(value?.message || value || "Discovery failed");
@@ -449,106 +312,15 @@ function gateway_connect_error_message(value: any, settings: Settings): string {
   return msg;
 }
 
-type ConversationContextItem = {
-  role: string;
-  text: string;
-  ts: string;
-  runtime_metadata?: RuntimeMetadata | null;
-};
 
-function extract_conversation_context(input: Record<string, any> | null, limit = 6): ConversationContextItem[] {
-  if (!input) return [];
-  const candidates = [input.context?.messages, input.messages, input.conversation, input.history].filter(Array.isArray) as any[][];
-  const messages = candidates.find((items) => items.length) || [];
-  const out: ConversationContextItem[] = [];
-  for (const msg of messages) {
-    const role = String(msg?.role || msg?.speaker || msg?.author || "").trim().toLowerCase() || "message";
-    const parsed = message_text_and_metadata(msg?.content ?? msg?.text ?? msg?.message ?? msg);
-    const text = parsed.text;
-    if (!text) continue;
-    const ts = String(msg?.ts || msg?.timestamp || msg?.created_at || msg?.time || "").trim();
-    const explicit_meta = merge_runtime_metadata(
-      parsed.runtime_metadata,
-      msg?.runtime_metadata && typeof msg.runtime_metadata === "object" ? msg.runtime_metadata : null,
-      msg?.metadata?.runtime_metadata && typeof msg.metadata.runtime_metadata === "object" ? msg.metadata.runtime_metadata : null
-    );
-    out.push({ role, text, ts, runtime_metadata: explicit_meta });
-  }
-  return out.slice(Math.max(0, out.length - Math.max(1, limit)));
-}
 
-function is_generic_wait_prompt(prompt: string): boolean {
-  const normalized = String(prompt || "").trim().toLowerCase().replace(/\s+/g, " ");
-  return normalized === "please respond:" || normalized === "please respond" || normalized === "type response..." || normalized === "type response";
-}
 
-function tool_call_names(tool_calls: ToolCall[]): string {
-  const names = tool_calls.map((tc: any) => String(tc?.name || "tool").trim()).filter(Boolean);
-  if (!names.length) return "";
-  return `${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""}`;
-}
 
-function tool_risk_labels(tool_call: ToolCall): string[] {
-  const name = String((tool_call as any)?.name || "").trim().toLowerCase();
-  const args = (tool_call as any)?.arguments && typeof (tool_call as any).arguments === "object" ? (tool_call as any).arguments : {};
-  const command = String(args?.command || args?.cmd || args?.shell || "").trim().toLowerCase();
-  const labels: string[] = [];
-  if (name.includes("execute_command") || name.includes("terminal") || command) labels.push("Shell");
-  if (/[;&|]?\s*(rm|rmdir|mv|chmod|chown|sudo)\b/.test(command)) labels.push("Destructive risk");
-  if (/(^|\s)(curl|wget|scp|ssh|nc|ncat|ftp)\b/.test(command)) labels.push("Network");
-  if (/(^|\s)(cat|sed|rg|grep|ls|find|pwd)\b/.test(command) && !/[>|]\s*\S/.test(command)) labels.push("Read path");
-  if (/[>|]\s*\S|(^|\s)(tee|touch|mkdir|cp)\b/.test(command)) labels.push("Filesystem write");
-  if (!labels.length) labels.push("Tool call");
-  return Array.from(new Set(labels)).slice(0, 4);
-}
 
-function wait_blocker_title(wait: WaitState | null | undefined, tool_calls: ToolCall[]): string {
-  const reason = String(wait?.reason || "").trim().toLowerCase();
-  const names = tool_call_names(tool_calls);
-  if (tool_calls.length) return `Approval required: ${names || "tool call"}`;
-  if (reason === "user") return "Waiting for your answer";
-  if (reason === "event") return "Waiting for a user response event";
-  if (reason === "subworkflow") return "Waiting for a subworkflow";
-  if (reason === "until") return "Scheduled wait";
-  if (reason) return `Waiting: ${reason}`;
-  return "Waiting for input";
-}
 
-function wait_expected_action(wait: WaitState | null | undefined, tool_calls: ToolCall[]): string {
-  if (tool_calls.length) {
-    return "Review the requested tool call, then approve and execute it, approve without local execution, reject it, or cancel the whole run.";
-  }
-  const choices = Array.isArray(wait?.choices) ? wait?.choices || [] : [];
-  if (choices.length) return "Select one of the allowed responses, then submit it to resume this run.";
-  if (wait?.allow_free_text === false) return "This wait does not allow free text. Use the available response control or inspect the ledger.";
-  if (String(wait?.prompt || "").trim()) return "Answer the workflow question below. Submitting resumes only this wait.";
-  return "No explicit question was emitted. Inspect the original request and recent ledger context before responding.";
-}
 
-function wait_request_detail(wait: WaitState | null | undefined, input: Record<string, any> | null): { text: string; runtime_metadata: RuntimeMetadata | null } {
-  const prompt = String(wait?.prompt || "").trim();
-  const prompt_split = split_runtime_metadata_envelope(prompt);
-  const last_request = extract_last_user_request_detail(input);
-  if (prompt_split.text && !is_generic_wait_prompt(prompt_split.text)) return { text: prompt_split.text, runtime_metadata: prompt_split.metadata };
-  if (last_request.text) return last_request;
-  return { text: prompt_split.text || prompt, runtime_metadata: prompt_split.metadata };
-}
 
-function wait_request_text(wait: WaitState | null | undefined, input: Record<string, any> | null): string {
-  return wait_request_detail(wait, input).text;
-}
 
-function wait_json_value(parsed: Record<string, any> | null, raw: string): unknown {
-  if (parsed) return parsed;
-  const text = String(raw || "").trim();
-  return text || {};
-}
-
-function short_id(id: string, keep: number): string {
-  const s = String(id || "");
-  if (s.length <= keep) return s;
-  return `${s.slice(0, Math.max(0, keep - 1))}…`;
-}
 
 const _SAFE_RUN_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
@@ -578,80 +350,7 @@ async function session_memory_run_id(session_id: string): Promise<string> {
   return `session_memory_sha_${digest.slice(0, 32)}`;
 }
 
-function sanitize_filename_part(value: string): string {
-  const s = String(value || "").trim();
-  if (!s) return "untitled";
-  const cleaned = s.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
-  return cleaned || "untitled";
-}
 
-function extract_textish(payload: any): { text: string; duration: number } {
-  if (typeof payload === "string") return { text: payload, duration: -1 };
-  if (payload && typeof payload === "object") {
-    const text =
-      typeof (payload as any).text === "string"
-        ? String((payload as any).text)
-        : typeof (payload as any).value === "string"
-          ? String((payload as any).value)
-          : typeof (payload as any).message === "string"
-            ? String((payload as any).message)
-            : safe_json_inline(payload, 320);
-    const duration = typeof (payload as any).duration === "number" ? Number((payload as any).duration) : -1;
-    return { text, duration };
-  }
-  return { text: safe_json_inline(payload, 320), duration: -1 };
-}
-
-function extract_response_text_from_record(rec: any): string {
-  if (!rec || typeof rec !== "object") return "";
-  const eff_type = String(rec?.effect?.type || "").trim();
-  const result = rec?.result;
-
-  const pick_text = (v: any): string => {
-    if (typeof v === "string") return v.trim();
-    if (v == null) return "";
-    if (typeof v === "number" || typeof v === "boolean") return String(v);
-    return "";
-  };
-
-  const pick_from_obj = (obj: any): string => {
-    if (!obj || typeof obj !== "object") return "";
-    const o: any = obj;
-    const candidates = [o.response, o.answer, o.message, o.text, o.content];
-    for (const c of candidates) {
-      const t = pick_text(c);
-      if (t) return t;
-    }
-    return "";
-  };
-
-  if (eff_type === "answer_user") {
-    const t =
-      pick_text(result?.message) ||
-      pick_text(result?.output?.message) ||
-      pick_text(result?.output?.response) ||
-      pick_text(rec?.effect?.payload?.message) ||
-      pick_text(rec?.effect?.payload?.text) ||
-      pick_text(rec?.effect?.payload?.content);
-    if (t) return t;
-  }
-
-  if (eff_type === "llm_call") {
-    const t =
-      pick_from_obj(result) ||
-      pick_text(result?.output) ||
-      pick_from_obj(result?.output) ||
-      pick_text(result?.response);
-    if (t) return t;
-  }
-
-  const t =
-    pick_text(result?.output) ||
-    pick_from_obj(result?.output) ||
-    pick_from_obj(result) ||
-    pick_text(result?.response);
-  return t;
-}
 
 const CONDENSED_HIDE_EMIT_NAMES = new Set(["abstract.status", "abstract.summary", "abstract.chat"]);
 
@@ -737,121 +436,7 @@ function save_settings(s: Settings): void {
   localStorage.setItem("abstractobserver_settings", JSON.stringify({ ...s, auth_token: "" }));
 }
 
-function format_step_summary(rec: StepRecord): string {
-  const node = String(rec?.node_id || "");
-  const st = String(rec?.status || "");
-  const eff = String(rec?.effect?.type || "");
-  return `${node || "(node?)"} • ${st || "(status?)"} • ${eff || "(effect?)"}`;
-}
 
-function is_waiting_status(rec: StepRecord | null): boolean {
-  return Boolean(rec && String(rec.status || "") === "waiting");
-}
-
-function parse_iso_ms(ts: any): number | null {
-  const s = typeof ts === "string" ? ts.trim() : "";
-  if (!s) return null;
-  // Some backends emit ISO timestamps with microseconds (e.g. `.123456Z`).
-  // JS `Date.parse` can be picky across environments; clamp to milliseconds.
-  const normalized = s.replace(/(\.\d{3})\d+/, "$1");
-  const ms = Date.parse(normalized);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function format_relative_time_from_ms(ms: number): string {
-  const diff = Date.now() - ms;
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (seconds < 60) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days <= 3) return `${days}d ago`;
-
-  // Beyond 3 days, show date (matches AbstractFlow's "history" feel and avoids stale "Xd ago").
-  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function format_time_ago(ts: any): string {
-  const ms = parse_iso_ms(ts);
-  if (ms === null) return "—";
-  return format_relative_time_from_ms(ms);
-}
-
-function format_time_until_from_ms(ms_until: number): string {
-  if (!Number.isFinite(ms_until)) return "";
-  const total_s = Math.floor(ms_until / 1000);
-  if (total_s <= 0) return "now";
-
-  const total_m = Math.floor(total_s / 60);
-  const total_h = Math.floor(total_m / 60);
-  const total_d = Math.floor(total_h / 24);
-
-  const s = total_s % 60;
-  const m = total_m % 60;
-  const h = total_h % 24;
-
-  if (total_d > 0) return `${total_d}d ${h}h`;
-  if (total_h > 0) return `${total_h}h ${m}m`;
-  if (total_m > 0) return `${total_m}m ${s}s`;
-  return `${total_s}s`;
-}
-
-function format_duration_ms(ms: number | null | undefined): string {
-  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "—";
-  const total_s = Math.floor(ms / 1000);
-  const s = total_s % 60;
-  const total_m = Math.floor(total_s / 60);
-  const m = total_m % 60;
-  const total_h = Math.floor(total_m / 60);
-  const h = total_h % 24;
-  const d = Math.floor(total_h / 24);
-  if (d > 0) return `${d}d ${h}h`;
-  if (total_h > 0) return `${total_h}h ${m}m`;
-  if (total_m > 0) return `${total_m}m ${s}s`;
-  return `${Math.max(0, total_s)}s`;
-}
-
-function terminal_run_status(status: any): boolean {
-  const s = String(status || "").trim().toLowerCase();
-  return s === "completed" || s === "failed" || s === "cancelled";
-}
-
-function active_run_status(status: any): boolean {
-  const s = String(status || "").trim().toLowerCase();
-  return s === "running" || s === "waiting";
-}
-
-function run_started_at(run: RunSummary | null | undefined): string {
-  return String((run as any)?.started_at || run?.created_at || "").trim();
-}
-
-function run_finished_at(run: RunSummary | null | undefined): string {
-  const st = String(run?.status || "").trim();
-  if (!terminal_run_status(st)) return "";
-  return String((run as any)?.finished_at || run?.updated_at || "").trim();
-}
-
-function run_duration_label(run: RunSummary | null | undefined, now_ms = Date.now()): string {
-  const ms = run_duration_ms(run, now_ms);
-  return format_duration_ms(ms);
-}
-
-function run_duration_ms(run: RunSummary | null | undefined, now_ms = Date.now()): number {
-  const start = parse_iso_ms(run_started_at(run));
-  if (start === null) return -1;
-  const end = parse_iso_ms(run_finished_at(run));
-  const stop = end !== null ? end : now_ms;
-  return Math.max(0, stop - start);
-}
-
-function display_datetime(ts: any): string {
-  const ms = parse_iso_ms(ts);
-  if (ms === null) return "—";
-  return new Date(ms).toLocaleString();
-}
 
 function runtime_metadata_chip_entries(metadata: RuntimeMetadata | null | undefined): Array<{ label: string; value: string }> {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
@@ -884,444 +469,8 @@ function RuntimeMetadataChips(props: { metadata?: RuntimeMetadata | null }): Rea
   );
 }
 
-function first_string(...values: any[]): string {
-  for (const v of values) {
-    const s = String(v ?? "").trim();
-    if (s) return s;
-  }
-  return "";
-}
 
-function build_provider_activities_from_ledger(items: Array<{ run_id?: string; cursor: number; record: StepRecord }>): ProviderActivity[] {
-  const out: ProviderActivity[] = [];
-  for (const item of items || []) {
-    const rec: any = item.record as any;
-    const eff_type = String(rec?.effect?.type || "").trim();
-    if (eff_type !== "llm_call") continue;
-    const payload = rec?.effect?.payload && typeof rec.effect.payload === "object" ? (rec.effect.payload as any) : {};
-    const result = rec?.result && typeof rec.result === "object" ? (rec.result as any) : {};
-    const usage = result?.usage || result?.token_usage || {};
-    const prompt = typeof payload.prompt === "string" ? payload.prompt : Array.isArray(payload.messages) ? safe_json_inline(payload.messages, 1800) : "";
-    const content =
-      typeof result.content === "string"
-        ? result.content
-        : typeof result.response === "string"
-          ? result.response
-          : typeof rec.result === "string"
-            ? String(rec.result)
-            : "";
-    const start = parse_iso_ms(rec.started_at);
-    const end = parse_iso_ms(rec.ended_at);
-    const prompt_tokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
-    const completion_tokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
-    out.push({
-      id: `${String(item.run_id || rec.run_id || "")}:${item.cursor}`,
-      cursor: Number(item.cursor || 0),
-      ts: String(rec.ended_at || rec.started_at || ""),
-      run_id: String(item.run_id || rec.run_id || "").trim(),
-      node_id: String(rec.node_id || "").trim(),
-      provider: String(payload.provider || result.provider || result.runtime_provider || "").trim(),
-      model: String(payload.model || result.model || result.runtime_model || "").trim(),
-      prompt_preview: clamp_preview(prompt, { max_chars: 1200, max_lines: 10 }),
-      response_preview: clamp_preview(content, { max_chars: 1200, max_lines: 10 }),
-      missing_response: !String(content || "").trim(),
-      tokens: {
-        prompt: prompt_tokens,
-        completion: completion_tokens,
-        total: Number(usage.total_tokens ?? prompt_tokens + completion_tokens) || 0,
-      },
-      duration_ms: start !== null && end !== null ? Math.max(0, end - start) : typeof result.gen_time === "number" ? Number(result.gen_time) * 1000 : null,
-      status: String(rec.status || "").trim(),
-      error: rec.error ? safe_json_inline(rec.error, 500) : "",
-      raw: rec as StepRecord,
-    });
-  }
-  return out.sort((a, b) => (parse_iso_ms(b.ts) ?? 0) - (parse_iso_ms(a.ts) ?? 0));
-}
 
-function number_or_null(...values: any[]): number | null {
-  for (const v of values) {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return null;
-}
-
-function artifact_nested_ref(item: any): any {
-  return item?.ref && typeof item.ref === "object"
-    ? item.ref
-    : item?.artifact_ref && typeof item.artifact_ref === "object"
-      ? item.artifact_ref
-      : item?.artifact && typeof item.artifact === "object"
-        ? item.artifact
-        : {};
-}
-
-function infer_artifact_modality(item: any): string {
-  const ref = artifact_nested_ref(item);
-  const meta = item?.metadata && typeof item.metadata === "object" ? item.metadata : item?.meta && typeof item.meta === "object" ? item.meta : {};
-  const tags = item?.tags && typeof item.tags === "object" ? item.tags : {};
-  const explicit = first_string(item?.modality, ref?.modality, meta?.modality, tags.modality).toLowerCase();
-  if (explicit) return explicit;
-  const ct = first_string(item?.content_type, item?.mime_type, item?.mime, ref?.content_type, ref?.mime_type, ref?.mime, meta?.content_type, tags.content_type).toLowerCase();
-  if (ct.startsWith("image/")) return "image";
-  if (ct.startsWith("audio/")) return "audio";
-  if (ct.startsWith("video/")) return "video";
-  if (ct.includes("pdf")) return "document";
-  if (ct.startsWith("text/") || ct.includes("json") || ct.includes("markdown") || ct.includes("csv")) return "text";
-  return "artifact";
-}
-
-function artifact_envelope(item: any): any {
-  if (!item || typeof item !== "object") return {};
-  if (item.artifact_envelope_v1 && typeof item.artifact_envelope_v1 === "object") return item.artifact_envelope_v1;
-  if (item.envelope && typeof item.envelope === "object") return item.envelope;
-  return item;
-}
-
-function normalize_artifact_item(item: any, source: RuntimeArtifact["source"]): RuntimeArtifact | null {
-  if (!item || typeof item !== "object") return null;
-  const env = artifact_envelope(item);
-  const ref = artifact_nested_ref(item);
-  const meta = item?.metadata && typeof item.metadata === "object" ? item.metadata : item?.meta && typeof item.meta === "object" ? item.meta : {};
-  const descriptor = env?.descriptor && typeof env.descriptor === "object" ? env.descriptor : item?.descriptor && typeof item.descriptor === "object" ? item.descriptor : {};
-  const artifact_id = first_string(env.artifact_id, item.artifact_id, item.$artifact, item.id, ref.artifact_id, ref.$artifact, ref.id, meta.artifact_id, meta.$artifact);
-  if (!artifact_id) return null;
-  const tags0 = {
-    ...(ref.tags && typeof ref.tags === "object" ? (ref.tags as Record<string, any>) : {}),
-    ...(meta.tags && typeof meta.tags === "object" ? (meta.tags as Record<string, any>) : {}),
-    ...(env.tags && typeof env.tags === "object" ? (env.tags as Record<string, any>) : {}),
-    ...(item.tags && typeof item.tags === "object" ? (item.tags as Record<string, any>) : {}),
-  };
-  const tags: Record<string, string> = {};
-  for (const [k, v] of Object.entries(tags0)) {
-    const key = String(k || "").trim();
-    if (!key) continue;
-    tags[key] = String(v ?? "");
-  }
-  const filename = first_string(env.filename, item.filename, ref.filename, meta.filename, tags.filename, tags.name, item.name, ref.name);
-  const source_path = first_string(env.source_path, item.source_path, ref.source_path, meta.source_path, item.path, ref.path, tags.path, tags.source_path, tags.file_path);
-  const content_type = first_string(env.content_type, item.content_type, item.mime_type, item.mime, ref.content_type, ref.mime_type, ref.mime, meta.content_type, tags.content_type);
-  const render_kind = first_string(env.render_kind, descriptor.render_kind, item.render_kind, tags.render_kind);
-  const semantic_kind = first_string(env.semantic_kind, descriptor.semantic_kind, item.semantic_kind, tags.semantic_kind, tags.artifact_type);
-  const access = env.access && typeof env.access === "object" ? env.access : item.access && typeof item.access === "object" ? item.access : {};
-  const producer =
-    env.producer && typeof env.producer === "object"
-      ? env.producer
-      : item.producer && typeof item.producer === "object"
-        ? item.producer
-        : descriptor.producer && typeof descriptor.producer === "object"
-          ? descriptor.producer
-          : {};
-  const provenance =
-    env.provenance && typeof env.provenance === "object"
-      ? env.provenance
-      : item.provenance && typeof item.provenance === "object"
-        ? item.provenance
-        : descriptor.provenance && typeof descriptor.provenance === "object"
-          ? descriptor.provenance
-          : {};
-  const generation =
-    env.generation && typeof env.generation === "object"
-      ? env.generation
-      : item.generation && typeof item.generation === "object"
-        ? item.generation
-        : descriptor.generation && typeof descriptor.generation === "object"
-          ? descriptor.generation
-          : {};
-  const media =
-    env.media && typeof env.media === "object"
-      ? env.media
-      : item.media && typeof item.media === "object"
-        ? item.media
-        : descriptor.media && typeof descriptor.media === "object"
-          ? descriptor.media
-          : {};
-  const links =
-    env.links && typeof env.links === "object"
-      ? env.links
-      : item.links && typeof item.links === "object"
-        ? item.links
-        : descriptor.links && typeof descriptor.links === "object"
-          ? descriptor.links
-          : {};
-  return {
-    artifact_id,
-    run_id: first_string(env.run_id, item.run_id, ref.run_id, meta.run_id, tags.run_id, provenance.run_id),
-    content_type,
-    modality: first_string(env.modality, item.modality, descriptor.modality, tags.modality) || infer_artifact_modality({ ...item, ref, metadata: meta, tags }),
-    semantic_kind: semantic_kind || infer_artifact_modality({ ...item, ref, metadata: meta, tags }),
-    render_kind: render_kind || artifact_display_kind({ content_type, filename, source_path, modality: first_string(env.modality, item.modality, tags.modality), tags }),
-    task: first_string(env.task, descriptor.task, item.task, tags.task, tags.provider_task),
-    classification_source: first_string(env.classification_source, descriptor.classification_source, item.classification_source),
-    session_id: first_string(env.session_id, descriptor.session_id, item.session_id, tags.session_id),
-    workflow_id: first_string(env.workflow_id, descriptor.workflow_id, item.workflow_id, tags.workflow_id, tags.workflow),
-    node_id: first_string(env.node_id, descriptor.node_id, item.node_id, tags.node_id, tags.node),
-    step_id: first_string(env.step_id, descriptor.step_id, item.step_id, tags.step_id),
-    effect_id: first_string(env.effect_id, descriptor.effect_id, item.effect_id, tags.effect_id, tags.effect_idempotency_key),
-    turn_id: first_string(env.turn_id, descriptor.turn_id, item.turn_id, tags.turn_id, tags.turn),
-    ledger_cursor: first_string(env.ledger_cursor, descriptor.ledger_cursor, item.ledger_cursor, tags.ledger_cursor, tags.step_cursor),
-    parent_run_id: first_string(env.parent_run_id, descriptor.parent_run_id, item.parent_run_id, tags.parent_run_id),
-    actor_id: first_string(env.actor_id, descriptor.actor_id, item.actor_id, tags.actor_id),
-    title: first_string(env.title, item.title, tags.title, tags.label, tags.name),
-    created_at: first_string(env.created_at, item.created_at, ref.created_at, meta.created_at, tags.created_at),
-    size_bytes: number_or_null(env.size_bytes, item.size_bytes, ref.size_bytes, meta.size_bytes, tags.size_bytes),
-    filename,
-    source_path,
-    sha256: first_string(env.sha256, item.sha256, ref.sha256, meta.sha256, tags.sha256),
-    tags,
-    producer,
-    provenance,
-    generation,
-    media,
-    source_refs: Array.isArray(env.source_refs) ? env.source_refs : Array.isArray(item.source_refs) ? item.source_refs : [],
-    access,
-    links,
-    available_actions: Array.isArray(env.available_actions) ? env.available_actions.map(String) : Array.isArray(item.available_actions) ? item.available_actions.map(String) : [],
-    provider_trace_available: Boolean(env.provider_trace_available ?? item.provider_trace_available),
-    audit_available: Boolean(env.audit_available ?? item.audit_available),
-    legacy_inferred: Boolean(
-      (env.legacy_inferred ?? item.legacy_inferred) ||
-        /(?:legacy|inferred|runtime_tags|runtime_mime)/i.test(first_string(env.classification_source, descriptor.classification_source, item.classification_source))
-    ),
-    descriptor,
-    source,
-    raw: item,
-  };
-}
-
-function artifact_label(a: RuntimeArtifact): string {
-  return a.filename || a.title || (a.source_path ? a.source_path.split("/").filter(Boolean).slice(-1)[0] : "") || short_id(a.artifact_id, 16);
-}
-
-function artifact_group_key(a: RuntimeArtifact, mode: RuntimeArtifactGroupMode): string {
-  if (mode === "type") return artifact_semantic_label(a);
-  if (mode === "run") return a.run_id || "(no run)";
-  if (mode === "turn") return artifact_turn_label(a);
-  if (mode === "node") return artifact_node_label(a) || "(node unknown)";
-  if (mode === "workflow") return artifact_workflow_ref(a) || "(workflow unknown)";
-  if (mode === "location") {
-    const p = a.source_path || a.filename || "";
-    const parts = p.split("/").filter(Boolean);
-    return parts.length > 1 ? parts.slice(0, -1).join("/") : "(root)";
-  }
-  if (mode === "source") return artifact_origin_label(a) || a.source || "artifact";
-  const ms = parse_iso_ms(a.created_at);
-  if (ms === null) return "(unknown time)";
-  return new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-function artifact_workflow_ref(a: RuntimeArtifact | null | undefined): string {
-  const tags = a?.tags || {};
-  return String(a?.workflow_id || tags.workflow_id || tags.workflow || "").trim();
-}
-
-function artifact_node_label(a: RuntimeArtifact | null | undefined): string {
-  const tags = a?.tags || {};
-  const explicit = String(a?.node_id || tags.node_id || tags.node || a?.step_id || tags.step_id || "").trim();
-  if (explicit) return explicit;
-  const p = String(a?.source_path || tags.path || "").trim();
-  const m = p.match(/(?:^|[._:/-])(node-[A-Za-z0-9_-]+)/);
-  return m?.[1] ? String(m[1]) : "";
-}
-
-function artifact_turn_label(a: RuntimeArtifact | null | undefined): string {
-  const tags = a?.tags || {};
-  const explicit = String(a?.turn_id || tags.turn_id || tags.turn || tags.cycle || a?.ledger_cursor || tags.ledger_cursor || tags.step_cursor || "").trim();
-  if (explicit) return `turn ${explicit}`;
-  const node = artifact_node_label(a);
-  const ms = parse_iso_ms(a?.created_at);
-  const time = ms === null ? "unknown time" : new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  const run = a?.run_id ? short_id(String(a.run_id), 10) : "unknown run";
-  return node ? `${run} · ${node} · ${time}` : `${run} · ${time}`;
-}
-
-function artifact_provenance_label(a: RuntimeArtifact | null | undefined): string {
-  if (!a) return "provenance unavailable";
-  const bits: string[] = [];
-  const workflow = artifact_workflow_ref(a);
-  const node = artifact_node_label(a);
-  const source = artifact_origin_label(a);
-  const producer = artifact_provider_model_label(a);
-  if (workflow) bits.push(workflow);
-  if (node) bits.push(node);
-  if (source) bits.push(source);
-  if (producer) bits.push(producer);
-  if (!bits.length) return "provenance unavailable";
-  return bits.join(" · ");
-}
-
-function format_bytes(size: number | null | undefined): string {
-  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return "—";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let n = size;
-  let idx = 0;
-  while (n >= 1024 && idx < units.length - 1) {
-    n /= 1024;
-    idx += 1;
-  }
-  const digits = idx === 0 ? 0 : n >= 10 ? 1 : 2;
-  return `${n.toFixed(digits)} ${units[idx]}`;
-}
-
-function artifact_semantic_label(a: RuntimeArtifact | null | undefined): string {
-  const kind = String(a?.semantic_kind || a?.modality || "").trim().toLowerCase();
-  const render = String(a?.render_kind || "").trim().toLowerCase();
-  const value = kind || render || "artifact";
-  const labels: Record<string, string> = {
-    voice: "Voice",
-    music: "Music",
-    sound: "Sound",
-    recording: "Recording",
-    audio: "Unclassified audio",
-    image: "Image",
-    video: "Video",
-    markdown: "Markdown",
-    html: "HTML",
-    json: "JSON",
-    document: "Document",
-    code: "Code",
-    text: "Text",
-    binary: "Other",
-    artifact: "Other",
-  };
-  return labels[value] || value.replace(/[_-]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
-function runtime_type_filter_label(kind: RuntimeArtifactTypeFilter): string {
-  if (kind === "html") return "HTML";
-  if (kind === "json") return "JSON";
-  if (kind === "audio") return "Unclassified audio";
-  if (kind === "code") return "Code";
-  return kind.slice(0, 1).toUpperCase() + kind.slice(1);
-}
-
-function runtime_created_after_for_filter(filter: RuntimeArtifactDateFilter): string {
-  const now = Date.now();
-  if (filter === "hour") return new Date(now - 60 * 60 * 1000).toISOString();
-  if (filter === "week") return new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
-  if (filter === "month") return new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
-  if (filter === "today") {
-    const d = new Date(now);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
-  }
-  return "";
-}
-
-function runtime_sort_gateway_params(sort: RuntimeArtifactSortMode): { order_by: string; order: "asc" | "desc" } {
-  if (sort === "oldest") return { order_by: "created_at", order: "asc" };
-  if (sort === "size_desc") return { order_by: "size_bytes", order: "desc" };
-  if (sort === "size_asc") return { order_by: "size_bytes", order: "asc" };
-  if (sort === "last_access") return { order_by: "last_accessed_at", order: "desc" };
-  if (sort === "turn") return { order_by: "turn", order: "asc" };
-  if (sort === "type") return { order_by: "semantic_kind", order: "asc" };
-  return { order_by: "created_at", order: "desc" };
-}
-
-function artifact_facets_from_search_response(search_res: any): Record<string, Record<string, number>> {
-  const stats = search_res?.stats && typeof search_res.stats === "object" ? search_res.stats : {};
-  const facets = stats?.facets && typeof stats.facets === "object" ? stats.facets : search_res?.facets && typeof search_res.facets === "object" ? search_res.facets : {};
-  return facets && typeof facets === "object" ? (facets as Record<string, Record<string, number>>) : {};
-}
-
-function artifact_created_label(a: RuntimeArtifact): string {
-  const dt = display_datetime(a.created_at);
-  const ago = format_time_ago(a.created_at);
-  if (dt === "—") return "Created —";
-  return `${dt}${ago && ago !== "—" ? ` (${ago})` : ""}`;
-}
-
-function artifact_last_seen_label(a: RuntimeArtifact): string {
-  const tags = a.tags || {};
-  const ts = String(a.access?.last_accessed_at || tags.last_accessed_at || tags.accessed_at || tags.updated_at || a.created_at || "").trim();
-  const label = display_datetime(ts);
-  return label === "—" ? "—" : label;
-}
-
-function artifact_human_title(a: RuntimeArtifact): string {
-  const tags = a.tags || {};
-  const explicit = String(a.title || tags.title || tags.name || tags.label || a.filename || "").trim();
-  if (explicit) return explicit;
-  const path = String(a.source_path || tags.path || "").trim();
-  if (path) return path.split("/").filter(Boolean).slice(-1)[0] || path;
-  const source = artifact_origin_label(a);
-  const type = artifact_semantic_label(a);
-  if (source) return `${type} ${source}`;
-  return `${type} artifact`;
-}
-
-function artifact_origin_label(a: RuntimeArtifact): string {
-  const tags = a.tags || {};
-  return String(a.task || a.provenance?.source || tags.task || tags.kind || tags.source || a.source || "").trim();
-}
-
-function artifact_provider_model_label(a: RuntimeArtifact | null | undefined): string {
-  if (!a) return "";
-  const provider = first_string(a.producer?.provider, a.producer?.provider_id, a.provenance?.provider, a.generation?.provider);
-  const model = first_string(a.producer?.model, a.producer?.model_id, a.provenance?.model, a.generation?.model);
-  if (provider && model) return `${provider} / ${model}`;
-  return provider || model;
-}
-
-function artifact_generation_prompt(a: RuntimeArtifact | null | undefined): string {
-  if (!a) return "";
-  return first_string(a.generation?.prompt, a.generation?.input, a.generation?.text, a.provenance?.prompt);
-}
-
-function artifact_media_fact_label(a: RuntimeArtifact | null | undefined): string {
-  if (!a) return "";
-  const media = a.media || {};
-  const duration = Number(media.duration_s ?? media.duration_seconds ?? media.duration);
-  const width = Number(media.width ?? media.image_width ?? media.video_width);
-  const height = Number(media.height ?? media.image_height ?? media.video_height);
-  const sample_rate = Number(media.sample_rate ?? media.sample_rate_hz);
-  const channels = Number(media.channels);
-  if (Number.isFinite(duration) && duration > 0) {
-    const bits = [`${duration >= 60 ? `${Math.floor(duration / 60)}m ${Math.round(duration % 60)}s` : `${duration.toFixed(duration >= 10 ? 1 : 2)}s`}`];
-    if (Number.isFinite(sample_rate) && sample_rate > 0) bits.push(`${Math.round(sample_rate / 1000)} kHz`);
-    if (Number.isFinite(channels) && channels > 0) bits.push(`${channels} ch`);
-    return bits.join(" · ");
-  }
-  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) return `${Math.round(width)} x ${Math.round(height)}`;
-  const pages = Number(media.page_count ?? media.pages);
-  if (Number.isFinite(pages) && pages > 0) return `${Math.round(pages)} pages`;
-  return "";
-}
-
-function artifact_path_label(a: RuntimeArtifact): string {
-  return a.source_path || a.filename || "";
-}
-
-function artifact_with_runtime_context(a: RuntimeArtifact, run_by_id: Record<string, RunSummary>, workflow_label_by_id: Record<string, string>): RuntimeArtifact {
-  const run = a.run_id ? run_by_id[a.run_id] || null : null;
-  if (!run) return a;
-  const workflow = run_workflow_label(run, workflow_label_by_id);
-  const tags = { ...(a.tags || {}) };
-  if (workflow && !tags.workflow) tags.workflow = workflow;
-  if (workflow && !tags.workflow_id) tags.workflow_id = workflow;
-  return { ...a, workflow_id: a.workflow_id || workflow, tags };
-}
-
-function artifact_display_type_label_for(a: RuntimeArtifact, run_by_id: Record<string, RunSummary>, workflow_label_by_id: Record<string, string>, text = ""): string {
-  const enriched = artifact_with_runtime_context(a, run_by_id, workflow_label_by_id);
-  const kind = artifact_display_kind(enriched, text);
-  const labels: Record<string, string> = {
-    json: "JSON",
-    html: "HTML",
-    markdown: "Markdown",
-    code: "Code",
-    voice: "Voice",
-    music: "Music",
-    sound: "Sound",
-    audio: "Unclassified audio",
-    image: "Image",
-    video: "Video",
-    document: "Document",
-    text: "Text",
-    other: "Other",
-  };
-  return labels[kind] || artifact_semantic_label(enriched);
-}
 
 /* short_run_id, extract_workflow_label: removed — info is now in the run picker. */
 
@@ -2533,6 +1682,69 @@ export function App(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway_connected, gateway]);
 
+  // THE phase graph (one-graph mechanism, laurent dm#79): fetched once per
+  // connection from the gateway-vendored artifact; null = pre-wire gateway
+  // (the labeled fallback vocabulary applies, board renders as before).
+  const [phase_graph, set_phase_graph] = useState<PhaseGraph | null>(null);
+  useEffect(() => {
+    if (!gateway_connected) {
+      set_phase_graph(null);
+      return;
+    }
+    let stop = false;
+    (async () => {
+      try {
+        const payload = await gateway.get_entity_phases_spec();
+        if (stop) return;
+        const graph = derive_phase_graph(payload);
+        set_phase_graph(graph);
+        // Drift honesty (the c3563 sha promise, adversary F3): compare the
+        // served bytes' identity against the last one this browser saw —
+        // a sha change WITHOUT a version bump is exactly the drift class
+        // the mechanism exists to make loud.
+        if (graph) {
+          try {
+            const prev_raw = localStorage.getItem("abstractobserver_phase_graph_id_v1");
+            const prev = prev_raw ? JSON.parse(prev_raw) : null;
+            if (prev && prev.sha256 && graph.sha256 && prev.sha256 !== graph.sha256 && prev.version === graph.version) {
+              push_log({
+                ts: now_iso(),
+                kind: "error",
+                title: "Phase-graph drift: served bytes changed without a version bump",
+                preview: clamp_preview(`v${graph.version}: ${String(prev.sha256).slice(0, 12)}… -> ${String(graph.sha256).slice(0, 12)}…`),
+                data: { prev, now: { sha256: graph.sha256, version: graph.version } },
+              });
+            }
+            localStorage.setItem("abstractobserver_phase_graph_id_v1", JSON.stringify({ sha256: graph.sha256, version: graph.version }));
+          } catch {}
+        }
+      } catch (err: any) {
+        // Pre-wire gateway (404) keeps the labeled fallback SILENTLY —
+        // that deployment is normal. Any OTHER failure (503 re-vendor
+        // lane, timeout, network) also falls back but says so in the log
+        // pane (adversary F6: "absent endpoint" and "temporarily broken"
+        // are different truths). No retry loop — the next connect refetches.
+        if (!stop) {
+          set_phase_graph(null);
+          const msg = String(err?.message || err || "");
+          if (!/404|not found/i.test(msg)) {
+            push_log({
+              ts: now_iso(),
+              kind: "info",
+              title: "Phase-graph fetch failed — pre-wire fallback vocabulary in use (#FALLBACK)",
+              preview: clamp_preview(msg),
+              data: { error: msg },
+            });
+          }
+        }
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gateway_connected]);
+
   // Entity tiles for the board: roster + the CHEAP per-entity card (gateway
   // c1038 — card + as_of_seq; never whole-life replay folds). 30s cadence.
   useEffect(() => {
@@ -2571,6 +1783,10 @@ export function App(): React.ReactElement {
               const lifetime = cog?.spend?.lifetime;
               const live_visit = cog?.spend?.live_visit;
               const warnings = Array.isArray(cog?.warnings) ? cog.warnings.map((w: any) => String(w || "")).filter(Boolean) : [];
+              // Access-hint lane (plan §observer 2): open questions/problems
+              // briefs off the card, render-when-present — pre-M-A cards
+              // simply have no entry_id and the chips degrade to text.
+              const briefs = extract_open_briefs(card);
               return {
                 name,
                 state: String(state_obj?.state ?? (typeof card?.state === "string" ? card.state : "")).trim(),
@@ -2582,6 +1798,13 @@ export function App(): React.ReactElement {
                 live_visit_tokens: typeof live_visit?.tokens_total === "number" ? live_visit.tokens_total : null,
                 spend_warning: warnings.join(" | "),
                 live_phase: typeof cog?.phase === "string" ? cog.phase : "",
+                open_questions: briefs.questions,
+                open_questions_total: briefs.questions_total,
+                open_problems: briefs.problems,
+                open_problems_total: briefs.problems_total,
+                lessons: briefs.lessons,
+                lessons_total: briefs.lessons_total,
+                dreams_brief: extract_dreams_brief(card),
                 error: "",
               };
             } catch (e: any) {
@@ -2596,6 +1819,13 @@ export function App(): React.ReactElement {
                 live_visit_tokens: null,
                 spend_warning: "",
                 live_phase: "",
+                open_questions: [],
+                open_questions_total: 0,
+                open_problems: [],
+                open_problems_total: 0,
+                lessons: [],
+                lessons_total: 0,
+                dreams_brief: null,
                 error: String(e?.message || e || "card failed"),
               };
             }
@@ -5712,6 +4942,8 @@ export function App(): React.ReactElement {
               }}
               on_resume_wait={board_resume_wait}
               entity_app_href={entity_app_url}
+              on_read_diary={(name, entry_id) => gateway.read_entity_diary_entry(name, entry_id)}
+              phase_graph={phase_graph}
             />
           )
         ) : null}
@@ -7676,51 +6908,10 @@ function AskForm(props: { wait: WaitState; disabled?: boolean; on_submit: (value
   );
 }
 
-function run_workflow_label(run: RunSummary | null | undefined, labels: Record<string, string>): string {
-  const wid = String(run?.schedule_target_workflow_id || run?.workflow_id || "").trim();
-  if (!wid) return "(workflow unknown)";
-  return labels[wid] || wid;
-}
 
-function RunStatusPill(props: { status: any }): React.ReactElement {
-  const status = String(props.status || "unknown").trim() || "unknown";
-  return <span className={`run_status_pill ${run_status_class(status)}`}>{status}</span>;
-}
 
-function run_wait_label(run: RunSummary | null | undefined): string {
-  const st = String(run?.status || "").trim().toLowerCase();
-  if (terminal_run_status(st)) return "";
-  const waiting = run?.waiting && typeof run.waiting === "object" ? (run.waiting as any) : null;
-  const reason = String(waiting?.reason || run?.waiting_reason || "").trim().toLowerCase();
-  const tool_calls = Array.isArray(waiting?.details?.tool_calls) ? waiting.details.tool_calls : [];
-  if (tool_calls.length) return wait_blocker_title(waiting as WaitState, tool_calls as ToolCall[]);
-  if (reason === "user") return "Waiting for your answer";
-  if (reason === "event") return "Waiting for a response event";
-  if (reason === "subworkflow") return "Waiting for subworkflow";
-  if (reason === "until") return "Scheduled wait";
-  if (reason) return `Waiting: ${reason}`;
-  return st === "waiting" ? "Waiting, reason unknown" : "";
-}
 
-function run_error_label(run: RunSummary | null | undefined): string {
-  const err: any = run?.error;
-  if (!err) return "";
-  if (typeof err === "string") return clamp_preview(err, { max_chars: 220, max_lines: 2 });
-  return clamp_preview(safe_json_inline(err, 400), { max_chars: 220, max_lines: 2 });
-}
 
-function run_activity_label(run: RunSummary | null | undefined): string {
-  const wait = run_wait_label(run);
-  if (wait) return wait;
-  const err = run_error_label(run);
-  if (err) return err;
-  const node = String(run?.current_node || "").trim();
-  if (node) return `Current node: ${node}`;
-  const st = String(run?.status || "").trim().toLowerCase();
-  if (st === "running") return "Running";
-  if (terminal_run_status(st)) return "Terminal";
-  return "No current activity reported";
-}
 
 function WorkflowRunNavigator(props: {
   sections: RunTreeSection[];
@@ -8373,1444 +7564,17 @@ function HumanTimelinePanel(props: {
   );
 }
 
-function ArtifactGlyph(props: { artifact: RuntimeArtifact | null; size?: number }): React.ReactElement {
-  const size = props.size || 18;
-  const kind = artifact_preview_kind(props.artifact);
-  const display_kind = artifact_display_kind(props.artifact, "");
-  const cls = `artifact_glyph ${display_kind === "code" ? "code" : kind}`;
-  const common = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" } as any;
-  if (kind === "image") {
-    return (
-      <span className={cls}>
-        <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 15l3-3 3 3 2-2 4 4" /><circle cx="8" cy="9" r="1.4" /></svg>
-      </span>
-    );
-  }
-  if (kind === "audio") {
-    return (
-      <span className={cls}>
-        <svg {...common}><path d="M4 12h2" /><path d="M8 8v8" /><path d="M12 5v14" /><path d="M16 8v8" /><path d="M20 12h-2" /></svg>
-      </span>
-    );
-  }
-  if (kind === "video") {
-    return (
-      <span className={cls}>
-        <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M9 9l6 3-6 3V9z" fill="currentColor" stroke="none" /></svg>
-      </span>
-    );
-  }
-  if (display_kind === "code") {
-    return (
-      <span className={cls}>
-        <svg {...common}><path d="M8 8l-4 4 4 4" /><path d="M16 8l4 4-4 4" /><path d="M14 4l-4 16" /></svg>
-      </span>
-    );
-  }
-  if (kind === "text") {
-    return (
-      <span className={cls}>
-        <svg {...common}><path d="M7 3h7l5 5v13H7z" /><path d="M14 3v6h6" /><path d="M10 13h7" /><path d="M10 17h5" /></svg>
-      </span>
-    );
-  }
-  return (
-    <span className={cls}>
-      <svg {...common}><path d="M7 3h7l5 5v13H7z" /><path d="M14 3v6h6" /><path d="M9 14h8" /></svg>
-    </span>
-  );
-}
 
-type HtmlExpansionMode = "folded" | "unfolded";
-type HtmlTreeNode =
-  | { kind: "doctype"; name: string }
-  | { kind: "comment"; text: string }
-  | { kind: "text"; text: string }
-  | { kind: "element"; tag: string; attrs: Array<{ name: string; value: string }>; children: HtmlTreeNode[] };
 
-const HTML_FOLDED_DEPTH = 2;
-const HTML_UNFOLDED_DEPTH = Number.MAX_SAFE_INTEGER;
 
-function html_text_preview(text: string, max = 120): string {
-  const s = String(text || "").replace(/\s+/g, " ").trim();
-  if (s.length <= max) return s;
-  return `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
-}
 
-function parse_html_tree(text: string): HtmlTreeNode[] {
-  const raw = String(text || "");
-  if (typeof DOMParser === "undefined") {
-    return [{ kind: "text", text: format_html_source(raw) || raw }];
-  }
-  try {
-    const doc = new DOMParser().parseFromString(raw, "text/html");
-    const nodes: HtmlTreeNode[] = [];
-    if (doc.doctype) nodes.push({ kind: "doctype", name: doc.doctype.name || "html" });
 
-    const convert = (node: Node): HtmlTreeNode | null => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        const value = String(node.textContent || "").trim();
-        return value ? { kind: "text", text: value } : null;
-      }
-      if (node.nodeType === Node.COMMENT_NODE) {
-        return { kind: "comment", text: String(node.textContent || "") };
-      }
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const el = node as Element;
-        const attrs = Array.from(el.attributes || []).map((a) => ({ name: a.name, value: a.value }));
-        const children = Array.from(el.childNodes || []).map(convert).filter(Boolean) as HtmlTreeNode[];
-        return { kind: "element", tag: el.tagName.toLowerCase(), attrs, children };
-      }
-      return null;
-    };
 
-    if (doc.documentElement) {
-      const root = convert(doc.documentElement);
-      if (root) nodes.push(root);
-    }
-    return nodes.length ? nodes : [{ kind: "text", text: format_html_source(raw) || raw }];
-  } catch {
-    return [{ kind: "text", text: format_html_source(raw) || raw }];
-  }
-}
 
-function HtmlOpenTag(props: { tag: string; attrs: Array<{ name: string; value: string }>; closing?: boolean; selfClosing?: boolean }): React.ReactElement {
-  if (props.closing) {
-    return (
-      <>
-        <span className="runtime_html_punct">&lt;/</span>
-        <span className="runtime_html_tag">{props.tag}</span>
-        <span className="runtime_html_punct">&gt;</span>
-      </>
-    );
-  }
-  return (
-    <>
-      <span className="runtime_html_punct">&lt;</span>
-      <span className="runtime_html_tag">{props.tag}</span>
-      {props.attrs.map((attr) => (
-        <React.Fragment key={`${props.tag}:${attr.name}:${attr.value}`}>
-          {" "}
-          <span className="runtime_html_attr">{attr.name}</span>
-          <span className="runtime_html_punct">=</span>
-          <span className="runtime_html_value">"{attr.value}"</span>
-        </React.Fragment>
-      ))}
-      <span className="runtime_html_punct">{props.selfClosing ? " />" : ">"}</span>
-    </>
-  );
-}
 
-function HtmlTreeNodeView(props: { node: HtmlTreeNode; depth: number; collapseAfterDepth: number; expansionMode: HtmlExpansionMode; expansionVersion: number }): React.ReactElement {
-  const node = props.node;
-  const indentPx = props.depth * 14;
-  const defaultOpen = props.depth < props.collapseAfterDepth;
-  const [open, setOpen] = useState(defaultOpen);
 
-  useEffect(() => {
-    setOpen(defaultOpen);
-  }, [defaultOpen, props.expansionVersion]);
 
-  if (node.kind === "doctype") {
-    return (
-      <div className="html-tree__line" style={{ paddingLeft: indentPx }}>
-        <span className="runtime_html_punct">&lt;!DOCTYPE </span>
-        <span className="runtime_html_tag">{node.name}</span>
-        <span className="runtime_html_punct">&gt;</span>
-      </div>
-    );
-  }
 
-  if (node.kind === "comment") {
-    return (
-      <div className="html-tree__line" style={{ paddingLeft: indentPx }}>
-        <span className="runtime_html_comment">{`<!-- ${node.text.trim()} -->`}</span>
-      </div>
-    );
-  }
-
-  if (node.kind === "text") {
-    return (
-      <div className="html-tree__line html-tree__text" style={{ paddingLeft: indentPx }}>
-        {node.text}
-      </div>
-    );
-  }
-
-  if (!node.children.length) {
-    return (
-      <div className="html-tree__line" style={{ paddingLeft: indentPx }}>
-        <HtmlOpenTag tag={node.tag} attrs={node.attrs} selfClosing={true} />
-      </div>
-    );
-  }
-
-  const summary = node.children.find((child) => child.kind === "text") as Extract<HtmlTreeNode, { kind: "text" }> | undefined;
-
-  return (
-    <details className="html-tree__details" open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
-      <summary className="html-tree__summary" style={{ paddingLeft: indentPx }}>
-        <span className="html-tree__caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
-        <HtmlOpenTag tag={node.tag} attrs={node.attrs} />
-        {!open && summary ? <span className="html-tree__summary_text"> {html_text_preview(summary.text)}</span> : null}
-      </summary>
-      {open ? (
-        <div className="html-tree__children">
-          {node.children.map((child, idx) => (
-            <HtmlTreeNodeView
-              key={`${props.depth}:${node.kind}:${node.tag}:${idx}`}
-              node={child}
-              depth={props.depth + 1}
-              collapseAfterDepth={props.collapseAfterDepth}
-              expansionMode={props.expansionMode}
-              expansionVersion={props.expansionVersion}
-            />
-          ))}
-          <div className="html-tree__line" style={{ paddingLeft: indentPx }}>
-            <HtmlOpenTag tag={node.tag} attrs={[]} closing={true} />
-          </div>
-        </div>
-      ) : null}
-    </details>
-  );
-}
-
-function HtmlSourcePreview(props: { text: string; className: string }): React.ReactElement {
-  const nodes = useMemo(() => parse_html_tree(props.text), [props.text]);
-  const [expansion, setExpansion] = useState<{ mode: HtmlExpansionMode; version: number }>({ mode: "folded", version: 0 });
-  const collapseAfterDepth = expansion.mode === "unfolded" ? HTML_UNFOLDED_DEPTH : HTML_FOLDED_DEPTH;
-
-  useEffect(() => {
-    setExpansion((prev) => ({ mode: "folded", version: prev.version + 1 }));
-  }, [props.text]);
-
-  const toggleExpansion = () => {
-    setExpansion((prev) => ({
-      mode: prev.mode === "unfolded" ? "folded" : "unfolded",
-      version: prev.version + 1,
-    }));
-  };
-
-  return (
-    <div className={`${props.className} structured html_source_preview`}>
-      <div className="html-tree__toolbar">
-        <button type="button" className="btn html-tree__toggle" onClick={toggleExpansion} aria-expanded={expansion.mode === "unfolded"}>
-          {expansion.mode === "unfolded" ? "Fold all" : "Unfold all"}
-        </button>
-      </div>
-      <div className="html-tree__tree" role="tree" aria-label="HTML source tree">
-        {nodes.map((node, idx) => (
-          <HtmlTreeNodeView key={`root:${idx}`} node={node} depth={0} collapseAfterDepth={collapseAfterDepth} expansionMode={expansion.mode} expansionVersion={expansion.version} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MarkdownArtifactPreview(props: { text: string; className: string }): React.ReactElement {
-  const report = parse_markdown_report(props.text);
-  if (!report) {
-    return (
-      <div className={`${props.className} structured markdown_preview`}>
-        <Markdown text={props.text} />
-      </div>
-    );
-  }
-
-  const title = report.metadata.find((m) => m.label.toLowerCase() === "title")?.value || "";
-  return (
-    <div className={`${props.className} structured markdown_preview artifact_markdown_report`}>
-      {title ? <h1 className="artifact_markdown_title">{title}</h1> : null}
-      {report.metadata.length ? (
-        <dl className="artifact_markdown_meta">
-          {report.metadata.map((m) => {
-            const is_url = /^https?:\/\//i.test(m.value);
-            return (
-              <div key={`${m.label}:${m.value}`}>
-                <dt>{m.label}</dt>
-                <dd>
-                  {is_url ? (
-                    <a href={m.value} target="_blank" rel="noreferrer">
-                      {m.value}
-                    </a>
-                  ) : (
-                    m.value
-                  )}
-                </dd>
-              </div>
-            );
-          })}
-        </dl>
-      ) : null}
-      <Markdown text={report.body || props.text} />
-    </div>
-  );
-}
-
-function RuntimeStructuredTextPreview(props: { artifact: RuntimeArtifact | null; text: string; className: string }): React.ReactElement {
-  const text = String(props.text || "");
-  const render_kind = artifact_text_render_kind(props.artifact, text);
-
-  if (render_kind === "json") {
-    const parsed = tryParseJson(text);
-    if (parsed !== null) {
-      return (
-        <div className={`${props.className} structured`}>
-          <SharedJsonViewer value={parsed} collapseAfterDepth={4} showCopy={false} />
-        </div>
-      );
-    }
-  }
-
-  if (render_kind === "markdown") {
-    return <MarkdownArtifactPreview text={text} className={props.className} />;
-  }
-
-  if (render_kind === "html") {
-    return <HtmlSourcePreview text={text} className={props.className} />;
-  }
-
-  return <pre className={`mono ${props.className}`}>{text}</pre>;
-}
-
-function RuntimeInlinePreview(props: { artifact: RuntimeArtifact | null; preview: RuntimeEmbeddedPreview }): React.ReactElement {
-  const preview = props.preview;
-  const artifact = props.artifact;
-  if (!artifact) return <div className="runtime_inline_preview empty">Select an artifact to preview it here.</div>;
-  if (preview.loading) return <div className="runtime_inline_preview empty">Loading preview…</div>;
-  if (preview.error) return <div className="runtime_inline_preview empty danger">{preview.error}</div>;
-  if (preview.kind === "image" && preview.url) return <img className="runtime_inline_preview media" src={preview.url} alt={artifact_label(artifact)} />;
-  if (preview.kind === "audio" && preview.url) return <audio className="runtime_inline_preview audio" src={preview.url} controls />;
-  if (preview.kind === "video" && preview.url) return <video className="runtime_inline_preview media" src={preview.url} controls />;
-  return <RuntimeStructuredTextPreview artifact={artifact} text={preview.text || "Preview unavailable. Use Preview or Download."} className="runtime_inline_preview text" />;
-}
-
-function RuntimeActivityConsole(props: {
-  gateway_connected: boolean;
-  runs: RunSummary[];
-  artifacts: RuntimeArtifact[];
-  selected_run_id: string;
-  workflow_label_by_id: Record<string, string>;
-  on_select_run: (run_id: string) => void;
-  on_open_run: (run_id: string) => void;
-  on_open_ledger: (run_id: string) => void;
-  on_filter_artifacts: (run_id: string) => void;
-  on_filter_session_artifacts: (session_id: string) => void;
-  on_open_logs: () => void;
-  on_refresh_runs: () => void;
-  on_reconnect: () => void;
-}): React.ReactElement {
-  const [filter, set_filter] = useState<RuntimeActivityQueue>("attention");
-  const [query, set_query] = useState("");
-  const [sort, set_sort] = useState<RuntimeActivitySort>("attention");
-  const [selected_id, set_selected_id] = useState("");
-
-  const artifact_counts = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const a of props.artifacts) {
-      const rid = String(a.run_id || "").trim();
-      if (rid) out[rid] = (out[rid] || 0) + 1;
-    }
-    return out;
-  }, [props.artifacts]);
-
-  const views = useMemo(
-    () => build_runtime_activity_views(props.runs as any[], { workflow_label_by_id: props.workflow_label_by_id }),
-    [props.runs, props.workflow_label_by_id]
-  );
-  const counts = useMemo(() => count_runtime_activity_queues(views), [views]);
-  const rows = useMemo(() => {
-    const filtered = filter_runtime_activity_views(views, { queue: filter, query });
-    return sort_runtime_activity_views(filtered, sort);
-  }, [views, filter, query, sort]);
-
-  const selected_view =
-    rows.find((v) => String(v.run_id || "") === selected_id) ||
-    rows.find((v) => String(v.run_id || "") === props.selected_run_id) ||
-    rows[0] ||
-    null;
-  const selected = (selected_view?.run as RunSummary | undefined) || null;
-  const selected_run_id = String(selected?.run_id || "").trim();
-  const selected_session_id = String(selected?.session_id || "").trim();
-  const selected_session_run_ids = useMemo(() => {
-    if (!selected_session_id) return new Set<string>();
-    return new Set(
-      props.runs
-        .filter((r) => String(r.session_id || "").trim() === selected_session_id)
-        .map((r) => String(r.run_id || "").trim())
-        .filter(Boolean)
-    );
-  }, [props.runs, selected_session_id]);
-  const selected_session_runs = selected_session_id ? selected_session_run_ids.size : 0;
-  const selected_session_artifacts = useMemo(() => {
-    if (!selected_session_id) return 0;
-    return props.artifacts.filter((a) => String(a.session_id || "").trim() === selected_session_id || selected_session_run_ids.has(String(a.run_id || "").trim())).length;
-  }, [props.artifacts, selected_session_id, selected_session_run_ids]);
-  const waiting = selected?.waiting && typeof selected.waiting === "object" ? (selected.waiting as any) : null;
-  const selected_tool_calls = waiting ? extract_tool_calls_from_wait(waiting as WaitState) : [];
-  const selected_wait_blocker = selected_view?.reason || (waiting ? wait_blocker_title(waiting as WaitState, selected_tool_calls) : "");
-  const selected_wait_expected = selected_view?.expected_action || (waiting ? wait_expected_action(waiting as WaitState, selected_tool_calls) : "");
-  const selected_wait_request = waiting ? wait_request_text(waiting as WaitState, null) : "";
-  const selected_artifacts = selected_run_id ? artifact_counts[selected_run_id] || 0 : 0;
-  const selected_terminal = terminal_run_status(selected?.status);
-  const filters: Array<{ key: RuntimeActivityQueue; label: string; count: number }> = [
-    { key: "attention", label: "Needs attention", count: counts.attention },
-    { key: "user_wait", label: "Needs my response", count: counts.user_wait },
-    { key: "tool_approval", label: "Tool approvals", count: counts.tool_approval },
-    { key: "running", label: "Running", count: counts.running },
-    { key: "failed", label: "Failed", count: counts.failed },
-    { key: "scheduled", label: "Scheduled/subflows", count: counts.scheduled },
-    { key: "finished", label: "Finished", count: counts.finished },
-    { key: "all", label: "All loaded", count: counts.all },
-  ];
-
-  return (
-    <div className="runtime_ops_layout">
-      <aside className="pane runtime_ops_filters">
-        <div className="pane_header runtime_ops_filter_header">
-          <span className="pane_title">Queues</span>
-          <div className="pane_spacer" />
-          <button className="btn btn_icon" onClick={props.gateway_connected ? props.on_refresh_runs : props.on_reconnect}>
-            <Icon name="refresh" size={14} />
-            {props.gateway_connected ? "Refresh" : "Reconnect"}
-          </button>
-        </div>
-        <div className="pane_body scroll runtime_ops_queue_list">
-          {filters.map((f) => (
-            <button key={f.key} className={`runtime_ops_filter ${filter === f.key ? "selected" : ""}`} aria-pressed={filter === f.key} onClick={() => set_filter(f.key)}>
-              <span>{f.label}</span>
-              <strong>{f.count.toLocaleString()}</strong>
-            </button>
-          ))}
-          <div className="runtime_ops_hint">
-            Counts are for the loaded runtime page. Refine search or refresh when supervising large runtimes.
-          </div>
-        </div>
-      </aside>
-
-      <section className="pane runtime_ops_table_panel">
-        <div className="pane_header runtime_ops_list_header">
-          <span className="pane_title">Runs</span>
-          <span className="pane_count">{rows.length.toLocaleString()}</span>
-          <div className="pane_spacer" />
-          <input value={query} onChange={(e) => set_query(e.target.value)} placeholder="Search workflow, run, node, status, error" />
-          <select className="seg_select" value={sort} onChange={(e) => set_sort(e.target.value as any)}>
-            <option value="attention">Attention order</option>
-            <option value="recent">Latest event</option>
-            <option value="oldest">Oldest event</option>
-            <option value="duration">Longest duration</option>
-            <option value="tokens">Most tokens</option>
-            <option value="workflow">Workflow</option>
-          </select>
-        </div>
-        <div className="pane_body scroll runtime_ops_rows">
-          {!rows.length ? (
-            <div className="runtime_ops_empty">
-              {props.gateway_connected ? "No runs match this queue." : "Gateway offline. Runtime activity cannot be loaded until the connection is restored."}
-            </div>
-          ) : null}
-          {rows.map((view) => {
-            const r = view.run as RunSummary;
-            const rid = String(r.run_id || "").trim();
-            const artifact_count = artifact_counts[rid] || 0;
-            return (
-              <div
-                key={rid}
-                className={`raised runtime_ops_row ${rid === selected_run_id ? "selected" : ""}`}
-                aria-current={rid === selected_run_id ? "true" : undefined}
-                tabIndex={0}
-                onClick={() => {
-                  set_selected_id(rid);
-                  props.on_select_run(rid);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    set_selected_id(rid);
-                    props.on_select_run(rid);
-                  }
-                }}
-              >
-                <div className="runtime_ops_row_top">
-                  <strong className="runtime_ops_row_name">{run_workflow_label(r, props.workflow_label_by_id)}</strong>
-                  {view.is_stale ? <span className="chip warn">stale</span> : null}
-                  <RunStatusPill status={r.status} />
-                </div>
-                <div className="runtime_ops_row_sub">
-                  <span className="mono">{short_id(rid, 18)}</span>
-                  <span>{format_time_ago(r.updated_at || r.created_at)}</span>
-                  <span>{run_duration_label(r)}</span>
-                  <span className="runtime_ops_row_reason" title={view.reason}>{view.reason}</span>
-                </div>
-                <div className="runtime_ops_row_foot">
-                  <span className="runtime_ops_row_facts">
-                    <span>{Number(r.llm_calls || 0).toLocaleString()} llm</span>
-                    <span>{Number(r.tool_calls || 0).toLocaleString()} tools</span>
-                    <span>{Number(r.tokens_total || 0).toLocaleString()} tok</span>
-                    <span>{artifact_count.toLocaleString()} artifacts</span>
-                  </span>
-                  <div className="runtime_ops_actions">
-                    {view.needs_user_action ? (
-                      <button className="btn primary" onClick={(e) => { e.stopPropagation(); props.on_open_run(rid); }}>{view.action_label}</button>
-                    ) : (
-                      <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_open_run(rid); }}>Open</button>
-                    )}
-                    <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_open_ledger(rid); }}>Ledger</button>
-                    <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_select_run(rid); props.on_open_logs(); }}>Logs</button>
-                    <button className="btn" onClick={(e) => { e.stopPropagation(); props.on_filter_artifacts(rid); }}>Artifacts</button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <aside className="pane runtime_ops_inspector">
-        <div className="pane_header">
-          <span className="pane_title">Run inspector</span>
-          {selected ? (
-            <>
-              <div className="pane_spacer" />
-              <RunStatusPill status={selected.status} />
-            </>
-          ) : null}
-        </div>
-        <div className="pane_body scroll runtime_ops_inspector_body">
-        {!selected ? (
-          <div className="empty_state_inline">Select a run to inspect why it is active or blocked.</div>
-        ) : (
-          <>
-            <div className="runtime_ops_inspector_head">
-              <h3>{run_workflow_label(selected, props.workflow_label_by_id)}</h3>
-              <span className="mono">{short_id(selected_run_id, 28)}</span>
-            </div>
-            <div className="runtime_ops_decision">
-              <strong>{selected_view?.reason || run_activity_label(selected)}</strong>
-              <span>
-                {selected_view?.expected_action ||
-                (String(selected.status || "").toLowerCase() === "waiting"
-                  ? "This run is paused until the pending wait is resolved or the run is cancelled."
-                  : selected_terminal
-                    ? "This run is terminal. Open the ledger for the narrative and final error/output."
-                    : "This run is active or recently updated. Use ledger/provider logs to inspect live work.")}
-              </span>
-            </div>
-            <div className="artifact_detail_grid">
-              <div><span>Started</span><strong>{display_datetime(run_started_at(selected))}</strong></div>
-              <div><span>Elapsed</span><strong>{run_duration_label(selected)}</strong></div>
-              <div><span>Last event</span><strong>{display_datetime(selected.updated_at || selected.created_at)}</strong></div>
-              <div><span>Session</span><strong className="mono">{selected.session_id ? short_id(String(selected.session_id), 18) : "—"}</strong></div>
-              <div><span>Node</span><strong className="mono">{selected.current_node || "—"}</strong></div>
-              <div><span>Visible artifacts</span><strong>{selected_artifacts.toLocaleString()}</strong></div>
-              <div><span>Provider calls</span><strong>{Number(selected.llm_calls || 0).toLocaleString()}</strong></div>
-              <div><span>Tokens</span><strong>{Number(selected.tokens_total || 0).toLocaleString()}</strong></div>
-            </div>
-            {selected_session_id ? (
-              <section className="runtime_ops_session_context">
-                <div>
-                  <span className="run_hero_eyebrow">Session context</span>
-                  <strong className="mono">{short_id(selected_session_id, 30)}</strong>
-                </div>
-                <div className="runtime_ops_session_facts">
-                  <span>{selected_session_runs.toLocaleString()} loaded run{selected_session_runs === 1 ? "" : "s"}</span>
-                  <span>{selected_session_artifacts.toLocaleString()} visible artifact{selected_session_artifacts === 1 ? "" : "s"}</span>
-                </div>
-                <div className="runtime_detail_actions compact">
-                  <button className="btn" onClick={() => props.on_filter_session_artifacts(selected_session_id)}>Open session artifacts</button>
-                  <button className="btn" onClick={() => void copyText(selected_session_id)}>Copy session id</button>
-                </div>
-              </section>
-            ) : null}
-            {waiting ? (
-              <div className="runtime_ops_wait_summary">
-                <div className="runtime_ops_wait_header">
-                  <span className="run_hero_eyebrow">Blocked on</span>
-                  <strong>{selected_wait_blocker}</strong>
-                </div>
-                <p>{selected_wait_expected}</p>
-                {selected_wait_request ? (
-                  <div className="runtime_ops_wait_request">
-                    <span>Request</span>
-                    <Markdown text={selected_wait_request} />
-                  </div>
-                ) : (
-                  <div className="runtime_ops_wait_request muted">
-                    No explicit prompt is attached to this wait. Open Observe or the ledger for full run context before responding.
-                  </div>
-                )}
-                {selected_tool_calls.length ? (
-                  <div className="runtime_ops_wait_tools">
-                    {selected_tool_calls.map((tc, idx) => (
-                      <React.Fragment key={`${String((tc as any)?.name || "tool")}:${idx}`}>
-                        <span className="chip mono warn">{String((tc as any)?.name || "tool")}</span>
-                        {tool_risk_labels(tc).map((label) => (
-                          <span key={`${idx}:${label}`} className="chip muted">{label}</span>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </div>
-                ) : null}
-                <details className="runtime_raw_details">
-                  <summary className="muted">Raw wait payload</summary>
-                  <SharedJsonViewer value={waiting} collapseAfterDepth={3} showCopy={true} />
-                </details>
-              </div>
-            ) : null}
-            {run_error_label(selected) ? <div className="warn_callout">{run_error_label(selected)}</div> : null}
-            <div className="runtime_detail_actions">
-              <button className="btn primary" onClick={() => props.on_open_run(selected_run_id)}>Open Observe</button>
-              <button className="btn" onClick={() => props.on_open_ledger(selected_run_id)}>Open ledger</button>
-              <button className="btn" onClick={() => props.on_filter_artifacts(selected_run_id)}>Open artifacts</button>
-              <button className="btn" onClick={props.on_open_logs}>Open logs</button>
-              <button className="btn" onClick={() => void copyText(selected_run_id)}>Copy run id</button>
-            </div>
-          </>
-        )}
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-function RuntimeExplorerPage(props: {
-  gateway_connected: boolean;
-  tab: RuntimeTab;
-  runs: RunSummary[];
-  active_runs: RunSummary[];
-  all_artifacts: RuntimeArtifact[];
-  artifacts: RuntimeArtifact[];
-  artifact_total_count: number;
-  artifact_total_bytes: number;
-  artifact_facets: Record<string, Record<string, number>>;
-  artifact_type_facets: Record<string, Record<string, number>>;
-  artifact_page: number;
-  artifact_page_size: number;
-  artifact_groups: Array<{ key: string; items: RuntimeArtifact[] }>;
-  selected_artifact: RuntimeArtifact | null;
-  embedded_preview: RuntimeEmbeddedPreview;
-  loading: boolean;
-  error: string;
-  query: string;
-  scope: "all" | "session" | "run";
-  type_filters: RuntimeArtifactTypeFilter[];
-  date_filter: RuntimeArtifactDateFilter;
-  group_by: RuntimeArtifactGroupMode;
-  sort_by: RuntimeArtifactSortMode;
-  artifact_run_filter: string;
-  audit_log_text: string;
-  audit_log_meta: string;
-  audit_log_loading: boolean;
-  audit_log_error: string;
-  workflow_label_by_id: Record<string, string>;
-  run_by_id: Record<string, RunSummary>;
-  selected_run_id: string;
-  session_id: string;
-  runtime_log_source: RuntimeLogSource;
-  runtime_log_query: string;
-  runtime_ledger_log_items: RuntimeLedgerLogItem[];
-  runtime_ledger_log_meta: string;
-  runtime_ledger_log_loading: boolean;
-  runtime_ledger_log_error: string;
-  on_tab_change: (tab: RuntimeTab) => void;
-  on_query_change: (value: string) => void;
-  on_scope_change: (value: "all" | "session" | "run") => void;
-  on_session_filter_change: (session_id: string) => void;
-  on_type_filters_change: (value: RuntimeArtifactTypeFilter[]) => void;
-  on_date_filter_change: (value: RuntimeArtifactDateFilter) => void;
-  on_group_by_change: (value: RuntimeArtifactGroupMode) => void;
-  on_sort_by_change: (value: RuntimeArtifactSortMode) => void;
-  on_artifact_page_change: (page: number) => void;
-  on_artifact_run_filter_change: (run_id: string) => void;
-  on_refresh_artifacts: () => void;
-  on_refresh_audit: () => void;
-  on_refresh_runtime_ledger: (run_id?: string) => void;
-  on_runtime_log_source_change: (value: RuntimeLogSource) => void;
-  on_runtime_log_query_change: (value: string) => void;
-  on_select_run: (run_id: string) => void;
-  on_select_artifact: (artifact_id: string) => void;
-  on_preview_artifact: (artifact: RuntimeArtifact) => void;
-  on_download_artifact: (artifact: RuntimeArtifact) => void;
-  on_open_run: (run_id: string) => void;
-  on_open_ledger: (run_id: string) => void;
-  on_refresh_runs: () => void;
-  on_reconnect: () => void;
-  on_open_settings: () => void;
-  /* System page (redesign wave B): the knowledge-graph memory explorer
-   * (the old standalone Mindmap page) lives here as a tab, not as its
-   * own top-level page. It renders MEMORY assertions, not workflows —
-   * the tab must never be labeled "Workflows" (adversary-caught lie). */
-  memory_panel: React.ReactNode;
-}): React.ReactElement {
-  const selected = props.selected_artifact;
-  const artifact_type_options: RuntimeArtifactTypeFilter[] = ["voice", "music", "sound", "recording", "audio", "image", "video", "markdown", "html", "json", "document", "code", "text", "other"];
-  const artifact_date_options: Array<{ value: RuntimeArtifactDateFilter; label: string }> = [
-    { value: "all", label: "Any time" },
-    { value: "hour", label: "Last hour" },
-    { value: "today", label: "Today" },
-    { value: "week", label: "7 days" },
-    { value: "month", label: "30 days" },
-  ];
-  const selected_type_filters = useMemo(() => new Set(props.type_filters), [props.type_filters]);
-  const artifact_total_count = Math.max(0, Number(props.artifact_total_count || 0));
-  // The header count is the FILTERED total when any artifact filter is on —
-  // label it so other tabs don't read it as the system inventory.
-  const artifact_filters_active =
-    Boolean(props.query.trim()) || props.type_filters.length > 0 || props.date_filter !== "all" || props.scope !== "all" || Boolean(props.artifact_run_filter.trim());
-  const artifact_page_size = Math.max(1, Number(props.artifact_page_size || 500));
-  const artifact_total_pages = Math.max(1, Math.ceil(artifact_total_count / artifact_page_size));
-  const artifact_page = Math.min(Math.max(0, Number(props.artifact_page || 0)), artifact_total_pages - 1);
-  const artifact_page_start = artifact_total_count ? artifact_page * artifact_page_size + 1 : 0;
-  const artifact_page_end = Math.min(artifact_total_count, artifact_page * artifact_page_size + props.artifacts.length);
-  const artifact_type_counts = useMemo(() => {
-    const out: Partial<Record<RuntimeArtifactTypeFilter, number>> = {};
-    const facets = props.artifact_type_facets && Object.keys(props.artifact_type_facets).length ? props.artifact_type_facets : props.artifact_facets;
-    const semantic_counts = facets?.semantic_kind || {};
-    const render_counts = facets?.render_kind || {};
-    for (const kind of artifact_type_options) {
-      out[kind] = Number(semantic_counts[kind] || render_counts[kind] || 0);
-    }
-    out.audio = Number(semantic_counts.audio || 0);
-    out.other = Number(semantic_counts.other || 0) + Number(semantic_counts.artifact || 0) + Number(semantic_counts.binary || 0) + Number(semantic_counts["(none)"] || 0);
-    return out;
-  }, [props.artifact_facets, props.artifact_type_facets]);
-  const toggle_type_filter = (kind: RuntimeArtifactTypeFilter) => {
-    const next = new Set(selected_type_filters);
-    if (next.has(kind)) next.delete(kind);
-    else next.add(kind);
-    props.on_type_filters_change(Array.from(next.values()));
-  };
-  const run_groups = useMemo(() => {
-    const groups: Record<string, RunSummary[]> = { waiting: [], running: [], failed: [], cancelled: [], completed: [], other: [] };
-    for (const r of props.runs) {
-      const st = String(r.status || "").trim().toLowerCase();
-      if (st === "waiting") groups.waiting.push(r);
-      else if (st === "running") groups.running.push(r);
-      else if (st === "failed") groups.failed.push(r);
-      else if (st === "cancelled") groups.cancelled.push(r);
-      else if (st === "completed") groups.completed.push(r);
-      else groups.other.push(r);
-    }
-    return groups;
-  }, [props.runs]);
-  const selected_run_for_artifact = selected?.run_id ? props.run_by_id[selected.run_id] || null : null;
-  const run_filter_label = props.artifact_run_filter
-    ? run_workflow_label(props.run_by_id[props.artifact_run_filter], props.workflow_label_by_id)
-    : "";
-  const artifact_filter_runs = useMemo(() => {
-    const ids = new Set<string>();
-    const run_counts = props.artifact_facets?.run_id || {};
-    for (const rid of Object.keys(run_counts)) {
-      if (rid && rid !== "(none)") ids.add(rid);
-    }
-    for (const a of props.artifacts) if (a.run_id) ids.add(a.run_id);
-    for (const r of props.active_runs) if (r.run_id) ids.add(String(r.run_id));
-    return Array.from(ids)
-      .map((rid) => props.run_by_id[rid] || ({ run_id: rid, workflow_id: null, status: "", created_at: null, updated_at: null } as RunSummary))
-      .sort((a, b) => {
-        const active_a = active_run_status(a.status) ? 0 : 1;
-        const active_b = active_run_status(b.status) ? 0 : 1;
-        if (active_a !== active_b) return active_a - active_b;
-        const am = parse_iso_ms(a.updated_at || a.created_at) ?? 0;
-        const bm = parse_iso_ms(b.updated_at || b.created_at) ?? 0;
-        return bm - am;
-      })
-      .slice(0, 160);
-  }, [props.artifacts, props.active_runs, props.run_by_id, props.artifact_facets]);
-  const set_run_artifact_filter = (rid: string) => {
-    props.on_artifact_run_filter_change(rid);
-    props.on_session_filter_change("");
-    props.on_scope_change(rid ? "run" : "all");
-  };
-  const runtime_metric_label = (value: number) => (props.gateway_connected ? Math.max(0, Number(value || 0)).toLocaleString() : "—");
-  const selected_runtime_run = props.selected_run_id ? props.run_by_id[props.selected_run_id] || null : null;
-  const runtime_log_rows = useMemo(() => {
-    const q = props.runtime_log_query.trim().toLowerCase();
-    const rows = props.runtime_ledger_log_items || [];
-    if (!q) return rows;
-    return rows.filter((item) => {
-      const rec: any = item.record || {};
-      const hay = [
-        item.cursor,
-        rec.run_id,
-        rec.node_id,
-        rec.status,
-        rec.effect?.type,
-        rec.started_at,
-        rec.ended_at,
-        safe_json_inline(rec.effect?.payload ?? {}, 900),
-        safe_json_inline(rec.result ?? {}, 900),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [props.runtime_ledger_log_items, props.runtime_log_query]);
-  const runtime_provider_rows = useMemo(() => {
-    const q = props.runtime_log_query.trim().toLowerCase();
-    const rows = build_provider_activities_from_ledger(props.runtime_ledger_log_items);
-    if (!q) return rows;
-    return rows.filter((a) =>
-      [
-        a.provider,
-        a.model,
-        a.run_id,
-        a.node_id,
-        a.status,
-        a.error,
-        a.prompt_preview,
-        a.response_preview,
-        a.tokens.prompt,
-        a.tokens.completion,
-        a.tokens.total,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
-    );
-  }, [props.runtime_ledger_log_items, props.runtime_log_query]);
-  const runtime_provider_token_total = runtime_provider_rows.reduce((n, a) => n + (Number(a.tokens.total) || 0), 0);
-  const runtime_provider_issue_count = runtime_provider_rows.filter((a) => a.missing_response || a.error).length;
-  const audit_log_lines = useMemo(() => {
-    const q = props.runtime_log_query.trim().toLowerCase();
-    const lines = String(props.audit_log_text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(Boolean);
-    return q ? lines.filter((line) => line.toLowerCase().includes(q)) : lines;
-  }, [props.audit_log_text, props.runtime_log_query]);
-  const runtime_log_is_run_scoped = props.runtime_log_source === "run_ledger" || props.runtime_log_source === "provider_calls";
-  const runtime_log_title =
-    props.runtime_log_source === "run_ledger"
-      ? "Selected Run Ledger"
-      : props.runtime_log_source === "provider_calls"
-        ? "Provider Calls"
-        : "Gateway HTTP Audit";
-  const runtime_log_description =
-    props.runtime_log_source === "run_ledger"
-      ? "Runtime execution records for the selected workflow run."
-      : props.runtime_log_source === "provider_calls"
-        ? "Model/provider call records extracted from the selected run ledger."
-        : "Global Gateway HTTP/audit tail. This is system activity, not artifact provenance.";
-
-  return (
-    <div className="page runtime_page">
-      <section className="runtime_header">
-        <div>
-          <div className="run_hero_eyebrow">System</div>
-          <h2>{props.tab === "activity" ? "Activity monitor" : props.tab === "artifacts" ? "Artifact explorer" : props.tab === "memory" ? "Active memory" : "Logs"}</h2>
-          <div className="run_hero_meta">
-            <span className={`status_pill ${props.gateway_connected ? "ok" : "warn"}`}>{props.gateway_connected ? "gateway connected" : "gateway offline"}</span>
-            {props.tab === "artifacts" && props.artifact_run_filter ? (
-              <span className="chip muted">
-                filtered run <span className="mono">{short_id(props.artifact_run_filter, 18)}</span>
-              </span>
-            ) : null}
-            {props.session_id ? (
-              <span className="chip muted">
-                session <span className="mono">{short_id(props.session_id, 18)}</span>
-              </span>
-            ) : null}
-          </div>
-        </div>
-        <div className="metric_grid compact runtime_header_metrics">
-          <div className="metric_tile">
-            <span>Waiting</span>
-            <strong>{runtime_metric_label(run_groups.waiting.length)}</strong>
-          </div>
-          <div className="metric_tile">
-            <span>Running</span>
-            <strong>{runtime_metric_label(run_groups.running.length)}</strong>
-          </div>
-          <div className="metric_tile">
-            <span>Failed</span>
-            <strong>{runtime_metric_label(run_groups.failed.length)}</strong>
-          </div>
-          <div className="metric_tile">
-            <span>Artifacts{artifact_filters_active ? " (filtered)" : ""}</span>
-            <strong>{runtime_metric_label(artifact_total_count)}</strong>
-          </div>
-        </div>
-      </section>
-
-      <nav className="runtime_mode_tabs" role="tablist" aria-label="System sections">
-        {(["activity", "artifacts", "memory", "logs"] as RuntimeTab[]).map((tab) => (
-          <button
-            key={tab}
-            role="tab"
-            aria-selected={props.tab === tab}
-            className={`runtime_mode_tab ${props.tab === tab ? "active" : ""}`}
-            onClick={() => props.on_tab_change(tab)}
-          >
-            <Icon name={tab === "activity" ? "history" : tab === "artifacts" ? "download" : tab === "memory" ? "agent" : "terminal"} size={14} />
-            <span>{tab === "activity" ? "Activity" : tab === "artifacts" ? "Artifacts" : tab === "memory" ? "Memory" : "Logs"}</span>
-          </button>
-        ))}
-      </nav>
-
-      {!props.gateway_connected ? (
-        <div className="runtime_offline_banner" role="status">
-          <div>
-            <strong>Gateway offline</strong>
-            <span>Activity, artifacts, memory, and logs are unavailable until the gateway reconnects.</span>
-          </div>
-          <div>
-            <button className="btn primary" onClick={props.on_reconnect}>Reconnect</button>
-            <button className="btn" onClick={props.on_open_settings}>Settings</button>
-          </div>
-        </div>
-      ) : null}
-
-      {props.error ? <div className="warn_callout">{props.error}</div> : null}
-
-      {props.tab === "activity" ? (
-        <RuntimeActivityConsole
-          gateway_connected={props.gateway_connected}
-          runs={props.runs}
-          artifacts={props.artifacts}
-          selected_run_id={props.selected_run_id}
-          workflow_label_by_id={props.workflow_label_by_id}
-          on_select_run={props.on_select_run}
-          on_open_run={props.on_open_run}
-          on_open_ledger={props.on_open_ledger}
-          on_refresh_runs={props.on_refresh_runs}
-          on_reconnect={props.on_reconnect}
-          on_open_logs={() => props.on_tab_change("logs")}
-          on_filter_artifacts={(rid) => {
-            set_run_artifact_filter(rid);
-            props.on_select_run(rid);
-            props.on_tab_change("artifacts");
-          }}
-          on_filter_session_artifacts={(sid) => {
-            if (!sid) return;
-            props.on_artifact_run_filter_change("");
-            props.on_session_filter_change(sid);
-            props.on_scope_change("session");
-            props.on_tab_change("artifacts");
-          }}
-        />
-      ) : null}
-
-      {props.tab === "memory" ? (
-        props.memory_panel ? (
-          <div className="runtime_memory_panel">{props.memory_panel}</div>
-        ) : (
-          <div className="empty_state_inline">The memory explorer needs a gateway connection — sign in to browse knowledge-graph assertions.</div>
-        )
-      ) : null}
-
-      {props.tab === "artifacts" ? (
-        <>
-          <section className="pane runtime_artifact_toolbar" aria-label="Find artifacts">
-            <div className="runtime_artifact_toolbar_top">
-              <label className="artifact_filter_field artifact_filter_search">
-                <span>Search</span>
-                <input value={props.query} onChange={(e) => props.on_query_change(e.target.value)} placeholder="title, path, hash, run, workflow, tag" />
-              </label>
-              <label className="artifact_filter_field">
-                <span>Scope</span>
-                <select
-                  className="seg_select"
-                  value={props.scope}
-                  onChange={(e) => {
-                    const next = e.target.value as "all" | "session" | "run";
-                    if (next !== "run") props.on_artifact_run_filter_change("");
-                    if (next === "session") props.on_session_filter_change(props.session_id);
-                    else props.on_session_filter_change("");
-                    props.on_scope_change(next);
-                  }}
-                >
-                  <option value="all">All runtime</option>
-                  <option value="session">This session</option>
-                  <option value="run">Selected run</option>
-                </select>
-              </label>
-              <label className="artifact_filter_field">
-                <span>Group</span>
-                <select className="seg_select" value={props.group_by} onChange={(e) => props.on_group_by_change(e.target.value as RuntimeArtifactGroupMode)}>
-                  <option value="type">Type</option>
-                  <option value="time">Date</option>
-                  <option value="turn">Turn</option>
-                  <option value="node">Node</option>
-                  <option value="workflow">Workflow</option>
-                  <option value="run">Run</option>
-                  <option value="location">Location</option>
-                  <option value="source">Source</option>
-                </select>
-              </label>
-              <label className="artifact_filter_field">
-                <span>Sort</span>
-                <select className="seg_select" value={props.sort_by} onChange={(e) => props.on_sort_by_change(e.target.value as RuntimeArtifactSortMode)}>
-                  <option value="newest">Newest</option>
-                  <option value="oldest">Oldest</option>
-                  <option value="last_access">Last accessed</option>
-                  <option value="turn">Turn order</option>
-                  <option value="type">Type</option>
-                  <option value="size_desc">Largest</option>
-                  <option value="size_asc">Smallest</option>
-                </select>
-              </label>
-              <button className="btn btn_icon" onClick={props.on_refresh_artifacts} disabled={!props.gateway_connected || props.loading}>
-                <Icon name="refresh" size={14} />
-                {props.loading ? "Loading…" : "Refresh"}
-              </button>
-            </div>
-            <div className="artifact_filter_section">
-              <div className="artifact_filter_label">Type <span className="muted">OR</span></div>
-              <div className="artifact_filter_chips" role="group" aria-label="Artifact type filters combine with OR">
-                {artifact_type_options.map((kind) => {
-                  const active = selected_type_filters.has(kind);
-                  const count = artifact_type_counts[kind] || 0;
-                  const label = runtime_type_filter_label(kind);
-                  return (
-                    <button
-                      key={kind}
-                      type="button"
-                      aria-pressed={active}
-                      aria-label={`${active ? "Remove" : "Add"} ${label} artifact type filter. Type filters combine with OR.`}
-                      title={`${active ? "Remove" : "Add"} ${label}. Type filters combine with OR.`}
-                      className={`artifact_filter_chip ${active ? "active" : ""}`}
-                      onClick={() => toggle_type_filter(kind)}
-                    >
-                      <span>{label}</span>
-                      <span className="artifact_chip_count">{props.gateway_connected ? count.toLocaleString() : "—"}</span>
-                    </button>
-                  );
-                })}
-                {props.type_filters.length ? <button type="button" className="artifact_filter_chip clear" onClick={() => props.on_type_filters_change([])}>Clear types</button> : null}
-              </div>
-            </div>
-            <div className="artifact_filter_section">
-              <div className="artifact_filter_label">Date</div>
-              <div className="artifact_filter_chips" role="group" aria-label="Artifact date filters">
-                {artifact_date_options.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    aria-pressed={props.date_filter === opt.value}
-                    className={`artifact_filter_chip ${props.date_filter === opt.value ? "active" : ""}`}
-                    onClick={() => props.on_date_filter_change(opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-          <div className="artifact_scope_banner">
-            {props.artifact_run_filter ? (
-              <>
-                Showing artifacts for <strong>{run_filter_label || short_id(props.artifact_run_filter, 18)}</strong>.
-                <button className="btn" onClick={() => set_run_artifact_filter("")}>Show all</button>
-              </>
-            ) : (
-              <>Showing artifacts across the selected runtime scope. Select a run to filter the inventory. {props.artifact_total_bytes ? <span className="mono muted">Total size {format_bytes(props.artifact_total_bytes)}</span> : null}</>
-            )}
-          </div>
-          <div className="runtime_artifacts_layout">
-            <aside className="pane artifact_filter_rail">
-              <div className="pane_header">
-                <span className="pane_title">Runs</span>
-                <span className="pane_count">{artifact_filter_runs.length.toLocaleString()}</span>
-              </div>
-              <div className="pane_body scroll artifact_filter_rail_list">
-                <button className={`artifact_filter_run ${!props.artifact_run_filter ? "selected" : ""}`} onClick={() => set_run_artifact_filter("")}>
-                  <strong>All artifacts</strong>
-                  <span>{props.gateway_connected ? `${artifact_total_count.toLocaleString()} match${artifact_total_count === 1 ? "" : "es"}` : "counts unavailable"}</span>
-                </button>
-                {artifact_filter_runs.map((r) => {
-                  const rid = String(r.run_id || "").trim();
-                  const highlighted = rid === props.artifact_run_filter || rid === selected?.run_id;
-                  return (
-                    <button key={rid} className={`artifact_filter_run ${highlighted ? "selected" : ""}`} onClick={() => set_run_artifact_filter(rid)} title={rid}>
-                      <strong>{run_workflow_label(r, props.workflow_label_by_id)}</strong>
-                      <span className="mono">{short_id(rid, 15)}</span>
-                      <span>{run_duration_label(r)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </aside>
-            <section className="pane runtime_artifact_browser">
-          <div className="pane_header artifact_browser_header">
-            <span className="pane_title">Artifacts</span>
-            <span className="pane_count">
-              {artifact_total_count
-                ? `${artifact_page_start.toLocaleString()}-${artifact_page_end.toLocaleString()} of ${artifact_total_count.toLocaleString()}`
-                : "0 items"}
-            </span>
-            <div className="pane_spacer" />
-            {artifact_total_pages > 1 ? (
-              <div className="artifact_pagination" aria-label="Artifact pages">
-                <button className="btn" onClick={() => props.on_artifact_page_change(0)} disabled={artifact_page <= 0}>First</button>
-                <button className="btn" onClick={() => props.on_artifact_page_change(artifact_page - 1)} disabled={artifact_page <= 0}>Prev</button>
-                <span className="muted artifact_page_label">Page {(artifact_page + 1).toLocaleString()} / {artifact_total_pages.toLocaleString()}</span>
-                <button className="btn" onClick={() => props.on_artifact_page_change(artifact_page + 1)} disabled={artifact_page >= artifact_total_pages - 1}>Next</button>
-                <button className="btn" onClick={() => props.on_artifact_page_change(artifact_total_pages - 1)} disabled={artifact_page >= artifact_total_pages - 1}>Last</button>
-              </div>
-            ) : null}
-          </div>
-          <div className="pane_body scroll artifact_browser_body">
-          {!props.artifact_groups.length ? (
-            <div className="empty_state_inline">
-              {props.gateway_connected ? "No artifacts match the current filters." : "Gateway offline. Artifact inventory cannot be loaded until the connection is restored."}
-            </div>
-          ) : null}
-          <div className="artifact_group_list">
-            {props.artifact_groups.map((group) => (
-              <section key={group.key} className="artifact_group">
-                <div className="artifact_group_header">
-                  <span>{group.key}</span>
-                  <span className="artifact_group_count">{group.items.length}</span>
-                </div>
-                {group.items.map((a) => {
-	                  const row_run = a.run_id ? props.run_by_id[a.run_id] || null : null;
-	                  const workflow_label = row_run ? run_workflow_label(row_run, props.workflow_label_by_id) : artifact_workflow_ref(a);
-	                  const media_fact = artifact_media_fact_label(a);
-	                  const access_count = Number(a.access?.access_count || 0) || 0;
-	                  return (
-                    <button
-                      key={a.artifact_id}
-                      className={`artifact_row ${selected?.artifact_id === a.artifact_id ? "selected" : ""}`}
-                      onClick={() => {
-                        props.on_select_artifact(a.artifact_id);
-                        if (a.run_id) props.on_select_run(a.run_id);
-                      }}
-                      title={a.artifact_id}
-                    >
-                      <ArtifactGlyph artifact={a} size={18} />
-                      <div className="artifact_row_main">
-	                        <div className="artifact_row_title">
-	                          <strong>{artifact_human_title(artifact_with_runtime_context(a, props.run_by_id, props.workflow_label_by_id))}</strong>
-	                          <span className="artifact_type_badge">{artifact_semantic_label(a)}</span>
-	                          {a.render_kind && a.render_kind !== a.semantic_kind ? <span className="artifact_type_badge muted">{a.render_kind}</span> : null}
-	                          {a.legacy_inferred ? <span className="artifact_type_badge inferred">legacy inferred</span> : null}
-	                        </div>
-	                        <div className="artifact_row_facts">
-	                          <span><b>Created</b> {artifact_created_label(a)}</span>
-	                          <span><b>Size</b> {format_bytes(a.size_bytes)}</span>
-	                          <span><b>Last seen</b> {artifact_last_seen_label(a)}</span>
-	                          {access_count ? <span><b>Accesses</b> {access_count.toLocaleString()}</span> : null}
-	                          {media_fact ? <span><b>Media</b> {media_fact}</span> : null}
-	                          {a.content_type ? <span><b>MIME</b> {a.content_type}</span> : null}
-                        </div>
-                        <div className="artifact_row_facts secondary">
-                          {workflow_label ? <span><b>Workflow</b> {workflow_label}</span> : null}
-                          {a.run_id ? <span className="mono"><b>Run</b> {short_id(a.run_id, 13)}</span> : null}
-                          <span><b>Turn</b> {artifact_turn_label(a)}</span>
-                          {artifact_node_label(a) ? <span className="mono"><b>Node</b> {artifact_node_label(a)}</span> : null}
-                          {artifact_origin_label(a) ? <span><b>Source</b> {artifact_origin_label(a)}</span> : null}
-                        </div>
-                        <div className="artifact_row_facts tertiary">
-                          <span className="mono"><b>ID</b> {short_id(a.artifact_id, 22)}</span>
-                          <span><b>Provenance</b> {artifact_provenance_label(a)}</span>
-                        </div>
-                        {artifact_path_label(a) ? <div className="artifact_row_path mono">{artifact_path_label(a)}</div> : null}
-                      </div>
-                    </button>
-                  );
-                })}
-              </section>
-            ))}
-          </div>
-          </div>
-            </section>
-
-            <aside className="runtime_detail">
-              <section className="overview_panel runtime_artifact_detail">
-            <div className="overview_panel_header">
-              <h3>Artifact Detail</h3>
-              {selected ? <span className="chip mono muted">{props.embedded_preview.render_kind ? artifact_display_type_label_for(selected, props.run_by_id, props.workflow_label_by_id, props.embedded_preview.text) : artifact_display_type_label_for(selected, props.run_by_id, props.workflow_label_by_id)}</span> : null}
-            </div>
-            {!selected ? (
-              <div className="empty_state_inline">Select an artifact to inspect metadata, preview, or download content.</div>
-            ) : (
-              <>
-                {(() => {
-                  const prompt = artifact_generation_prompt(selected);
-                  const provider_model = artifact_provider_model_label(selected);
-                  const media_fact = artifact_media_fact_label(selected);
-                  const access_count = Number(selected.access?.access_count || 0) || 0;
-                  const provider_trace_link = first_string(selected.links?.provider_trace, selected.links?.provider_trace_url, selected.links?.provider_trace_id);
-                  const audit_link = first_string(selected.links?.audit, selected.links?.audit_tail, selected.links?.audit_url);
-                  return (
-                    <>
-                <div className="artifact_detail_header">
-                  <ArtifactGlyph artifact={selected} size={22} />
-                  <div>
-                    <div className="artifact_detail_title">{artifact_human_title(artifact_with_runtime_context(selected, props.run_by_id, props.workflow_label_by_id))}</div>
-                    <div className="artifact_detail_subtitle">
-                      {artifact_semantic_label(selected)} • {selected.render_kind || props.embedded_preview.render_kind || selected.modality || "artifact"} • {selected.content_type || "unknown MIME"} • {format_bytes(selected.size_bytes)}
-                      {selected.legacy_inferred ? " • legacy inferred" : ""}
-                    </div>
-                  </div>
-                </div>
-                <RuntimeInlinePreview artifact={selected} preview={props.embedded_preview} />
-                <div className="artifact_detail_grid">
-                  <div><span>Semantic type</span><strong>{artifact_semantic_label(selected)}</strong></div>
-                  <div><span>Render kind</span><strong>{selected.render_kind || props.embedded_preview.render_kind || "—"}</strong></div>
-                  <div><span>Created</span><strong>{display_datetime(selected.created_at)}</strong></div>
-                  <div><span>Size</span><strong>{format_bytes(selected.size_bytes)}</strong></div>
-                  <div><span>Last seen</span><strong>{artifact_last_seen_label(selected)}</strong></div>
-                  <div><span>Accesses</span><strong>{access_count ? access_count.toLocaleString() : "—"}</strong></div>
-                  <div><span>Run</span><strong className="mono">{selected.run_id ? short_id(selected.run_id, 24) : "—"}</strong></div>
-                  <div><span>Workflow</span><strong>{selected_run_for_artifact ? run_workflow_label(selected_run_for_artifact, props.workflow_label_by_id) : "—"}</strong></div>
-                  <div><span>Turn</span><strong>{artifact_turn_label(selected)}</strong></div>
-                  <div><span>Node</span><strong className="mono">{artifact_node_label(selected) || "—"}</strong></div>
-                  <div><span>Provider/model</span><strong>{provider_model || "—"}</strong></div>
-                  <div><span>Media facts</span><strong>{media_fact || "—"}</strong></div>
-                  <div><span>Trace</span><strong>{selected.provider_trace_available ? "available" : "not recorded"}</strong></div>
-                  <div><span>Provenance</span><strong>{artifact_provenance_label(selected)}</strong></div>
-                  <div><span>Artifact id</span><strong className="mono">{short_id(selected.artifact_id, 30)}</strong></div>
-                  {selected.sha256 ? <div><span>sha256</span><strong className="mono">{short_id(selected.sha256, 30)}</strong></div> : null}
-                </div>
-                {prompt ? (
-                  <div className="artifact_provenance_panel">
-                    <div className="artifact_filter_label">Generation prompt / input</div>
-                    <div className="artifact_prompt_text">{prompt}</div>
-                  </div>
-                ) : (
-                  <div className="artifact_provenance_panel muted">
-                    <div className="artifact_filter_label">Generation prompt / input</div>
-                    <div className="artifact_prompt_text">Generation prompt not recorded by the runtime artifact descriptor.</div>
-                  </div>
-                )}
-                {Object.keys(selected.generation || {}).length || Object.keys(selected.producer || {}).length ? (
-                  <details className="runtime_raw_details">
-                    <summary className="mono muted">Generation and producer metadata</summary>
-                    <SharedJsonViewer value={{ generation: selected.generation, producer: selected.producer, source_refs: selected.source_refs }} collapseAfterDepth={3} showCopy={true} />
-                  </details>
-                ) : null}
-                {selected.source_path ? <div className="artifact_detail_path mono">{selected.source_path}</div> : null}
-                <div className="runtime_detail_actions">
-                  <button className="btn primary" onClick={() => props.on_preview_artifact(selected)} disabled={!selected.run_id}>
-                    {props.embedded_preview.render_kind === "html" ? "Open as web page" : "Open full preview"}
-                  </button>
-                  <button className="btn" onClick={() => props.on_download_artifact(selected)} disabled={!selected.run_id}>
-                    Download
-                  </button>
-                  <button className="btn" onClick={() => set_run_artifact_filter(selected.run_id)} disabled={!selected.run_id}>
-                    Show run artifacts
-                  </button>
-                  <button className="btn" onClick={() => props.on_open_run(selected.run_id)} disabled={!selected.run_id}>
-                    Open in Observe
-                  </button>
-                  <button className="btn" onClick={() => props.on_open_ledger(selected.run_id)} disabled={!selected.run_id}>
-                    Open run ledger
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      if (provider_trace_link) window.open(provider_trace_link, "_blank", "noopener,noreferrer");
-                    }}
-                    disabled={!provider_trace_link}
-                  >
-                    Open provider trace
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => {
-                      if (audit_link) window.open(audit_link, "_blank", "noopener,noreferrer");
-                      else props.on_tab_change("logs");
-                    }}
-                    disabled={!audit_link && !selected.audit_available}
-                  >
-                    Open audit trail
-                  </button>
-                  <button className="btn" onClick={() => void copyText(selected.artifact_id)} disabled={!selected.artifact_id}>
-                    Copy artifact id
-                  </button>
-                </div>
-                    </>
-                  );
-                })()}
-                <details className="runtime_raw_details">
-                  <summary className="mono muted">Raw metadata</summary>
-                  <SharedJsonViewer value={selected.raw} collapseAfterDepth={3} showCopy={true} />
-                </details>
-              </>
-            )}
-              </section>
-            </aside>
-          </div>
-        </>
-      ) : null}
-
-	      {props.tab === "logs" ? (
-	        <section className="overview_panel runtime_logs_panel">
-	          <div className="overview_panel_header">
-	            <div>
-	              <h3>{runtime_log_title}</h3>
-	              <div className="mono muted">{runtime_log_description}</div>
-	            </div>
-	            <div className="actions" style={{ marginTop: 0 }}>
-	              {runtime_log_is_run_scoped && props.runtime_ledger_log_meta ? <span className="mono muted">{props.runtime_ledger_log_meta}</span> : null}
-	              {props.runtime_log_source === "gateway_audit" && props.audit_log_meta ? <span className="mono muted">{props.audit_log_meta}</span> : null}
-	              <button
-	                className="btn btn_icon"
-	                onClick={() => {
-	                  if (runtime_log_is_run_scoped) props.on_refresh_runtime_ledger(props.selected_run_id);
-	                  else props.on_refresh_audit();
-	                }}
-	                disabled={runtime_log_is_run_scoped ? props.runtime_ledger_log_loading : props.audit_log_loading}
-	              >
-	                <Icon name="refresh" size={14} />
-	                {runtime_log_is_run_scoped ? (props.runtime_ledger_log_loading ? "Loading…" : "Refresh") : props.audit_log_loading ? "Loading…" : "Refresh"}
-	              </button>
-	            </div>
-	          </div>
-          <div className="runtime_log_toolbar">
-            <div className="seg_toggle mono">
-	              <button className={`seg_btn ${props.runtime_log_source === "run_ledger" ? "active" : ""}`} onClick={() => props.on_runtime_log_source_change("run_ledger")}>
-	                Run ledger
-	              </button>
-	              <button className={`seg_btn ${props.runtime_log_source === "provider_calls" ? "active" : ""}`} onClick={() => props.on_runtime_log_source_change("provider_calls")}>
-	                Provider calls
-	              </button>
-	              <button className={`seg_btn ${props.runtime_log_source === "gateway_audit" ? "active" : ""}`} onClick={() => props.on_runtime_log_source_change("gateway_audit")}>
-	                Gateway audit
-	              </button>
-            </div>
-            <input
-              className="mono"
-              value={props.runtime_log_query}
-              onChange={(e) => props.on_runtime_log_query_change(e.target.value)}
-              placeholder="Search node, status, effect, payload, error"
-            />
-          </div>
-
-	          {props.runtime_log_source === "run_ledger" ? (
-	            <>
-	              <div className="runtime_log_context">
-	                <div>
-                  <span>Selected run</span>
-                  <strong>{selected_runtime_run ? run_workflow_label(selected_runtime_run, props.workflow_label_by_id) : props.selected_run_id ? short_id(props.selected_run_id, 24) : "No run selected"}</strong>
-                  {props.selected_run_id ? <em className="mono">{short_id(props.selected_run_id, 34)}</em> : null}
-                </div>
-                <div>
-                  <span>Session</span>
-                  <strong className="mono">{selected_runtime_run?.session_id ? short_id(String(selected_runtime_run.session_id), 28) : props.session_id ? short_id(props.session_id, 28) : "—"}</strong>
-                </div>
-                <div className="runtime_log_context_actions">
-                  <button className="btn" onClick={() => props.on_open_run(props.selected_run_id)} disabled={!props.selected_run_id}>Open Observe</button>
-                  <button className="btn" onClick={() => set_run_artifact_filter(props.selected_run_id)} disabled={!props.selected_run_id}>Run artifacts</button>
-                </div>
-              </div>
-              {props.runtime_ledger_log_error ? <div className="warn_callout">{props.runtime_ledger_log_error}</div> : null}
-              {!props.selected_run_id ? <div className="empty_state_inline">Select a run in Activity or Artifact Explorer to inspect its runtime ledger.</div> : null}
-              {props.selected_run_id && !runtime_log_rows.length && !props.runtime_ledger_log_loading ? <div className="empty_state_inline">No ledger records match the current search.</div> : null}
-              <div className="runtime_log_event_list" aria-label="Selected run ledger records">
-                {runtime_log_rows.map((item) => {
-                  const rec: any = item.record || {};
-                  const effect_type = String(rec?.effect?.type || "").trim();
-                  const status = String(rec?.status || "").trim();
-	                  const node_id = String(rec?.node_id || "").trim();
-	                  const ts = first_string(rec?.ended_at, rec?.started_at, rec?.ts);
-	                  const wait = extract_wait_from_record(rec);
-	                  const human_summary = ledger_record_human_summary(rec);
-	                  const payload_preview = effect_type ? clamp_preview(safe_json_inline(rec?.effect?.payload ?? {}, 1200), { max_chars: 1200, max_lines: 6 }) : "";
-	                  const outcome =
-	                    extract_response_text_from_record(rec) ||
-	                    (wait ? `Waiting for ${String(wait.reason || "input")}` : "") ||
-                    (rec?.result !== undefined ? safe_json_inline(rec.result, 700) : "");
-                  return (
-                    <article key={`${props.selected_run_id}:${item.cursor}`} className={`runtime_log_event ${run_status_class(status)}`}>
-                      <div className="runtime_log_event_header">
-                        <span className="mono">#{item.cursor}</span>
-                        <RunStatusPill status={status || "record"} />
-                        {effect_type ? <span className="chip mono muted">{effect_type}</span> : null}
-                        {node_id ? <strong className="mono">{node_id}</strong> : null}
-                        {ts ? <span className="mono muted">{display_datetime(ts)}</span> : null}
-                      </div>
-	                      <div className="runtime_log_event_body">
-	                        <div>
-	                          <span>Request / activity</span>
-	                          <p>{[human_summary || format_step_summary(rec as StepRecord), payload_preview && payload_preview !== "{}" ? payload_preview : ""].filter(Boolean).join("\n")}</p>
-	                        </div>
-                        <div>
-                          <span>Outcome</span>
-                          <p>{clamp_preview(outcome || "—", { max_chars: 1200, max_lines: 6 })}</p>
-                        </div>
-                      </div>
-                      <details className="runtime_raw_details">
-                        <summary className="mono muted">Raw ledger record</summary>
-                        <SharedJsonViewer value={rec} collapseAfterDepth={3} showCopy={true} />
-                      </details>
-                    </article>
-                  );
-	                })}
-	              </div>
-	            </>
-	          ) : props.runtime_log_source === "provider_calls" ? (
-	            <>
-	              <div className="runtime_log_context">
-	                <div>
-	                  <span>Selected run</span>
-	                  <strong>{selected_runtime_run ? run_workflow_label(selected_runtime_run, props.workflow_label_by_id) : props.selected_run_id ? short_id(props.selected_run_id, 24) : "No run selected"}</strong>
-	                  {props.selected_run_id ? <em className="mono">{short_id(props.selected_run_id, 34)}</em> : null}
-	                </div>
-	                <div>
-	                  <span>Provider calls</span>
-	                  <strong>{runtime_provider_rows.length.toLocaleString()}</strong>
-	                  <em className="mono">{runtime_provider_token_total ? `${runtime_provider_token_total.toLocaleString()} tokens` : "tokens not recorded"}</em>
-	                </div>
-	                <div>
-	                  <span>Issues</span>
-	                  <strong>{runtime_provider_issue_count.toLocaleString()}</strong>
-	                </div>
-	                <div className="runtime_log_context_actions">
-	                  <button className="btn" onClick={() => props.on_open_run(props.selected_run_id)} disabled={!props.selected_run_id}>Open Observe</button>
-	                  <button className="btn" onClick={() => props.on_runtime_log_source_change("run_ledger")} disabled={!props.selected_run_id}>Run ledger</button>
-	                </div>
-	              </div>
-	              {props.runtime_ledger_log_error ? <div className="warn_callout">{props.runtime_ledger_log_error}</div> : null}
-	              {!props.selected_run_id ? <div className="empty_state_inline">Select a run in Activity or Artifact Explorer to inspect provider calls.</div> : null}
-	              {props.selected_run_id && !runtime_provider_rows.length && !props.runtime_ledger_log_loading ? (
-	                <div className="empty_state_inline">No provider calls are present in the selected run ledger, or none match the current search.</div>
-	              ) : null}
-	              <div className="provider_activity_list runtime_provider_log_list">
-	                {runtime_provider_rows.map((a) => (
-	                  <article key={a.id} className={`provider_activity ${a.error || a.missing_response ? "danger" : ""}`}>
-	                    <div className="provider_activity_header">
-	                      <div>
-	                        <h4>{[a.provider || "provider unknown", a.model || "model unknown"].join(" / ")}</h4>
-	                        <div className="timeline_subtitle">
-	                          {a.node_id ? <span className="mono">{a.node_id}</span> : null}
-	                          {a.run_id ? <span className="mono">{short_id(a.run_id, 16)}</span> : null}
-	                          <span>{format_duration_ms(a.duration_ms)}</span>
-	                          {a.status ? <RunStatusPill status={a.status} /> : null}
-	                        </div>
-	                      </div>
-	                      <div className="provider_tokens mono">
-	                        {a.tokens.total ? a.tokens.total.toLocaleString() : "—"} tokens
-	                      </div>
-	                    </div>
-	                    <div className="provider_preview_grid">
-	                      <div>
-	                        <span>Prompt / messages</span>
-	                        <p>{a.prompt_preview || "No prompt payload captured"}</p>
-	                      </div>
-	                      <div>
-	                        <span>Response / error</span>
-	                        <p>{a.response_preview || a.error || "No response captured"}</p>
-	                      </div>
-	                    </div>
-	                    <details className="runtime_raw_details">
-	                      <summary className="mono muted">Raw provider ledger record</summary>
-	                      <SharedJsonViewer value={a.raw} collapseAfterDepth={3} showCopy={true} />
-	                    </details>
-	                  </article>
-	                ))}
-	              </div>
-	            </>
-	          ) : (
-            <>
-              {props.audit_log_error ? <div className="warn_callout">{props.audit_log_error}</div> : null}
-              <pre className="mono audit_log_tail">{audit_log_lines.length ? audit_log_lines.join("\n") : "(audit tail not loaded or no lines match search)"}</pre>
-            </>
-          )}
-        </section>
-      ) : null}
-    </div>
-  );
-}
 
 /* --------------------------------------------------------------------------
    LedgerCard — visual step card for the observe ledger.

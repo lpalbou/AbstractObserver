@@ -156,6 +156,73 @@
   background: var(--raised-bg);
 }
 
+/* Cell = tile + its hints badge stacked; the anchor stays the anchor
+ * (a chip button nested inside an <a> would be invalid + a misclick). */
+.mc_entity_cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mc_entity_hints_btn {
+  align-self: flex-start;
+  font-size: var(--t-small);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--pane-border);
+  border-radius: 999px;
+  padding: 1px 9px;
+  cursor: pointer;
+}
+
+.mc_entity_hints_btn:hover,
+.mc_entity_hints_btn[aria-expanded="true"] {
+  color: var(--text-primary);
+  border-color: var(--pane-border-strong);
+}
+
+/* Expanded hint chips for ONE entity (access-hint lane, plan §observer 2). */
+.mc_entity_hints_panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 3px 4px;
+}
+
+.mc_entity_hints_more {
+  font-size: var(--t-small);
+}
+
+/* Night-signals line (wave-5): a factual one-liner on its own row —
+ * words only, no meter (feelings color content, they never rank it). */
+.mc_entity_dreams {
+  flex-basis: 100%;
+  min-width: 0; /* flex min-width:auto would let one long token force tile overflow */
+  overflow-wrap: anywhere;
+  font-size: var(--t-small);
+}
+
+/* Diary entry modal body: the entity's words verbatim, never reflowed. */
+.mc_diary_meta,
+.mc_diary_recorded {
+  font-size: var(--t-small);
+  margin-bottom: 6px;
+}
+
+.mc_diary_gist {
+  font-style: italic;
+  margin: 4px 0 8px;
+}
+
+.mc_diary_text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: var(--t-body);
+  margin: 0;
+}
+
 .mc_entity:hover {
   border-color: var(--pane-border-strong);
 }

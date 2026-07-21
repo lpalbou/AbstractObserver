@@ -5014,7 +5014,6 @@ button.primary:hover:not(:disabled) {
 .mc_phase_work { border-color: var(--success); color: var(--success); background: var(--success-subtle); }
 .mc_phase_personal { border-color: var(--entity-diary, #b48ead); color: var(--entity-diary, #b48ead); }
 .mc_phase_sleep { border-color: var(--text-muted); color: var(--text-muted); }
-.mc_phase_awake { color: var(--text-secondary); }
 .mc_phase_paused { opacity: 0.7; }
 .mc_phase_resting { opacity: 0.8; border-style: dashed; }
 .mc_phase_unknown, .mc_phase_other { opacity: 0.7; border-style: dashed; }

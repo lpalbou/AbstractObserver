@@ -492,6 +492,21 @@ export class GatewayClient {
     return { entities: Array.isArray(body?.entities) ? body.entities : [] };
   }
 
+  /** THE one entity phase graph (laurent dm#79 one-graph ruling, c3594):
+   * gateway vendors entity's spec/entity_phases.json and serves
+   * {spec, vendored, sha256, source}. Every client derives its phase
+   * vocabulary from THIS wire payload — sync-by-mechanism, never
+   * sync-by-vigilance. 404/401 on pre-wire gateways; callers keep their
+   * labeled pre-wire fallback. */
+  async get_entity_phases_spec(): Promise<any> {
+    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/entities/spec/phases`), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: _deadline(),
+    });
+    if (!r.ok) throw new Error(`get_entity_phases_spec failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
   /** B3 cognition wire (gateway c1390): working truth + billed spend for
    * one entity — {working, loop, visit, spend:{lifetime,live_visit,source},
    * warnings[]}. 404 on pre-wire gateways; callers degrade to heuristics. */
@@ -512,6 +527,24 @@ export class GatewayClient {
       signal: _deadline(),
     });
     if (!r.ok) throw new Error(`get_entity_card failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  /** Operator diary door (a2a 0007 + the 2026-07-08 no-ceremony ruling):
+   * serves one book entry — private included — and the read is MARKER-FIRST:
+   * a diary_read event lands in the entity's replay stream BEFORE the words
+   * return. Callers surface that fact; they never hide it. Returns
+   * {entry, read_recorded_at_seq, reason}. */
+  async read_entity_diary_entry(name: string, entry_id: string): Promise<any> {
+    const n = String(name || "").trim();
+    const e = String(entry_id || "").trim();
+    if (!n || !e) throw new Error("read_entity_diary_entry: name and entry_id are required");
+    const url = _join(
+      this._cfg.base_url,
+      `/api/gateway/entities/${encodeURIComponent(n)}/diary/${encodeURIComponent(e)}?reason=${encodeURIComponent("observer board hint chip")}`,
+    );
+    const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) }, signal: _deadline() });
+    if (!r.ok) throw new Error(`read_entity_diary_entry failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
