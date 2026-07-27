@@ -63,6 +63,7 @@ import {
   run_activity_label,
   run_error_label,
   run_workflow_label,
+  TOOL_RISK_INFERRED_TITLE,
   tool_risk_labels,
   wait_blocker_title,
   wait_expected_action,
@@ -342,7 +343,7 @@ export function RuntimeActivityConsole(props: {
                       <React.Fragment key={`${String((tc as any)?.name || "tool")}:${idx}`}>
                         <span className="chip mono warn">{String((tc as any)?.name || "tool")}</span>
                         {tool_risk_labels(tc).map((label) => (
-                          <span key={`${idx}:${label}`} className="chip muted">{label}</span>
+                          <span key={`${idx}:${label}`} className="chip muted" title={TOOL_RISK_INFERRED_TITLE}>{label}~</span>
                         ))}
                       </React.Fragment>
                     ))}

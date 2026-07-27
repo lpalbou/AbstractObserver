@@ -57,3 +57,9 @@ export type RunSummary = {
   error?: any;
   waiting?: any;
 };
+
+/** Run-listing view shapes (moved from app.tsx, slice 4a): the
+ * navigator/board filter words and the grouped run-tree rows. */
+export type RunFilterMode = "all" | "active" | "waiting" | "terminal" | "failed";
+export type RunTreeRow = { run: RunSummary; children: RunSummary[] };
+export type RunTreeSection = { key: string; label: string; rows: RunTreeRow[] };

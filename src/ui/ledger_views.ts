@@ -181,3 +181,33 @@ export function build_provider_activities_from_ledger(items: Array<{ run_id?: st
   return out.sort((a, b) => (parse_iso_ms(b.ts) ?? 0) - (parse_iso_ms(a.ts) ?? 0));
 }
 
+
+/** The observe-ledger item shape (moved from app.tsx, slice 4a):
+ * every transcript row — steps, events, messages — folds into this. */
+export type UiLogItem = {
+  id: string;
+  ts: string;
+  kind: "step" | "event" | "message" | "error" | "info";
+  title: string;
+  preview?: string;
+  data?: any;
+  cursor?: number;
+  run_id?: string;
+  node_id?: string;
+  status?: string;
+  effect_type?: string;
+  emit_name?: string;
+};
+
+// Latest persisted run summary (abstract.summary emit) found in the ledger.
+// Kept module-scope because it is shared by the always-on Overview scan and
+// the digest-tab-gated digest memo.
+export type LatestRunSummary = {
+  cursor: number;
+  ts: string;
+  text: string;
+  provider?: string;
+  model?: string;
+  generated_at?: string;
+  source?: any;
+};

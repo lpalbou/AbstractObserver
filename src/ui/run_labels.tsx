@@ -100,6 +100,15 @@ export function tool_call_names(tool_calls: ToolCall[]): string {
   return `${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""}`;
 }
 
+/** Tooltip for regex-derived risk labels (tool-tiers cycle 3, 2026-07-23):
+ * until tools carry DECLARED risk tiers (the converged two-axis design),
+ * these labels are argument-regex GUESSES — the defeatable-parser class.
+ * The render says so instead of presenting inference as declaration; when
+ * declared tiers ship on the wire, declared-first replaces this and the
+ * regex demotes to a labeled legacy fallback (legacy_inferred precedent). */
+export const TOOL_RISK_INFERRED_TITLE =
+  "inferred from the call's arguments (regex heuristic) — not a declared risk tier; declared tiers replace this when the grant API ships";
+
 export function tool_risk_labels(tool_call: ToolCall): string[] {
   const name = String((tool_call as any)?.name || "").trim().toLowerCase();
   const args = (tool_call as any)?.arguments && typeof (tool_call as any).arguments === "object" ? (tool_call as any).arguments : {};

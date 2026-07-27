@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-07-23 — Tool-tiers cycle 3: risk labels marked as INFERRED (render honesty now)
+
+Until tools carry declared risk tiers (the converged two-axis design),
+`tool_risk_labels` is an argument-regex guess — the defeatable-parser
+class. Both approval-prompt render sites (run modal, runtime ops
+console) now mark the labels inferred: a `~` suffix + the
+`TOOL_RISK_INFERRED_TITLE` tooltip naming the mechanism and its
+replacement path. When declared tiers ship on the grant API, the
+declared-first render replaces this and the regex demotes to a labeled
+legacy fallback. 116 tests green.
+
+## 2026-07-22 — ui-rethink P1 slice 4a: run workspace panels extracted (adversary-verified)
+
+Six satellite components moved verbatim to `src/ui/run_panels.tsx`
+(AskForm, WorkflowRunNavigator, RunOverviewPanel with its internal
+FolderGlyph + HumanTimelinePanel, LedgerCard); shared view types
+re-homed (`UiLogItem` + `LatestRunSummary` → ledger_views;
+`RunFilterMode`/`RunTreeRow`/`RunTreeSection` → run_status). app.tsx
+7,660 → 6,814 (**9,980 → 6,814 across the four slices — 32% off the
+monolith**).
+
+- **Adversary verdict (mandated pass)**: all six bodies + three type
+  defs byte-verbatim vs HEAD incl. LedgerCard's EOF tail; nothing
+  lost/duplicated; graph acyclic. No P0. P1 folded: the FolderGlyph and
+  LedgerCard doc comments had NOT traveled (stranded as orphan debris at
+  app.tsx EOF — including live cross-package context, the pending uic
+  folder-icon ask); re-attached above their functions. P2s folded:
+  header names all six accurately; HumanTimelinePanel + FolderGlyph
+  de-exported (internal to RunOverviewPanel — export advertised a public
+  surface nobody used).
+- No new pins by DESIGN: all six are JSX components, the repo has no
+  render harness, and the only pin-worthy logic inside is closure-bound
+  (extracting it would break the verbatim contract) — the slice-3
+  adversary's consistency precedent applied.
+- 116 tests green; tsc + build clean.
+
 ## 2026-07-21 — ui-rethink P1 slice 3: runtime page + shared folds extracted (adversary-verified)
 
 Operator-approved continuation (c3890: "continue its own refactoring with
