@@ -36,11 +36,30 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+// Prompt-shaping bounds. ADR-0026 §1: both may cut real conversation, so
+// both are MARKED in-band — an unmarked cut reads to the model as "that is
+// the whole exchange", and it answers confidently from an amputated view.
+const HISTORY_TURNS = 6;
+const TURN_CHARS = 1200;
+
 function build_prompt(question: string, history: Array<{ role: string; content: string }>): string {
-  const turns = history
-    .slice(-6)
-    .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${String(m.content || "").slice(0, 1200)}`)
+  const shown = history.slice(-HISTORY_TURNS);
+  const dropped = history.length - shown.length;
+  const turns = shown
+    .map((m) => {
+      const who = m.role === "assistant" ? "Assistant" : "User";
+      const text = String(m.content || "");
+      // [#TRUNCATION] per-turn prompt bound; the full turn stays in the UI history
+      const body =
+        text.length > TURN_CHARS
+          ? `${text.slice(0, TURN_CHARS)}… [#TRUNCATION: ${TURN_CHARS} of ${text.length} chars of this turn]`
+          : text;
+      return `${who}: ${body}`;
+    })
     .join("\n");
+  // [#TRUNCATION] conversation window bound; older turns remain in the UI
+  const window_note =
+    dropped > 0 ? `[#TRUNCATION: showing the last ${shown.length} turns; ${dropped} earlier turn(s) omitted]\n` : "";
   return [
     "You are the AbstractObserver in-app assistant. Answer questions about",
     "using and understanding the AbstractObserver web app (pages: Board,",
@@ -52,7 +71,7 @@ function build_prompt(question: string, history: Array<{ role: string; content: 
     "=== DOCUMENTATION INDEX (llms.txt) ===",
     docs_index,
     "=== END DOCUMENTATION ===",
-    turns ? "\nConversation so far:\n" + turns : "",
+    turns ? "\nConversation so far:\n" + window_note + turns : "",
     `\nUser question: ${question}`,
   ].join("\n");
 }
