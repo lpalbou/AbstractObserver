@@ -112,7 +112,7 @@ import { MissionControlPage, derive_phase_graph, extract_dreams_brief, extract_o
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
 import { type RuntimeMetadata } from "./runtime_metadata";
-import { run_status_class, run_status_word, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
+import { run_status_class, run_status_word, stop_reason_of, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
 import { useGatewayVoice } from "./use_gateway_voice";
 import "./system.css";
 // Usability layer LAST: it corrects actionable-information presentation and
@@ -4328,11 +4328,20 @@ export function App(): React.ReactElement {
   const selected_next_ms = parse_iso_ms(wait_until);
   const selected_next_in =
     selected_run_is_scheduled_until && selected_next_ms !== null ? format_time_until_from_ms(selected_next_ms - Date.now()) : "";
+  // The selected run is the one place we hold the full detail (`get_run`),
+  // so it is the one place the TURN's verdict is available: a completed RUN
+  // whose turn was cut short reads "stopped", not "completed". Listing rows
+  // carry no output and are unchanged.
+  const selected_run_stop_reason = stop_reason_of(run_state);
   const selected_run_status_label = selected_run_is_scheduled && selected_run_is_paused
     ? "Suspended"
     : selected_run_is_scheduled_waiting
       ? "Scheduled"
-      : run_status_word({ status: selected_run_status_raw, paused: selected_run_is_paused });
+      : run_status_word({
+          status: selected_run_status_raw,
+          paused: selected_run_is_paused,
+          stop_reason: selected_run_stop_reason,
+        });
 
   async function refresh_runtime_artifacts(): Promise<void> {
     if (!gateway_connected) return;
@@ -5647,7 +5656,10 @@ export function App(): React.ReactElement {
                       {workflow_label_by_id[String(selected_run_summary?.workflow_id || "")] || String(selected_run_summary?.workflow_id || "").trim() || short_id(run_id.trim(), 22)}
                     </span>
                     <span className="chip mono muted">{short_id(run_id.trim(), 14)}</span>
-                    <span className={`chip ${run_status_class(selected_run_status_label || selected_run_status_raw)}`}>
+                    <span
+                      className={`chip ${run_status_class(selected_run_status_label || selected_run_status_raw, selected_run_stop_reason)}`}
+                      title={String(selected_run_stop_reason?.headline || "")}
+                    >
                       {selected_run_status_label || selected_run_status_raw || "unknown"}
                     </span>
                   </div>
