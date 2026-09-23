@@ -7,3 +7,23 @@ coverage/
 .DS_Store
 __pycache__/
 
+
+# ---------------------------------------------------------------------------
+# Agent harness and local tooling
+#
+# This repository is worked on with coding agents, and their configuration
+# embeds absolute local paths, hook commands, seat identities and API keys.
+# None of it belongs in a public repository.
+# ---------------------------------------------------------------------------
+.claude/
+.codex/
+.cursor/
+.agora/
+.abstractcode/
+.mcp.json
+CLAUDE.md
+abstractcode-export-*.md
+
+# Local scratch and virtualenvs
+untracked/
+.venv/

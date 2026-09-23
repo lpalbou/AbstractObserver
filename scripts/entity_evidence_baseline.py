@@ -26,7 +26,7 @@ report c3126 item 5 — access gauges cannot see evolution):
 
 Usage: python3 scripts/entity_evidence_baseline.py <home_dir> [--since ISO]
   e.g. python3 scripts/entity_evidence_baseline.py \
-       /Users/albou/tmp/abstractframework/runtime/entities/ephemeral
+       <workspace>/runtime/entities/ephemeral
 
 --since windows sections 1 (keyed cohort), 3 (palette), and I2 (write->read
 cohort) by formation time. Vintage honesty: append-only stores keep
