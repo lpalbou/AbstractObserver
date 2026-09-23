@@ -73,23 +73,29 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.1.6 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.1.12 -- abstractobserver
 ```
 
 ### CLI configuration
-The CLI is a static file server implemented in `bin/cli.js`.
+The CLI (`bin/cli.js`) serves the built UI and mounts the app-origin Gateway
+session proxy from `@abstractframework/app-server` (a runtime dependency of
+this package, installed automatically).
 - `PORT` (default `3001`)
 - `HOST` (default `0.0.0.0`)
+- `ABSTRACTOBSERVER_GATEWAY_URL` (or `ABSTRACTGATEWAY_URL`) — the Gateway this server signs in to and proxies `/api` to (default `http://127.0.0.1:8080`)
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=on` (enables the optional GPU widget)
+
+See `docs/configuration.md` for the full list.
 
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
 - **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
-- **Runtime**: Activity, Artifacts, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
+- **Runtime**: Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: start runs, schedule runs, bundle upload/reload
-- **Mindmap**: knowledge-graph query UI (requires `POST /api/gateway/kg/query`)
+- **Runtime → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
+- **Settings**: connection status, theme and display preferences, optional remote tool worker
 
 ## Documentation
 - Start here: `docs/getting-started.md`

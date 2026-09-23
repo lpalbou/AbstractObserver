@@ -3,7 +3,7 @@
 > Gateway-only observability UI (Web/PWA) for AbstractFramework runs: a browser SPA + tiny Node.js CLI that connects to an AbstractGateway HTTP API (HTTP fetch + SSE ledger streaming) and submits durable commands.
 
 This repository is UI-only:
-- The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and proxies `/api` to Gateway after hosted browser-session sign-in.
+- The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and proxies `/api` to Gateway after hosted browser-session sign-in, using the shared session proxy from the `@abstractframework/app-server` runtime dependency.
 - The browser talks to same-origin `/api` in hosted mode; direct Gateway URLs remain available for local development via `src/lib/gateway_client.ts` (treat this file as the source of truth for HTTP endpoints and request shapes).
 - Hosted sign-in uses Gateway URL + user + token only to create an app-scoped browser session. Settings persistence strips Gateway bearer tokens.
 - On non-local hosted UI hostnames, the server-configured Gateway URL is authoritative; browser-supplied Gateway URL changes are rejected unless `ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is enabled behind access control. Forwarded host headers are trusted only when `ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` or `ABSTRACTGATEWAY_TRUST_PROXY_HEADERS=1`.
@@ -33,10 +33,10 @@ Notes:
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes
 
 ## Key entrypoints (code)
-- [CLI server](bin/cli.js): static server (`PORT`, `HOST`), SPA fallback, optional GPU widget config injection
+- [CLI server](bin/cli.js): static server (`PORT`, `HOST`, `ABSTRACTOBSERVER_GATEWAY_URL`), SPA fallback, `@abstractframework/app-server` session proxy, optional GPU widget config injection
 - [App shell + pages](src/ui/app.tsx): settings, page routing, observe/launch flows, durable commands
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
-- [Vite config](vite.config.ts): workspace aliases + dev `/api` proxy
+- [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy
 - [Package metadata](package.json): npm name/version, scripts, Node engine
 - [llms-full generator](scripts/generate-llms-full.mjs): defines which files are embedded into `llms-full.txt`
 

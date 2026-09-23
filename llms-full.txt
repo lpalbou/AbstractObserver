@@ -19,7 +19,7 @@ This file intentionally embeds docs and small, high-signal project files. For la
 > Gateway-only observability UI (Web/PWA) for AbstractFramework runs: a browser SPA + tiny Node.js CLI that connects to an AbstractGateway HTTP API (HTTP fetch + SSE ledger streaming) and submits durable commands.
 
 This repository is UI-only:
-- The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and proxies `/api` to Gateway after hosted browser-session sign-in.
+- The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and proxies `/api` to Gateway after hosted browser-session sign-in, using the shared session proxy from the `@abstractframework/app-server` runtime dependency.
 - The browser talks to same-origin `/api` in hosted mode; direct Gateway URLs remain available for local development via `src/lib/gateway_client.ts` (treat this file as the source of truth for HTTP endpoints and request shapes).
 - Hosted sign-in uses Gateway URL + user + token only to create an app-scoped browser session. Settings persistence strips Gateway bearer tokens.
 - On non-local hosted UI hostnames, the server-configured Gateway URL is authoritative; browser-supplied Gateway URL changes are rejected unless `ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is enabled behind access control. Forwarded host headers are trusted only when `ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` or `ABSTRACTGATEWAY_TRUST_PROXY_HEADERS=1`.
@@ -49,10 +49,10 @@ Notes:
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes
 
 ## Key entrypoints (code)
-- [CLI server](bin/cli.js): static server (`PORT`, `HOST`), SPA fallback, optional GPU widget config injection
+- [CLI server](bin/cli.js): static server (`PORT`, `HOST`, `ABSTRACTOBSERVER_GATEWAY_URL`), SPA fallback, `@abstractframework/app-server` session proxy, optional GPU widget config injection
 - [App shell + pages](src/ui/app.tsx): settings, page routing, observe/launch flows, durable commands
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
-- [Vite config](vite.config.ts): workspace aliases + dev `/api` proxy
+- [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy
 - [Package metadata](package.json): npm name/version, scripts, Node engine
 - [llms-full generator](scripts/generate-llms-full.mjs): defines which files are embedded into `llms-full.txt`
 
@@ -153,23 +153,29 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.1.6 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.1.12 -- abstractobserver
 ```
 
 ### CLI configuration
-The CLI is a static file server implemented in `bin/cli.js`.
+The CLI (`bin/cli.js`) serves the built UI and mounts the app-origin Gateway
+session proxy from `@abstractframework/app-server` (a runtime dependency of
+this package, installed automatically).
 - `PORT` (default `3001`)
 - `HOST` (default `0.0.0.0`)
+- `ABSTRACTOBSERVER_GATEWAY_URL` (or `ABSTRACTGATEWAY_URL`) — the Gateway this server signs in to and proxies `/api` to (default `http://127.0.0.1:8080`)
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=on` (enables the optional GPU widget)
+
+See `docs/configuration.md` for the full list.
 
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
 - **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
-- **Runtime**: Activity, Artifacts, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
+- **Runtime**: Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: start runs, schedule runs, bundle upload/reload
-- **Mindmap**: knowledge-graph query UI (requires `POST /api/gateway/kg/query`)
+- **Runtime → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
+- **Settings**: connection status, theme and display preferences, optional remote tool worker
 
 ## Documentation
 - Start here: `docs/getting-started.md`
@@ -203,7 +209,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -252,6 +258,7 @@ See `docs/development.md` for details.
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^4.7.0",
+    "playwright": "^1.61.1",
     "typescript": "^5.3.3",
     "vite": "^6.4.1",
     "vitest": "^3.2.4"
@@ -275,8 +282,9 @@ See `docs/development.md` for details.
 
 import * as http from 'http';
 import { readFileSync, existsSync, statSync } from 'fs';
-import { join, extname, dirname } from 'path';
+import { join, extname, dirname, resolve, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import { createGatewaySessionProxy } from '@abstractframework/app-server';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -384,10 +392,70 @@ const gatewaySessionProxy = createGatewaySessionProxy({
   defaultGatewayUrl: DEFAULT_GATEWAY_URL,
 });
 
+// ── LOCAL FOLDER REVEAL (operator 2026-07-15: a folder button on the run
+// opens its workspace). Only meaningful when this server runs on the SAME
+// machine as the gateway (the local-first posture). Gateway workspace roots
+// are often RELATIVE to the gateway process cwd — resolve against
+// ABSTRACTOBSERVER_GATEWAY_DIR (default: the workspace parent this repo
+// lives in, matching the launcher layout).
+const GATEWAY_DIR = String(process.env.ABSTRACTOBSERVER_GATEWAY_DIR || join(__dirname, '..', '..')).trim();
+
+function resolveWorkspacePath(raw) {
+  const p = String(raw || '').trim();
+  if (!p || p.includes('\0')) return null;
+  const abs = isAbsolute(p) ? p : resolve(GATEWAY_DIR, p);
+  try {
+    if (existsSync(abs) && statSync(abs).isDirectory()) return abs;
+  } catch {}
+  return null;
+}
+
+function handleRevealRequest(req, res, pathname) {
+  if (pathname !== '/api/local/reveal' || req.method !== 'POST') return false;
+  // Loopback only: revealing Finder windows on a remotely-served observer
+  // is someone else's desktop. The socket peer is the truth (Host spoofable).
+  const peer = String(req.socket?.remoteAddress || '');
+  const loopback = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
+  if (!loopback) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'Folder reveal is only available on the machine running the observer.' }));
+    return true;
+  }
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
+  req.on('end', () => {
+    let path = '';
+    try { path = String(JSON.parse(body || '{}').path || ''); } catch {}
+    const abs = resolveWorkspacePath(path);
+    if (!abs) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: `Workspace folder not found on this machine: ${path || '(empty)'}` }));
+      return;
+    }
+    const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+    try {
+      // `open <dir>` reveals a folder; never a shell, never arbitrary exec.
+      spawn(cmd, [abs], { stdio: 'ignore', detached: true }).unref();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, path: abs }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: String(e && e.message || e) }));
+    }
+  });
+  return true;
+}
+
 const server = http.createServer((req, res) => {
   // Remove query strings and normalize path
   const url = new URL(req.url, `http://${req.headers.host}`);
   let pathname = url.pathname;
+
+  // Local-machine folder reveal (before the proxy: /api/local/* is OURS,
+  // never forwarded to the gateway).
+  if (handleRevealRequest(req, res, pathname)) {
+    return;
+  }
 
   // Connection endpoint + everything under /api/ (proxied to the gateway
   // with session cookies swapped for gateway headers).
@@ -588,6 +656,1006 @@ export default defineConfig({
 
 # Changelog
 
+## [0.1.12] - 2026-09-23
+
+This release consolidates the dated development entries below (2026-07-08 to
+2026-07-23) into one published version.
+
+### Added
+- **Board (Mission Control) is the landing page**: kanban columns Pending /
+  Working / Review / Done across every run. Cards move themselves as run state
+  changes; the Review column lets you approve or deny tool requests and answer
+  questions inline, including waits held by child runs. Run lists poll live
+  (5 s while visible, 30 s when hidden).
+- **Entities strip** on the Board: each entity's phase, age, and latest moment,
+  with links into the separate entity app,
+  [AbstractEntity](https://github.com/lpalbou/AbstractEntity)
+  (`npx @abstractframework/entity`, default `http://127.0.0.1:3007`; override
+  with `ABSTRACTOBSERVER_ENTITY_APP_URL`).
+- **Runtime → Memory**: the knowledge-graph (active memory) explorer now lives
+  as a Runtime mode next to Activity, Artifacts, and Logs.
+- **Run workspace folder button**: when the observer runs on the same machine as
+  the gateway, a run's workspace folder can be opened from the UI
+  (`POST /api/local/reveal`, loopback clients only; relative paths resolve
+  against `ABSTRACTOBSERVER_GATEWAY_DIR`).
+- **Launch capabilities**: skills and MCP pickers and run-level skills
+  attachment on the Launch page.
+- `ABSTRACTOBSERVER_GATEWAY_URL` (fallback `ABSTRACTGATEWAY_URL`) sets the
+  Gateway the server proxies to and pre-fills in the sign-in dialog; the
+  default is `http://127.0.0.1:8080`.
+
+### Changed
+- **One sign-in dialog**: sign-in uses the shared AbstractFramework connection
+  dialog (`@abstractframework/ui-kit`), the same one AbstractFlow and the
+  gateway console use. It opens automatically when the browser has no Gateway
+  session; Settings shows connection status and a "Manage connection…" button
+  instead of raw URL/user/token fields.
+- **Shared session proxy**: the CLI and the Vite dev server both mount the
+  app-origin Gateway session proxy from the new runtime dependency
+  `@abstractframework/app-server`. Cookie names, the CSRF header and the
+  `ABSTRACTOBSERVER_*` security switches are unchanged, so existing sessions and
+  deployment settings keep working.
+- **Redesigned UI**: sidebar shell, a run page reduced to four tabs, one status
+  vocabulary and chip style across every surface, and a refreshed visual
+  system.
+- Tool-approval risk labels are marked as inferred (`~` suffix with an
+  explanatory tooltip) because they are derived from tool arguments rather than
+  declared tool tiers.
+- Steering acknowledgements render as readable text in the run view.
+- Background pollers pause while the Gateway reports an authentication lockout
+  (HTTP 429) instead of adding to it.
+
+### Removed
+- The Backlog, Inbox, and Processes pages moved to AbstractContinuum; the
+  observer focuses on observing runs and answering waits.
+
+### Dependencies
+- New runtime dependency: `@abstractframework/app-server` (`^0.1.9`).
+
+## 2026-07-23 — Tool-tiers cycle 3: risk labels marked as INFERRED (render honesty now)
+
+Until tools carry declared risk tiers (the converged two-axis design),
+`tool_risk_labels` is an argument-regex guess — the defeatable-parser
+class. Both approval-prompt render sites (run modal, runtime ops
+console) now mark the labels inferred: a `~` suffix + the
+`TOOL_RISK_INFERRED_TITLE` tooltip naming the mechanism and its
+replacement path. When declared tiers ship on the grant API, the
+declared-first render replaces this and the regex demotes to a labeled
+legacy fallback. 116 tests green.
+
+## 2026-07-22 — ui-rethink P1 slice 4a: run workspace panels extracted (adversary-verified)
+
+Six satellite components moved verbatim to `src/ui/run_panels.tsx`
+(AskForm, WorkflowRunNavigator, RunOverviewPanel with its internal
+FolderGlyph + HumanTimelinePanel, LedgerCard); shared view types
+re-homed (`UiLogItem` + `LatestRunSummary` → ledger_views;
+`RunFilterMode`/`RunTreeRow`/`RunTreeSection` → run_status). app.tsx
+7,660 → 6,814 (**9,980 → 6,814 across the four slices — 32% off the
+monolith**).
+
+- **Adversary verdict (mandated pass)**: all six bodies + three type
+  defs byte-verbatim vs HEAD incl. LedgerCard's EOF tail; nothing
+  lost/duplicated; graph acyclic. No P0. P1 folded: the FolderGlyph and
+  LedgerCard doc comments had NOT traveled (stranded as orphan debris at
+  app.tsx EOF — including live cross-package context, the pending uic
+  folder-icon ask); re-attached above their functions. P2s folded:
+  header names all six accurately; HumanTimelinePanel + FolderGlyph
+  de-exported (internal to RunOverviewPanel — export advertised a public
+  surface nobody used).
+- No new pins by DESIGN: all six are JSX components, the repo has no
+  render harness, and the only pin-worthy logic inside is closure-bound
+  (extracting it would break the verbatim contract) — the slice-3
+  adversary's consistency precedent applied.
+- 116 tests green; tsc + build clean.
+
+## 2026-07-21 — ui-rethink P1 slice 3: runtime page + shared folds extracted (adversary-verified)
+
+Operator-approved continuation (c3890: "continue its own refactoring with
+1 adversarial sub agent"). Four verbatim sub-moves; app.tsx 9,466 → 7,660
+(2,320 total off the monolith tonight):
+
+- `run_labels.tsx` — run/wait labeling + `RunStatusPill` (the words and
+  pills every surface renders, one vocabulary).
+- `ledger_views.ts` — ledger-record folds (`ProviderActivity`, response
+  ladder, provider-activity fold).
+- `artifact_previews.tsx` — the preview component stack (glyph, HTML
+  tree/source, markdown/structured text, embedded-preview switch).
+- `runtime_page.tsx` — `RuntimeActivityConsole` + `RuntimeExplorerPage`
+  (1,211 lines) over props; all state stays in App.
+- `artifact_with_runtime_context`/`artifact_display_type_label_for`
+  joined `artifacts.ts` (they need `run_workflow_label`).
+- **Adversary verdict (mandated fable5 pass)**: verbatim VERIFIED (26
+  defs + the full 1,126-line component block diffed against HEAD),
+  nothing lost (96 cumulative defs, each in exactly one module, zero
+  duplicates), import graph acyclic. No P0. P1 folded: 4 load-bearing
+  folds pinned (`tool_risk_labels`, `wait_blocker_title`/`_expected_action`,
+  `build_provider_activities_from_ledger`, `extract_response_text_from_record`
+  — whose ladder is response > answer > message > text > content, pinned
+  as-is). P2s: artifacts.ts header updated; `is_condensed_ledger_item`
+  stays in app.tsx as a STATED decision (coupled to the app-local
+  `UiLogItem` shape); `runtime_metadata_chip_entries` deferred to the
+  observe-page slice.
+- 116 tests green; tsc + build clean.
+
+## 2026-07-21 — ui-rethink P1 step 1: format.ts extraction (one time/format fold)
+
+First slice of "dissolve app.tsx" (backlog 2026-07-12, P1): the pure
+format/time helpers moved verbatim to `src/ui/format.ts` (20 functions;
+app.tsx 9,980 → 9,829 lines) with their own test file.
+
+- **Real drift killed, not just moved**: `runtime_activity.ts` carried a
+  private `parse_iso_ms` WITHOUT the microsecond clamp app.tsx's copy
+  had (`.123456Z` backends) — a waiting run's age could read "—" on one
+  surface and a real age on another. runtime_activity now imports +
+  re-exports from format.ts (consumers keep their import path).
+- Run-clock helpers (`run_started_at`/`run_finished_at`/
+  `run_duration_ms`/`run_duration_label`) take a minimal structural
+  `RunClockFields` type — RunSummary and RuntimeActivityRun both
+  satisfy it, no cast churn.
+- Verbatim-move discipline: `number_or_null`'s Number() coercion quirk
+  (null → 0) and `short_id`'s keep-1 slice preserved and pinned —
+  extraction is not the moment for behavior changes.
+- 6 new pins in `format.test.ts` (107 total green); build clean.
+
+## 2026-07-21 — ui-rethink P1 step 2: artifacts.ts extraction
+
+Second slice: the artifact wire-shape fold moved verbatim to
+`src/ui/artifacts.ts` (24 functions + the `RuntimeArtifact` type family;
+app.tsx 9,829 → 9,466 lines — 514 total off the monolith).
+
+- `normalize_artifact_item` + friends: envelope v1 / legacy nested refs /
+  tag bags fold into ONE RuntimeArtifact shape; labels, grouping keys,
+  filter/sort param builders ride along. `artifact_with_runtime_context`
+  and `artifact_display_type_label_for` stay in app.tsx (they need the
+  app-level `run_workflow_label`).
+- New pin worth its line: an envelope WITHOUT an explicit modality field
+  degrades to "artifact" while the content-type fold lands on
+  `render_kind` — the inference reads flat/legacy shapes only. Pinned
+  as-is (verbatim discipline), flagged as a candidate behavior question
+  for the panels rework, not silently "fixed".
+- 4 new test groups in `artifacts.test.ts`; 111 total green; build clean.
+
+## 2026-07-20 — Board night signals: wave-5 dreams brief on the tile (memory c3725)
+
+The entity card gained `discoveries.dreams_signals_brief` = {count,
+kinds, felt_tones} folded over STANDING signal-carrying dreams (memory's
+wave-5 lane (a)); the board tile now renders it.
+
+- `extract_dreams_brief()` reads the brief render-when-present: absent =
+  pre-signal store, renders NOTHING (never a fabricated zero). Count
+  must be a positive integer; kinds/tones must be strings (version-skew
+  rows like `{kind, count}` drop, never `[object Object]`).
+- Hints badge gains "night: N dreams" — the prefix carries the
+  distinction from the entity's dream TOTAL (adversary P1). Expanded
+  panel gets a factual one-liner: kinds (sliced at 6 + "+N more" — the
+  per-dream <=12 bound does NOT bound the union across dreams) and
+  "felt: <tones>" as WORDS — feelings color content, never rank it; no
+  meter, nothing clickable (the stream's depth lives in the entity app).
+- 7 new extractor pins incl. junk shapes; 101 tests green.
+- **Unit correction (same day, live-verified)**: the brief's `count`
+  counts SIGNALS, not dreams — engine fold increments per signal entry
+  (`entity_card.py`), and the live wire served 24 = 12+12 across two
+  standing dreams while the store held exactly two signal-carrying dream
+  rows. Badge now reads "night: N signals". Caught by the store-side
+  read on Ephemeral's first signal night — the render and measurement
+  lanes verifying each other, as designed.
+- **c3810 fold (same hour)**: memory pinned the unit structurally
+  (`unit:"signals"` + `dreams:N` on the brief; `signals_omitted` on the
+  dream record). Board consumes `dreams:N` — the panel line reads
+  "night: 24 signals across 2 dreams" when the field rides (tolerant,
+  null on pre-fix briefs). The cap's selection is now visible to the
+  instrument: `signals_omitted` = what the night carried beyond the
+  quota seats.
+
+## 2026-07-20 — One-graph consumer: board derives phase vocabulary from the wire (laurent dm#79)
+
+The board now consumes THE entity phase graph from the gateway-vendored
+artifact (`GET /entities/spec/phases`, payload `{spec, vendored, sha256,
+source}`) instead of a hand-written copy — sync-by-mechanism.
+
+- `derive_phase_graph()` extracts phase words, spoken synonyms
+  (separator-normalized: own_time/own-time/"own time" are one synonym),
+  and the settling default from the wire; junk payloads (arrays, empty,
+  no sleep phase) derive nothing and the labeled pre-wire fallback
+  applies — never a blank board.
+- `entity_phase(state, graph)` maps by artifact synonyms first, then the
+  documented v7 mode roles: visiting decides visit; dreaming decorates
+  asleep; **resting = inside personal** (the v6-era rest→sleep fold was
+  wrong — corrected after entity's v7 bump documented the roles, owned
+  at c3613). A transition cause leaking onto the state channel
+  (`no_task`) passes through under "other" rather than claiming a phase
+  (the inversion fixed on BOTH paths).
+- Chip honesty generalized: the tooltip carries the raw wire word
+  whenever the fold changed it; the settling badge derives from the
+  graph's own initial, never a hardcoded destination.
+- The sha promise implemented: last-seen `{sha256, version}` persists
+  per browser; served bytes changing WITHOUT a version bump logs a loud
+  drift entry. Non-404 fetch failures log a labeled `#FALLBACK` note
+  (pre-wire 404 stays silent — that deployment is normal).
+- A graph word without an `mc_phase_*` style renders under the bounded
+  "other" class (a bumped artifact can never mint an unstyled class).
+- fable5 adversary run per the standing rule: 5 P1 + 4 P2 findings all
+  folded (the exact-table pin replacing a vacuous loop; the
+  initial-phase fabrication guard; the drift implementation; the style
+  bound; failure-class discrimination). 99/99 tests, tsc + build green.
+- v8 same-day: the artifact's new machine-readable `state_mode_axis`
+  block (my own consumer ask, banked at the v7 bump) is adopted —
+  artifact-declared mode words (visiting/dreaming/resting) win over the
+  local residue tables, target-validated at derive time (off-graph
+  targets dropped). The residue tables serve only pre-v8 artifacts and
+  bare-word forms. 100/100 tests.
+
+## 2026-07-20 — AWAKE is not a dwelling (c203 fold, entity sweep c3548)
+
+- `entity_phase()` maps bare `awake`/`idle` to **sleep** (composite
+  `awake:visiting/:personal/:working` keep their suffix mapping) — the
+  board's phase chip can never paint AWAKE as a phase again, per
+  laurent's c203 ruling ("entities are always visit/work/personal/sleep").
+  The pre-alignment passthrough branch its own comment said to delete is
+  deleted; `awake` left `KNOWN_PHASE_KEYS`; the dead `.mc_phase_awake`
+  style removed. Honesty kept on hover: when the wire word was the
+  state-axis `awake`/`idle`, the tooltip carries "wire word: awake
+  (settling)" verbatim — ruled words on the chip axis, the state axis
+  readable on hover. Test pin flipped from asserting the passthrough to
+  asserting the mapping. 93/93 green.
+
+## 2026-07-19 — Board tile lessons (build-5 render twin) + evolution indicators in the instrument
+
+- **Lessons on the entity tile**: the board's hints badge and panel now
+  read the card's build-5 `lessons` section (`{lessons: briefs, total}`,
+  newest-first, no open/resolved split — lessons only accumulate; the
+  tile trusts the served TOTAL, a count never a ratio). Machine-formed
+  lessons carry no entry_id and render as plain text per the chip
+  honesty rule; elected ones with a book key open through the same
+  operator diary door. Absent section (pre-build-5 gateway) renders
+  nothing. This ends the "operator's window cannot render lessons"
+  blindness (iteration-2 forensics build 5) on the observer board.
+- **Evolution indicators I1–I3** in `scripts/entity_evidence_baseline.py`
+  (adopted from the iteration-2 lived-adversary report): question/problem
+  closure + verbatim-duplicate re-asks; write→read per evolved kind
+  (lesson/world_model/dream) with a `--since` cohort window (append-only
+  denominators never move — only the post-fix cohort can, the
+  dream-digest lesson); felt-subject coverage + entity-driven closures.
+  Layer-honest throughout (kind from attributes_json, selection from the
+  memj_selected_counts join — the c3113 LIKE-probe error class named in
+  the docstring).
+- Tests: 93/93 green (lessons extractor pin added); tsc + vite build clean.
+
+## 2026-07-17 — Board access-hint chips (G1 render half) + shared AgentCycles CSS contract
+
+The observer half of the entity access-hint render commitment
+(plans/improving-entity-capabilities.md §observer 2, folded c2613):
+what an entity carries OPEN is now visible from Mission Control, and
+the entity's own words are one deliberate click away.
+
+- **Entity tile hints badge**: each board tile reads the /card
+  `questions.open` / `problems.open` row briefs (the layer that carries
+  `entry_id` top-level per the chip ruling c2623/c2626 — composers read
+  their OWN layer, never grep). A compact badge ("2 questions · 1
+  problem") expands to `AfMemoryHintChip` rows (uic kit component),
+  bounded at 4+4 per tile with the true totals shown — the deep view
+  stays the entity app.
+- **Click = the operator diary door**: `read_entity_diary_entry` calls
+  `GET /entities/{name}/diary/{entry_id}` (marker-first gateway-side).
+  The modal renders the entry verbatim and states "this read was
+  recorded in <entity>'s stream (seq N)" — reads disclose, the UI never
+  hides that the read landed in the entity's biography. Chip rule zero
+  holds: rendering never touches memory state; only a deliberate click
+  does.
+- **Honesty rules**: briefs without an entry_id render as plain text
+  (never a dead button); absent card sections = no badge
+  (render-when-present); door refusals render beside the chip.
+- **Shared CSS family contract** (uic c2833 ask 1): app.tsx now imports
+  `@abstractframework/monitor-flow/agent_cycles.css` beside the
+  AgentCyclesPanel import — hosts import package CSS explicitly, no
+  self-import exception (uic removed the self-import once all three
+  consumers shipped the one-liner).
+- Tests: 4 new `extract_open_briefs` pins (entry_id verbatim/absent,
+  resolved rows never surface, junk tolerance, bound-with-true-total).
+  92/92 green; tsc + vite build clean.
+
+## 2026-07-15 — Launch Capabilities: run-level skills attachment (0087 lane live)
+
+The gateway closed card 0087 end-to-end (c2442: trust-gated resolution
+of `input_data.skills` into `_runtime.skills_block`, Agent-node subrun
+passthrough co-verified with runtime and agent, live on :8080) — the
+ship signal the Launch section was held on. Shipped:
+
+- **Capabilities disclosure on Launch** (renders once a workflow is
+  selected): the gateway's skills shelf as selectable rows feeding
+  `input_data.skills`. Render rules per the ruled contract
+  (skill c2372 / decision:launch-skills-selection-contract):
+  attachable = selectable; requires_review = selectable with the
+  verdict chip visible (the gateway HOLDS unverified at start);
+  blocked = VISIBLE-BUT-REFUSED — disabled, dashed, reasons in the
+  tooltip, never hidden and never silently dropped. tree_hash rides
+  the tooltip; no inventory = honest absent line, never a fabricated
+  list. Selection resets per workflow.
+- Client shape widened: skills rows now carry tree_hash + reasons.
+
+End-to-end acceptance (live, not assumed): started a run with
+`input_data.skills=["adr"]` through the real gateway — the run store
+shows `_runtime.skills_block` present (the ADR skill rendered, 326
+chars) and `_runtime.skills_resolution` = requested/active ["adr"]
+with the resolved tree hash. Note: tonight's gateway relaunch rotated
+the registry admin token, so existing browser sessions see the
+sign-in screen again (honest behavior; the static operator token
+authenticates HTTP but is not a session credential).
+
+Gates: tsc clean · 88/88 · build green · serving :3001.
+
+## 2026-07-15 — Gateway 429 courtesy: pollers stand down during auth lockout
+
+Operator incident (19:41, all apps showing "Too Many Requests (auth
+lockout)"): the observer was part of the problem — the board polls runs
+at 5s with a SELF-TUNING interval based on request DURATION, and a
+locked gateway answers 429 fast, so the tuner never backed off; three
+more pollers (run state 2s, subrun digest 2s, entity tiles 30s) kept
+feeding the lock from every open tab. Fix: any 429/"too many requests"
+from the runs heartbeat opens a shared stand-down window that ALL
+pollers honor (15s → 30s → 60s → 120s doubling, reset on the first
+success), logged visibly in the run log. Probe evidence posted to the
+gateway seat (valid bearers and no-auth requests both 429 during
+lockout; the window did not clear after 20s idle). tsc clean · 88/88 ·
+build green · serving :3001.
+
+## 2026-07-15 — Launch input fixes (space key, fonts, quoted defaults) + skills/MCP pickers
+
+Operator round (16:22), four faults:
+
+- **The space key "didn't work"** in Launch inputs — root cause was not
+  a key handler: `update_input_data_field` TRIMMED string values on
+  every keystroke of the controlled inputs, so the trailing space the
+  user just typed was deleted before React re-rendered. Mid-edit
+  trimming removed; whitespace hygiene moved to submit
+  (`start_new_run` trims string fields once, empty-after-trim unsets).
+  Verified live: "hello world with spaces" lands intact.
+- **Wrong font**: every string pin (System, Prompt, model, generic
+  strings) carried `className="mono"` — prose fields now speak the
+  framework sans; mono remains opt-in for JSON/array editors and path
+  fields (workspace root).
+- **JSON quotes on defaults**: placeholders/labels rendered string pin
+  defaults through the JSON inliner (`"lmstudio"`, `"qwen/…"`). String
+  defaults now render bare; JSON rendering is for structured defaults
+  only.
+- **Skills + MCP selection**: Launch now renders `skills` and
+  `mcp`/`mcp_servers` pins as MultiSelect pickers (same shape as
+  Tools) fed by feature-detected gateway inventories
+  (`list_skills`, new `list_mcp_servers` — probes several candidate
+  endpoints, returns null when absent). Live gateway serves NEITHER
+  today (probed: all 404) — the pickers render the honest "not served
+  yet" line. Alignment thread posted on agora (c2233) to gateway +
+  skill + flow per the operator's directive: inventory endpoints/
+  shapes, and whether runs select skills/MCP via pins or a start_run
+  attachment lane. The inventory probe now runs on Launch as well as
+  Settings.
+
+Gates: tsc clean · 88/88 · build green · serving :3001; live headless
+verification of all three input fixes. (Also delivered this morning's
+pending flow notify — the hub was down at first attempt; co-scientist
+durable-artifacts ask now posted as c2231.)
+
+## 2026-07-15 — Run workspace folder button + durable artifacts on the Story + one-line hero
+
+Operator directives (11:11), all three shipped:
+
+- **Folder button**: the run Story now carries a Folder action (hero +
+  Artifacts panel header) that opens the run's workspace directory in
+  the local file manager. Served by the observer's own cli.js
+  (`POST /api/local/reveal`): loopback-only (socket-peer check — a
+  remotely served observer refuses with the honest reason), directory
+  existence validated, `open`/`xdg-open` with args only (never a
+  shell). Gateway workspace roots are usually RELATIVE to the gateway
+  process cwd; the endpoint resolves against
+  `ABSTRACTOBSERVER_GATEWAY_DIR` (default: the workspace parent).
+  The run's workspace root now loads with the run (from
+  `/input_data`'s workspace block).
+- **Durable artifacts panel**: the Story lists what the runtime
+  actually recorded for the run (`/runs/{id}/artifacts`): file
+  products lead; internal state offloads (`run_store_offload` /
+  `node_trace_offload`) fold behind a disclosure; honest empty state
+  when a run recorded nothing. Preview/Download reuse the System
+  explorer's artifact machinery. Live finding on co-scientist run
+  e13cae51…: its md/pdf/docx reports exist ONLY in the workspace
+  folder — zero file products in the artifact store. Backlog filed in
+  abstractflow (`2026-07-15_coscientist_reports_as_durable_artifacts.md`)
+  asking report files to be registered as durable run artifacts; agora
+  notify pending (hub down at ship time — connection refused; a
+  watcher re-posts when it returns).
+- **One-line run hero**: the stacked eyebrow/title/meta block spent
+  three lines repeating the toolbar; now title · status chip · id chip
+  · root chip left, Folder/Summarize/Run artifacts right, single row
+  with ellipsized title.
+
+Gates: tsc clean · 88/88 · build green · serving :3001. Verified
+headless signed-in on the live co-scientist run: one-line hero, the
+Artifacts panel showing the honest "no file products" state with 54
+offloads folded + the workflow snapshot as a product row, Folder
+button present; reveal endpoint verified end-to-end (resolved the
+relative gateway path, opened Finder).
+
+## 2026-07-14 — Geometry audit tool + System margin/padding root causes (operator round 4)
+
+The operator's screenshot showed the System page still colliding. Built
+a PERMANENT headless-chrome geometry audit (`scripts/geometry_audit.mjs`:
+pane-intersection scan, inset-header detection, content x-bleed, ragged
+rail rows, tab-strip air — every page + every System tab at 1000/1120/
+1280/1560) and fixed everything it reported. Baseline: 36 issues → 0.
+
+- **INSET-HEADER class (the "collision" look)**: four legacy rules
+  padded the PANE element itself (`runtime_ops_filters` 12px,
+  `runtime_ops_inspector` 12px, `artifact_filter_rail` 10px,
+  `runtime_artifact_browser` 12px), so each pane_header floated 10-13px
+  INSIDE the pane borders with its underline stopping short of the
+  edges. Pane-level padding zeroed; header/body own the insets like
+  every other pane; the queue/rail lists became the flex columns.
+- **RAGGED-RAIL**: queue buttons were content-width (inline-block
+  default) — "Running 0" narrow, "Scheduled/subflows 0" wide, a ragged
+  left rail. Rows now fill the column with counts right-aligned; same
+  for the Artifacts run rail.
+- **Media-query regression (real collision at ≤1100px)**: the round-3
+  grid override in system.css rode LATER in the cascade than
+  styles.css's 1100px single-column fallback and silently defeated it —
+  three panes crushed into slivers (audit: search input bleeding 39px
+  out of its pane, one-word-per-line empty states). The fallback is
+  re-asserted after the override; single column returns under 1100px.
+  Rule recorded: a page layer that overrides a grid must restate the
+  base sheet's media fallbacks after it.
+
+Gates: tsc clean · 88/88 · build green · serving :3001 (bundle
+verified current). Audit run post-fix: "AUDIT: clean" at all four
+widths, all five pages, all four System tabs; populated-state
+screenshot confirms full-width queue rails, edge-to-edge pane headers,
+readable three-line run rows.
+
+## 2026-07-14 — Layout collisions + executable-only Launch (operator round 3, headless-verified)
+
+Three directives from live screenshots, verified with a headless-Chrome
+pass (every page, two viewports, plus an automated overlap detector
+that measures bounding-box intersections between panes/cards):
+
+- **Settings panes overlapped** (Assistant pane drew over the Gateway
+  pane's Advanced row; MCP text bled past the pane edge). Root cause:
+  inside a scrolling page, flex was SHRINKING panes below their content
+  height (`flex-shrink:1` + `min-height:0` default) and the squeezed
+  pane's overflow painted over the next one. Fix at the root:
+  `.page_scroll` children no longer shrink — the page grows and scrolls
+  instead. Viewport-clamped layouts (Observe/System grids) are
+  untouched.
+- **System Activity spacing/consistency**: the three console panes
+  still wore the OLD surface language (`--bg-secondary` + raw rgba
+  border) under their `.pane` class — two surface systems on one
+  screen. They now ride the pane recipe; queue rows ride the raised
+  recipe; grid gap moved to the app rhythm (14px); the runs-pane
+  header wraps instead of colliding (search shrinks, sort stays);
+  header/metrics separate cleanly and metrics reflow 4→2 columns under
+  1180px; inspector sections get one vertical beat; grid minimums
+  relieved (180/0/280) so mid viewports don't crush the panes.
+- **Launch surfaces only executable workflows**: the picker listed
+  every bundle on the gateway (test, yoda, ralph, scratch flows…).
+  Entrypoints now filter to those declaring an interface contract
+  (`interfaces` non-empty; deprecated entrypoints dropped) — 10 of 19
+  bundles on the live gateway. The FULL option list stays for run
+  labels elsewhere; the connected-empty placeholder reads "(no
+  executable workflows published on this gateway)".
+
+Gates: tsc clean · 88/88 · build green · served on :3001. Headless
+verification: overlap detector reports ZERO intersections on
+Board/Observe/System/Launch/Settings at 1560×940 and 1180×800;
+signed-in screenshots confirm the Launch dropdown carries exactly the
+interface-declaring set.
+
+## 2026-07-14 — Board window + answer-with-context + System readability (operator round 2)
+
+Three operator directives from live screenshots, all shipped:
+
+- **Done column scrolls + is time-windowed**: the board page no longer
+  scrolls as a whole (that posture kept the column's own scrollbar from
+  ever engaging) — columns are clamped to the viewport and each card
+  list scrolls internally (narrow layouts fall back to page scroll).
+  Terminal runs now render inside a TIME WINDOW with a quiet select in
+  the Done header: 12h/24h/48h (default)/72h/7d/14d/1m/all, persisted
+  per browser. The count, the failed stat, and the empty state all
+  follow the window; hidden older runs are counted honestly
+  ("+18 older outside last 48h") — never silently dropped. Cards
+  without a parseable timestamp stay visible (hiding what we cannot
+  date would lose runs). Active columns (Review/Working/Pending) are
+  never windowed — a run waiting three days still needs you.
+- **Answering requires context (operator: "you can't just ask me to
+  answer")**: Review cards no longer offer a blind inline textarea.
+  User-response waits carry the ask on the card (prompt preview, tool
+  chips, waiting-since) and ONE action — "Review & answer →" — which
+  opens the run and pops the full wait-context view: the workflow's
+  question, session turns, run facts, recent steps leading to the
+  wait, full input JSON, and the answer composer. Tool approvals keep
+  inline Approve/Reject (the tool names are the context). A dismissed
+  question now has a way back: the Story's wait panel gained a
+  "Review & answer…" button that reopens the context modal.
+- **System Activity rows were unreadable** (id/age/duration/reason
+  rendered as one mashed string — the row classes had NO layout CSS at
+  all): rows now have a three-line structure with middot-separated
+  facts, sans-serif hierarchy, tabular numerics, ellipsized reasons;
+  queue rows get right-aligned counts; the inspector head/decision
+  blocks follow the shared type scale.
+
+Tests: 88/88 (4 new Done-window pins: inside/outside, all, undated
+stays visible, preset-map sync + 48h default). tsc clean, build green,
+served on :3001 and verified signed-in with Playwright (scroll probe:
+scrollHeight 705 vs clientHeight 429, scroll engages; the board→answer
+flow lands on the question with steps and composer).
+
+## 2026-07-14 — Usability defender pass (actionable information, five operator tasks)
+
+Walked the five operator tasks (board triage / failed-run why / outputs
+path / launch / entity glance) against the live app and fixed what failed
+the user. New `src/ui/usability.css` loads LAST; markup edits stayed
+surgical (display/copy only — no state, handlers, or data flow):
+
+- **Board 3-second answer**: the health strip's micro pills became the
+  board.css stat-card recipe (big tabular number over an uppercase label;
+  warning/error tint only when the count demands it); data age + Refresh
+  moved to the right rail. The recipe existed in board.css but no markup
+  wore it.
+- **Review acts in place**: review cards now show the wait's PROMPT
+  (clamped, quoted) and the tool names awaiting approval — deciding no
+  longer requires opening the run. A wait without a published wait_key
+  renders a working "Open the run →" instead of a dead accent button
+  (disabled primary/danger/success buttons also desaturate now so dead
+  controls look dead).
+- **Card titles name the workflow, not the hash**: `workflow_short` keeps
+  the human prefix when a `bundle@ver:hash` id's tail is bare hex (cards
+  titled "a8f5b5f8" where "basic-followup@dev" belonged).
+- **Story leads with the outcome**: for terminal runs the Outcome panel
+  (status chip + error callout + final text) renders ABOVE the metric
+  row; the metric grid auto-fits to one slim row. Terminal runs with no
+  captured final text get an honest panel teaching the Run artifacts
+  path instead of no panel at all. "What is happening" reads "What
+  happened" (with the last step as "Ended at") once a run is terminal;
+  session-files empty copy stops implying more files are coming.
+- **Entity tiles say they are links**: a corner ↗ (hover-brightens)
+  marks the new-tab affordance; snake_case moment names de-snake for
+  display (verbatim kept in the tooltip).
+- **Empty-observe polish**: the toolbar states "No run selected" once
+  (the body carries the instruction); the sidebar connection label wears
+  mono only for the signed-in user id, not for "signed out"/"connecting…"
+  prose.
+
+Gates: tsc clean · 84/84 · build green. Screenshots: /tmp/ux2_before_*
+vs /tmp/ux2_after_*.
+
+## 2026-07-14 — Signed-in verification pass (post-refactor defect sweep)
+
+Live Playwright pass over the served build with a real gateway session
+(the transport kept killing review subagents, so the pass ran in the
+foreground). Defects found on the signed-in surfaces, all fixed:
+
+- **Observe empty state**: the toolbar's Pause/Resume·Run now·Cancel·✕
+  buttons rendered disabled with no run selected (reads as broken UI) —
+  actions now only exist when a run is on screen. The orphaned
+  "Run: (none)" status line floating mid-panel is gone the same way
+  (status bar renders only with a selected run).
+- **Launch honesty**: the workflow placeholder said "(sign in to load
+  workflows)" while signed in. It now distinguishes the three states:
+  signed out → sign-in hint; connected+loading → "(loading workflows…)";
+  connected+empty → "(no workflows published on this gateway)".
+- **Hex ratchet enforced (10 → 8)**: two `var(--text-muted, #888)`
+  fallback literals had crept into styles.css; since the kit token is
+  always defined (guarded by its own test), the fallbacks were dropped
+  instead of raising the ceiling.
+
+Gates: tsc clean · 84/84 · build green · reserved on :3001 with a
+launchd-safe detach (`start_new_session` — the nohup+disown pattern
+died with the sandbox shell again, as documented in AGENTS.md).
+Note: :8080 flapped during the pass (up 13:52, refused by 14:05);
+reported to the gateway seat on the hub. Signed-in screenshots of all
+five pages verified the new design language renders correctly.
+
+## 2026-07-14 — COMPLETE aesthetic refactor (operator order; five-agent build)
+
+The full look-and-feel rebuild the operator ordered at 06:11. One design
+system, five layers, every page:
+
+- **Foundation (styles.css)**: a real design language derived entirely
+  from kit tokens via color-mix (all 20+ themes survive) — three-elevation
+  surface system (recessed `--canvas`, floating `--pane-bg` with top-light
+  gradient + layered shadows, interactive `--raised-bg`), the pane grammar
+  (`.pane/.pane_header/.pane_title/.pane_count/.pane_body`), a real type
+  scale (`--t-page` 17/650 · `--t-section` 13/650 · `--t-small` 12 ·
+  `--t-micro` 11 uppercase for labels), one 32px button recipe with
+  tactile hover, numeric metric tiles, 52px header, softened nav active,
+  modal pop shadow + backdrop blur, page padding rhythm.
+- **Board (board.css + mission_control.tsx)**: stat cards instead of
+  pills, entity cards with name-first hierarchy, pane columns with
+  independent scroll, raised run cards, one warning cue on Review.
+- **Run page (observe.css + observe regions)**: navigator rail as a pane
+  with comfortable run rows (accent-inset selection), flat toolbar with
+  run identity, underline tabs (Story/Ledger/Flow/Ask), Story sections in
+  pane grammar with a calm outcome callout, raised ledger rows with
+  recessed payloads, double-scroll fix.
+- **System (system.css + RuntimeExplorerPage)**: flat console header,
+  underline section tabs, pane-based activity/artifacts/logs/memory,
+  raised artifact rows with accent-inset selection, recessed
+  preview/audit blocks. (Builder 3 died mid-edit on a transport error —
+  its unclosed JSX was repaired and the layer finished in the foreground.)
+- **Launch + Settings (forms.css + their regions)**: centered constrained
+  pane-section forms, uppercase micro field labels, one accent primary
+  per page, calm callouts.
+- **De-mono discipline everywhere**: mono is for identifiers and
+  payloads; UI labels/statuses/help are sans with the scale.
+
+Gates: tsc clean · 84/84 tests · build green · served on :3001
+(detached, both-port health check — :8080 was found dark at 12:32,
+reported to the gateway seat; not this restart's doing).
+
+## 2026-07-14 — Unified top-right cluster adopted (operator directive; shared through abstractuic)
+
+The operator rejected the rendered look again and named the missing
+piece: the SAME upper-right corner as AbstractFlow, shared through
+abstractuic. Adopted in full this session:
+
+- **AfTopBarActions** in the header: assistant (sparkle) → appearance
+  (contrast) → the ONE Disconnect pill driven by the connection PHASE
+  (never a boolean). The sidebar-footer connection *button* is deleted
+  (one disconnect truth); a passive LED + principal display remains.
+- **AfAppearanceDialog + useAppearanceSettings("abstractobserver")**:
+  theme/font-scale/header-density move off the Settings page into the
+  shared header dialog; per-app persistence with one-time migration from
+  the old settings blob; theme applies synchronously at first paint (no
+  flash). Settings keeps a pointer.
+- **App assistant** (`src/ui/app_assistant.tsx`): AfDrawer (keep-alive,
+  topOffset under the header) hosting panel-chat's AssistantPanel.
+  Transport v1: one gateway basic-agent run per question on a stable
+  session, grounded on this app's llms.txt (inlined `?raw` at build
+  time), answer read from the run ledger, 120s timeout; swaps to the
+  shared docs-qa bundle when the gateway ships it. Distinct from the run
+  page's Ask tab (that one is run-ledger-grounded).
+- **Screenshot eyesores fixed**: Summarize and Manage-connection off
+  accent-primary (accent = brand action, not every button); launch's
+  disabled button reads DISABLED (muted) with its reason under it, not
+  beside; long technical run titles clamp to two lines; Story hero
+  eyebrow says "Run" (it is a run, not a workflow).
+- **Hosted-guard test re-pinned**: the app-server SSRF fix (socket-peer
+  authority) deliberately removed Host-header 403s for loopback peers —
+  the old test pinned the removed behavior; the new pin asserts the
+  socket-peer contract (remote-peer half live-verified, commons c1799).
+
+84 tests green; build clean; served detached on :3001 with both-port
+health checks (the 01:25 linked-stack lesson applied).
+
+## 2026-07-13 — REDESIGN adversary fold 3 (final gate): the status map actually reaches every surface
+
+Adversary 3's fold-verification caught the fold-1 claim over-stating: "all
+chips derive from run_status_class" was FALSE on the board (its private
+`mc_status_*` palette said running=green while every Observe chip said
+running=blue) and in three stragglers. Corrected:
+
+- **Board chips ride the shared map**: `mc_status ${run_status_class(word)}`;
+  the `mc_status_*` color rules are deleted; the chip family's semantic
+  state rules now cover `.mc_status.<state>`; a test pins both (and pins
+  that exactly ONE `.btn.success` block exists — a pre-existing SOLID
+  green block later in the cascade was silently overriding the tinted
+  Approve, re-shipping the white-on-green AA failure).
+- **One status WORD too** (`run_status_word`): a paused run read "paused"
+  on the board and "running" on Observe. Board, navigator pills, Story
+  hero label, and the toolbar now fold paused identically (terminal
+  states keep their word); unit pins added.
+- **Toolbar wait-context chip** colors from the word (was hardcoded info
+  while the identity chip said warn for the same word); **LedgerCard**'s
+  private inline ternary replaced with the map.
+- **Navigator rail titled "Runs"** (its rows are runs — "Workflows" was
+  the same label-lie class as the renamed Memory tab); heading grammar
+  aligned ("What is happening"); System→Memory scopes from the System
+  page's own run selection, not Observe's (cross-page leak).
+- **run_picker CSS actually deleted** this time (comment-headed blocks
+  escaped the first purge's header matching); ratchets 189 rgba / 10 hex.
+- Fast-follows folded same pass: Story's hero button is now **"Run
+  artifacts"** landing on System→Artifacts with the run filter applied
+  (outputs were an untaught two-hop); "What is happening" answers a busy
+  run with its LAST STEP (node label + effect) instead of "no active
+  wait" while the real answer hid in Chronology.
+- Named, deliberately deferred: approve-verb prominence in the wait modal
+  (disabled-primary reads as broken), Ask-tab chrome (thread management
+  before conversation), error-presentation consolidation (~6 costumes +
+  15 inline rgba in tsx), board/System queue vocabulary alignment,
+  navigator loaded-window count honesty, fleet event feed / cost rollups
+  / cross-run search (the top-3 missing views — the event feed rides
+  gateway's design post per c1626).
+
+84 tests green (was 68 at wave start); build clean.
+
+## 2026-07-13 — REDESIGN adversary fold 1+2: honesty wave (status truth, Memory tab, launch confirmation)
+
+Two fable5 adversaries attacked the built waves A+B. Every P0 and the
+high-visibility P1s folded same-session:
+
+- **ONE status→color map** (`src/ui/run_status.ts`, adversary 1 P0-2):
+  four private maps rendered contradictory chips for the same run on one
+  screen (waiting amber in the navigator, blue in the toolbar; "paused"
+  in success-green on the board). All chips — navigator, Story hero,
+  toolbar, board — now derive from `run_status_class`; the board chip's
+  label and class come from the same word; unit pins lock the contract.
+  `RunSummary` moved here too — `run_picker.tsx` (a corpse since the
+  toolbar dropdown died) is deleted with its ~310 lines of CSS.
+- **Failed runs LOOK failed** (adversary 1 P0-1): Story's outcome chip
+  said `chip mono error` — a state with no CSS rule; failures rendered
+  neutral. Now `danger`, and failure text wears a new red `error_callout`
+  instead of warning amber. A test pins every chip state used in tsx to
+  an existing rule.
+- **Undefined token killed borders** (adversary 1 P0-3): `--border-primary`
+  does not exist; the border shorthand was invalid and Produced rows +
+  the memory panel rendered borderless. Fixed to `--border-default`; a
+  new test asserts every fallback-less `var(--token)` in styles.css is
+  defined (styles.css or kit theme).
+- **"Workflows" tab told a lie** (adversary 2 P0-1): the embedded panel
+  is the knowledge-graph MEMORY explorer (`kg_query`), not a workflow
+  map — and "workflow" already means FlowGraph on the run page. Renamed
+  tab/id/heading to **Memory** ("Active memory"); offline state renders
+  an explanatory empty state; the offline banner names all four tabs.
+- **Scheduled launches confirmed nothing** (adversary 2 P0-3): the
+  scheduled path attached silently and stayed on Launch. Both paths now
+  land on the run's Story.
+- **Approve/Reject, one verb pair, honest colors** (adversary 2 P1-B1):
+  board "Deny" → "Reject" (matching the wait modal); Approve wears a new
+  success-tinted `btn success` instead of accent-crimson beside a red
+  Reject.
+- **Session files, not "Produced"** (adversary 1 P1-3): the section
+  renders session-memory attachments (often user inputs), not verified
+  run outputs — renamed with honest copy; run products live on System →
+  Artifacts.
+- **Chronology renders the newest 30** with "last 30 of N" + Show all
+  (adversary 1 P1-4: hundreds of scrollable articles on the default tab).
+- **Offline honesty**: the run navigator says "Gateway offline — sign in"
+  instead of "No runs match the current filters" (adversary 1 P1-5).
+- **System header count says "(filtered)"** when artifact filters are
+  active (adversary 2 P1-A1); "Artifact Explorer" duplicate h3 dropped;
+  "Runtime logs" h2 → "Logs".
+- **Story hero "Runtime" button → "Open in System"**, carrying the run
+  into the System page (selected run + Activity tab) instead of dropping
+  it (adversary 2 P1-D1).
+- **Launch's dead button explains itself**: the disabled Launch button
+  now names its first failing reason (sign in / select a workflow /
+  invalid JSON / loading) and shows "Launching…" while submitting
+  (adversary 2 P1-C2); stale copy purged ("Advanced JSON", "(connect in
+  Settings)", "Start Workflow →" — test-pinned against return).
+- **Board de-noised**: tile age chip folded into the tooltip; "gateway
+  connected" prose dropped (LED + pills carry it; words appear only when
+  unreachable); busy liveness dot moved off the hardcoded green hex onto
+  `--info` (liveness is not the WORK phase).
+- **~15KB more dead CSS purged** (replay workbench, run picker, old
+  timeline wrappers, graph toolbar, digest/json/drawer leftovers,
+  `a.nav_tab`, `gateway_led_btn`); color-literal ratchets lowered to
+  195 rgba / 11 hex. Observe's four-tab strip gained tablist ARIA; the
+  four-tab shape is test-pinned; board column order Review-first is
+  test-pinned. 79 tests green (was 68).
+
+Deferred with eyes open: summarize-on-terminal-run verification needs a
+live gateway (adversary 1 P1-9); full segmented-control consolidation
+(three looks → one) and the empty-state/eyebrow recipe dedup ride wave C
+with adversary 3.
+
+## 2026-07-13 — REDESIGN wave A: the run page (nine tabs → four) + chip unification
+
+The content redesign the shell prepared for. Observe's nine content tabs
+were nine renderings of one ledger; they collapse into four surfaces
+with distinct jobs:
+
+- **Story / Ledger / Flow / Ask**: Story is the answer-first narrative —
+  status, outcome, waits, summary, subworkflows, **Produced** (the old
+  Attachments tab as a compact artifact list with preview/download) and
+  **Chronology** (the old Timeline tab) inline, in that order. Ledger
+  stays the raw truth (steps/cycles). Flow is the graph. Ask is the
+  conversation. Timeline/Replay/Digest/Providers/Attachments tabs are
+  gone — Replay's re-rendering died (its unique artifact cards live in
+  Story's Produced; run explanation belongs to Ask), Digest's stats were
+  already Story metrics, Providers' audit view stays on the Runtime page
+  (its ledger table was a re-render).
+- **One run selector**: the navigator rail is THE selector; the
+  toolbar's duplicate RunPicker dropdown is deleted. The toolbar now
+  names the selected run (workflow label + short id + status chip) and
+  holds only actions on it (Pause/Resume · Run now · Cancel · clear
+  view). No run selected states itself plainly.
+- **ONE chip recipe app-wide**: `.status_pill`, `.pill`, `.mc_pill`,
+  `.mc_status`, `.mc_entity_phase` all align to the `.chip` metrics
+  (999px, 1px tinted border, xxs/600 text) with kit-token tinted-outline
+  states; the last raw-rgba semantic colors in `status_pill` are
+  tokenized. Board column titles become eyebrows (uppercase xs) instead
+  of shouting md/700.
+- **Dead code deleted with its tabs**: ReplayWorkbenchPanel,
+  ProviderActivityPanel (observe copy), the digest memo + cache, replay
+  bundle state/fetch/effect, and their helper functions — ~600 lines.
+  The attachment preview modal survives (Story opens it).
+
+## 2026-07-13 — REDESIGN wave 1: the sidebar shell (operator full-redesign mandate)
+
+Two fable5 architects reported (information architecture + visual
+language, benchmarked against AbstractFlow and AbstractContinuum whose
+design the operator holds as the bar). Their specs compose into a full
+redesign; wave 1 ships the shell every tab wears:
+
+- **Sidebar shell replaces the pill-tab header**: 196px left sidebar
+  (brand, icon+label nav rows, connection control in the footer) + slim
+  page header whose single job is naming the current page at lg/700 —
+  the shape continuum ships. Narrow viewports collapse to a 56px icon
+  rail instead of wrapping tabs.
+- **Accent is a cue, never a fill**: the active nav row carries a 2px
+  inset accent bar over a neutral surface; the retired solid-accent
+  `.nav_tab.active` cannot return (pinned).
+- **Settings becomes a nav row** (no more hidden icon button); the
+  Entities ↗ link rides the nav; the GPU pill moves to the header
+  actions.
+- Dead chrome rules removed (`.app_nav`, `.nav_tab`, `.logo*`,
+  `.header_icon_btn`, `.status_pills`); `status_pill` kept minimal for
+  its one remaining consumer (migrates to `.chip` in wave 2).
+
+THE PROGRAM (from the IA architect, implementing across waves): four
+question-first surfaces — Board ("does anything need me?"), Timeline
+("what happened at time T?" — new), Runs (the one run browser), System
+(the framework inventory) — plus a URL-addressed run page (Story /
+Ledger / Flow / Ask) replacing Observe's nine sub-tabs, one shared
+RunsStore so every number agrees, and cross-link rules (no id or
+timestamp renders as dead text). Seven gateway wire asks filed
+(commons c1592). Seat observability wants banked (c1583-1588).
+
+## 2026-07-13 — Code+logic adversary fold (fable5, production-readiness wave)
+
+A whole-package adversarial review of the app's correctness (connection
+lifecycle, poll/stream loops, board actions, client, CLI). Verdict was
+"not production-ready for multi-run operator use"; every P0/P1 folded:
+
+- **P0 — run-attach contamination**: the ledger replay loop could outlive
+  its attach — switching runs mid-replay kept the OLD run's pages
+  flushing into the NEW run's records (wrong-wait exposure: approving
+  what you see while another run executes). Replay is now abort-aware
+  (the attach's signal cancels paging and pushes; `get_ledger` accepts a
+  signal), and `attach_to_run` is single-flight (board clicks during an
+  in-flight attach are refused with a status note).
+- **P1 — stale `run_id` closure in `handle_step`**: the stream loop
+  captured the previous run id forever, making the `abstract.status`
+  ticker dead code and poisoning digest dedup keys (a child run's records
+  silently vanished from the digest after child→root switches). The
+  owning attach's rid is now passed explicitly.
+- **P1 — dishonest disconnect**: sign-out never cleared
+  `all_run_options`/`runs_refreshed_at`/`board_entities` — the previous
+  session's waits stayed rendered as actionable Review cards across
+  account switches. Cleared.
+- **P1 — permanent "Resuming…" lock**: busy identity now includes the
+  wait's appearance time (runtime wait keys are deterministic per
+  run+node, so a recurring ask carried the identical key and stayed
+  locked forever), plus an effect releasing the lock when the busy card
+  leaves Review.
+- **P1 — invisible session expiry**: a 401/403 from the runs heartbeat
+  now re-probes the connection hook, driving the app back to the real
+  sign-in state instead of freezing "connected".
+- **P2 — fetch deadlines**: `_deadline()` (30s, composable with caller
+  signals) on the loop-critical client calls (entities/card/cognition,
+  ledger + batch, bundles) — a single stalled connection could previously
+  wedge the entity strip, discovery, or the subrun digest poll forever.
+
+Live production drive (c1505 ask 2): fresh dist served via `bin/cli.js`
+(config injection + session proxy verified), and every app loop's API
+driven against the live :8080 — runs with metrics (20 roots), entity
+roster + cognition (castor phase=sleep served), ledger paging. Note for
+gateway: hypnos `/cognition` serves `phase: null` — the tile falls back
+to card-state mapping (honest, labeled).
+
+## 2026-07-13 — Design wave: two fable5 adversaries over ALL tabs (operator-directed)
+
+The operator's verdict ("i do not like it") decomposed into evidence by
+two adversarial reviews — one on visual design, one on layout/information
+presentation. First fold, all gates green:
+
+**Aesthetics (root causes: three design generations worn at once; kit
+tokens bypassed by 428 raw rgba literals; no component discipline):**
+
+- **Foreign dark palette removed**: 28 Tailwind slate/gray-900 surface
+  literals (heroes, sticky headers, mode tabs, run picker) now derive
+  from the kit's `--bg-primary`/`--bg-tertiary` via `color-mix` — cards
+  and page share ONE dark family, and all 21 themes stop breaking.
+- **One selection color**: every `.selected/.active/.checked` rule that
+  hardcoded blue-400 now uses `--accent-subtle` + `--accent-border`;
+  semantic blues/greens/reds/ambers elsewhere ride `--info/--success/
+  --error/--warning` (187 literals converted block-aware).
+- **Bare `button:hover` no longer floods accent red** (JSON carets,
+  section headers); one global `:focus-visible` ring replaces three
+  competing ring systems plus UA default.
+- **Solid status pills retired**: `.run_card_status.*` and the scheduled
+  chips move to the tinted-outline recipe (the old 10px white-on-green
+  failed AA); header LEDs and board LEDs now share the kit green.
+- **Theme-safe accent hover**: hardcoded `#ff6b81` → `color-mix(accent)`.
+- **Type/weight/radius discipline**: 8/9px micro-labels floored at
+  `--font-size-xxs`; odd weights 650/750/850 snapped to 600/700/800;
+  radii 6/8/9/10px snapped onto `--radius-sm/md/lg` tokens.
+- **Monospace reserved for values**: the nine observe content tabs and
+  seventeen settings/launch helper sentences drop `mono` (new
+  `.help_text`); one `.eyebrow` recipe added for section micro-headings.
+- **Launch de-decorated**: violet Upload / blue Reload (six `!important`)
+  become plain secondary buttons — the submit is the page's only accent.
+
+**Layout / information presentation (root causes: answer-poor surfaces,
+inverted priorities, clipped panels):**
+
+- **Overview/Timeline/Providers no longer clip**: the three panels inside
+  the `overflow:hidden` card get their own scroll — long content was
+  physically unreachable.
+- **Launch is not a dead end**: an immediate start lands on Observe
+  following the new run; scheduled starts stay with their schedule.
+- **Review renders FIRST on the board** (it fell below the fold at narrow
+  widths); empty columns say what empty means ("nothing needs you",
+  "idle") instead of a bare "—".
+- **Outcome on the Overview**: terminal runs show their error (failed) or
+  final answer (completed) — previously the error lived only in the
+  Runtime inspector and the answer only behind per-card unfolds.
+- **Honest no-run state**: Observe without a selection shows one line
+  ("Select a run on the left…") instead of a fake dashboard of "—" tiles.
+- **Wait modal**: Approve/Reject moved into the sticky footer; the
+  destructive Cancel run demoted into the body; "Open ledger" now also
+  dismisses (it used to open the page UNDER the modal). The modal no
+  longer hijacks the board mid-answer (board has its own inline forms).
+- **Failed board cards carry their WHY**: clamped error line on the card.
+
+Second pass (same day): dead-CSS sweep — 13 unreferenced rule blocks
+deleted (`.overlay`/`.modal` legacy pair, `.viewer_header*`,
+`.chat_bubble`/`.chat_row`, `.observe_layout`, `.app-main`) — plus two
+RATCHET tests: raw color literals can only go DOWN from today's counts
+(238 rgba / 15 hex ceilings; new color goes through kit tokens), and
+solid status pills can never return.
+
+Remaining from the reports (tracked, not yet folded): status-chip system
+unification (11 recipes), eyebrow migration (10 variants → `.eyebrow`),
+run-picker/navigator dedup, Timeline-into-Ledger merge,
+relative-time formatter unification, syntax-palette unification.
+
+One fable5 adversarial review of the board's phase rendering against
+the ruled machine; every finding folded:
+
+- **`resting` mapped, styled, pinned** — it fell through the
+  normalizer to an unstyled chip indistinguishable from unknown.
+- **"● working" renamed "● busy"** — WORK is a ruled phase word;
+  execution liveness must not wear it beside a `visit` chip.
+- **Source-labeled chip**: the phase chip's tooltip now names its
+  source ("cognition wire" vs "card state — wire unavailable") so a
+  degraded read is never mistaken for wire truth.
+- **Styles de-blurred**: sleep gets a real identity (muted border, not
+  opacity-only), awake moves off success-green (green belongs to WORK
+  exclusively), unknown/other render dashed.
+- **Bounded class names**: unlisted server words render their verbatim
+  WORD but a bounded `mc_phase_other` class — server strings never
+  interpolate into CSS classes.
+- **Passthrough posture pinned**: unlisted words are never coerced into
+  a ruled phase (a "helpful" coercion now fails a test); the
+  awake/paused/resting branches are pre-alignment passthroughs to be
+  deleted when the gateway serves strict four-phase values.
+- Record correction: the previous entry's pin-coverage claim
+  overstated — paused/awake/resting are rendered passthroughs, not
+  "ruled names", and `resting` was unmapped until this fold.
+
+## 2026-07-13 — One active phase on the board (operator ruling)
+
+The four entity phases (visit / work / personal / sleep) are a
+one-active-phase radio state machine (commons c1455). The board's
+entity tiles now render THE active phase from the same source both
+apps use: the cognition wire's composite `phase` field, falling back
+to the card-state mapping only when the wire is absent or unreadable.
+Pins cover the wire's chain vocabulary.
+
+## 2026-07-13 — B3 complete: cognition wire on the board tiles
+
+Gateway shipped the spend wire (`GET /entities/{name}/cognition`, commons
+c1390) and the board consumes it same-day as committed:
+
+- **Working truth**: tiles show "● working" from the wire's store-read
+  `working` (loop mid-day or live visit — authoritative, never
+  fabricated); `working: false` renders "idle · Xm ago"; pre-wire
+  gateways (404) fall back to the moment-age heuristic unchanged.
+- **Spend chip**: lifetime billed tokens from the home run ledger
+  (`spend.lifetime.tokens_total`, compact "12k tk") plus the open
+  visit's live tree (`(+N)`); the wire's `warnings[]` (e.g. the
+  loop-spend `#FALLBACK`) ride the tooltip with a `*` so a partial
+  number is never read as a total.
+- `get_entity_cognition` added to the client; cognition fetch rides the
+  existing 30s card poll (one extra parallel request per tile, optional).
+- Pins: `format_tokens` (compact + null-renders-nothing).
+
 ## 2026-07-13 — B5 adoption: useGatewayConnection is the connection machine
 
 The bug-wave B5 ruling ("login/auth should be consistent across apps")
@@ -766,7 +1834,7 @@ direct posture persisted a remembered bearer (with its base) in
 - Tests: storage pins replaced with never-persist + scrub-on-load pins;
   `docs/security.md` updated.
 
-## Unreleased
+## 2026-07-12 and earlier — development notes (released in 0.1.12)
 
 - DEV SIGN-IN = PROD SIGN-IN (continuum's c1122 root cause adopted
   same-hour): the Vite dev server now mounts the SAME
@@ -1622,6 +2690,11 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
 
+## Reports
+- `reports/2026-07-13_redesign_program.md` — the full redesign program
+  report (three build waves + three adversary folds; what changed, what
+  was verified, what is deferred by name)
+
 Observer’s Runtime views work with Gateway/Runtime artifact inventories, not
 with browser-local files or arbitrary server filesystem browsing:
 
@@ -1659,7 +2732,7 @@ It serves a static single-page app (`dist/`) via a small Node.js CLI (`bin/cli.j
 
 ## Prerequisites
 - Node.js `>=18`
-- A running **AbstractGateway** (base URL, e.g. `http://localhost:8081`)
+- A running **AbstractGateway** (base URL, e.g. `http://127.0.0.1:8080`)
 - In hosted user-auth mode, a Gateway user id and that user's token
 
 ## Run AbstractObserver
@@ -1678,8 +2751,11 @@ HOST=127.0.0.1 PORT=3001 npx --yes --package @abstractframework/observer -- abst
 Open `http://localhost:3001`.
 
 ## Connect to a gateway
-In **Settings → Gateway** (implemented in `src/ui/app.tsx`):
-- **Gateway URL**: set it to your gateway base URL (for local dev commonly `http://localhost:8081`).
+Sign-in uses the shared AbstractFramework connection dialog. It opens
+automatically when this browser has no Gateway session, and is always one
+click away on the header connection badge (**Settings → Manage connection…**
+opens it too):
+- **Gateway URL**: pre-filled from the server's `ABSTRACTOBSERVER_GATEWAY_URL` (default `http://127.0.0.1:8080`).
   - Leave it **blank** only if you deploy the UI and gateway **same-origin** (a reverse proxy routes `/api` to the gateway), or when using `npm run dev` (Vite dev proxy; see `vite.config.ts`).
 - **Gateway user** and **Gateway token**: use the user id and token assigned by
   the Gateway admin. The token is exchanged for an app-scoped browser session
@@ -1898,14 +2974,14 @@ Evidence: `vite.config.ts`. See `development.md`.
 
 # AbstractObserver — Architecture
 
-> Last updated: 2026-06-06
+> Last updated: 2026-09-23
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
 - It renders state by fetching + streaming a **durable run ledger** from an AbstractGateway.
 - It can submit **durable commands** back to the gateway.
 
-The implementation is intentionally simple: a static SPA + typed HTTP client.
+The implementation is intentionally simple: a static SPA + typed HTTP client, served by a small Node.js CLI that also hosts the app-origin Gateway session proxy from `@abstractframework/app-server`.
 
 ## Ecosystem context (AbstractFramework)
 AbstractObserver is part of the **AbstractFramework** ecosystem:
@@ -1920,7 +2996,10 @@ AbstractObserver talks only to the **AbstractGateway HTTP API**. The gateway is 
 flowchart LR
   U[User] -->|opens| B[Browser / PWA<br/><code>src/ui/app.tsx</code>]
   S[Static UI server<br/><code>bin/cli.js</code>] -->|serves dist/ + SPA fallback| B
-  B -->|HTTP fetch + SSE| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  B -->|same-origin /api + session cookie| P[Gateway session proxy<br/><code>@abstractframework/app-server</code>]
+  S -->|mounts| P
+  P -->|HTTP fetch + SSE, bearer attached server-side| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  B -.->|direct mode, local dev| G
   G -->|backed by| R[AbstractRuntime<br/>durable runs + append-only ledger]
   B -->|optional JSON-RPC over HTTP| W[MCP tool worker<br/><code>src/lib/mcp_worker_client.ts</code>]
 
@@ -1956,10 +3035,10 @@ sequenceDiagram
 AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
 - **Board** (Mission Control landing page: Pending/Working/Review/Done kanban + entities strip + inline wait answers): `src/ui/mission_control.tsx` + `GatewayClient.list_entities()` / `get_entity_card()`
-- **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/flow_graph.tsx`, `src/ui/run_picker.tsx`
-- **Runtime** (platform-level Activity, Artifacts, and Logs modes): `src/ui/app.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
+- **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
+- **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
-- **Mindmap** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
+- **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
 
 ## Observe projections
@@ -2077,7 +3156,7 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/bundles/reload`
   - `POST /api/gateway/bundles/upload`
   - `DELETE /api/gateway/bundles/{bundle_id}?bundle_version=…&reload=true|false`
-- **Knowledge graph (Mindmap page)**
+- **Knowledge graph (Runtime → Memory)**
   - `POST /api/gateway/kg/query`
 - **Process manager** — moved to `abstractcontinuum` with the CI/CD dev
   lane (2026-07-12 split); the observer no longer has a Processes page.
@@ -2150,13 +3229,21 @@ This project has two layers of configuration:
 2) the **browser UI settings** (stored locally in your browser).
 
 ## CLI (static server)
-Implemented in `bin/cli.js`.
+Implemented in `bin/cli.js`. The Gateway session proxy (sign-in endpoint
+`/api/connection/gateway`, session cookies, CSRF, `/api` forwarding) comes from
+the shared `@abstractframework/app-server` package, a runtime dependency.
 
 - The npm package is `@abstractframework/observer`; the installed CLI binary is `abstractobserver`.
 - If you don’t want a global install, you can run the CLI via `npx --yes --package @abstractframework/observer -- abstractobserver`.
 
 - `PORT` — HTTP port to listen on (default `3001`)
 - `HOST` — bind address (default `0.0.0.0`)
+- `ABSTRACTOBSERVER_GATEWAY_URL` (fallback `ABSTRACTGATEWAY_URL`) — the Gateway
+  this server proxies `/api` to and pre-fills in the sign-in dialog (default
+  `http://127.0.0.1:8080`). Injected as `__ABSTRACT_UI_CONFIG__.gateway_url`.
+- `ABSTRACTOBSERVER_GATEWAY_DIR` — directory used to resolve relative run
+  workspace paths for the run workspace folder button (`POST /api/local/reveal`,
+  loopback clients only). Defaults to the parent of the package directory.
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
 - `ABSTRACTOBSERVER_ENTITY_APP_URL` — where the entity app lives (its own
   package since 2026-07-12: `@abstractframework/entity`, default port
@@ -2208,7 +3295,7 @@ Set **Gateway URL** in the UI settings.
 - Avoid `http://localhost:…` when accessing from another device; the UI explicitly warns about this in discovery logic (`on_discover_gateway()` in `src/ui/app.tsx`).
 
 ## Dev server proxy
-In dev (`npm run dev`), Vite proxies `/api` to `http://localhost:8081` by default (see `vite.config.ts`).
+In dev (`npm run dev`), the Vite dev server mounts the same `@abstractframework/app-server` session proxy as the CLI; requests without a browser session fall through to a raw `/api` proxy targeting `ABSTRACTOBSERVER_GATEWAY_URL` / `ABSTRACTGATEWAY_URL` (default `http://127.0.0.1:8080`, see `vite.config.ts`).
 If your gateway is elsewhere, update the `server.proxy` section.
 
 ## PWA / service worker
@@ -2240,7 +3327,15 @@ npm run dev
 ```
 
 ### Shared UI dependencies
-The UI imports the public `@abstractframework/*` UI package names, and Vite aliases them to sibling `../abstractuic/*/src` packages for source builds. GitHub Actions checks out `AbstractUIC` next to `AbstractObserver` before testing, building, and publishing.
+The UI imports the public `@abstractframework/*` UI package names, and Vite aliases them to sibling `../abstractuic/*/src` packages for source builds, so clone [AbstractUIC](https://github.com/lpalbou/AbstractUIC) next to this repository:
+
+```text
+<workspace>/
+  abstractobserver/
+  abstractuic/
+```
+
+The CLI and the Vite dev server also import `@abstractframework/app-server` (the shared Gateway session proxy). It is a regular runtime dependency declared in `package.json`; `npm install` resolves it for you. GitHub Actions checks out `AbstractUIC` next to `AbstractObserver` before installing, testing, building, and publishing.
 
 ## Tests
 ```bash
@@ -2257,10 +3352,10 @@ npm run build
 - Builds the SPA into `dist/` (Vite) and type-checks via `tsc`.
 - The published CLI serves `dist/` (see `bin/cli.js`).
 - `npm publish` runs `npm run build` via `prepublishOnly` (see `package.json`).
-- GitHub Actions publishes through `.github/workflows/release.yml` using npm trusted publishing/provenance. Configure the npm package trusted publisher for `lpalbou/abstractobserver` and the `npm` environment before running the workflow.
+- GitHub Actions publishes through `.github/workflows/release.yml` using npm trusted publishing/provenance. Configure the npm package trusted publisher for `lpalbou/AbstractObserver` and the `npm` environment before running the workflow.
 
 ## Useful scripts
-- `npm run dev` — Vite dev server (defaults to port `3001`; proxies `/api` to `http://localhost:8081` per `vite.config.ts`)
+- `npm run dev` — Vite dev server (defaults to port `3001`; mounts the app-server session proxy and falls back to proxying `/api` to `http://127.0.0.1:8080` per `vite.config.ts`)
 - `npm run preview` — preview the production build
 - `npm test` — run unit tests
 
@@ -2388,13 +3483,13 @@ See `configuration.md`.
 
 ## Blank Gateway URL + CLI server shows 404s under /api
 The packaged CLI (`bin/cli.js`) is a static server and does not proxy `/api`.
-- Set **Gateway URL** to your gateway base URL (e.g. `http://localhost:8081`), or
+- Set **Gateway URL** to your gateway base URL (e.g. `http://127.0.0.1:8080`), or
 - deploy behind a reverse proxy so the UI and gateway are same-origin and `/api` routes to the gateway.
 
-## Mindmap shows counts but the graph canvas is blank
-If Mindmap shows a snapshot count (assertions/nodes/edges) but the canvas looks empty:
+## Runtime → Memory shows counts but the graph canvas is blank
+If Runtime → Memory shows a snapshot count (assertions/nodes/edges) but the canvas looks empty:
 - click **fit view** in the graph controls (bottom-left)
-- if you previously saved a layout in Mindmap, open **layout → Clear saved** (a bad saved viewport can pan you far away)
+- if you previously saved a layout in the memory graph, open **layout → Clear saved** (a bad saved viewport can pan you far away)
 
 ## Stale UI after updating
 Production builds register a service worker (`src/main.tsx`, `public/sw.js`).

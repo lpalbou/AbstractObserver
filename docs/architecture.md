@@ -1,13 +1,13 @@
 # AbstractObserver — Architecture
 
-> Last updated: 2026-06-06
+> Last updated: 2026-09-23
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
 - It renders state by fetching + streaming a **durable run ledger** from an AbstractGateway.
 - It can submit **durable commands** back to the gateway.
 
-The implementation is intentionally simple: a static SPA + typed HTTP client.
+The implementation is intentionally simple: a static SPA + typed HTTP client, served by a small Node.js CLI that also hosts the app-origin Gateway session proxy from `@abstractframework/app-server`.
 
 ## Ecosystem context (AbstractFramework)
 AbstractObserver is part of the **AbstractFramework** ecosystem:
@@ -22,7 +22,10 @@ AbstractObserver talks only to the **AbstractGateway HTTP API**. The gateway is 
 flowchart LR
   U[User] -->|opens| B[Browser / PWA<br/><code>src/ui/app.tsx</code>]
   S[Static UI server<br/><code>bin/cli.js</code>] -->|serves dist/ + SPA fallback| B
-  B -->|HTTP fetch + SSE| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  B -->|same-origin /api + session cookie| P[Gateway session proxy<br/><code>@abstractframework/app-server</code>]
+  S -->|mounts| P
+  P -->|HTTP fetch + SSE, bearer attached server-side| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  B -.->|direct mode, local dev| G
   G -->|backed by| R[AbstractRuntime<br/>durable runs + append-only ledger]
   B -->|optional JSON-RPC over HTTP| W[MCP tool worker<br/><code>src/lib/mcp_worker_client.ts</code>]
 
@@ -58,10 +61,10 @@ sequenceDiagram
 AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
 - **Board** (Mission Control landing page: Pending/Working/Review/Done kanban + entities strip + inline wait answers): `src/ui/mission_control.tsx` + `GatewayClient.list_entities()` / `get_entity_card()`
-- **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/flow_graph.tsx`, `src/ui/run_picker.tsx`
-- **Runtime** (platform-level Activity, Artifacts, and Logs modes): `src/ui/app.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
+- **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
+- **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
-- **Mindmap** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
+- **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
 
 ## Observe projections

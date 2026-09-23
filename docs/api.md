@@ -47,7 +47,7 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/bundles/reload`
   - `POST /api/gateway/bundles/upload`
   - `DELETE /api/gateway/bundles/{bundle_id}?bundle_version=…&reload=true|false`
-- **Knowledge graph (Mindmap page)**
+- **Knowledge graph (Runtime → Memory)**
   - `POST /api/gateway/kg/query`
 - **Process manager** — moved to `abstractcontinuum` with the CI/CD dev
   lane (2026-07-12 split); the observer no longer has a Processes page.

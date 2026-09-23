@@ -26,13 +26,13 @@ See `configuration.md`.
 
 ## Blank Gateway URL + CLI server shows 404s under /api
 The packaged CLI (`bin/cli.js`) is a static server and does not proxy `/api`.
-- Set **Gateway URL** to your gateway base URL (e.g. `http://localhost:8081`), or
+- Set **Gateway URL** to your gateway base URL (e.g. `http://127.0.0.1:8080`), or
 - deploy behind a reverse proxy so the UI and gateway are same-origin and `/api` routes to the gateway.
 
-## Mindmap shows counts but the graph canvas is blank
-If Mindmap shows a snapshot count (assertions/nodes/edges) but the canvas looks empty:
+## Runtime → Memory shows counts but the graph canvas is blank
+If Runtime → Memory shows a snapshot count (assertions/nodes/edges) but the canvas looks empty:
 - click **fit view** in the graph controls (bottom-left)
-- if you previously saved a layout in Mindmap, open **layout → Clear saved** (a bad saved viewport can pan you far away)
+- if you previously saved a layout in the memory graph, open **layout → Clear saved** (a bad saved viewport can pan you far away)
 
 ## Stale UI after updating
 Production builds register a service worker (`src/main.tsx`, `public/sw.js`).

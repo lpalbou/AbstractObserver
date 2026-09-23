@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.1.12] - 2026-09-23
+
+This release consolidates the dated development entries below (2026-07-08 to
+2026-07-23) into one published version.
+
+### Added
+- **Board (Mission Control) is the landing page**: kanban columns Pending /
+  Working / Review / Done across every run. Cards move themselves as run state
+  changes; the Review column lets you approve or deny tool requests and answer
+  questions inline, including waits held by child runs. Run lists poll live
+  (5 s while visible, 30 s when hidden).
+- **Entities strip** on the Board: each entity's phase, age, and latest moment,
+  with links into the separate entity app,
+  [AbstractEntity](https://github.com/lpalbou/AbstractEntity)
+  (`npx @abstractframework/entity`, default `http://127.0.0.1:3007`; override
+  with `ABSTRACTOBSERVER_ENTITY_APP_URL`).
+- **Runtime → Memory**: the knowledge-graph (active memory) explorer now lives
+  as a Runtime mode next to Activity, Artifacts, and Logs.
+- **Run workspace folder button**: when the observer runs on the same machine as
+  the gateway, a run's workspace folder can be opened from the UI
+  (`POST /api/local/reveal`, loopback clients only; relative paths resolve
+  against `ABSTRACTOBSERVER_GATEWAY_DIR`).
+- **Launch capabilities**: skills and MCP pickers and run-level skills
+  attachment on the Launch page.
+- `ABSTRACTOBSERVER_GATEWAY_URL` (fallback `ABSTRACTGATEWAY_URL`) sets the
+  Gateway the server proxies to and pre-fills in the sign-in dialog; the
+  default is `http://127.0.0.1:8080`.
+
+### Changed
+- **One sign-in dialog**: sign-in uses the shared AbstractFramework connection
+  dialog (`@abstractframework/ui-kit`), the same one AbstractFlow and the
+  gateway console use. It opens automatically when the browser has no Gateway
+  session; Settings shows connection status and a "Manage connection…" button
+  instead of raw URL/user/token fields.
+- **Shared session proxy**: the CLI and the Vite dev server both mount the
+  app-origin Gateway session proxy from the new runtime dependency
+  `@abstractframework/app-server`. Cookie names, the CSRF header and the
+  `ABSTRACTOBSERVER_*` security switches are unchanged, so existing sessions and
+  deployment settings keep working.
+- **Redesigned UI**: sidebar shell, a run page reduced to four tabs, one status
+  vocabulary and chip style across every surface, and a refreshed visual
+  system.
+- Tool-approval risk labels are marked as inferred (`~` suffix with an
+  explanatory tooltip) because they are derived from tool arguments rather than
+  declared tool tiers.
+- Steering acknowledgements render as readable text in the run view.
+- Background pollers pause while the Gateway reports an authentication lockout
+  (HTTP 429) instead of adding to it.
+
+### Removed
+- The Backlog, Inbox, and Processes pages moved to AbstractContinuum; the
+  observer focuses on observing runs and answering waits.
+
+### Dependencies
+- New runtime dependency: `@abstractframework/app-server` (`^0.1.9`).
+
 ## 2026-07-23 — Tool-tiers cycle 3: risk labels marked as INFERRED (render honesty now)
 
 Until tools carry declared risk tiers (the converged two-axis design),
@@ -1122,7 +1178,7 @@ direct posture persisted a remembered bearer (with its base) in
 - Tests: storage pins replaced with never-persist + scrub-on-load pins;
   `docs/security.md` updated.
 
-## Unreleased
+## 2026-07-12 and earlier — development notes (released in 0.1.12)
 
 - DEV SIGN-IN = PROD SIGN-IN (continuum's c1122 root cause adopted
   same-hour): the Vite dev server now mounts the SAME

@@ -5,7 +5,7 @@ It serves a static single-page app (`dist/`) via a small Node.js CLI (`bin/cli.j
 
 ## Prerequisites
 - Node.js `>=18`
-- A running **AbstractGateway** (base URL, e.g. `http://localhost:8081`)
+- A running **AbstractGateway** (base URL, e.g. `http://127.0.0.1:8080`)
 - In hosted user-auth mode, a Gateway user id and that user's token
 
 ## Run AbstractObserver
@@ -24,8 +24,11 @@ HOST=127.0.0.1 PORT=3001 npx --yes --package @abstractframework/observer -- abst
 Open `http://localhost:3001`.
 
 ## Connect to a gateway
-In **Settings → Gateway** (implemented in `src/ui/app.tsx`):
-- **Gateway URL**: set it to your gateway base URL (for local dev commonly `http://localhost:8081`).
+Sign-in uses the shared AbstractFramework connection dialog. It opens
+automatically when this browser has no Gateway session, and is always one
+click away on the header connection badge (**Settings → Manage connection…**
+opens it too):
+- **Gateway URL**: pre-filled from the server's `ABSTRACTOBSERVER_GATEWAY_URL` (default `http://127.0.0.1:8080`).
   - Leave it **blank** only if you deploy the UI and gateway **same-origin** (a reverse proxy routes `/api` to the gateway), or when using `npm run dev` (Vite dev proxy; see `vite.config.ts`).
 - **Gateway user** and **Gateway token**: use the user id and token assigned by
   the Gateway admin. The token is exchanged for an app-scoped browser session

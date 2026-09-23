@@ -5,13 +5,21 @@ This project has two layers of configuration:
 2) the **browser UI settings** (stored locally in your browser).
 
 ## CLI (static server)
-Implemented in `bin/cli.js`.
+Implemented in `bin/cli.js`. The Gateway session proxy (sign-in endpoint
+`/api/connection/gateway`, session cookies, CSRF, `/api` forwarding) comes from
+the shared `@abstractframework/app-server` package, a runtime dependency.
 
 - The npm package is `@abstractframework/observer`; the installed CLI binary is `abstractobserver`.
 - If you don’t want a global install, you can run the CLI via `npx --yes --package @abstractframework/observer -- abstractobserver`.
 
 - `PORT` — HTTP port to listen on (default `3001`)
 - `HOST` — bind address (default `0.0.0.0`)
+- `ABSTRACTOBSERVER_GATEWAY_URL` (fallback `ABSTRACTGATEWAY_URL`) — the Gateway
+  this server proxies `/api` to and pre-fills in the sign-in dialog (default
+  `http://127.0.0.1:8080`). Injected as `__ABSTRACT_UI_CONFIG__.gateway_url`.
+- `ABSTRACTOBSERVER_GATEWAY_DIR` — directory used to resolve relative run
+  workspace paths for the run workspace folder button (`POST /api/local/reveal`,
+  loopback clients only). Defaults to the parent of the package directory.
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
 - `ABSTRACTOBSERVER_ENTITY_APP_URL` — where the entity app lives (its own
   package since 2026-07-12: `@abstractframework/entity`, default port
@@ -63,7 +71,7 @@ Set **Gateway URL** in the UI settings.
 - Avoid `http://localhost:…` when accessing from another device; the UI explicitly warns about this in discovery logic (`on_discover_gateway()` in `src/ui/app.tsx`).
 
 ## Dev server proxy
-In dev (`npm run dev`), Vite proxies `/api` to `http://localhost:8081` by default (see `vite.config.ts`).
+In dev (`npm run dev`), the Vite dev server mounts the same `@abstractframework/app-server` session proxy as the CLI; requests without a browser session fall through to a raw `/api` proxy targeting `ABSTRACTOBSERVER_GATEWAY_URL` / `ABSTRACTGATEWAY_URL` (default `http://127.0.0.1:8080`, see `vite.config.ts`).
 If your gateway is elsewhere, update the `server.proxy` section.
 
 ## PWA / service worker
