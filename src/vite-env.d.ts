@@ -3,6 +3,10 @@
 import type React from "react";
 
 declare global {
+  /** AbstractObserver's package.json version, injected at build time by the
+   * vite/vitest configs (`define`). Read it through `app_version()`. */
+  const __APP_VERSION__: string;
+
   interface Window {
     __ABSTRACT_UI_CONFIG__?: {
       monitor_gpu?: boolean;

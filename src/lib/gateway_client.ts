@@ -63,6 +63,14 @@ async function _read_error(resp: Response): Promise<string> {
   }
 }
 
+/** Public `GET /api/gateway/about`: the versions the gateway host runs.
+ * `abstractframework` is null when the meta-package is not installed there. */
+export type GatewayAbout = {
+  abstractframework: string | null;
+  abstractgateway: string;
+  packages: Record<string, string>;
+};
+
 export class GatewayClient {
   private _cfg: GatewayClientConfig;
 
@@ -311,6 +319,19 @@ export class GatewayClient {
     });
     if (!r.ok) throw new Error(`audit_log_tail failed: ${await _read_error(r)}`);
     return (await r.json()) as AuditLogTailResponse;
+  }
+
+  /** Throws `Error("HTTP <status>")` on a non-2xx answer (the About dialog
+   * shows that text), or the fetch error (network, 10s deadline). */
+  async gateway_about(): Promise<GatewayAbout> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/about"), {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+      signal: _deadline(undefined, 10_000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return (await r.json()) as GatewayAbout;
   }
 
   async get_run_input_data(run_id: string): Promise<any> {

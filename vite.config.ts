@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 import { createGatewaySessionProxy } from "@abstractframework/app-server";
 
@@ -44,8 +45,20 @@ function gatewaySessionDevProxy(): Plugin {
   };
 }
 
+// The app version shown in the About dialog comes from package.json at build
+// time. A missing or empty version fails the build instead of shipping "unknown".
+function packageVersion(): string {
+  const pkg = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf8"));
+  const version = String(pkg?.version || "").trim();
+  if (!version) throw new Error("package.json has no version; the About dialog needs one");
+  return version;
+}
+
 export default defineConfig({
   plugins: [gatewaySessionDevProxy(), react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(packageVersion()),
+  },
   resolve: {
     alias: [
       // Workspace imports (AbstractUIC packages) originate outside this project's

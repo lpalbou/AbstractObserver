@@ -28,6 +28,7 @@ import {
   type ProviderOption,
 } from "@abstractframework/ui-kit";
 import { AppAssistantDrawer } from "./app_assistant";
+import { load_gateway_about_rows, observer_identity, type AboutRow } from "./about";
 import { registerMonitorGpuWidget } from "@abstractframework/monitor-gpu";
 
 import "./forms.css";
@@ -819,6 +820,18 @@ export function App(): React.ReactElement {
       }),
     [settings.gateway_auth_mode, settings.gateway_url, settings.auth_token]
   );
+  // About dialog: identity is fixed for the build; gateway versions are
+  // fetched each time the dialog opens (the latest answer wins).
+  const about_identity = useMemo(() => observer_identity(), []);
+  const [about_gateway_rows, set_about_gateway_rows] = useState<AboutRow[]>([]);
+  const about_request_seq = useRef(0);
+  function refresh_about_gateway_rows(): void {
+    const seq = ++about_request_seq.current;
+    set_about_gateway_rows([["Gateway", "checking…"]]);
+    void load_gateway_about_rows(gateway).then((rows) => {
+      if (seq === about_request_seq.current) set_about_gateway_rows(rows);
+    });
+  }
   const worker = useMemo(
     () => (settings.worker_url.trim() ? new McpWorkerClient({ url: settings.worker_url.trim(), auth_token: settings.worker_token }) : null),
     [settings.worker_url, settings.worker_token]
@@ -4831,6 +4844,7 @@ export function App(): React.ReactElement {
             <AfTopBarActions
               assistant={{ open: assistant_open, onToggle: () => set_assistant_open((v) => !v), label: "Observer assistant (docs-grounded)" }}
               appearance={{ onOpen: () => set_appearance_open(true) }}
+              about={{ identity: about_identity, extraRows: about_gateway_rows, onOpen: refresh_about_gateway_rows }}
               connection={{
                 phase: gateway_connection.phase,
                 signingOut: gateway_connection.signingOut,

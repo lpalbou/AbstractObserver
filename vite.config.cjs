@@ -1,9 +1,19 @@
 const { resolve } = require("path");
 
+// Same build-time version define as vite.config.ts (the About dialog reads it).
+function packageVersion() {
+  const version = String(require("./package.json").version || "").trim();
+  if (!version) throw new Error("package.json has no version; the About dialog needs one");
+  return version;
+}
+
 module.exports = async () => {
   const react = (await import("@vitejs/plugin-react")).default;
   return {
     plugins: [react()],
+    define: {
+      __APP_VERSION__: JSON.stringify(packageVersion()),
+    },
     resolve: {
       alias: [
         // Workspace imports (AbstractUIC packages) originate outside this project's
