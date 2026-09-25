@@ -1,10 +1,10 @@
 // About AbstractObserver: the shared ui-kit About dialog, fed with this app's
 // build-time version and the versions the connected gateway reports.
-import { appIdentity, type AppIdentity } from "@abstractframework/ui-kit";
+import { appIdentity, gatewayVersionRows, type AboutRow, type AppIdentity } from "@abstractframework/ui-kit";
 
-import type { GatewayAbout, GatewayClient } from "../lib/gateway_client";
+import type { GatewayClient } from "../lib/gateway_client";
 
-export type AboutRow = [string, string];
+export type { AboutRow };
 
 /** The package.json version injected at build time (`__APP_VERSION__`).
  * Throws when the build did not define it: the About dialog never shows a
@@ -21,26 +21,15 @@ export function observer_identity(): AppIdentity {
   return appIdentity("abstractobserver", app_version());
 }
 
-/** Rows for the gateway half of the About dialog, in a stable order:
- * gateway, AbstractFramework on the gateway host, then every other package. */
-export function gateway_about_rows(about: GatewayAbout): AboutRow[] {
-  const rows: AboutRow[] = [["Gateway", `AbstractGateway ${String(about?.abstractgateway ?? "").trim() || "(version not reported)"}`]];
-  const framework = about?.abstractframework;
-  rows.push(["Gateway framework", framework ? `AbstractFramework ${framework}` : "AbstractFramework not installed on the gateway host"]);
-  const packages = about?.packages && typeof about.packages === "object" ? about.packages : {};
-  for (const name of Object.keys(packages).sort()) {
-    if (name === "abstractgateway" || name === "abstractframework") continue;
-    rows.push([name, String(packages[name])]);
-  }
-  return rows;
-}
-
-/** Fetch the gateway versions; on failure return ONE row that says why. */
+/** Fetch the gateway versions and format them with the kit's
+ * `gatewayVersionRows` (the same rows in every app). Never throws: on failure
+ * the result is ONE "Gateway: unavailable (<reason>)" row. */
 export async function load_gateway_about_rows(client: Pick<GatewayClient, "gateway_about">): Promise<AboutRow[]> {
+  let about: Awaited<ReturnType<GatewayClient["gateway_about"]>>;
   try {
-    return gateway_about_rows(await client.gateway_about());
+    about = await client.gateway_about();
   } catch (e) {
-    const reason = e instanceof Error ? e.message || e.name : String(e);
-    return [["Gateway", `unavailable (${reason})`]];
+    return gatewayVersionRows({ error: e instanceof Error ? e.message || e.name : String(e) });
   }
+  return gatewayVersionRows(about);
 }

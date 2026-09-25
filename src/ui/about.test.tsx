@@ -4,10 +4,22 @@ import { resolve } from "path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AfAboutDialog, AfTopBarActions } from "@abstractframework/ui-kit";
+import { AfAboutDialog, AfTopBarActions, gatewayVersionRows } from "@abstractframework/ui-kit";
 
 import { GatewayClient } from "../lib/gateway_client";
-import { app_version, gateway_about_rows, load_gateway_about_rows, observer_identity } from "./about";
+import { app_version, load_gateway_about_rows, observer_identity } from "./about";
+
+// Wrap the kit's formatter (behaviour unchanged) so the tests can prove the
+// gateway rows come from it and not from a local copy.
+vi.mock("@abstractframework/ui-kit", async (importOriginal) => {
+  const kit = await importOriginal<typeof import("@abstractframework/ui-kit")>();
+  return { ...kit, gatewayVersionRows: vi.fn(kit.gatewayVersionRows) };
+});
+
+/** A client whose `gateway_about` answers `body` (no network). */
+function answering(body: any) {
+  return { gateway_about: async () => body };
+}
 
 const PKG_VERSION: string = JSON.parse(readFileSync(resolve(__dirname, "../../package.json"), "utf8")).version;
 
@@ -41,23 +53,24 @@ describe("About AbstractObserver", () => {
     expect(html).not.toContain('role="dialog"');
   });
 
-  it("shows the app, framework, author, links and gateway rows", () => {
-    const extra = gateway_about_rows({
+  it("shows the app, framework, author, links and gateway rows", async () => {
+    const extra = await load_gateway_about_rows(answering({
       abstractframework: "0.3.3",
       abstractgateway: "0.4.4",
       packages: { abstractgateway: "0.4.4", abstractruntime: "0.4.36", abstractcore: "2.15.3" },
-    });
+    }));
     const html = unescape(
       renderToStaticMarkup(<AfAboutDialog open onClose={() => {}} identity={observer_identity()} extraRows={extra} />)
     );
     expect(html).toContain('role="dialog"');
     expect(html).toContain("About AbstractObserver");
     expect(html).toContain(`AbstractObserver ${PKG_VERSION}`);
-    expect(html).toContain("AbstractFramework — https://abstractframework.ai");
+    expect(html).toContain('AbstractFramework — <a class="af-about__link" href="https://abstractframework.ai"');
     expect(html).toContain("Laurent-Philippe Albou, PhD (2023-2026)");
 
     const links = [...html.matchAll(/<a [^>]*href="(https?:[^"]+)"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/g)].map((m) => m[1]);
     expect(links).toEqual([
+      "https://abstractframework.ai",
       "https://abstractframework.ai/observer",
       "https://github.com/lpalbou/AbstractObserver",
       "https://github.com/lpalbou/AbstractObserver#readme",
@@ -68,16 +81,31 @@ describe("About AbstractObserver", () => {
     expect(html).toContain("AbstractGateway 0.4.4");
     expect(html).toContain("AbstractFramework 0.3.3");
     // Remaining packages sorted, the gateway not listed twice.
-    expect(html.indexOf("abstractcore")).toBeLessThan(html.indexOf("abstractruntime"));
-    expect(html).not.toContain(">abstractgateway<");
+    expect(extra).toEqual([
+      ["Gateway", "AbstractGateway 0.4.4"],
+      ["Gateway framework", "AbstractFramework 0.3.3"],
+      ["Gateway package abstractcore", "2.15.3"],
+      ["Gateway package abstractruntime", "0.4.36"],
+    ]);
+    expect(html).toContain("Gateway package abstractcore");
+    expect(html).not.toContain("Gateway package abstractgateway");
   });
 
-  it("says when AbstractFramework is not installed on the gateway host", () => {
-    const rows = gateway_about_rows({ abstractframework: null, abstractgateway: "0.4.4", packages: {} });
+  it("says when AbstractFramework is not installed on the gateway host", async () => {
+    const rows = await load_gateway_about_rows(answering({ abstractframework: null, abstractgateway: "0.4.4", packages: { abstractvoice: null } }));
     expect(rows).toEqual([
       ["Gateway", "AbstractGateway 0.4.4"],
-      ["Gateway framework", "AbstractFramework not installed on the gateway host"],
+      ["Gateway framework", "not installed on the gateway host"],
     ]);
+  });
+
+  it("formats the rows with the kit helper", async () => {
+    const body = { abstractframework: "0.3.3", abstractgateway: "0.4.4", packages: {} };
+    vi.mocked(gatewayVersionRows).mockClear();
+    await load_gateway_about_rows(answering(body));
+    expect(vi.mocked(gatewayVersionRows)).toHaveBeenCalledWith(body);
+    await load_gateway_about_rows({ gateway_about: async () => { throw new Error("HTTP 502"); } });
+    expect(vi.mocked(gatewayVersionRows)).toHaveBeenLastCalledWith({ error: "HTTP 502" });
   });
 
   it("fetches GET /api/gateway/about through the gateway client", async () => {
@@ -90,7 +118,10 @@ describe("About AbstractObserver", () => {
     const [url, init] = fetch_mock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://gw.example:8080/api/gateway/about");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer t");
-    expect(rows[0]).toEqual(["Gateway", "AbstractGateway 0.4.4"]);
+    expect(rows).toEqual([
+      ["Gateway", "AbstractGateway 0.4.4"],
+      ["Gateway framework", "AbstractFramework 0.3.3"],
+    ]);
   });
 
   it("shows one 'unavailable' row with the HTTP status", async () => {
