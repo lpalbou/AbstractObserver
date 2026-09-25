@@ -96,6 +96,7 @@ All pages share the same gateway connection settings.
 - **Launch**: start runs, schedule runs, bundle upload/reload
 - **Runtime → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
+- **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
 
 ## Documentation
 - Start here: `docs/getting-started.md`

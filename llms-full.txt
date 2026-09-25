@@ -176,6 +176,7 @@ All pages share the same gateway connection settings.
 - **Launch**: start runs, schedule runs, bundle upload/reload
 - **Runtime → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
+- **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
 
 ## Documentation
 - Start here: `docs/getting-started.md`
@@ -227,7 +228,10 @@ See `docs/development.md` for details.
     "type": "git",
     "url": "https://github.com/lpalbou/AbstractObserver.git"
   },
-  "homepage": "https://github.com/lpalbou/AbstractObserver#readme",
+  "homepage": "https://abstractframework.ai/observer",
+  "bugs": {
+    "url": "https://github.com/lpalbou/AbstractObserver/issues"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -249,7 +253,7 @@ See `docs/development.md` for details.
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@abstractframework/app-server": "file:../abstractuic/app-server",
+    "@abstractframework/app-server": "^0.1.9",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -556,6 +560,7 @@ process.on('SIGTERM', () => {
 
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 import { createGatewaySessionProxy } from "@abstractframework/app-server";
 
@@ -600,8 +605,20 @@ function gatewaySessionDevProxy(): Plugin {
   };
 }
 
+// The app version shown in the About dialog comes from package.json at build
+// time. A missing or empty version fails the build instead of shipping "unknown".
+function packageVersion(): string {
+  const pkg = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf8"));
+  const version = String(pkg?.version || "").trim();
+  if (!version) throw new Error("package.json has no version; the About dialog needs one");
+  return version;
+}
+
 export default defineConfig({
   plugins: [gatewaySessionDevProxy(), react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(packageVersion()),
+  },
   resolve: {
     alias: [
       // Workspace imports (AbstractUIC packages) originate outside this project's
@@ -655,6 +672,18 @@ export default defineConfig({
 ## CHANGELOG.md
 
 # Changelog
+
+## [Unreleased]
+
+### Added
+- **About dialog**: the info button in the top bar opens the shared
+  AbstractFramework About dialog, with the AbstractObserver version, links to
+  its website, source, documentation, issue tracker and feedback page, and the
+  versions the connected gateway reports (`GET /api/gateway/about`, read each
+  time the dialog opens). If the gateway does not answer, the dialog says
+  "Gateway: unavailable" with the reason.
+- `package.json` now lists the project website as `homepage` and the issue
+  tracker as `bugs`.
 
 ## [0.1.12] - 2026-09-23
 
@@ -3156,6 +3185,8 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/bundles/reload`
   - `POST /api/gateway/bundles/upload`
   - `DELETE /api/gateway/bundles/{bundle_id}?bundle_version=…&reload=true|false`
+- **About dialog** — public, read each time the dialog opens; if it fails the dialog shows "Gateway: unavailable" with the reason
+  - `GET /api/gateway/about` — `{ abstractframework, abstractgateway, packages }` versions on the gateway host
 - **Knowledge graph (Runtime → Memory)**
   - `POST /api/gateway/kg/query`
 - **Process manager** — moved to `abstractcontinuum` with the CI/CD dev

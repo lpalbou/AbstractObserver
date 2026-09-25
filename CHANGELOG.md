@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **About dialog**: the info button in the top bar opens the shared
+  AbstractFramework About dialog, with the AbstractObserver version, links to
+  its website, source, documentation, issue tracker and feedback page, and the
+  versions the connected gateway reports (`GET /api/gateway/about`, read each
+  time the dialog opens). If the gateway does not answer, the dialog says
+  "Gateway: unavailable" with the reason.
+- `package.json` now lists the project website as `homepage` and the issue
+  tracker as `bugs`.
+
 ## [0.1.12] - 2026-09-23
 
 This release consolidates the dated development entries below (2026-07-08 to

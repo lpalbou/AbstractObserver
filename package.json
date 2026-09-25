@@ -18,7 +18,10 @@
     "type": "git",
     "url": "https://github.com/lpalbou/AbstractObserver.git"
   },
-  "homepage": "https://github.com/lpalbou/AbstractObserver#readme",
+  "homepage": "https://abstractframework.ai/observer",
+  "bugs": {
+    "url": "https://github.com/lpalbou/AbstractObserver/issues"
+  },
   "publishConfig": {
     "access": "public"
   },
