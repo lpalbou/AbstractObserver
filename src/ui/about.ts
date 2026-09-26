@@ -29,7 +29,7 @@ export async function load_gateway_about_rows(client: Pick<GatewayClient, "gatew
   try {
     about = await client.gateway_about();
   } catch (e) {
-    return gatewayVersionRows({ error: e instanceof Error ? e.message || e.name : String(e) });
+    return gatewayVersionRows(null, e instanceof Error ? e.message || e.name : String(e));
   }
   return gatewayVersionRows(about);
 }

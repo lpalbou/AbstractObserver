@@ -105,7 +105,7 @@ describe("About AbstractObserver", () => {
     await load_gateway_about_rows(answering(body));
     expect(vi.mocked(gatewayVersionRows)).toHaveBeenCalledWith(body);
     await load_gateway_about_rows({ gateway_about: async () => { throw new Error("HTTP 502"); } });
-    expect(vi.mocked(gatewayVersionRows)).toHaveBeenLastCalledWith({ error: "HTTP 502" });
+    expect(vi.mocked(gatewayVersionRows)).toHaveBeenLastCalledWith(null, "HTTP 502");
   });
 
   it("fetches GET /api/gateway/about through the gateway client", async () => {
