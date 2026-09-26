@@ -72,7 +72,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.1.12 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.1.13 -- abstractobserver
 ```
 
 ### CLI configuration

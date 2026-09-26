@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.13] - 2026-09-26
 
 ### Added
 - **About dialog**: the info button in the top bar opens the shared
@@ -11,6 +11,10 @@
   "Gateway: unavailable" with the reason.
 - `package.json` now lists the project website as `homepage` and the issue
   tracker as `bugs`.
+
+### Changed
+- Requires `@abstractframework/app-server` 0.1.10 or newer (was 0.1.9), so the
+  forwarding-header protection below is always present.
 
 ### Security
 - With `@abstractframework/app-server` 0.1.10 or newer, the sign-in proxy
