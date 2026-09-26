@@ -51,8 +51,8 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `GET /api/gateway/about` — `{ abstractframework, abstractgateway, packages }` versions on the gateway host
 - **Knowledge graph (Runtime → Memory)**
   - `POST /api/gateway/kg/query`
-- **Process manager** — moved to `abstractcontinuum` with the CI/CD dev
-  lane (2026-07-12 split); the observer no longer has a Processes page.
+- **Process manager** — part of AbstractContinuum (`@abstractframework/continuum`)
+  with the CI/CD dev lane; AbstractObserver has no Processes page.
 - **Runtime explorer, artifacts, and audit tail**
   - `GET /api/gateway/runs?limit=…&status=…&workflow_id=…&session_id=…&root_only=true|false` — loaded run page used by Runtime Activity queues. Activity counts are displayed as loaded-scope counts unless a future Gateway run-stats endpoint provides exact global queue totals.
   - `GET /api/gateway/artifacts/search?scope=all|session|run&session_id=…&run_id=…&artifact_kind=…&semantic_kind=…&render_kind=…&modality=…&content_type=…&query=…&tags=…&created_after=…&order_by=…&order=…&include_stats=true&limit=…&offset=…` — canonical artifact search used by the Runtime tab. Rows include legacy fields plus `artifact_envelope_v1`; stats/facets are used for exact filter chips and totals.

@@ -15,6 +15,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
 - **Understand Runtime Activity vs Artifact Explorer vs Observe** → `architecture.md` → "Runtime Boundary"
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
+- **See which version I run (About dialog)** → `faq.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
 - **Contribute changes** → `../CONTRIBUTING.md`
 
@@ -23,11 +24,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
 
-## Reports
-- `reports/2026-07-13_redesign_program.md` — the full redesign program
-  report (three build waves + three adversary folds; what changed, what
-  was verified, what is deferred by name)
-
+## Artifacts, server files and local files
 Observer’s Runtime views work with Gateway/Runtime artifact inventories, not
 with browser-local files or arbitrary server filesystem browsing:
 
@@ -43,7 +40,7 @@ with browser-local files or arbitrary server filesystem browsing:
 ## Operate and extend
 - `configuration.md` — CLI env vars, UI settings, deployment patterns
 - `security.md` — trust boundaries (process manager, remote tool worker, cross-origin)
-- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL)
+- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL, About shows the gateway unavailable)
 - `development.md` — run from source, tests, build (includes workspace dependency notes)
 
 ## Project meta
@@ -51,4 +48,5 @@ with browser-local files or arbitrary server filesystem browsing:
 - Contributing: `../CONTRIBUTING.md`
 - Security policy (vulnerability reporting): `../SECURITY.md`
 - Acknowledgments: `../ACKNOWLEDGMENTS.md`
+- Code of conduct: `../CODE_OF_CONDUCT.md`
 - License: `../LICENSE`

@@ -1,6 +1,6 @@
 # FAQ
 
-> Last updated: 2026-02-09
+> Last updated: 2026-09-26
 
 ## What is AbstractObserver?
 AbstractObserver is a **gateway-only** observability UI (Web/PWA) for AbstractFramework runs:
@@ -52,13 +52,28 @@ The packaged CLI reads:
 Evidence: `bin/cli.js`.
 
 ## Does the CLI proxy `/api` to my gateway?
-No. The CLI is a static server for `dist/` (it does not forward `/api`).
+Yes, once you are signed in. The CLI serves `dist/` and mounts the shared
+`@abstractframework/app-server` session proxy: after you sign in from the
+connection dialog, same-origin `/api/...` calls go to the configured gateway
+(`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`) with the
+session attached server-side. Without a session the proxy answers
+`401 Gateway sign-in required`.
 
-If you leave **Gateway URL** blank, the UI will call `/api/...` on the UI origin. That only works when:
-- you are in dev (`npm run dev`), because Vite proxies `/api` (see `vite.config.ts`), or
-- you deploy behind a reverse proxy that routes `/api` to the gateway.
+If you leave **Gateway URL** blank, the UI calls `/api/...` on the UI origin:
+the packaged CLI, the dev server (`npm run dev`, which mounts the same proxy)
+or your own reverse proxy that routes `/api` to the gateway.
 
-Evidence: `bin/cli.js` (static server), `vite.config.ts` (dev proxy), `src/lib/gateway_client.ts` (fetches `/api/...` when `base_url=""`).
+Evidence: `bin/cli.js` (static server + session proxy), `vite.config.ts` (dev proxy), `src/lib/gateway_client.ts` (fetches `/api/...` when `base_url=""`).
+
+## Which version am I running?
+Open **About** (the info button in the top bar). It shows the AbstractObserver
+version (fixed at build time from `package.json`), links to the website,
+source, documentation, issue tracker and feedback page, and the versions the
+connected gateway reports. The gateway versions are read from
+`GET /api/gateway/about` each time the dialog opens: "Gateway: checking…"
+while the answer is on its way, then one row each for AbstractGateway,
+AbstractFramework and the gateway's packages, or "Gateway: unavailable (…)"
+with the reason. See `troubleshooting.md`.
 
 ## What should I put in “Gateway URL”?
 Usually: your gateway base URL (e.g. `http://localhost:8080` for local dev).
@@ -97,9 +112,9 @@ Evidence: `src/lib/gateway_client.ts` and `src/lib/sse_parser.ts`. Diagram: `arc
 It depends on which UI pages/features you use.
 For the authoritative list grouped by feature, see `api.md` (grounded in `src/lib/gateway_client.ts`).
 
-## Where did Backlog / Inbox / Processes go?
+## Where are Backlog / Inbox / Processes?
 
-Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+They live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
 
 ## What is the “Remote tool worker (MCP)”?
@@ -134,7 +149,7 @@ Evidence:
 
 ## How do I enable Backlog or Inbox triage?
 
-Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
 
 ## Is this a PWA? Does it work offline?

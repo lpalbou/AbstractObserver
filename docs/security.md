@@ -17,14 +17,21 @@ AbstractFlow and the gateway console use), backed by the
 exchanged server-side for an app-scoped browser session; the session id is
 kept in an HTTP-only app cookie, writes require a CSRF token, and the raw
 token is never persisted (settings strip `auth_token` when saving). The
-session is origin-wide for this app. (The entity app is its own deployment
-since 2026-07-12 — see AbstractEntity — with its own session cookies.)
+session is origin-wide for this app. The entity app, AbstractEntity, is a
+separate deployment with its own session cookies.
+
+With `@abstractframework/app-server` 0.1.10 or newer, every request the proxy
+sends to the Gateway carries `X-Forwarded-For` set to the address of the
+browser's connection (browser-supplied `X-Forwarded-For`, `Forwarded` and
+`X-Real-IP` headers are dropped) and the marker
+`X-AbstractFramework-App-Proxy: abstractobserver`. The Gateway uses them to
+tell whether the browser runs on the Gateway's own machine. A connection whose
+address cannot be determined is refused with HTTP 400.
 
 A direct bearer-token mode remains for local development (Settings →
-Advanced). Bearer credentials live in MEMORY for the tab's lifetime only —
-tokens never rest client-side (framework ruling, 2026-07-12): reloading a
-direct-dev tab re-prompts, and builds that previously persisted a token
-scrub it on next load. The optional MCP worker token (`worker_token`) is
+Advanced). Bearer credentials live in memory for the tab's lifetime only and
+never rest client-side: reloading a direct-dev tab re-prompts, and a token
+left in browser storage by an older build is removed on load. The optional MCP worker token (`worker_token`) is
 still stored in browser settings.
 
 When Observer is served from a non-local hostname, the server-configured
@@ -47,9 +54,9 @@ If you use voice push-to-talk (PTT) or TTS:
 
 Evidence: `src/ui/use_gateway_voice.ts` and related endpoints in `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`).
 
-## Process manager (moved)
+## Process manager
 
-Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
 
 ## Remote tool worker (high trust)

@@ -10,10 +10,9 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
 - (Optional) **Voice** in run chat: gateway-based TTS + push-to-talk transcription (`src/ui/use_gateway_voice.ts`)
 
-## Watching entities (the entity app moved)
+## Watching entities (the entity app)
 
-The **entity app** (memory graph + visits UI, formerly `/entity.html`)
-lives in its own package since 2026-07-12:
+The **entity app** (memory graph + visits UI) is its own package,
 [AbstractEntity](https://github.com/lpalbou/AbstractEntity)
 (`npx @abstractframework/entity`, default port `3007`). The observer still
 *watches* entities — the Board's entities strip reads
@@ -113,6 +112,7 @@ All pages share the same gateway connection settings.
 - Contributing: `CONTRIBUTING.md`
 - Security policy (vulnerability reporting): `SECURITY.md`
 - Acknowledgments: `ACKNOWLEDGMENTS.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
 
 ## Development (from source)
 ```bash

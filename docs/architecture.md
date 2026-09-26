@@ -1,13 +1,13 @@
 # AbstractObserver — Architecture
 
-> Last updated: 2026-09-23
+> Last updated: 2026-09-26
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
 - It renders state by fetching + streaming a **durable run ledger** from an AbstractGateway.
 - It can submit **durable commands** back to the gateway.
 
-The implementation is intentionally simple: a static SPA + typed HTTP client, served by a small Node.js CLI that also hosts the app-origin Gateway session proxy from `@abstractframework/app-server`.
+The implementation is intentionally simple: a static SPA + typed HTTP client, served by a small Node.js CLI that also hosts the app-origin Gateway session proxy from `@abstractframework/app-server`. With app-server 0.1.10 or newer, that proxy sends the browser's connection address (`X-Forwarded-For`) and `X-AbstractFramework-App-Proxy: abstractobserver` with every Gateway-bound request (see `security.md`).
 
 ## Ecosystem context (AbstractFramework)
 AbstractObserver is part of the **AbstractFramework** ecosystem:
@@ -24,7 +24,8 @@ flowchart LR
   S[Static UI server<br/><code>bin/cli.js</code>] -->|serves dist/ + SPA fallback| B
   B -->|same-origin /api + session cookie| P[Gateway session proxy<br/><code>@abstractframework/app-server</code>]
   S -->|mounts| P
-  P -->|HTTP fetch + SSE, bearer attached server-side| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  P -->|HTTP fetch + SSE, session attached server-side| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  B -->|About dialog: GET /api/gateway/about<br/><code>src/ui/about.ts</code>| P
   B -.->|direct mode, local dev| G
   G -->|backed by| R[AbstractRuntime<br/>durable runs + append-only ledger]
   B -->|optional JSON-RPC over HTTP| W[MCP tool worker<br/><code>src/lib/mcp_worker_client.ts</code>]
@@ -65,10 +66,10 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
-- **Backlog / Inbox / Processes**: Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+- **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
 ## Observe projections
-The raw ledger remains the authoritative record, but the default Observe experience now projects it into human-readable views:
+The raw ledger remains the authoritative record, but the default Observe experience projects it into human-readable views:
 - a run tree grouped by status, workflow, or session, with subruns nested under their parent run;
 - a run overview showing start time, finish time when available, live duration, ledger volume, subrun count, provider-call count, token totals, waits, and generated summaries;
 - a timeline that translates ledger records into requested work and observed outcomes;

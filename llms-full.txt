@@ -21,7 +21,7 @@ This file intentionally embeds docs and small, high-signal project files. For la
 This repository is UI-only:
 - The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and proxies `/api` to Gateway after hosted browser-session sign-in, using the shared session proxy from the `@abstractframework/app-server` runtime dependency.
 - The browser talks to same-origin `/api` in hosted mode; direct Gateway URLs remain available for local development via `src/lib/gateway_client.ts` (treat this file as the source of truth for HTTP endpoints and request shapes).
-- Hosted sign-in uses Gateway URL + user + token only to create an app-scoped browser session. Settings persistence strips Gateway bearer tokens.
+- Hosted sign-in uses Gateway URL + user + token only to create an app-scoped browser session. Settings persistence strips Gateway bearer tokens. With `@abstractframework/app-server` 0.1.10 or newer the proxy sends the browser's connection address as `X-Forwarded-For` and `X-AbstractFramework-App-Proxy: abstractobserver` to the Gateway.
 - On non-local hosted UI hostnames, the server-configured Gateway URL is authoritative; browser-supplied Gateway URL changes are rejected unless `ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is enabled behind access control. Forwarded host headers are trusted only when `ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` or `ABSTRACTGATEWAY_TRUST_PROXY_HEADERS=1`.
 
 ## Quickstart
@@ -39,14 +39,14 @@ Notes:
 ## Documentation (start here)
 - [README](README.md): Install and quickstart
 - [Getting started](docs/getting-started.md): Run the UI and connect to a gateway
-- [FAQ](docs/faq.md): Common questions (grounded in code)
+- [FAQ](docs/faq.md): Common questions (grounded in code), including the CLI `/api` session proxy and the About dialog
 - [Docs index](docs/README.md): What to read next
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): CLI env vars, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
-- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes
+- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker)
 
 ## Key entrypoints (code)
 - [CLI server](bin/cli.js): static server (`PORT`, `HOST`, `ABSTRACTOBSERVER_GATEWAY_URL`), SPA fallback, `@abstractframework/app-server` session proxy, optional GPU widget config injection
@@ -71,6 +71,7 @@ Notes:
 - [Contributing](CONTRIBUTING.md): How to develop and submit changes
 - [Security policy](SECURITY.md): Responsible vulnerability reporting
 - [Acknowledgments](ACKNOWLEDGMENTS.md): Credits
+- [Code of conduct](CODE_OF_CONDUCT.md): Conduct expectations and reporting
 - [License](LICENSE): MIT license
 
 ---
@@ -90,10 +91,9 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
 - (Optional) **Voice** in run chat: gateway-based TTS + push-to-talk transcription (`src/ui/use_gateway_voice.ts`)
 
-## Watching entities (the entity app moved)
+## Watching entities (the entity app)
 
-The **entity app** (memory graph + visits UI, formerly `/entity.html`)
-lives in its own package since 2026-07-12:
+The **entity app** (memory graph + visits UI) is its own package,
 [AbstractEntity](https://github.com/lpalbou/AbstractEntity)
 (`npx @abstractframework/entity`, default port `3007`). The observer still
 *watches* entities — the Board's entities strip reads
@@ -193,6 +193,7 @@ All pages share the same gateway connection settings.
 - Contributing: `CONTRIBUTING.md`
 - Security policy (vulnerability reporting): `SECURITY.md`
 - Acknowledgments: `ACKNOWLEDGMENTS.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
 
 ## Development (from source)
 ```bash
@@ -684,6 +685,17 @@ export default defineConfig({
   "Gateway: unavailable" with the reason.
 - `package.json` now lists the project website as `homepage` and the issue
   tracker as `bugs`.
+
+### Security
+- With `@abstractframework/app-server` 0.1.10 or newer, the sign-in proxy
+  sends the browser's connection address as `X-Forwarded-For` (browser-supplied
+  forwarding headers are dropped) and the marker
+  `X-AbstractFramework-App-Proxy: abstractobserver` on every gateway-bound
+  request; a connection whose address is unknown is refused with HTTP 400.
+
+### Documentation
+- The FAQ and troubleshooting pages describe the packaged CLI's `/api` session
+  proxy and the About dialog.
 
 ## [0.1.12] - 2026-09-23
 
@@ -2711,6 +2723,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
 - **Understand Runtime Activity vs Artifact Explorer vs Observe** → `architecture.md` → "Runtime Boundary"
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
+- **See which version I run (About dialog)** → `faq.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
 - **Contribute changes** → `../CONTRIBUTING.md`
 
@@ -2719,11 +2732,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
 
-## Reports
-- `reports/2026-07-13_redesign_program.md` — the full redesign program
-  report (three build waves + three adversary folds; what changed, what
-  was verified, what is deferred by name)
-
+## Artifacts, server files and local files
 Observer’s Runtime views work with Gateway/Runtime artifact inventories, not
 with browser-local files or arbitrary server filesystem browsing:
 
@@ -2739,7 +2748,7 @@ with browser-local files or arbitrary server filesystem browsing:
 ## Operate and extend
 - `configuration.md` — CLI env vars, UI settings, deployment patterns
 - `security.md` — trust boundaries (process manager, remote tool worker, cross-origin)
-- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL)
+- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL, About shows the gateway unavailable)
 - `development.md` — run from source, tests, build (includes workspace dependency notes)
 
 ## Project meta
@@ -2747,6 +2756,7 @@ with browser-local files or arbitrary server filesystem browsing:
 - Contributing: `../CONTRIBUTING.md`
 - Security policy (vulnerability reporting): `../SECURITY.md`
 - Acknowledgments: `../ACKNOWLEDGMENTS.md`
+- Code of conduct: `../CODE_OF_CONDUCT.md`
 - License: `../LICENSE`
 
 ---
@@ -2835,7 +2845,7 @@ The UI uses `POST /api/gateway/runs/start` and `POST /api/gateway/runs/schedule`
 
 # FAQ
 
-> Last updated: 2026-02-09
+> Last updated: 2026-09-26
 
 ## What is AbstractObserver?
 AbstractObserver is a **gateway-only** observability UI (Web/PWA) for AbstractFramework runs:
@@ -2887,13 +2897,28 @@ The packaged CLI reads:
 Evidence: `bin/cli.js`.
 
 ## Does the CLI proxy `/api` to my gateway?
-No. The CLI is a static server for `dist/` (it does not forward `/api`).
+Yes, once you are signed in. The CLI serves `dist/` and mounts the shared
+`@abstractframework/app-server` session proxy: after you sign in from the
+connection dialog, same-origin `/api/...` calls go to the configured gateway
+(`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`) with the
+session attached server-side. Without a session the proxy answers
+`401 Gateway sign-in required`.
 
-If you leave **Gateway URL** blank, the UI will call `/api/...` on the UI origin. That only works when:
-- you are in dev (`npm run dev`), because Vite proxies `/api` (see `vite.config.ts`), or
-- you deploy behind a reverse proxy that routes `/api` to the gateway.
+If you leave **Gateway URL** blank, the UI calls `/api/...` on the UI origin:
+the packaged CLI, the dev server (`npm run dev`, which mounts the same proxy)
+or your own reverse proxy that routes `/api` to the gateway.
 
-Evidence: `bin/cli.js` (static server), `vite.config.ts` (dev proxy), `src/lib/gateway_client.ts` (fetches `/api/...` when `base_url=""`).
+Evidence: `bin/cli.js` (static server + session proxy), `vite.config.ts` (dev proxy), `src/lib/gateway_client.ts` (fetches `/api/...` when `base_url=""`).
+
+## Which version am I running?
+Open **About** (the info button in the top bar). It shows the AbstractObserver
+version (fixed at build time from `package.json`), links to the website,
+source, documentation, issue tracker and feedback page, and the versions the
+connected gateway reports. The gateway versions are read from
+`GET /api/gateway/about` each time the dialog opens: "Gateway: checking…"
+while the answer is on its way, then one row each for AbstractGateway,
+AbstractFramework and the gateway's packages, or "Gateway: unavailable (…)"
+with the reason. See `troubleshooting.md`.
 
 ## What should I put in “Gateway URL”?
 Usually: your gateway base URL (e.g. `http://localhost:8080` for local dev).
@@ -2932,9 +2957,9 @@ Evidence: `src/lib/gateway_client.ts` and `src/lib/sse_parser.ts`. Diagram: `arc
 It depends on which UI pages/features you use.
 For the authoritative list grouped by feature, see `api.md` (grounded in `src/lib/gateway_client.ts`).
 
-## Where did Backlog / Inbox / Processes go?
+## Where are Backlog / Inbox / Processes?
 
-Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+They live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
 
 ## What is the “Remote tool worker (MCP)”?
@@ -2969,7 +2994,7 @@ Evidence:
 
 ## How do I enable Backlog or Inbox triage?
 
-Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
 
 ## Is this a PWA? Does it work offline?
@@ -3003,14 +3028,14 @@ Evidence: `vite.config.ts`. See `development.md`.
 
 # AbstractObserver — Architecture
 
-> Last updated: 2026-09-23
+> Last updated: 2026-09-26
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
 - It renders state by fetching + streaming a **durable run ledger** from an AbstractGateway.
 - It can submit **durable commands** back to the gateway.
 
-The implementation is intentionally simple: a static SPA + typed HTTP client, served by a small Node.js CLI that also hosts the app-origin Gateway session proxy from `@abstractframework/app-server`.
+The implementation is intentionally simple: a static SPA + typed HTTP client, served by a small Node.js CLI that also hosts the app-origin Gateway session proxy from `@abstractframework/app-server`. With app-server 0.1.10 or newer, that proxy sends the browser's connection address (`X-Forwarded-For`) and `X-AbstractFramework-App-Proxy: abstractobserver` with every Gateway-bound request (see `security.md`).
 
 ## Ecosystem context (AbstractFramework)
 AbstractObserver is part of the **AbstractFramework** ecosystem:
@@ -3027,7 +3052,8 @@ flowchart LR
   S[Static UI server<br/><code>bin/cli.js</code>] -->|serves dist/ + SPA fallback| B
   B -->|same-origin /api + session cookie| P[Gateway session proxy<br/><code>@abstractframework/app-server</code>]
   S -->|mounts| P
-  P -->|HTTP fetch + SSE, bearer attached server-side| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  P -->|HTTP fetch + SSE, session attached server-side| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
+  B -->|About dialog: GET /api/gateway/about<br/><code>src/ui/about.ts</code>| P
   B -.->|direct mode, local dev| G
   G -->|backed by| R[AbstractRuntime<br/>durable runs + append-only ledger]
   B -->|optional JSON-RPC over HTTP| W[MCP tool worker<br/><code>src/lib/mcp_worker_client.ts</code>]
@@ -3068,10 +3094,10 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
-- **Backlog / Inbox / Processes**: Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+- **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
 ## Observe projections
-The raw ledger remains the authoritative record, but the default Observe experience now projects it into human-readable views:
+The raw ledger remains the authoritative record, but the default Observe experience projects it into human-readable views:
 - a run tree grouped by status, workflow, or session, with subruns nested under their parent run;
 - a run overview showing start time, finish time when available, live duration, ledger volume, subrun count, provider-call count, token totals, waits, and generated summaries;
 - a timeline that translates ledger records into requested work and observed outcomes;
@@ -3189,8 +3215,8 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `GET /api/gateway/about` — `{ abstractframework, abstractgateway, packages }` versions on the gateway host
 - **Knowledge graph (Runtime → Memory)**
   - `POST /api/gateway/kg/query`
-- **Process manager** — moved to `abstractcontinuum` with the CI/CD dev
-  lane (2026-07-12 split); the observer no longer has a Processes page.
+- **Process manager** — part of AbstractContinuum (`@abstractframework/continuum`)
+  with the CI/CD dev lane; AbstractObserver has no Processes page.
 - **Runtime explorer, artifacts, and audit tail**
   - `GET /api/gateway/runs?limit=…&status=…&workflow_id=…&session_id=…&root_only=true|false` — loaded run page used by Runtime Activity queues. Activity counts are displayed as loaded-scope counts unless a future Gateway run-stats endpoint provides exact global queue totals.
   - `GET /api/gateway/artifacts/search?scope=all|session|run&session_id=…&run_id=…&artifact_kind=…&semantic_kind=…&render_kind=…&modality=…&content_type=…&query=…&tags=…&created_after=…&order_by=…&order=…&include_stats=true&limit=…&offset=…` — canonical artifact search used by the Runtime tab. Rows include legacy fields plus `artifact_envelope_v1`; stats/facets are used for exact filter chips and totals.
@@ -3277,10 +3303,12 @@ the shared `@abstractframework/app-server` package, a runtime dependency.
   loopback clients only). Defaults to the parent of the package directory.
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
 - `ABSTRACTOBSERVER_ENTITY_APP_URL` — where the entity app lives (its own
-  package since 2026-07-12: `@abstractframework/entity`, default port
-  `3007`). Injected as `__ABSTRACT_UI_CONFIG__.entity_app_url`; drives the
-  "Entities ↗" links and makes `/entity.html` a redirect for pre-split
-  bookmarks. Unset: the UI falls back to `http://127.0.0.1:3007`.
+  package, `@abstractframework/entity`, default port `3007`). Injected as
+  `__ABSTRACT_UI_CONFIG__.entity_app_url`; drives the "Entities ↗" links and
+  makes `/entity.html` redirect to the entity app, so old `/entity.html`
+  bookmarks keep working. Unset: the UI links fall back to
+  `http://127.0.0.1:3007`, and `/entity.html` answers 404 with a pointer to
+  the entity app.
 
 Examples:
 ```bash
@@ -3420,14 +3448,21 @@ AbstractFlow and the gateway console use), backed by the
 exchanged server-side for an app-scoped browser session; the session id is
 kept in an HTTP-only app cookie, writes require a CSRF token, and the raw
 token is never persisted (settings strip `auth_token` when saving). The
-session is origin-wide for this app. (The entity app is its own deployment
-since 2026-07-12 — see AbstractEntity — with its own session cookies.)
+session is origin-wide for this app. The entity app, AbstractEntity, is a
+separate deployment with its own session cookies.
+
+With `@abstractframework/app-server` 0.1.10 or newer, every request the proxy
+sends to the Gateway carries `X-Forwarded-For` set to the address of the
+browser's connection (browser-supplied `X-Forwarded-For`, `Forwarded` and
+`X-Real-IP` headers are dropped) and the marker
+`X-AbstractFramework-App-Proxy: abstractobserver`. The Gateway uses them to
+tell whether the browser runs on the Gateway's own machine. A connection whose
+address cannot be determined is refused with HTTP 400.
 
 A direct bearer-token mode remains for local development (Settings →
-Advanced). Bearer credentials live in MEMORY for the tab's lifetime only —
-tokens never rest client-side (framework ruling, 2026-07-12): reloading a
-direct-dev tab re-prompts, and builds that previously persisted a token
-scrub it on next load. The optional MCP worker token (`worker_token`) is
+Advanced). Bearer credentials live in memory for the tab's lifetime only and
+never rest client-side: reloading a direct-dev tab re-prompts, and a token
+left in browser storage by an older build is removed on load. The optional MCP worker token (`worker_token`) is
 still stored in browser settings.
 
 When Observer is served from a non-local hostname, the server-configured
@@ -3450,9 +3485,9 @@ If you use voice push-to-talk (PTT) or TTS:
 
 Evidence: `src/ui/use_gateway_voice.ts` and related endpoints in `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`).
 
-## Process manager (moved)
+## Process manager
 
-Moved to the `abstractcontinuum` repo (2026-07-12 split): the observer observes and discusses; continuum develops and deploys.
+These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
 
 ## Remote tool worker (high trust)
@@ -3512,10 +3547,19 @@ Evidence: loopback guard in `on_discover_gateway()` in `src/ui/app.tsx`.
 Use same-origin deployment (recommended) or configure CORS on the gateway for your UI origin.
 See `configuration.md`.
 
-## Blank Gateway URL + CLI server shows 404s under /api
-The packaged CLI (`bin/cli.js`) is a static server and does not proxy `/api`.
-- Set **Gateway URL** to your gateway base URL (e.g. `http://127.0.0.1:8080`), or
-- deploy behind a reverse proxy so the UI and gateway are same-origin and `/api` routes to the gateway.
+## Blank Gateway URL + CLI server answers 401 under /api
+The packaged CLI (`bin/cli.js`) proxies same-origin `/api/...` calls to its
+configured gateway only for a signed-in browser session; without one it
+answers `401 Gateway sign-in required`.
+- Sign in from the connection dialog (header badge), and
+- check that the server points at your gateway (`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`; see `configuration.md`).
+
+## About shows "Gateway: unavailable (…)"
+The About dialog could not read `GET /api/gateway/about`; the reason in
+brackets says why. An HTTP 404 means the gateway does not serve the About
+route: upgrade it to a version with `GET /about`. A sign-in or network error
+means the session or the gateway is gone: sign in again and check the gateway
+is running. The rest of the UI is unaffected. See `faq.md` → "Which version am I running?".
 
 ## Runtime → Memory shows counts but the graph canvas is blank
 If Runtime → Memory shows a snapshot count (assertions/nodes/edges) but the canvas looks empty:

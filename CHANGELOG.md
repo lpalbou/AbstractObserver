@@ -12,6 +12,17 @@
 - `package.json` now lists the project website as `homepage` and the issue
   tracker as `bugs`.
 
+### Security
+- With `@abstractframework/app-server` 0.1.10 or newer, the sign-in proxy
+  sends the browser's connection address as `X-Forwarded-For` (browser-supplied
+  forwarding headers are dropped) and the marker
+  `X-AbstractFramework-App-Proxy: abstractobserver` on every gateway-bound
+  request; a connection whose address is unknown is refused with HTTP 400.
+
+### Documentation
+- The FAQ and troubleshooting pages describe the packaged CLI's `/api` session
+  proxy and the About dialog.
+
 ## [0.1.12] - 2026-09-23
 
 This release consolidates the dated development entries below (2026-07-08 to

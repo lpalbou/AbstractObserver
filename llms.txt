@@ -5,7 +5,7 @@
 This repository is UI-only:
 - The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and proxies `/api` to Gateway after hosted browser-session sign-in, using the shared session proxy from the `@abstractframework/app-server` runtime dependency.
 - The browser talks to same-origin `/api` in hosted mode; direct Gateway URLs remain available for local development via `src/lib/gateway_client.ts` (treat this file as the source of truth for HTTP endpoints and request shapes).
-- Hosted sign-in uses Gateway URL + user + token only to create an app-scoped browser session. Settings persistence strips Gateway bearer tokens.
+- Hosted sign-in uses Gateway URL + user + token only to create an app-scoped browser session. Settings persistence strips Gateway bearer tokens. With `@abstractframework/app-server` 0.1.10 or newer the proxy sends the browser's connection address as `X-Forwarded-For` and `X-AbstractFramework-App-Proxy: abstractobserver` to the Gateway.
 - On non-local hosted UI hostnames, the server-configured Gateway URL is authoritative; browser-supplied Gateway URL changes are rejected unless `ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is enabled behind access control. Forwarded host headers are trusted only when `ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` or `ABSTRACTGATEWAY_TRUST_PROXY_HEADERS=1`.
 
 ## Quickstart
@@ -23,14 +23,14 @@ Notes:
 ## Documentation (start here)
 - [README](README.md): Install and quickstart
 - [Getting started](docs/getting-started.md): Run the UI and connect to a gateway
-- [FAQ](docs/faq.md): Common questions (grounded in code)
+- [FAQ](docs/faq.md): Common questions (grounded in code), including the CLI `/api` session proxy and the About dialog
 - [Docs index](docs/README.md): What to read next
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): CLI env vars, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
-- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes
+- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker)
 
 ## Key entrypoints (code)
 - [CLI server](bin/cli.js): static server (`PORT`, `HOST`, `ABSTRACTOBSERVER_GATEWAY_URL`), SPA fallback, `@abstractframework/app-server` session proxy, optional GPU widget config injection
@@ -55,4 +55,5 @@ Notes:
 - [Contributing](CONTRIBUTING.md): How to develop and submit changes
 - [Security policy](SECURITY.md): Responsible vulnerability reporting
 - [Acknowledgments](ACKNOWLEDGMENTS.md): Credits
+- [Code of conduct](CODE_OF_CONDUCT.md): Conduct expectations and reporting
 - [License](LICENSE): MIT license

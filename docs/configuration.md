@@ -22,10 +22,12 @@ the shared `@abstractframework/app-server` package, a runtime dependency.
   loopback clients only). Defaults to the parent of the package directory.
 - `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
 - `ABSTRACTOBSERVER_ENTITY_APP_URL` — where the entity app lives (its own
-  package since 2026-07-12: `@abstractframework/entity`, default port
-  `3007`). Injected as `__ABSTRACT_UI_CONFIG__.entity_app_url`; drives the
-  "Entities ↗" links and makes `/entity.html` a redirect for pre-split
-  bookmarks. Unset: the UI falls back to `http://127.0.0.1:3007`.
+  package, `@abstractframework/entity`, default port `3007`). Injected as
+  `__ABSTRACT_UI_CONFIG__.entity_app_url`; drives the "Entities ↗" links and
+  makes `/entity.html` redirect to the entity app, so old `/entity.html`
+  bookmarks keep working. Unset: the UI links fall back to
+  `http://127.0.0.1:3007`, and `/entity.html` answers 404 with a pointer to
+  the entity app.
 
 Examples:
 ```bash

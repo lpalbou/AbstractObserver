@@ -24,10 +24,19 @@ Evidence: loopback guard in `on_discover_gateway()` in `src/ui/app.tsx`.
 Use same-origin deployment (recommended) or configure CORS on the gateway for your UI origin.
 See `configuration.md`.
 
-## Blank Gateway URL + CLI server shows 404s under /api
-The packaged CLI (`bin/cli.js`) is a static server and does not proxy `/api`.
-- Set **Gateway URL** to your gateway base URL (e.g. `http://127.0.0.1:8080`), or
-- deploy behind a reverse proxy so the UI and gateway are same-origin and `/api` routes to the gateway.
+## Blank Gateway URL + CLI server answers 401 under /api
+The packaged CLI (`bin/cli.js`) proxies same-origin `/api/...` calls to its
+configured gateway only for a signed-in browser session; without one it
+answers `401 Gateway sign-in required`.
+- Sign in from the connection dialog (header badge), and
+- check that the server points at your gateway (`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`; see `configuration.md`).
+
+## About shows "Gateway: unavailable (…)"
+The About dialog could not read `GET /api/gateway/about`; the reason in
+brackets says why. An HTTP 404 means the gateway does not serve the About
+route: upgrade it to a version with `GET /about`. A sign-in or network error
+means the session or the gateway is gone: sign in again and check the gateway
+is running. The rest of the UI is unaffected. See `faq.md` → "Which version am I running?".
 
 ## Runtime → Memory shows counts but the graph canvas is blank
 If Runtime → Memory shows a snapshot count (assertions/nodes/edges) but the canvas looks empty:
