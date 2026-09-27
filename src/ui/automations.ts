@@ -426,6 +426,33 @@ export function automation_row_view(s: AutomationSummary, now_ms: number = Date.
   };
 }
 
+/**
+ * An automation's state as WORD then ICON ("Active ▶", "Paused ⏸"; operator
+ * 2026-09-28), everywhere the state shows. Words = the kit panel's
+ * `STATUS_LABELS` (not exported by ui-kit 0.1.13: kit addition requested so
+ * every client renders one label); icons = the kit's icon set.
+ */
+export const AUTOMATION_STATE_VIEW: Record<AutomationStatus, { label: string; icon: "playCircle" | "pause" | "check" | "error" | "inbox"; tone: string }> = {
+  active: { label: "Active", icon: "playCircle", tone: "info" },
+  paused: { label: "Paused", icon: "pause", tone: "warn" },
+  completed: { label: "Completed", icon: "check", tone: "muted" },
+  failed: { label: "Failed", icon: "error", tone: "danger" },
+  archived: { label: "Archived", icon: "inbox", tone: "muted" },
+};
+
+/**
+ * The occurrence a row-level Discuss forks at: the latest FINISHED one (the
+ * kit panel offers Discuss per finished occurrence; a running latest one is
+ * not discussable yet). Null when none has finished.
+ */
+export function discuss_index(s: AutomationSummary): number | null {
+  const last = s.last_occurrence;
+  if (!last) return null;
+  const finished = ["completed", "failed", "cancelled"].includes(String(last.status));
+  const index = finished ? last.index : last.index - 1;
+  return index >= 1 ? index : null;
+}
+
 export type RowAction = "pause" | "resume" | "run_now" | "edit" | "archive" | "discuss";
 export type LegacyAction = "legacy_pause" | "legacy_resume" | "legacy_run_now" | "open_run" | "recreate";
 
@@ -433,9 +460,8 @@ export type LegacyAction = "legacy_pause" | "legacy_resume" | "legacy_run_now" |
  * Discuss open the panel (they need a form / an occurrence). */
 export function automation_row_controls(s: AutomationSummary, busy: boolean): Record<RowAction, { enabled: boolean; reason?: string }> {
   const c = automationControls(s, [], busy);
-  // Discuss opens the panel; the panel offers it per FINISHED occurrence, so
-  // the row only needs an occurrence to exist (nothing inferred from its status).
-  const last = s.last_occurrence;
+  // Discuss opens a chat with a fork at the latest FINISHED occurrence.
+  const at = discuss_index(s);
   const discuss =
     busy
       ? { enabled: false, reason: "Working…" }
@@ -443,9 +469,9 @@ export function automation_row_controls(s: AutomationSummary, busy: boolean): Re
         ? { enabled: false, reason: "Legacy schedule: managed with its existing controls." }
         : !s.capabilities.includes("discuss")
           ? { enabled: false, reason: "Not permitted for this automation." }
-          : !last
-            ? { enabled: false, reason: "No occurrence to discuss yet." }
-            : { enabled: true };
+          : at === null
+            ? { enabled: false, reason: s.last_occurrence ? "Available once the first run finishes." : "No occurrence to discuss yet." }
+            : { enabled: true, reason: `Discuss run #${at} in a new chat (a fork of this automation).` };
   return { pause: c.pause, resume: c.resume, run_now: c.run_now, edit: c.revise, archive: c.archive, discuss };
 }
 

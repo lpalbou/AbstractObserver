@@ -77,7 +77,7 @@ let ids: string[];
 let client: AutomationsClient;
 let gateway: GatewayClient;
 let ctl: AutomationsController;
-let opened: { runs: string[]; sessions: Array<{ session_id: string; run_id: string; workspace_root: string; mounted_workspace: string }>; notices: string[] };
+let opened: { runs: string[]; sessions: Array<{ session_id: string; run_id: string; workspace_root: string; mounted_workspace: string }>; notices: string[]; indexes: number[] };
 
 function next_id(): string {
   const v = ids.shift();
@@ -90,9 +90,10 @@ const bundle_ref_for = (bid: string) => bundle_refs[bid] || "";
 
 const host_handlers: PanelHostHandlers = {
   on_open_run: (rid) => opened.runs.push(rid),
-  on_open_session: (d, notice) => {
+  on_open_session: (d, notice, index) => {
     opened.sessions.push(d);
     opened.notices.push(notice);
+    opened.indexes.push(index);
   },
 };
 
@@ -136,6 +137,12 @@ function summary_of(id: string): AutomationSummary {
   return s;
 }
 
+/** The text of a row field, icons aside (fields render as icon + text). */
+function field_text(html: string, field: string): string | null {
+  const m = new RegExp(`data-field="${field}"[^>]*>(?:<svg[^]*?</svg>)?\\s*(?:<span[^>]*>)?([^<]*)`).exec(html);
+  return m ? m[1].trim() : null;
+}
+
 async function automate(form: Partial<AutomateForm>, choice: WorkflowChoice, input_data: Record<string, any>, request_id: string) {
   const built = build_automate_request_memo({ ...DEFAULT_AUTOMATE_FORM, ...form }, { choice, bundle_ref_for, input_data }, new RequestIdMemo(() => request_id));
   if (!built.ok) throw new Error(built.errors.join("; "));
@@ -145,7 +152,7 @@ async function automate(form: Partial<AutomateForm>, choice: WorkflowChoice, inp
 beforeEach(async () => {
   stub = await startAutomationsStub({ now: () => NOW, pageSize: 2 });
   ids = [];
-  opened = { runs: [], sessions: [], notices: [] };
+  opened = { runs: [], sessions: [], notices: [], indexes: [] };
   client = createAutomationsClient({ fetch: (u, i) => fetch(u, i), baseUrl: stub.url, newId: next_id });
   gateway = new GatewayClient({ base_url: stub.url, auth_token: "" });
   ctl = new AutomationsController(client, observer_automations_host(gateway, () => "cmd-host", () => "2026-09-27T07:10:00Z"), []);
@@ -309,7 +316,7 @@ describe("Automations page", () => {
     expect(html).toContain(`next: ${formatUtc(NEWS.next_fire_at)}`);
     expect(html).toContain("next: none while paused");
     const inboxRow = html.slice(html.indexOf(`data-automation-id="${INBOX_ID}"`));
-    expect(inboxRow.slice(0, inboxRow.indexOf("</li>"))).toContain(`data-field="attention">${attentionLabel(INBOX)}`);
+    expect(field_text(inboxRow.slice(0, inboxRow.indexOf("</li>")), "attention")).toBe(attentionLabel(INBOX));
     const newsRow = html.slice(html.indexOf(`data-automation-id="${NEWS_ID}"`));
     expect(newsRow.slice(0, newsRow.indexOf("</li>"))).not.toContain('data-field="attention"'); // quiet stays quiet
   });
@@ -332,7 +339,7 @@ describe("Automations page", () => {
     await ctl.refresh();
     const html = list_html();
     const row = (id: string) => { const h = html.slice(html.indexOf(`data-automation-id="${id}"`)); return h.slice(0, h.indexOf("</li>")); };
-    expect(row(INBOX_ID)).toContain(`data-field="current">${currentOccurrenceLabel(INBOX)}`);
+    expect(field_text(row(INBOX_ID), "current")).toBe(currentOccurrenceLabel(INBOX));
     expect(row(NEWS_ID)).not.toContain('data-field="current"');
     expect(row(JOURNAL_ID)).toContain("next: none while paused");
   });
@@ -553,6 +560,7 @@ describe("Automations page", () => {
     expect(last_request("POST", `/api/gateway/automations/${INBOX_ID}/discuss`).body).toEqual({ request_id: "req-discuss-1", occurrence_index: 6, prompt: "Why was nothing urgent?" });
     expect(r.session_id).toBe("discussion-session:req-discuss-1");
     expect(opened.sessions).toEqual([r]);
+    expect(opened.indexes).toEqual([6]); // the page opens the chat on the fork at #6, in place
     // The answer carries the discussion's OWN workspace and the automation's folder mounted read-only
     // (the same keys as the gateway's recorded discuss response).
     const recorded = COMMANDS.items.find((c: any) => c.request.path.endsWith("/discuss")).response;

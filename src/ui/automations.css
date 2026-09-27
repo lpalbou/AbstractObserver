@@ -190,3 +190,190 @@
   height: auto;
   margin: 0;
 }
+
+/* State as word then icon ("Active ▶", "Paused ⏸"). */
+.auto_state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Row facts and actions: kit icon + text. */
+.auto_fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.auto_fact svg,
+.auto_row_attention svg {
+  flex: none;
+  opacity: 0.8;
+}
+
+.auto_action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.auto_action.active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.flip_x {
+  transform: scaleX(-1);
+}
+
+/* Detail: the automation's folder (Files) above the kit panel. */
+.auto_detail_bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  min-width: 0;
+}
+
+.auto_detail_ws {
+  font-size: var(--t-micro);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Workspace browser (gateway workspace routes). */
+.ws_browser {
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--raised-bg);
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ws_browser_head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws_browser_title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ws_browser_root {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ws_browser_crumbs {
+  font-size: var(--t-small);
+}
+
+.ws_crumb {
+  all: unset;
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.ws_crumb:focus-visible {
+  outline: 2px solid var(--accent);
+  border-radius: 4px;
+}
+
+.ws_entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.ws_entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  border-radius: 6px;
+}
+
+.ws_entry:hover {
+  background: var(--pane-bg, transparent);
+}
+
+.ws_entry_name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-small);
+}
+
+.ws_dir {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  font-size: var(--t-small);
+  color: var(--text-primary);
+}
+
+.ws_entry_size {
+  font-size: var(--t-micro);
+}
+
+/* A discussion with a fork: the shared panel-chat WorkflowChat, in place. */
+.auto_discussion {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.auto_discussion > .af-workflow-chat,
+.auto_discussion > section:last-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.discussion_head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px;
+}
+
+.discussion_title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.discussion_intro {
+  max-width: 60ch;
+  margin: 16px auto;
+  text-align: center;
+}
+
+.discussion_tool_args {
+  max-height: 200px;
+  overflow: auto;
+  font-size: var(--t-micro);
+}

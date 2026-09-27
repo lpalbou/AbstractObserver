@@ -4789,8 +4789,10 @@ export function App(): React.ReactElement {
   const automations_handlers: AutomationsHandlers = {
     on_select: (id) => void automations_ctl.select(id),
     on_row_action: (summary, action) => {
-      // Edit and Discuss need a form or an occurrence: they open the panel.
-      if (action === "edit" || action === "discuss") {
+      // Discuss never reaches here: AutomationsPage opens it as a chat in place.
+      if (action === "discuss") throw new Error("Discuss is routed by AutomationsPage (route_row_action), not the app handlers.");
+      // Edit needs the panel's form.
+      if (action === "edit") {
         void automations_ctl.select(summary.automation_id);
         return;
       }
@@ -5515,18 +5517,17 @@ export function App(): React.ReactElement {
         {page === "automations" ? (
           <AutomationsPage
             ctl={automations_ctl}
+            gateway={gateway}
             active={page === "automations" && gateway_connected}
             available={automations_cap}
             h={automations_handlers}
             host={{
               on_open_run: (rid) => open_run_in_observe(rid),
-              // Discuss opens the NEW discussion session's root run in Observe
-              // and says where it works: its own workspace, the automation's
-              // files mounted read-only (both paths from the gateway's answer).
+              // The discussion opens as a chat on this page (AutomationsPage);
+              // the log keeps where it works (own workspace, the automation's
+              // files mounted read-only; both paths from the gateway's answer).
               on_open_session: (d, notice) => {
                 push_log({ ts: now_iso(), kind: "info", title: "Discussion started", preview: clamp_preview(notice), data: d });
-                set_status(notice, 12);
-                open_run_in_observe(d.run_id);
               },
             }}
           />
