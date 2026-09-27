@@ -664,7 +664,8 @@ export class AutomationsController {
       this.set({ selected_id: "", detail: null });
       return;
     }
-    this.set({ selected_id: id, notice: "" });
+    // Never show the previous automation's panel while this one loads.
+    this.set({ selected_id: id, notice: "", ...(this.state.detail?.automation_id !== id ? { detail: null } : {}) });
     try {
       const listed = this.state.items.find((s) => s.automation_id === id);
       if (listed && is_legacy_summary(listed)) {

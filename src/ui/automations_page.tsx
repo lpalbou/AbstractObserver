@@ -228,6 +228,13 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
 /** The detail half: the kit panel, or the legacy explanation. Hook-free. */
 export function AutomationDetailView(props: { ctl: AutomationsController; host: PanelHostHandlers; h: AutomationsHandlers }): React.ReactElement {
   const d = props.ctl.state.detail;
+  if (!d && props.ctl.state.selected_id) {
+    return (
+      <section className="pane auto_detail auto_detail_empty" aria-busy="true">
+        <div className="help_text muted">Loading…</div>
+      </section>
+    );
+  }
   if (!d) {
     return (
       <section className="pane auto_detail auto_detail_empty">

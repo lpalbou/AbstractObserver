@@ -261,7 +261,11 @@ describe("Automations page", () => {
 
   it("opens the panel for a row: definition, occurrences as chat pairs with failure and wait states", async () => {
     await ctl.refresh();
-    await ctl.select(INBOX_ID);
+    await ctl.select(NEWS_ID);
+    const pending = ctl.select(INBOX_ID);
+    expect(detail_html()).toContain("Loading…"); // never the previous automation's panel
+    expect(detail_html()).not.toContain(LIST.items[0].title);
+    await pending;
     expect(ctl.state.detail?.definition?.revision).toBe(1);
     expect(ctl.state.detail!.occurrences).toHaveLength(2); // stub pages of 2, newest first
     expect(detail_html()).toContain("Load earlier occurrences (5 more)");
