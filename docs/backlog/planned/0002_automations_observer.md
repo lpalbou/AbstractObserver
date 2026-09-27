@@ -314,3 +314,14 @@ manageable; no remaining `scheduled:` prefix logic for new automations.
 - abstractframework backlog 0928 (Automations v1, root item).
 - PLAN §4 mission O; §7 risk "Hidden/misleading activity" (attention vs
   change cursors — the Observer polls `changed_since` and posts `seen`).
+
+## Contracts pass (2026-09-27)
+
+Final contracts: untracked/design/automations-CONTRACTS.md (root repo; rev 2 with Astra turn-6 amendments 1–11). They supersede the contract text copied above; earlier text is kept as history. Concrete changes for this item:
+
+- When presets are fixed UTC intervals labelled "every N hours/days" ("every 24 hours", "every 7 days"); a chosen start time only sets `start_at`; never "Daily at 08:00 local"/"Weekly on <day>" wording. Validator `^[1-9][0-9]*[smhd]$`; no months.
+- Target sent as `{bundle_ref,flow_id}` or `{flow_id:"@default",interface}`; the gateway resolves `@default`.
+- Poll full paginated `GET /api/gateway/automations` (no `changed_since`, no `cursor_expired` path). Attention via `GET …/attention`; `/seen` posts the cursor of the last displayed item.
+- Quiet is the default: unread comes only from a `notify` output, a final failure (after retries), or an interactive wait; drop the `notify:false` wording. Rows show `attempts`.
+- Discuss copy: "forked session, read-only workspace" (writes and command execution are refused there).
+- Errors: `ApiError.code` from `detail.reason_code` via the ui-kit client; 401/403/`invalid_request` fixtures.
