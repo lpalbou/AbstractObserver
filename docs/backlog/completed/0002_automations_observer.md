@@ -2,7 +2,8 @@
 
 ## Metadata
 - Created: 2026-09-26
-- Status: Planned (Automations v1, next minor wave; mission O)
+- Status: Completed — UNRELEASED (local commits on `main`; package still 0.1.13; the release is in the framework wave, root backlog 0941). Was: Planned (Automations v1, next minor wave; mission O)
+- Completed: 2026-09-27
 - Work id: abstractobserver-0002
 - Design: untracked/design/automations-PLAN.md (2026-09-26)
 - Related: abstractframework backlog 0928 (Automations v1, root item)
@@ -325,3 +326,48 @@ Final contracts: untracked/design/automations-CONTRACTS.md (root repo; rev 2 wit
 - Quiet is the default: unread comes only from a `notify` output, a final failure (after retries), or an interactive wait; drop the `notify:false` wording. Rows show `attempts`.
 - Discuss copy: "forked session, read-only workspace" (writes and command execution are refused there).
 - Errors: `ApiError.code` from `detail.reason_code` via the ui-kit client; 401/403/`invalid_request` fixtures.
+
+## Completion report (2026-09-27)
+
+**Status: completed — UNRELEASED.** Local commits on `main`, no version bump, not pushed. Umbrella record:
+abstractframework backlog 0928 (completed); release: root 0941 (Observer relocks after the kit publishes).
+
+**Commits:** `56af9b4` … `9685fe0` (9 commits; docs `588b6ac`, `bb5c694`, `8f41b63`).
+- **`56af9b4`:** Launch "Run once | Automate" (`src/ui/automate_form.tsx`), the Automations page
+  (`src/ui/automations_page.tsx`, the kit `AutomationPanel`), attribution tags from `role` / `session_kind` only,
+  controllers hidden from the Board, occurrences grouped under their automation, split Runtime queues. The old
+  `start_scheduled_run` / `schedule_run` launch path is removed.
+- **`21e3b6b`:** tests. The Automate bodies, the page, commands, legacy rows, tags, and the three operator scenarios
+  against the contract stub (`scripts/automations_stub_server.mjs`).
+- **`554e5c1`:** never show the previous automation's panel while the selected one loads.
+- **`a48a4a1`:** reconciled with the real gateway (`2c8d8b3`) and decision D1. Waits are answered by `kind`, and the
+  form states the tools consent.
+- **`9199901`:** the stub's legacy row carries `binding_id` / `last_occurrence` (gateway D6).
+- **`9685fe0`:** the tests follow the kit fixtures regenerated from real gateway output (abstractuic `a9b73ab`; review
+  54 O-1).
+
+**Tests and walk:**
+- vitest **159/159** on kit `2081d6a` (review 54). `9685fe0` realigns the 6 tests that failed against kit `a9b73ab`.
+- `tsc --noEmit` clean; `vite build` OK.
+- A headless-Chromium walk against a hermetic real gateway: **17/17 on `5161785`** (14/15 earlier on `2c8d8b3`; the
+  blocked step was answering waits before D1). Captures are in root `untracked/missions-2026-09-27/E2E/observer-captures/`.
+- Mutations 3/3 RED (review 54).
+
+**Review:** 54 GO for deploying on the operator's machine (root
+`untracked/missions-2026-09-25/REVIEW/54-observer-automations.md`). O-1 → fixed `9685fe0`.
+
+**Definition of Done, against what shipped:**
+- **The three scenarios:** walked against the stub (`21e3b6b`) and, for the core flows, against the real gateway:
+  create, pause, run now while paused, resume, revise, archive, discuss, and answering waits by kind.
+- **Wording:** "daily at 08:00" and "weekly on <day>" wording is gone (fixed UTC intervals, per the contracts pass).
+- **Quiet successes:** they read as quiet by default; there is no `notify:false` wording.
+- **Legacy schedules:** still manageable (Suspend / Resume / Run now / Open run / Recreate as automation).
+
+**Residuals:**
+- **O-2.** The Automate form's Advanced JSON passes `_meta`, the read-only keys and every `_runtime` key through
+  `clean_input_data` (`src/ui/automations.ts:117`). The gateway allowlist (gateway `4ece2f5`, R52-1) removes the harm;
+  the form should refuse those keys visibly → root backlog **0940**.
+- **O-3 (notes).** Event answers pass non-object payloads to the gateway, which answers 422 and the page shows it
+  (R52-2 is the kit-side fix). Recreate shows `3600s` as "60 minutes".
+- **Revise from a row.** Opening the panel's Revise form from a row needs a kit prop (abstractuic 0029 residual).
+- **Board.** The Board keeps occurrence turns because they carry `parent_run_id`; this is by design.
