@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.14] - 2026-09-27
+
 Automations need a gateway that advertises the Automations API
 (`capabilities.contracts.common.automations`); on other gateways the Automate
 mode and the Automations page explain why they are unavailable.

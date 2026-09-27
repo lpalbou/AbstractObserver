@@ -157,7 +157,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.1.13 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.1.14 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -218,7 +218,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -682,6 +682,8 @@ export default defineConfig({
 # Changelog
 
 ## Unreleased
+
+## [0.1.14] - 2026-09-27
 
 Automations need a gateway that advertises the Automations API
 (`capabilities.contracts.common.automations`); on other gateways the Automate
