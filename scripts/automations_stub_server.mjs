@@ -555,7 +555,15 @@ export function createAutomationsStub(options = {}) {
         const o = a.occurrences.find((x) => x.index === body?.occurrence_index);
         if (!o) throw new ApiFailure(404, "occurrence_not_found", `Automation has no occurrence ${body?.occurrence_index}.`, { field: "occurrence_index" });
         if (typeof body.prompt !== "string" || !body.prompt.trim()) throw new ApiFailure(422, "invalid_request", "prompt is required.", { field: "prompt" });
-        const d = { session_id: `discussion-session:${body.request_id}`, run_id: mint(`discuss:${body.request_id}`), session_kind: "discussion" };
+        // A discussion forks at occurrence N: its OWN writable workspace, the
+        // automation's folder mounted read-only (shape of commands.json "discuss").
+        const d = {
+          session_id: `discussion-session:${body.request_id}`,
+          run_id: mint(`discuss:${body.request_id}`),
+          session_kind: "discussion",
+          workspace_root: `/tmp/stub-gateway/workspaces/session-discussion-session-${body.request_id}`,
+          mounted_workspace: definitionOf(a).workspace_root,
+        };
         a.discussions.push({ ...d, occurrence_index: o.index, prompt: body.prompt });
         return d;
       }

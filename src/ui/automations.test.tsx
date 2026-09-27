@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DISCUSS_LABEL,
   SCHEDULE_PRESETS,
   TOOL_APPROVAL_CONSENT,
   attentionLabel,
@@ -69,7 +70,7 @@ let ids: string[];
 let client: AutomationsClient;
 let gateway: GatewayClient;
 let ctl: AutomationsController;
-let opened: { runs: string[]; sessions: Array<{ session_id: string; run_id: string }> };
+let opened: { runs: string[]; sessions: Array<{ session_id: string; run_id: string; workspace_root: string; mounted_workspace: string }>; notices: string[] };
 
 function next_id(): string {
   const v = ids.shift();
@@ -82,7 +83,10 @@ const bundle_ref_for = (bid: string) => bundle_refs[bid] || "";
 
 const host_handlers: PanelHostHandlers = {
   on_open_run: (rid) => opened.runs.push(rid),
-  on_open_session: (d) => opened.sessions.push(d),
+  on_open_session: (d, notice) => {
+    opened.sessions.push(d);
+    opened.notices.push(notice);
+  },
 };
 
 const noop_handlers: AutomationsHandlers = {
@@ -133,7 +137,7 @@ async function automate(form: Partial<AutomateForm>, choice: WorkflowChoice, inp
 beforeEach(async () => {
   stub = await startAutomationsStub({ now: () => NOW, pageSize: 2 });
   ids = [];
-  opened = { runs: [], sessions: [] };
+  opened = { runs: [], sessions: [], notices: [] };
   client = createAutomationsClient({ fetch: (u, i) => fetch(u, i), baseUrl: stub.url, newId: next_id });
   gateway = new GatewayClient({ base_url: stub.url, auth_token: "" });
   ctl = new AutomationsController(client, observer_automations_host(gateway, () => "cmd-host", () => "2026-09-27T07:10:00Z"), []);
@@ -317,7 +321,7 @@ describe("Automations page", () => {
     expect(html).toContain(failed.failure.message);
     const waiting = OCC.items.find((o: any) => o.waits.length);
     expect(html).toContain(waiting.waits[0].prompt);
-    expect(html).toContain("Discuss — forked session, read-only workspace");
+    expect(html).toContain(DISCUSS_LABEL); // the kit's label, whatever its wording
     // Chat order: oldest first within what is loaded.
     const views = occurrenceViews(ctl.state.detail!.occurrences);
     expect(views.map((v) => v.row.index)).toEqual([...OCC.items].map((o: any) => o.index).sort((a: number, b: number) => a - b));
@@ -503,7 +507,19 @@ describe("Automations page", () => {
     const r = await p.onDiscuss(6, "Why was nothing urgent?", { request_id: "req-discuss-1" });
     expect(last_request("POST", `/api/gateway/automations/${INBOX_ID}/discuss`).body).toEqual({ request_id: "req-discuss-1", occurrence_index: 6, prompt: "Why was nothing urgent?" });
     expect(r.session_id).toBe("discussion-session:req-discuss-1");
-    expect(opened.sessions).toEqual([{ session_id: r.session_id, run_id: r.run_id }]);
+    expect(opened.sessions).toEqual([r]);
+    // The answer carries the discussion's OWN workspace and the automation's folder mounted read-only
+    // (the same keys as the gateway's recorded discuss response).
+    const recorded = COMMANDS.items.find((c: any) => c.request.path.endsWith("/discuss")).response;
+    expect(Object.keys(r).sort()).toEqual(Object.keys(recorded).sort());
+    expect(r.workspace_root).not.toBe(r.mounted_workspace);
+    expect(r.mounted_workspace).toBe((await client.getAutomation(INBOX_ID)).definition.workspace_root);
+    // The notice names both paths, on the page and where the discussion opens.
+    for (const notice of [opened.notices[0], ctl.state.notice]) {
+      expect(notice).toContain(r.workspace_root);
+      expect(notice).toContain(r.mounted_workspace);
+      expect(notice).toMatch(/read-only/);
+    }
   });
 
   it("onSeen acknowledges the displayed cursor; Run details opens the Observe run view", async () => {

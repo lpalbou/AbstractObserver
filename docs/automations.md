@@ -223,15 +223,29 @@ attempts, with:
 
 ### Discuss a result
 
-**Discuss — forked session, read-only workspace** on a finished occurrence
-asks for your message ("Ask about this result…"), then **Start discussion**
-creates a new session seeded with the automation's conversation up to that
-occurrence and opens it in **Observe**, where you continue the chat.
+**Discuss — fork at this occurrence (own workspace, automation files
+read-only)** on a finished occurrence asks for your message, then **Start
+discussion** creates a new session that forks the automation at that
+occurrence #N with its full history (runs 1 to N) in context, and opens it in
+**Observe**, where you continue the chat.
 
-The discussion never changes the automation or its next runs, and the
-automation's workspace is mounted read-only there. Discuss is available once
-the occurrence has finished, and also on an archived automation (its history
-is kept).
+- The discussion works in its **own writable workspace**.
+- The automation's folder is **mounted read-only** in it, so it can read what
+  the runs produced.
+- Nothing flows back: the automation, its folder and its next runs never see
+  the discussion.
+
+After **Start discussion** the Observer shows both folders from the gateway's
+answer: the discussion's own workspace (`workspace_root`) and the automation's
+folder mounted read-only (`mounted_workspace`).
+
+The read-only mount is enforced for file tools: they refuse to write into the
+automation's folder. Shell commands are **not** sandboxed, so a command the
+discussion runs could still change files there; approve such commands with
+that in mind.
+
+Discuss is available once the occurrence has finished, and also on an
+archived automation (its history is kept).
 
 ## Automation runs elsewhere in the Observer
 

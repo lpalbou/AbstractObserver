@@ -141,9 +141,11 @@ No. Run now starts one occurrence and the automation stays paused. It is
 refused while an occurrence is in progress (`automation_busy`).
 
 ## Does discussing a result change the automation?
-No. **Discuss** forks a new session seeded with the automation's conversation
-up to that occurrence, opens it in Observe, and mounts the automation's
-workspace read-only. The automation's next runs never see the discussion.
+No. **Discuss** forks the automation at that occurrence: a new session with
+the automation's history up to it (runs 1 to N), opened in Observe. It works
+in its own writable workspace, with the automation's folder mounted read-only;
+nothing flows back into the automation or its next runs. File tools refuse
+writes into the mounted folder; shell commands are not sandboxed.
 
 ## Why is my automation not on the Board?
 An automation between runs is not a run you can act on, so it lives on the

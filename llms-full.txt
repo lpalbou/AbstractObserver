@@ -178,7 +178,7 @@ All pages share the same gateway connection settings.
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
-- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), and Discuss (a forked session with a read-only workspace); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
+- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), and Discuss (a fork at an occurrence with its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
@@ -713,10 +713,13 @@ mode and the Automations page explain why they are unavailable.
   or a choice), a tool approval (the tool calls with their arguments, then
   Approve / Deny) or an event (a JSON payload). Tool approvals on the Board
   and in the run view list the tool calls too.
-- **Discuss — forked session, read-only workspace**: start a new session
-  from a finished occurrence, seeded with the automation's conversation up to
-  it, and continue in Observe. The automation and its next runs are not
-  affected.
+- **Discuss — fork at this occurrence (own workspace, automation files
+  read-only)**: start a new session that forks the automation at a finished
+  occurrence with its full history, and continue in Observe. It works in its
+  own writable workspace with the automation's folder mounted read-only; the
+  Observer shows both folders when it starts. File tools refuse writes into
+  the mounted folder; shell commands are not sandboxed. The automation and
+  its next runs are not affected.
 - Board, Observe and System tag automation runs from the gateway's
   attribution: occurrence cards carry `occurrence #N` and an **Automation**
   button; the run navigator groups occurrences under their automation and
@@ -3074,9 +3077,11 @@ No. Run now starts one occurrence and the automation stays paused. It is
 refused while an occurrence is in progress (`automation_busy`).
 
 ## Does discussing a result change the automation?
-No. **Discuss** forks a new session seeded with the automation's conversation
-up to that occurrence, opens it in Observe, and mounts the automation's
-workspace read-only. The automation's next runs never see the discussion.
+No. **Discuss** forks the automation at that occurrence: a new session with
+the automation's history up to it (runs 1 to N), opened in Observe. It works
+in its own writable workspace, with the automation's folder mounted read-only;
+nothing flows back into the automation or its next runs. File tools refuse
+writes into the mounted folder; shell commands are not sandboxed.
 
 ## Why is my automation not on the Board?
 An automation between runs is not a run you can act on, so it lives on the
@@ -3255,7 +3260,7 @@ flowchart LR
   subgraph RT[AbstractRuntime]
     CTRL["Controller root run<br/>role controller, waits for next tick"]
     OCC["Occurrence child runs<br/>role occurrence, index N"]
-    DISC["Discussion session<br/>session_kind discussion,<br/>read-only workspace"]
+    DISC["Discussion session<br/>session_kind discussion, fork at #N,<br/>own workspace + automation folder read-only"]
     LEG["Legacy schedule runs<br/>role legacy_schedule"]
   end
   L -->|POST /automations| AUTO
@@ -3392,7 +3397,7 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `GET /api/gateway/automations/{id}` and `GET /api/gateway/automations/{id}/occurrences?cursor=&limit=` — the panel
 - `PATCH /api/gateway/automations/{id}` — revise (`expected_revision`)
 - `POST /api/gateway/automations/{id}/commands` — `automation.pause|resume|run_now|stop_current|archive`
-- `POST /api/gateway/automations/{id}/discuss` — start a discussion session (opened in Observe)
+- `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened in Observe); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
 - `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
 - `POST /api/gateway/commands` — answer an occurrence's wait with `type: "resume"` and `{wait_key, payload}` on the waiting run; the payload follows the wait's kind: `ask_user` → `{response}`, `tool_approval` → `{approved, tool_ids?}`, `event` → `{payload}`. Legacy schedule rows use `pause` / `resume` (run now = `resume` with `{payload: {mode: "run_now", requested_at}}`).
@@ -3708,15 +3713,29 @@ attempts, with:
 
 ### Discuss a result
 
-**Discuss — forked session, read-only workspace** on a finished occurrence
-asks for your message ("Ask about this result…"), then **Start discussion**
-creates a new session seeded with the automation's conversation up to that
-occurrence and opens it in **Observe**, where you continue the chat.
+**Discuss — fork at this occurrence (own workspace, automation files
+read-only)** on a finished occurrence asks for your message, then **Start
+discussion** creates a new session that forks the automation at that
+occurrence #N with its full history (runs 1 to N) in context, and opens it in
+**Observe**, where you continue the chat.
 
-The discussion never changes the automation or its next runs, and the
-automation's workspace is mounted read-only there. Discuss is available once
-the occurrence has finished, and also on an archived automation (its history
-is kept).
+- The discussion works in its **own writable workspace**.
+- The automation's folder is **mounted read-only** in it, so it can read what
+  the runs produced.
+- Nothing flows back: the automation, its folder and its next runs never see
+  the discussion.
+
+After **Start discussion** the Observer shows both folders from the gateway's
+answer: the discussion's own workspace (`workspace_root`) and the automation's
+folder mounted read-only (`mounted_workspace`).
+
+The read-only mount is enforced for file tools: they refuse to write into the
+automation's folder. Shell commands are **not** sandboxed, so a command the
+discussion runs could still change files there; approve such commands with
+that in mind.
+
+Discuss is available once the occurrence has finished, and also on an
+archived automation (its history is kept).
 
 ## Automation runs elsewhere in the Observer
 

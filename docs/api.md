@@ -41,7 +41,7 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `GET /api/gateway/automations/{id}` and `GET /api/gateway/automations/{id}/occurrences?cursor=&limit=` — the panel
 - `PATCH /api/gateway/automations/{id}` — revise (`expected_revision`)
 - `POST /api/gateway/automations/{id}/commands` — `automation.pause|resume|run_now|stop_current|archive`
-- `POST /api/gateway/automations/{id}/discuss` — start a discussion session (opened in Observe)
+- `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened in Observe); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
 - `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
 - `POST /api/gateway/commands` — answer an occurrence's wait with `type: "resume"` and `{wait_key, payload}` on the waiting run; the payload follows the wait's kind: `ask_user` → `{response}`, `tool_approval` → `{approved, tool_ids?}`, `event` → `{payload}`. Legacy schedule rows use `pause` / `resume` (run now = `resume` with `{payload: {mode: "run_now", requested_at}}`).

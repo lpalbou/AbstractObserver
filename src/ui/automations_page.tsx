@@ -17,12 +17,14 @@ import {
   type AutomationCommandType,
   type AutomationStatus,
   type AutomationSummary,
+  type DiscussResponse,
 } from "@abstractframework/ui-kit";
 
 import {
   AUTOMATIONS_POLL_MS,
   automation_row_controls,
   automation_row_view,
+  discussion_notice,
   is_legacy_summary,
   legacy_row_controls,
   type AutomationsController,
@@ -190,7 +192,8 @@ export function AutomationsListView(props: { state: AutomationsState; available:
 
 export type PanelHostHandlers = {
   on_open_run(run_id: string): void;
-  on_open_session(session: { session_id: string; run_id: string }): void;
+  /** Open the new discussion (the full gateway answer, both workspace paths included). */
+  on_open_session(session: DiscussResponse, notice: string): void;
 };
 
 /**
@@ -215,7 +218,7 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     onCommand: (type, payload, meta) => ctl.command(id, type as AutomationCommandType, payload as Record<string, any> | undefined, meta?.command_id),
     onDiscuss: async (index, prompt, meta) => {
       const r = await ctl.discuss(id, index, prompt, meta?.request_id);
-      host.on_open_session({ session_id: r.session_id, run_id: r.run_id });
+      host.on_open_session(r, discussion_notice(index, r));
       return r;
     },
     onSeen: (cursor) => ctl.seen(id, cursor),

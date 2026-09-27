@@ -32,10 +32,13 @@ mode and the Automations page explain why they are unavailable.
   or a choice), a tool approval (the tool calls with their arguments, then
   Approve / Deny) or an event (a JSON payload). Tool approvals on the Board
   and in the run view list the tool calls too.
-- **Discuss — forked session, read-only workspace**: start a new session
-  from a finished occurrence, seeded with the automation's conversation up to
-  it, and continue in Observe. The automation and its next runs are not
-  affected.
+- **Discuss — fork at this occurrence (own workspace, automation files
+  read-only)**: start a new session that forks the automation at a finished
+  occurrence with its full history, and continue in Observe. It works in its
+  own writable workspace with the automation's folder mounted read-only; the
+  Observer shows both folders when it starts. File tools refuse writes into
+  the mounted folder; shell commands are not sandboxed. The automation and
+  its next runs are not affected.
 - Board, Observe and System tag automation runs from the gateway's
   attribution: occurrence cards carry `occurrence #N` and an **Automation**
   button; the run navigator groups occurrences under their automation and

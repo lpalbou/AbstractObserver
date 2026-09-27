@@ -595,6 +595,15 @@ export function wait_answer_payload(kind: unknown, payload: Record<string, any>)
   throw new Error(`This wait has no known kind (${JSON.stringify(kind)}); the gateway must type its waits (ask_user, tool_approval, event).`);
 }
 
+/**
+ * What a started discussion is, in words, from the gateway's answer: a fork
+ * at occurrence N working in its OWN writable workspace, with the
+ * automation's folder mounted read-only.
+ */
+export function discussion_notice(index: number, r: DiscussResponse): string {
+  return `Discussion started from #${index} (session ${r.session_id}). It works in its own workspace ${r.workspace_root}; the automation's files are mounted read-only at ${r.mounted_workspace}. Nothing flows back into the automation.`;
+}
+
 /** Poll interval of the Automations page while visible. */
 export const AUTOMATIONS_POLL_MS = 30_000;
 /** Page size for list and occurrences (the client polls FULL pages). */
@@ -810,7 +819,9 @@ export class AutomationsController {
   async discuss(id: string, occurrence_index: number, prompt: string, request_id?: string): Promise<DiscussResponse> {
     this.set({ busy: true });
     try {
-      return await this.client.discuss(id, { occurrence_index, prompt, ...(request_id ? { request_id } : {}) });
+      const r = await this.client.discuss(id, { occurrence_index, prompt, ...(request_id ? { request_id } : {}) });
+      this.set({ notice: discussion_notice(occurrence_index, r) });
+      return r;
     } catch (e) {
       throw to_api_error(e);
     } finally {

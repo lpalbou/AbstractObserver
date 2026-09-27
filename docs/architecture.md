@@ -94,7 +94,7 @@ flowchart LR
   subgraph RT[AbstractRuntime]
     CTRL["Controller root run<br/>role controller, waits for next tick"]
     OCC["Occurrence child runs<br/>role occurrence, index N"]
-    DISC["Discussion session<br/>session_kind discussion,<br/>read-only workspace"]
+    DISC["Discussion session<br/>session_kind discussion, fork at #N,<br/>own workspace + automation folder read-only"]
     LEG["Legacy schedule runs<br/>role legacy_schedule"]
   end
   L -->|POST /automations| AUTO

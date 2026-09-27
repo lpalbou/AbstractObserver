@@ -5516,8 +5516,14 @@ export function App(): React.ReactElement {
             h={automations_handlers}
             host={{
               on_open_run: (rid) => open_run_in_observe(rid),
-              // Discuss opens the NEW discussion session's root run in Observe.
-              on_open_session: (d) => open_run_in_observe(d.run_id),
+              // Discuss opens the NEW discussion session's root run in Observe
+              // and says where it works: its own workspace, the automation's
+              // files mounted read-only (both paths from the gateway's answer).
+              on_open_session: (d, notice) => {
+                push_log({ ts: now_iso(), kind: "info", title: "Discussion started", preview: clamp_preview(notice), data: d });
+                set_status(notice, 12);
+                open_run_in_observe(d.run_id);
+              },
             }}
           />
         ) : null}
