@@ -56,12 +56,17 @@ Go to **Observe** (or click a Board card):
 
 Architecture and data flow: `architecture.md`.
 
-## Launch or schedule a run
+## Launch a run or create an automation
 Go to **Launch**:
-- select a workflow (discovered from gateway bundles)
-- click **Start Workflow** (or schedule via the cadence section)
+- **Run once**: select a workflow (discovered from gateway bundles, or the
+  gateway's default agent), fill its inputs, click **Launch now**
+  (`POST /api/gateway/runs/start`);
+- **Automate**: the same workflow and prompt, plus **When** (every N
+  minutes/hours/days in UTC, or once at a time) and **Context** (independent
+  or growing); **Create automation** sends `POST /api/gateway/automations` and
+  opens it on the **Automations** page.
 
-The UI uses `POST /api/gateway/runs/start` and `POST /api/gateway/runs/schedule` (see `src/lib/gateway_client.ts` and `api.md`).
+Details: `automations.md`; endpoints: `api.md`.
 
 ## Next
 - Docs index: `README.md`

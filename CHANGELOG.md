@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Automations** (needs a gateway with the Automations API): a new
+  **Automations** page lists every automation of the signed-in user with its
+  cadence, next run, state, last result and what needs you. Pause, resume,
+  run now (also while paused; it stays paused), revise, stop the current run
+  and archive. Opening an automation shows its runs as a conversation: what
+  fired and the answer, with failures, notifications and questions marked.
+  Answer a waiting run in place, open any run in Observe, or **Discuss** a
+  result in a new session that never changes the automation (its workspace
+  is read-only there).
+- **Launch → Automate**: create an automation in three steps: what (a
+  workflow or the gateway's default agent, and the prompt), when (every N
+  minutes, hours or days in UTC, or once at a time; presets from every
+  5 minutes to every 7 days) and context (independent, or growing with a
+  bounded history). Title, first run, run limit, end time, skills, workspace
+  and bundle upload / reload are under Advanced.
+- **Run once** can start the gateway's default agent.
+- Legacy schedules: **Recreate as automation** (Automations page and the
+  run view) opens Automate prefilled from the schedule.
+
+### Changed
+- The Launch page's schedule section (start at, repeat modes, weeks and
+  months) is replaced by Automate mode. Existing schedules keep their
+  suspend / resume / run now / edit controls in the run view.
+- One skills picker on Launch (the trust-aware list); a workflow's `skills`
+  input no longer shows a second one.
+- Board, Observe and System tag automation runs from the gateway's
+  attribution: occurrences link to their automation and group under it in
+  the run navigator; an automation waiting for its next run is no longer a
+  Board card; System → Activity splits **Scheduled** from **Subflows /
+  external events**. A workflow id starting with `scheduled:` alone no longer
+  marks a run as scheduled.
+- Run listings keep `actor_id`.
+
 ## [0.1.13] - 2026-09-26
 
 ### Added

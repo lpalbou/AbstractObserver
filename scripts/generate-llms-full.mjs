@@ -19,6 +19,7 @@ const FILES = [
   "docs/faq.md",
   "docs/architecture.md",
   "docs/api.md",
+  "docs/automations.md",
   "docs/configuration.md",
   "docs/development.md",
   "docs/security.md",

@@ -23,15 +23,29 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs?limit=…&status=…&workflow_id=…&session_id=…&root_only=true|false` — list recent runs
   - `GET /api/gateway/runs/{run_id}` — run state (status, paused, waiting, schedule metadata, etc.)
   - `GET /api/gateway/runs/{run_id}/input_data` — inputs used for the run (shown in UI)
-  - `POST /api/gateway/runs/start` — start a run (body includes `input_data` and optional `bundle_id`, `flow_id`, `session_id`)
-  - `POST /api/gateway/runs/schedule` — schedule a run (interval/recurrence; body includes `bundle_id`, `flow_id`, `input_data`)
+  - `POST /api/gateway/runs/start` — start a run (body includes `input_data` and optional `bundle_id`, `flow_id`, `session_id`; the gateway default agent is `flow_id: "@default"` + `interface`, without `bundle_id`)
+  - Listing rows are read with their automation attribution when the gateway sends it (`session_kind`, `automation_id`, `role`, `occurrence_index`) and `actor_id`; the Board, Observe navigator and System queues tag and group runs from these fields.
 - **Ledger (durable source of truth)**
   - `GET /api/gateway/runs/{run_id}/ledger?after=…&limit=…` — paged replay
   - `GET /api/gateway/runs/{run_id}/ledger/stream?after=…` — SSE stream of `"step"` events
   - `POST /api/gateway/runs/ledger/batch` — fetch ledgers for multiple runs (digest/subrun support)
   - LLM/provider activity in the Observe UI is derived from `effect.type == "llm_call"` records in this ledger.
 - **Run control**
-  - `POST /api/gateway/commands` — submit durable commands (at minimum `pause`, `resume`, `cancel`; also used for schedule updates and wait/tool resume flows)
+  - `POST /api/gateway/commands` — submit durable commands (at minimum `pause`, `resume`, `cancel`; also used for legacy schedule updates and wait/tool resume flows)
+
+## Automations (Automations page, Launch → Automate)
+Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.contracts.common.automations.available: true`; otherwise the UI says the gateway lacks the Automations API. Called through the ui-kit client (`GatewayClient.automations_client()`):
+
+- `GET /api/gateway/automations?status=&cursor=&limit=` — every page, polled every 30 s while the page is visible (no `changed_since`)
+- `POST /api/gateway/automations` — create (`{request_id, title, target, trigger, context}`)
+- `GET /api/gateway/automations/{id}` and `GET /api/gateway/automations/{id}/occurrences?cursor=&limit=` — the panel
+- `PATCH /api/gateway/automations/{id}` — revise (`expected_revision`)
+- `POST /api/gateway/automations/{id}/commands` — `automation.pause|resume|run_now|stop_current|archive`
+- `POST /api/gateway/automations/{id}/discuss` — start a discussion session (opened in Observe)
+- `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item
+- `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
+
+Errors use `{"detail": {"reason_code", "message", "field"?, "command_id"?}}`. See `automations.md`.
 
 ## Optional endpoints (feature-gated in the UI)
 These power additional pages/drawers. If your gateway does not expose them, the corresponding UI areas will show errors or empty states.

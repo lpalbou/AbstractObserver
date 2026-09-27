@@ -64,7 +64,8 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Board** (Mission Control landing page: Pending/Working/Review/Done kanban + entities strip + inline wait answers): `src/ui/mission_control.tsx` + `GatewayClient.list_entities()` / `get_entity_card()`
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
-- **Launch** (start + schedule runs, bundle upload/reload): `src/ui/app.tsx` + `GatewayClient.start_run()` / `schedule_run()`
+- **Launch** (Run once | Automate, bundle upload/reload): `src/ui/app.tsx`, `src/ui/automate_form.tsx` + `GatewayClient.start_run()` / the ui-kit automations client
+- **Automations** (list, the kit's `AutomationPanel`, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts` + `GatewayClient.automations_client()`
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
@@ -85,7 +86,8 @@ provenance beyond Gateway's canonical artifact envelope.
 
 Runtime Activity is the operational supervision view. It separates queues for
 items needing attention, user responses, tool approvals, running work, failed
-runs, scheduled/subworkflow waits, finished runs, and all loaded runs. Rows are
+runs, scheduled waits (automations between runs, legacy schedules),
+subworkflow/external-event waits, finished runs, and all loaded runs. Rows are
 keyboard-selectable, searchable, and sortable by attention, time, duration,
 token usage, and workflow. Counts in this view are scoped to the loaded run page
 unless Gateway provides a broader run-stats endpoint.

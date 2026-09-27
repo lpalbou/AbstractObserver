@@ -27,6 +27,10 @@ npm test
 ```
 
 Test suite is Vitest (see `vitest.config.cjs`) with unit tests under `src/**.test.ts(x)`.
+The automations tests (`src/ui/automations.test.tsx`) start `scripts/automations_stub_server.mjs`
+in-process: a stub gateway for the Automations routes that serves the ui-kit's canonical fixtures
+(`../abstractuic/ui-kit/scripts/fixtures/automations/`). It can also run on its own:
+`node scripts/automations_stub_server.mjs --port 18951`.
 
 ## Build
 ```bash

@@ -4,7 +4,7 @@ Gateway-only observability UI (Web/PWA) for AbstractFramework runs.
 
 What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Discover** workflows/bundles exposed by an AbstractGateway
-- **Launch** or **schedule** runs (durable)
+- **Launch** runs, or create **automations** that the gateway runs on a schedule (durable)
 - **Observe** runs and subruns by replaying + streaming the durable **ledger** (replay-first + SSE)
 - **Inspect runtime state** across active runs, generated artifacts, provider calls, and gateway audit logs
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
@@ -92,7 +92,8 @@ All pages share the same gateway connection settings.
 - **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
 - **Runtime**: Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
-- **Launch**: start runs, schedule runs, bundle upload/reload
+- **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context); bundle upload/reload
+- **Automations**: every automation of the signed-in user, with pause/resume/run now/revise/archive, its runs read as a conversation, answers to waiting runs, and Discuss (a forked session); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **Runtime → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports

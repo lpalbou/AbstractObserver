@@ -11,6 +11,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Run the UI locally** → `getting-started.md`
 - **Deploy behind a reverse proxy (same-origin)** → `configuration.md` (recommended pattern)
 - **Connect to a remote gateway (cross-origin/CORS)** → `configuration.md` + `troubleshooting.md`
+- **Create and manage automations (scheduled runs)** → `automations.md`
 - **See which gateway endpoints are required for each UI feature** → `api.md`
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
 - **Understand Runtime Activity vs Artifact Explorer vs Observe** → `architecture.md` → "Runtime Boundary"
