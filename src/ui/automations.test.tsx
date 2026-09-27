@@ -304,7 +304,11 @@ describe("Automations page", () => {
     while (ctl.state.detail!.next_cursor) await ctl.load_more();
     expect(ctl.state.detail!.occurrences).toHaveLength(OCC.items.length);
     const html = detail_html();
-    for (const o of OCC.items) expect(html).toContain(o.user_turn);
+    // Turns go through the chat renderer (line breaks become <br/>): every line of every turn is shown.
+    for (const o of OCC.items) {
+      expect(html).toContain(`data-index="${o.index}"`);
+      for (const line of o.user_turn.split("\n")) expect(html).toContain(line);
+    }
     const failed = OCC.items.find((o: any) => o.status === "failed");
     expect(failed.failure, "fixture carries the failure field").toBeTruthy();
     expect(html).toContain(failed.failure.message);
@@ -369,6 +373,24 @@ describe("Automations page", () => {
       covered += 1;
     }
     expect(covered).toBe(COMMANDS.items.length);
+  });
+
+  it("occurrence turns render through the shared chat renderer: markdown table and fenced JSON become elements", async () => {
+    const md = OCC.items.find((o: any) => /\n\|---/.test(o.answer) && o.answer.includes("```json"));
+    expect(md, "occurrences.json carries a markdown answer with a table and fenced JSON").toBeTruthy();
+    await ctl.refresh();
+    await ctl.select(INBOX_ID);
+    while (ctl.state.detail!.next_cursor) await ctl.load_more();
+    const html = renderToStaticMarkup(<AutomationDetailView ctl={ctl} host={host_handlers} h={noop_handlers} />);
+    const start = html.indexOf(`data-index="${md.index}"`);
+    const li = html.slice(start, html.indexOf("</li>", start));
+    const answer = li.slice(li.indexOf('data-turn="answer"'));
+    expect(answer).toContain('<table class="pc-md_table">');
+    expect(answer).toMatch(/<pre[^>]*><code class="language-json">/);
+    expect(answer).not.toContain("|---|");
+    expect(answer).not.toMatch(/(^|>)## /);
+    expect(html).not.toContain('data-unformatted="true"');
+    expect(html).not.toContain('data-text-rendering="unformatted"');
   });
 
   it("Run now is enabled while paused and keeps the automation paused", async () => {

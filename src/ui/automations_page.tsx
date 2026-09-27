@@ -10,12 +10,11 @@
  */
 import React, { useEffect, useState, useSyncExternalStore } from "react";
 
+import { AutomationPanelWithMarkdown, renderAutomationText, type AutomationPanelWithMarkdownProps } from "@abstractframework/panel-chat";
 import {
-  AutomationPanel,
   DISCUSS_LABEL,
   apiErrorText,
   type AutomationCommandType,
-  type AutomationPanelProps,
   type AutomationStatus,
   type AutomationSummary,
 } from "@abstractframework/ui-kit";
@@ -113,7 +112,7 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
         </span>
         {v.last ? (
           <span className="auto_row_excerpt" data-field="excerpt">
-            {v.last}
+            {renderAutomationText(v.last)}
           </span>
         ) : null}
       </button>
@@ -198,7 +197,7 @@ export type PanelHostHandlers = {
  * The kit panel's props for the selected automation, wired to the controller
  * (and through it to the gateway). Null when nothing (non-legacy) is open.
  */
-export function automation_panel_props(ctl: AutomationsController, host: PanelHostHandlers): AutomationPanelProps | null {
+export function automation_panel_props(ctl: AutomationsController, host: PanelHostHandlers): AutomationPanelWithMarkdownProps | null {
   const st = ctl.state;
   const d = st.detail;
   if (!d || is_legacy_summary(d.summary)) return null;
@@ -270,7 +269,9 @@ export function AutomationDetailView(props: { ctl: AutomationsController; host: 
     );
   }
   const p = automation_panel_props(props.ctl, props.host);
-  return <section className="pane auto_detail">{p ? <AutomationPanel {...p} /> : null}</section>;
+  // Occurrence turns, prompts and bodies render through the shared chat
+  // renderer (markdown, tables, code, JSON), like every Observer chat view.
+  return <section className="pane auto_detail">{p ? <AutomationPanelWithMarkdown {...p} /> : null}</section>;
 }
 
 /** Stateful page: subscribes to the controller, polls while visible. */
