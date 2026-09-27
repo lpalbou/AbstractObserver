@@ -58,9 +58,10 @@ function seqOf(cursor) {
   return m ? Number(m[1]) : null;
 }
 
-/** Legacy schedule row, shaped like abstractgateway 2c8d8b3's projection
- * (observed 2026-09-27): trigger WITHOUT binding_id, no last_occurrence,
- * listed last; its run's `schedule` names the target by target_bundle_ref. */
+/** Legacy schedule row, shaped like abstractgateway 5161785's projection
+ * (observed 2026-09-27): trigger.binding_id = the wrapper run id, a
+ * last_occurrence once it has run, listed last; its run's `schedule` names
+ * the target by target_bundle_ref. */
 export const LEGACY_ID = "7a1c2b3d-0000-4000-8000-00000000c0de";
 function legacySeed() {
   return {
@@ -68,9 +69,19 @@ function legacySeed() {
       automation_id: LEGACY_ID,
       title: "main",
       status: "active",
-      trigger: { source_id: "schedule", source_version: 1, config: { every: "1d" } },
+      trigger: { binding_id: LEGACY_ID, source_id: "schedule", source_version: 1, config: { every: "1d" } },
       context_mode: "growing",
       occurrence_count: 1,
+      last_occurrence: {
+        run_id: "7af5a440-b8cc-493f-8475-4e2fe13f0e3a",
+        index: 1,
+        status: "completed",
+        attempts: 1,
+        fired_at: "2026-09-27T06:00:00.331230+00:00",
+        excerpt: "Five renewable-energy headlines overnight.",
+        notify: null,
+        finished_at: "2026-09-27T06:00:04.337112+00:00",
+      },
       attention: { pending_waits: 0, unread: false, unseen_count: 0, cursor: "att1:0", items: [], waits: [] },
       legacy: true,
       revision: null,
