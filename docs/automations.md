@@ -36,6 +36,12 @@ things matter; everything else sits under **Advanced**.
      previous runs. The history is bounded: the most recent 40 messages (at
      most 24,000 characters) are replayed; older runs drop out.
 
+4. **Tools**: by default "Tools run without asking (you approve them now by
+   creating this automation)": an unattended run cannot stop to ask you every
+   tick, so creating the automation is the approval. Choose **Ask each time**
+   to make every tool call wait for your approval on the Automations page.
+   Questions a workflow asks you (`ask_user`) always wait for you.
+
 **Advanced** holds the title (default: the prompt's first line), the first run
 time, "stop after this many runs", "stop at", the skills picker (one picker;
 the gateway resolves skills through its trust gate), the workspace, and bundle
@@ -75,8 +81,12 @@ Select a row to open its panel:
   (what fired, when) and an answer turn. Quiet runs stay plain; runs that
   notified you, failed (with the reason and the number of attempts) or wait for
   you are marked. **Load earlier occurrences** pages back in time;
-- a run waiting for you shows its question and choices in place; your answer
-  resumes that run (the same `resume` command the Board and the run view send);
+- a run waiting for you shows what it waits for, in place: a question
+  (answer or pick a choice), a tool approval (the tool calls, then Approve or
+  Deny) or an event (a JSON payload). The answer is sent as the kind of wait
+  requires (`{response}`, `{approved}` or `{payload}`) with the same `resume`
+  command the Board and the run view send; a wait the gateway does not type
+  is shown but not answered here (open the run instead);
 - **Run details** → **Open run ledger** opens that run in **Observe**;
   **Ledger (JSON)** and **Workspace** link to the gateway's raw views;
 - **Discuss — forked session, read-only workspace** on a finished occurrence

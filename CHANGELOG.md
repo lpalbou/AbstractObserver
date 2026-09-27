@@ -18,6 +18,11 @@
   5 minutes to every 7 days) and context (independent, or growing with a
   bounded history). Title, first run, run limit, end time, skills, workspace
   and bundle upload / reload are under Advanced.
+- Automate states that tools run without asking (creating the automation
+  approves them) and offers "Ask each time" instead.
+- Waiting runs are answered by the kind of wait: a question, a tool
+  approval (Approve / Deny, with the tool calls shown) or an event payload.
+  Tool calls awaiting approval also show on the Board in the new format.
 - **Run once** can start the gateway's default agent.
 - Legacy schedules: **Recreate as automation** (Automations page and the
   run view) opens Automate prefilled from the schedule.

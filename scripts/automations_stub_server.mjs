@@ -416,7 +416,7 @@ export function createAutomationsStub(options = {}) {
     const firedAt = spec.fired_at ?? nowIso();
     const manual = spec.manual;
     const every = a.summary.trigger.config.every;
-    const summary = manual ? `manual: run now (${manual})` : `schedule: ${every ? intervalLabel(every) : "once"} (UTC), tick ${index}`;
+    const summary = manual ? `manual: run now (${manual})` : `schedule: ${every ? intervalLabel(every) : "once"} (UTC), tick ${index - 1}`;
     const status = spec.status ?? (spec.wait ? "waiting" : "completed");
     const row = {
       run_id,
