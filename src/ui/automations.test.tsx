@@ -20,6 +20,7 @@ import {
 
 // @ts-expect-error — plain ESM helper without type declarations
 import { LEGACY_ID, LEGACY_TARGET, loadFixture, startAutomationsStub } from "../../scripts/automations_stub_server.mjs";
+import { renderAutomationText } from "@abstractframework/panel-chat";
 import { GatewayClient } from "../lib/gateway_client";
 import { AutomateAdvancedSchedule, AutomateWhenContext } from "./automate_form";
 import {
@@ -304,10 +305,12 @@ describe("Automations page", () => {
     while (ctl.state.detail!.next_cursor) await ctl.load_more();
     expect(ctl.state.detail!.occurrences).toHaveLength(OCC.items.length);
     const html = detail_html();
-    // Turns go through the chat renderer (line breaks become <br/>): every line of every turn is shown.
+    // Every trigger turn is shown exactly as the shared chat renderer renders it.
     for (const o of OCC.items) {
-      expect(html).toContain(`data-index="${o.index}"`);
-      for (const line of o.user_turn.split("\n")) expect(html).toContain(line);
+      const start = html.indexOf(`data-index="${o.index}"`);
+      expect(start, `occurrence #${o.index}`).toBeGreaterThan(-1);
+      const trigger = html.slice(start, html.indexOf('data-turn="answer"', start));
+      expect(trigger).toContain(unescape(renderToStaticMarkup(renderAutomationText(o.user_turn))));
     }
     const failed = OCC.items.find((o: any) => o.status === "failed");
     expect(failed.failure, "fixture carries the failure field").toBeTruthy();
@@ -391,6 +394,12 @@ describe("Automations page", () => {
     expect(answer).not.toMatch(/(^|>)## /);
     expect(html).not.toContain('data-unformatted="true"');
     expect(html).not.toContain('data-text-rendering="unformatted"');
+    // A heading right after the trigger line is a heading, not literal text (CommonMark).
+    const trigger = li.slice(0, li.indexOf('data-turn="answer"'));
+    if (/\n#{1,6} /.test(md.user_turn)) {
+      expect(trigger).toMatch(/<h[1-6][^>]*>/);
+      expect(trigger).not.toMatch(/(>|<br\/>)#{1,6} /);
+    }
   });
 
   it("Run now is enabled while paused and keeps the automation paused", async () => {
