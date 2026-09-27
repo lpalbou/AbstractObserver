@@ -58,49 +58,57 @@ function seqOf(cursor) {
   return m ? Number(m[1]) : null;
 }
 
-/** Legacy schedule row as projected for this stub (see the Observer report:
- * shape assumed until the gateway ships its projection). */
+/** Legacy schedule row, shaped like abstractgateway 2c8d8b3's projection
+ * (observed 2026-09-27): trigger WITHOUT binding_id, no last_occurrence,
+ * listed last; its run's `schedule` names the target by target_bundle_ref. */
 export const LEGACY_ID = "7a1c2b3d-0000-4000-8000-00000000c0de";
 function legacySeed() {
   return {
     summary: {
       automation_id: LEGACY_ID,
-      title: "Daily digest (legacy schedule)",
+      title: "main",
       status: "active",
-      trigger: { binding_id: `legacy:${LEGACY_ID}`, source_id: "schedule", source_version: 1, config: { start_at: "2026-09-01T06:00:00Z", every: "1d" } },
+      trigger: { source_id: "schedule", source_version: 1, config: { every: "1d" } },
       context_mode: "growing",
-      next_fire_at: "2026-09-28T06:00:00Z",
-      occurrence_count: 0,
+      occurrence_count: 1,
       attention: { pending_waits: 0, unread: false, unseen_count: 0, cursor: "att1:0", items: [], waits: [] },
       legacy: true,
       revision: null,
-      updated_at: "2026-09-27T06:00:04Z",
+      updated_at: "2026-09-27T06:00:04.347983+00:00",
       capabilities: ["legacy"],
       session_kind: "automation",
+      next_fire_at: "2026-09-28T06:00:00.347613+00:00",
     },
     run: {
       run_id: LEGACY_ID,
       workflow_id: `scheduled:${LEGACY_ID}`,
       status: "waiting",
       is_scheduled: true,
+      role: "legacy_schedule",
+      session_kind: "automation",
+      legacy: true,
       paused: false,
       waiting: { reason: "until", until: "2026-09-28T06:00:00Z", wait_key: `until:${LEGACY_ID}` },
       schedule: {
         kind: "scheduled_run",
-        target_workflow_id: "news-digest:main",
-        target_bundle_id: "news-digest",
-        target_host_bundle_id: "news-digest",
-        target_bundle_version: "1.2.0",
-        target_bundle_ref: "news-digest@1.2.0",
-        target_flow_id: "main",
-        start_at: "2026-09-01T06:00:00Z",
         interval: "1d",
         repeat_count: null,
         repeat_until: null,
+        start_at: null,
         share_context: true,
+        target_workflow_id: "news-digest@1.2.0:main",
+        target_bundle_ref: "news-digest@1.2.0",
+        target_flow_id: "main",
+        created_at: "2026-09-01T06:00:00+00:00",
+        updated_at: null,
       },
     },
     input_data: {
+      run_id: LEGACY_ID,
+      workflow_id: `scheduled:${LEGACY_ID}`,
+      bundle_id: "news-digest",
+      bundle_version: "1.2.0",
+      flow_id: "main",
       input_data: {
         prompt: "Summarise the overnight news about renewable energy in five bullets.",
         provider: "lmstudio",
@@ -193,7 +201,7 @@ export function createAutomationsStub(options = {}) {
   function recomputeAttention(a) {
     const unseen = a.attention.filter((it) => seqOf(it.cursor) > a.seen_seq);
     const waits = [];
-    for (const o of a.occurrences) for (const w of o.waits) waits.push({ run_id: w.run_id, wait_key: w.wait_key, index: o.index, ...(w.prompt ? { prompt: w.prompt } : {}) });
+    for (const o of a.occurrences) for (const w of o.waits) waits.push({ run_id: w.run_id, wait_key: w.wait_key, index: o.index, kind: w.kind, ...(w.prompt ? { prompt: w.prompt } : {}), ...(w.details ? { details: w.details } : {}) });
     const latest = a.attention.reduce((m, it) => Math.max(m, seqOf(it.cursor)), seqOf(a.summary.attention.cursor) ?? 0);
     a.summary.attention = {
       pending_waits: waits.length,
@@ -287,6 +295,10 @@ export function createAutomationsStub(options = {}) {
     if (typeof body.title !== "string" || !body.title.trim() || body.title.length > 120) throw new ApiFailure(422, "invalid_definition", "title must be 1-120 characters.", { field: "title" });
     validateTarget(body.target);
     validateTrigger(body.trigger);
+    const policy = body.policy ?? {};
+    for (const k of Object.keys(policy)) if (k !== "retry" && k !== "tool_approval") throw new ApiFailure(422, "invalid_request", `Unknown policy field ${k}.`, { field: `policy.${k}` });
+    if (policy.tool_approval !== undefined && !["auto", "ask"].includes(policy.tool_approval))
+      throw new ApiFailure(422, "invalid_definition", "policy.tool_approval is auto or ask.", { field: "policy.tool_approval" });
     const mode = body.context?.mode ?? "independent";
     if (mode !== "independent" && mode !== "growing") throw new ApiFailure(422, "invalid_definition", "context.mode is independent or growing.", { field: "context.mode" });
     const digest = createHash("sha256").update(JSON.stringify(body)).digest("hex");
@@ -418,7 +430,7 @@ export function createAutomationsStub(options = {}) {
       answer: spec.answer ?? "",
       notify: spec.notify ?? null,
       artifacts: [],
-      waits: spec.wait ? [{ run_id, wait_key: spec.wait.wait_key, reason: "user", prompt: spec.wait.prompt, ...(spec.wait.choices ? { choices: spec.wait.choices } : {}) }] : [],
+      waits: spec.wait ? [{ run_id, wait_key: spec.wait.wait_key, kind: spec.wait.kind ?? "ask_user", reason: "user", prompt: spec.wait.prompt, ...(spec.wait.choices ? { choices: spec.wait.choices } : {}), ...(spec.wait.details ? { details: spec.wait.details } : {}) }] : [],
       ledger_url: `/api/gateway/runs/${run_id}/ledger`,
       workspace_url: `/api/gateway/runs/${run_id}/workspace`,
       ...(spec.failure ? { failure: spec.failure } : {}),
@@ -438,13 +450,18 @@ export function createAutomationsStub(options = {}) {
     const p = body.payload || {};
     for (const a of autos.values()) {
       for (const o of a.occurrences) {
-        if (o.run_id !== body.run_id) continue;
-        const w = o.waits.find((x) => x.wait_key === p.wait_key);
+        // A wait lives on the run that waits (the occurrence or one of its descendants).
+        if (!o.waits.some((x) => x.run_id === body.run_id)) continue;
+        const w = o.waits.find((x) => x.run_id === body.run_id && x.wait_key === p.wait_key);
         if (!w) throw new ApiFailure(409, "invalid_state", `Run ${body.run_id} is not waiting on ${p.wait_key}.`);
+        const ans = p.payload || {};
+        const okShape =
+          w.kind === "ask_user" ? typeof ans.response === "string" : w.kind === "tool_approval" ? typeof ans.approved === "boolean" : w.kind === "event" ? "payload" in ans : false;
+        if (!okShape) throw new ApiFailure(422, "invalid_request", `A ${w.kind} wait is not answered with ${JSON.stringify(Object.keys(ans))}.`, { field: "payload" });
         o.waits = o.waits.filter((x) => x !== w);
-        o.status = "completed";
-        o.finished_at = nowIso();
-        o.answer = `Answered: ${String(p.payload?.response ?? "")}`;
+        o.status = o.waits.length ? "waiting" : "completed";
+        if (!o.waits.length) o.finished_at = nowIso();
+        o.answer = w.kind === "tool_approval" ? `Tools ${ans.approved ? "approved" : "denied"}.` : `Answered: ${String(ans.response ?? JSON.stringify(ans.payload))}`;
         refreshLast(a);
         return { accepted: true, command_id: body.command_id };
       }

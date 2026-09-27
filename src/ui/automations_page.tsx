@@ -138,7 +138,8 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
 /** The list half of the page (hook-free). */
 export function AutomationsListView(props: { state: AutomationsState; available: { available: boolean; reason: string }; h: AutomationsHandlers }): React.ReactElement {
   const st = props.state;
-  const err = st.error ? apiErrorText(st.error) : null;
+  const shown = st.error ?? st.list_error;
+  const err = shown ? apiErrorText(shown) : null;
   return (
     <section className="pane auto_list" aria-label="Automations">
       <div className="pane_header">
@@ -166,7 +167,7 @@ export function AutomationsListView(props: { state: AutomationsState; available:
           </div>
         ) : null}
         {err ? (
-          <div className="observe_context_card error" role="alert" data-code={st.error?.code}>
+          <div className="observe_context_card error" role="alert" data-code={shown?.code}>
             <strong>{err.title}</strong> <span>{err.detail}</span>
           </div>
         ) : null}

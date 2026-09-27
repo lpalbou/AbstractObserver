@@ -1254,8 +1254,10 @@ export function App(): React.ReactElement {
       const root_items = Array.isArray((root_runs as any)?.items) ? ((root_runs as any).items as any[]) : [];
       const all_items = Array.isArray((all_runs as any)?.items) ? ((all_runs as any).items as any[]) : [];
       const next: RunSummary[] = normalize_runs(root_items)
-        // Observability UX: show only parent/root runs (subruns are observable via the parent’s ledger).
-        .filter((r) => !String(r.parent_run_id || "").trim());
+        // Observability UX: show only TURN roots — parent-less runs plus
+        // automation occurrences (the gateway's root_only=true definition);
+        // other subruns are observable via their parent's ledger.
+        .filter((r) => !String(r.parent_run_id || "").trim() || r.role === "occurrence");
       set_run_options(next);
       set_all_run_options(normalize_runs(all_items).filter((r) => Boolean(r.run_id)));
       set_runs_refreshed_at(Date.now());
@@ -2953,6 +2955,8 @@ export function App(): React.ReactElement {
       const res = await gateway.automations_client().createAutomation(built.body);
       automate_request_ids.current.reset();
       set_automate_notes([]);
+      // A created automation must not lend its title/schedule to the next one.
+      set_automate_form(DEFAULT_AUTOMATE_FORM);
       push_log({ ts: now_iso(), kind: "info", title: "Automation created", preview: clamp_preview(`${built.body.title} · ${res.automation_id}`) });
       set_page("automations");
       await automations_ctl.refresh();
@@ -5425,7 +5429,12 @@ export function App(): React.ReactElement {
 
                 {launch_mode === "automate" ? (
                   <>
-                    <AutomateWhenContext form={automate_form} disabled={automate_submitting} on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))} />
+                    <AutomateWhenContext
+                      form={automate_form}
+                      tools={Array.isArray((input_data_obj as any)?.tools) ? ((input_data_obj as any).tools as any[]).map((t) => String(t)) : undefined}
+                      disabled={automate_submitting}
+                      on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))}
+                    />
                     <details className="launch_advanced" style={{ marginTop: "10px" }}>
                       <summary className="help_text muted" style={{ cursor: "pointer" }}>
                         Advanced{launch_skills.length ? ` · ${launch_skills.length} skill${launch_skills.length === 1 ? "" : "s"}` : ""}

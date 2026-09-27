@@ -41,6 +41,7 @@ import {
   type DiscussResponse,
   type OccurrenceRow,
   type ScheduleForm,
+  type ToolApprovalPolicy,
   type TriggerSourceEntry,
 } from "@abstractframework/ui-kit";
 
@@ -138,6 +139,9 @@ export type AutomateForm = {
   /** `YYYY-MM-DDTHH:MM`, read as UTC. */
   once_at: string;
   context: ContextMode;
+  /** Decision D1: "auto" (default) = creating the automation approves its
+   * tool calls; "ask" = every tool call waits for approval. */
+  tool_approval: ToolApprovalPolicy;
   /** Advanced. */
   title: string;
   start_at: string;
@@ -151,6 +155,7 @@ export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
   unit: "h",
   once_at: "",
   context: "independent",
+  tool_approval: "auto",
   title: "",
   start_at: "",
   count: "",
@@ -170,6 +175,7 @@ export function schedule_form(form: AutomateForm, prompt: string): ScheduleForm 
     prompt,
     when: every ? { kind: "every", amount: Number(form.amount), unit: form.unit } : { kind: "once", at: form.once_at },
     context: form.context,
+    toolApproval: form.tool_approval,
     title: form.title,
     ...(every && form.start_at ? { startAt: form.start_at } : {}),
     ...(every && form.count.trim() ? { count: Number(form.count) } : {}),
@@ -447,8 +453,12 @@ function to_utc_input(iso: unknown): string {
 export function legacy_recreate_prefill(run: any, input: any): LegacyPrefill {
   const schedule = run?.schedule && typeof run.schedule === "object" ? run.schedule : null;
   if (!schedule) throw new Error("This run carries no legacy schedule metadata; nothing to recreate.");
-  const bundle_id = String(schedule.target_host_bundle_id || schedule.target_bundle_id || "").trim();
-  const flow_id = String(schedule.target_flow_id || "").trim();
+  // The gateway's legacy `schedule` names the target by `target_bundle_ref`
+  // (`bundle_id@version`) and `target_flow_id`; `/runs/{id}/input_data`
+  // carries `bundle_id`. The Launch picker selects by unversioned bundle id.
+  const ref = String(schedule.target_bundle_ref || "").trim();
+  const bundle_id = String(schedule.target_host_bundle_id || schedule.target_bundle_id || (ref.includes("@") ? ref.slice(0, ref.lastIndexOf("@")) : "") || input?.bundle_id || "").trim();
+  const flow_id = String(schedule.target_flow_id || input?.flow_id || "").trim();
   if (!bundle_id || !flow_id) throw new Error("The legacy schedule does not name its target workflow.");
   const notes: string[] = [];
   const form: AutomateForm = { ...DEFAULT_AUTOMATE_FORM };
@@ -500,6 +510,9 @@ export type AutomationsState = {
   items: AutomationSummary[];
   loaded: boolean;
   loading: boolean;
+  /** The list could not be read (cleared by the next successful read). */
+  list_error: ApiError | null;
+  /** The last action failed (kept until the next action; a refresh keeps it). */
   error: ApiError | null;
   refreshed_at: number | null;
   status_filter: AutomationStatus | "";
@@ -515,6 +528,7 @@ export const INITIAL_AUTOMATIONS_STATE: AutomationsState = {
   items: [],
   loaded: false,
   loading: false,
+  list_error: null,
   error: null,
   refreshed_at: null,
   status_filter: "",
@@ -557,6 +571,30 @@ export function observer_automations_host(
   };
 }
 
+/**
+ * Decision D1: the answer payload is chosen by the wait's `kind`, never from
+ * text. Returns the payload to send, or throws when the wait is untyped or
+ * the payload does not match its kind (the gateway would refuse it with 422
+ * `invalid_request`, field `payload`).
+ */
+export function wait_answer_payload(kind: unknown, payload: Record<string, any>): Record<string, any> {
+  if (kind === "ask_user") {
+    if (typeof payload.response !== "string") throw new Error("An ask_user wait is answered with {response: string}.");
+    return { response: payload.response };
+  }
+  if (kind === "tool_approval") {
+    if (typeof payload.approved !== "boolean") throw new Error("A tool_approval wait is answered with {approved: true|false}.");
+    const ids = payload.tool_ids;
+    if (ids !== undefined && !(Array.isArray(ids) && ids.every((x) => typeof x === "string"))) throw new Error("tool_ids must be a list of strings.");
+    return { approved: payload.approved, ...(ids !== undefined ? { tool_ids: ids } : {}) };
+  }
+  if (kind === "event") {
+    if (!("payload" in payload)) throw new Error("An event wait is answered with {payload}.");
+    return { payload: payload.payload };
+  }
+  throw new Error(`This wait has no known kind (${JSON.stringify(kind)}); the gateway must type its waits (ask_user, tool_approval, event).`);
+}
+
 /** Poll interval of the Automations page while visible. */
 export const AUTOMATIONS_POLL_MS = 30_000;
 /** Page size for list and occurrences (the client polls FULL pages). */
@@ -588,9 +626,15 @@ export class AutomationsController {
   private detail_seq = 0;
   private sources_loaded = false;
 
+  /**
+   * `followups_ms`: re-reads after a command. The gateway ACCEPTS a command
+   * when it is queued and the controller applies it moments later, so the
+   * first re-read may still show the old state.
+   */
   constructor(
     private readonly client: AutomationsClient,
     private readonly host: AutomationsHost,
+    private readonly followups_ms: number[] = [1500, 4000],
   ) {}
 
   subscribe(fn: () => void): () => void {
@@ -634,14 +678,14 @@ export class AutomationsController {
         items,
         loaded: true,
         loading: false,
-        error: null,
+        list_error: null,
         refreshed_at: Date.now(),
         ...(detail && fresh ? { detail: { ...detail, summary: fresh } } : {}),
       });
       if (detail) await this.reload_occurrences(detail.automation_id);
     } catch (e) {
       if (seq !== this.list_seq) return;
-      this.set({ loading: false, loaded: true, error: to_api_error(e) });
+      this.set({ loading: false, loaded: true, list_error: to_api_error(e) });
     }
   }
 
@@ -727,6 +771,7 @@ export class AutomationsController {
   /** Re-read the list and, when this automation is open, its detail. */
   private async after_change(_id: string): Promise<void> {
     await this.refresh();
+    for (const ms of this.followups_ms) setTimeout(() => void this.refresh(), ms);
   }
 
   /** Panel/row command (`POST /automations/{id}/commands`). Rejects with ApiError. */
@@ -786,7 +831,9 @@ export class AutomationsController {
   async answer_wait(id: string, run_id: string, wait_key: string, payload: Record<string, any>): Promise<void> {
     this.set({ busy: true });
     try {
-      await this.host.answer_wait(run_id, wait_key, payload);
+      const wait = (this.state.detail?.occurrences || []).flatMap((o) => o.waits).find((w) => w.run_id === run_id && w.wait_key === wait_key);
+      if (!wait) throw new Error(`No loaded wait ${wait_key} on run ${run_id}; reload the automation.`);
+      await this.host.answer_wait(run_id, wait_key, wait_answer_payload((wait as { kind?: unknown }).kind, payload));
       await this.after_change(id);
     } catch (e) {
       throw to_api_error(e);

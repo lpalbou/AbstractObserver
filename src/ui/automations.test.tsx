@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   SCHEDULE_PRESETS,
+  TOOL_APPROVAL_CONSENT,
+  attentionLabel,
   createAutomationsClient,
   formatUtc,
   occurrenceViews,
@@ -32,11 +34,13 @@ import {
   observer_automations_host,
   parse_workflow_choice,
   run_session_tag,
+  wait_answer_payload,
   type AutomateForm,
   type WorkflowChoice,
 } from "./automations";
 import { AutomationDetailView, AutomationsListView, automation_panel_props, type AutomationsHandlers, type PanelHostHandlers } from "./automations_page";
-import { board_columns } from "./mission_control";
+import { board_card, board_columns } from "./mission_control";
+import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
 import { build_run_tree_sections } from "./run_tree";
 import { build_runtime_activity_views, count_runtime_activity_queues } from "./runtime_activity";
 
@@ -121,7 +125,7 @@ beforeEach(async () => {
   opened = { runs: [], sessions: [] };
   client = createAutomationsClient({ fetch: (u, i) => fetch(u, i), baseUrl: stub.url, newId: next_id });
   gateway = new GatewayClient({ base_url: stub.url, auth_token: "" });
-  ctl = new AutomationsController(client, observer_automations_host(gateway, () => "cmd-host", () => "2026-09-27T07:10:00Z"));
+  ctl = new AutomationsController(client, observer_automations_host(gateway, () => "cmd-host", () => "2026-09-27T07:10:00Z"), []);
 });
 
 afterEach(async () => {
@@ -152,6 +156,8 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
         target: { bundle_ref: "news-agent@1.0.0", flow_id: "main", input_data: { provider: "lmstudio", prompt: "Search the AI news of the last hours" } },
         trigger: { source_id: "schedule", source_version: 1, config: { every } },
         context: { mode: "independent" },
+        // Decision D1: creating the automation is the consent; "auto" by default.
+        policy: { tool_approval: "auto" },
       },
     });
     expect(res.summary.trigger.config.every).toBe(every);
@@ -235,6 +241,16 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(adv).toContain("Title");
     expect(adv).toContain("Stop after this many runs");
     expect(adv).toContain("Stop at (UTC)");
+    // D1: the consent line with the target's tools, and the "ask" option.
+    const tools = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} tools={["fetch_url", "execute_command"]} on_change={() => {}} />));
+    expect(tools).toContain(TOOL_APPROVAL_CONSENT);
+    expect(tools).toContain("fetch_url, execute_command");
+    expect(tools).toContain("Ask each time");
+  });
+
+  it("the Ask each time option sends policy.tool_approval \"ask\"", async () => {
+    await automate({ tool_approval: "ask" }, news, { prompt: "Fetch the headlines" }, "req-ask");
+    expect(last_request("POST", "/api/gateway/automations").body.policy).toEqual({ tool_approval: "ask" });
   });
 });
 
@@ -256,7 +272,7 @@ describe("Automations page", () => {
     expect(html).toContain("every 30 minutes (UTC)");
     expect(html).toContain(`next: ${formatUtc(LIST.items[0].next_fire_at)}`);
     expect(html).toContain("next: none while paused");
-    expect(html).toContain("2 unseen · 1 waiting for you");
+    expect(html).toContain(attentionLabel(LIST.items[1]));
   });
 
   it("opens the panel for a row: definition, occurrences as chat pairs with failure and wait states", async () => {
@@ -369,6 +385,41 @@ describe("Automations page", () => {
     expect(prefill.form).toMatchObject({ when: "every", amount: "1", unit: "d", context: "growing" });
     expect(prefill.input_data).toEqual({ prompt: input.input_data.prompt, provider: "lmstudio" });
     expect(legacy_recreate_prefill({ schedule: { ...run.schedule, interval: "250ms" } }, input).notes[0]).toMatch(/250ms/);
+    // The gateway's schedule names the target by target_bundle_ref only (observed at abstractgateway 2c8d8b3).
+    expect(run.schedule.target_bundle_id).toBeUndefined();
+    expect(legacy_recreate_prefill(run, { input_data: input.input_data }).choice).toEqual({ kind: "bundle", bundle_id: "news-digest", flow_id: "main" });
+  });
+
+  it("answers each wait by its kind (decision D1): tool approval with {approved}, never a text guess", async () => {
+    await ctl.refresh();
+    await ctl.select(INBOX_ID);
+    const waits = OCC.items[0].waits;
+    const ask = waits.find((w: any) => w.kind === "ask_user");
+    const tool = waits.find((w: any) => w.kind === "tool_approval");
+    expect(detail_html()).toContain(tool.details[0].name); // the panel lists what it would approve
+    const p = automation_panel_props(ctl, host_handlers)!;
+    const before = stub.requests.length;
+    await expect(p.onAnswerWait(ask.run_id, ask.wait_key, { approved: true })).rejects.toMatchObject({ message: expect.stringMatching(/ask_user/) });
+    await expect(p.onAnswerWait(tool.run_id, tool.wait_key, { response: "yes" })).rejects.toMatchObject({ message: expect.stringMatching(/approved/) });
+    expect(requests_since(before)).toEqual([]); // nothing mismatched reached the gateway
+    await p.onAnswerWait(tool.run_id, tool.wait_key, { approved: true });
+    expect(last_request("POST", "/api/gateway/commands").body).toEqual({
+      command_id: "cmd-host",
+      run_id: tool.run_id,
+      type: "resume",
+      payload: { wait_key: tool.wait_key, payload: { approved: true } },
+      client_id: "web_pwa",
+    });
+    expect(wait_answer_payload("event", { payload: { ok: 1 } })).toEqual({ payload: { ok: 1 } });
+    expect(() => wait_answer_payload(undefined, { response: "x" })).toThrow(/no known kind/);
+  });
+
+  it("tool-approval details in the typed shape reach the board and the run view", () => {
+    const wait = { reason: "tool_approval", details: [{ name: "send_email", arguments: { to: "x" }, call_id: "c1" }] };
+    expect(extract_tool_calls_from_wait(wait as any).map((c: any) => c.name)).toEqual(["send_email"]);
+    expect(extract_tool_calls_from_wait({ reason: "user", details: { tool_calls: [{ name: "fetch_url", arguments: {} }] } } as any).map((c: any) => c.name)).toEqual(["fetch_url"]);
+    const card = board_card(normalize_run_summary({ run_id: "r", status: "waiting", waiting: wait }));
+    expect(card).toMatchObject({ column: "review", tool_names: ["send_email"] });
   });
 
   it("Discuss posts {request_id, occurrence_index, prompt} and opens the returned session", async () => {

@@ -8,12 +8,14 @@
  */
 import React from "react";
 
-import { SCHEDULE_PRESETS } from "@abstractframework/ui-kit";
+import { SCHEDULE_PRESETS, TOOL_APPROVAL_CONSENT } from "@abstractframework/ui-kit";
 
 import { CONTEXT_HELP, automate_preview, type AutomateForm, type IntervalUnit } from "./automations";
 
 export type AutomateFieldsProps = {
   form: AutomateForm;
+  /** The target's tool list when the inputs name one (`input_data.tools`). */
+  tools?: string[];
   disabled?: boolean;
   on_change(patch: Partial<AutomateForm>): void;
 };
@@ -84,6 +86,18 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
         <label>
           <input type="radio" name="automate_context" value="growing" checked={f.context === "growing"} disabled={p.disabled} onChange={() => p.on_change({ context: "growing" })} />{" "}
           <strong>Growing</strong> — {CONTEXT_HELP.growing}
+        </label>
+      </fieldset>
+      <fieldset data-section="tools">
+        <legend>Tools</legend>
+        <label>
+          <input type="radio" name="automate_tools" value="auto" checked={f.tool_approval === "auto"} disabled={p.disabled} onChange={() => p.on_change({ tool_approval: "auto" })} />{" "}
+          {TOOL_APPROVAL_CONSENT}
+          {p.tools && p.tools.length ? <span className="automate_preview"> — {p.tools.join(", ")}</span> : null}
+        </label>
+        <label>
+          <input type="radio" name="automate_tools" value="ask" checked={f.tool_approval === "ask"} disabled={p.disabled} onChange={() => p.on_change({ tool_approval: "ask" })} /> Ask each time — every tool call
+          waits for your approval on the Automations page
         </label>
       </fieldset>
     </div>

@@ -22,6 +22,8 @@ export function extract_tool_calls_from_wait(wait: WaitState | null | undefined)
   const w: any = wait as any;
   const details = w?.details;
   if (!details || typeof details !== "object") return [];
+  // Typed waits (Automations decision D1): `details` IS the tool-call list.
+  if (Array.isArray(details)) return details.filter((c: any) => c && typeof c === "object" && typeof c.name === "string") as ToolCall[];
   const tc = details?.tool_calls;
   return Array.isArray(tc) ? (tc as ToolCall[]) : [];
 }
