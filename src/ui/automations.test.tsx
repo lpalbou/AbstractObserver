@@ -23,7 +23,7 @@ import {
 import { LEGACY_ID, LEGACY_TARGET, loadFixture, startAutomationsStub } from "../../scripts/automations_stub_server.mjs";
 import { renderAutomationText } from "@abstractframework/panel-chat";
 import { GatewayClient } from "../lib/gateway_client";
-import { AutomateAdvancedSchedule, AutomateWhenContext } from "./automate_form";
+import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import {
   AutomationsController,
   DEFAULT_AUTOMATE_FORM,
@@ -38,6 +38,10 @@ import {
   parse_workflow_choice,
   run_session_tag,
   wait_answer_payload,
+  LAUNCH_AUTOMATE_HASH,
+  LAUNCH_MODE_HELP,
+  parse_app_hash,
+  visible_automations,
   type AutomateForm,
   type WorkflowChoice,
 } from "./automations";
@@ -98,6 +102,7 @@ const noop_handlers: AutomationsHandlers = {
   on_status_filter: () => {},
   on_refresh: () => {},
   on_new: () => {},
+  on_show_archived: () => {},
 };
 
 function requests_since(n: number): Array<{ method: string; path: string; body: any }> {
@@ -534,6 +539,54 @@ describe("Automations page", () => {
     expect(summary_of(INBOX_ID).attention.unread).toBe(false);
     p.onOpenRun(OCC.items[1].run_id);
     expect(opened.runs).toEqual([OCC.items[1].run_id]);
+  });
+});
+
+// --- Launch modes, "+ New automation", archived rows -----------------------------------
+
+describe("Launch modes and discoverability", () => {
+  it("the mode switch says in one sentence what each mode does, and the sentence follows the mode", () => {
+    const render = (mode: "once" | "automate") =>
+      unescape(renderToStaticMarkup(<LaunchModeSwitch mode={mode} automate_available automate_reason="" on_change={() => {}} />));
+    const once = render("once");
+    const auto = render("automate");
+    expect(once).toContain(LAUNCH_MODE_HELP.once);
+    expect(once).not.toContain(LAUNCH_MODE_HELP.automate);
+    expect(auto).toContain(LAUNCH_MODE_HELP.automate);
+    expect(auto).not.toContain(LAUNCH_MODE_HELP.once);
+    expect(once).toMatch(/data-mode="once"[^>]*aria-checked="true"|aria-checked="true"[^>]*data-mode="once"/);
+    expect(auto).toMatch(/aria-checked="true"[^>]*data-mode="automate"|data-mode="automate"[^>]*aria-checked="true"/);
+    expect(LAUNCH_MODE_HELP.once).toMatch(/^Run once: /);
+    expect(LAUNCH_MODE_HELP.automate).toMatch(/^Automate: .*schedule.*Automations page/);
+  });
+
+  it("\"+ New automation\" on the Automations page opens Launch in Automate mode", async () => {
+    await ctl.refresh();
+    let clicked = 0;
+    const html = unescape(renderToStaticMarkup(<AutomationsListView state={ctl.state} available={{ available: true, reason: "" }} h={{ ...noop_handlers, on_new: () => (clicked += 1) }} />));
+    const btn = /<a [^>]*data-action="new"[^>]*>([^<]*)<\/a>/.exec(html);
+    expect(btn?.[1]).toBe("+ New automation");
+    expect(btn?.[0]).toContain(`href="${LAUNCH_AUTOMATE_HASH}"`);
+    expect(parse_app_hash(LAUNCH_AUTOMATE_HASH)).toEqual({ page: "launch", mode: "automate" });
+    expect(parse_app_hash("#launch")).toEqual({ page: "launch", mode: "once" });
+    expect(parse_app_hash("#automations")).toEqual({ page: "automations" });
+    expect(parse_app_hash(`#${NEWS_ID}`)).toBeNull(); // run deep links stay run deep links
+  });
+
+  it("archived automations are hidden until \"Show archived\" (or the archived filter) asks for them", async () => {
+    ids.push("cmd-arch-hide");
+    await ctl.refresh();
+    await ctl.row_action(summary_of(JOURNAL_ID), "archive");
+    expect(summary_of(JOURNAL_ID).status).toBe("archived");
+    const rowIds = (html: string) => [...html.matchAll(/data-automation-id="([^"]+)"/g)].map((m) => m[1]);
+    expect(rowIds(list_html())).not.toContain(JOURNAL_ID);
+    expect(list_html()).toContain("Show archived (1)");
+    ctl.set_show_archived(true);
+    expect(rowIds(list_html())).toContain(JOURNAL_ID);
+    ctl.set_show_archived(false);
+    await ctl.set_status_filter("archived");
+    expect(visible_automations(ctl.state).map((s) => s.automation_id)).toEqual([JOURNAL_ID]);
+    expect(list_html()).not.toContain("Show archived");
   });
 });
 

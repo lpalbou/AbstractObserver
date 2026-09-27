@@ -158,3 +158,35 @@
   color: var(--error);
   font-size: var(--t-small);
 }
+
+.launch_mode_help {
+  margin: 4px 0 8px;
+  font-size: var(--t-small);
+  color: var(--text-secondary);
+}
+
+.auto_new {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.auto_new.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.auto_show_archived {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0 0 8px;
+}
+
+.auto_show_archived input[type="checkbox"] {
+  width: auto;
+  height: auto;
+  margin: 0;
+}

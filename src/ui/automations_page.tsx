@@ -23,8 +23,11 @@ import {
 import {
   AUTOMATIONS_POLL_MS,
   automation_row_controls,
+  LAUNCH_AUTOMATE_HASH,
+  archived_count,
   automation_row_view,
   discussion_notice,
+  visible_automations,
   is_legacy_summary,
   legacy_row_controls,
   type AutomationsController,
@@ -43,6 +46,7 @@ export type AutomationsHandlers = {
   on_status_filter(status: AutomationStatus | ""): void;
   on_refresh(): void;
   on_new(): void;
+  on_show_archived(show: boolean): void;
 };
 
 const STATUS_FILTERS: Array<[AutomationStatus | "", string]> = [
@@ -145,7 +149,7 @@ export function AutomationsListView(props: { state: AutomationsState; available:
     <section className="pane auto_list" aria-label="Automations">
       <div className="pane_header">
         <span className="pane_title">Automations</span>
-        <span className="pane_count">{st.items.length}</span>
+        <span className="pane_count">{visible_automations(st).length}</span>
         <span className="pane_spacer" />
         <select className="seg_select" value={st.status_filter} onChange={(e) => props.h.on_status_filter(e.target.value as AutomationStatus | "")} aria-label="Filter by status">
           {STATUS_FILTERS.map(([v, l]) => (
@@ -157,11 +161,21 @@ export function AutomationsListView(props: { state: AutomationsState; available:
         <button type="button" className="btn btn_sm" onClick={props.h.on_refresh} disabled={st.loading || !props.available.available}>
           {st.loading ? "…" : "Refresh"}
         </button>
-        <button type="button" className="btn btn_sm primary" data-action="new" onClick={props.h.on_new} disabled={!props.available.available}>
-          New automation
-        </button>
       </div>
       <div className="pane_body scroll">
+        <a
+          className={`btn primary auto_new${props.available.available ? "" : " disabled"}`}
+          data-action="new"
+          href={LAUNCH_AUTOMATE_HASH}
+          aria-disabled={!props.available.available}
+          title="Open Launch in Automate mode"
+          onClick={(e) => {
+            e.preventDefault();
+            if (props.available.available) props.h.on_new();
+          }}
+        >
+          + New automation
+        </a>
         {!props.available.available ? (
           <div className="warn_callout" role="note" data-unavailable="true">
             {props.available.reason}
@@ -180,8 +194,13 @@ export function AutomationsListView(props: { state: AutomationsState; available:
         {props.available.available && st.loaded && !st.items.length ? (
           <div className="help_text muted">No automations yet. Create one from Launch → Automate.</div>
         ) : null}
+        {archived_count(st) > 0 && st.status_filter !== "archived" ? (
+          <label className="auto_show_archived help_text muted">
+            <input type="checkbox" data-action="show-archived" checked={st.show_archived} onChange={(e) => props.h.on_show_archived(e.target.checked)} /> Show archived ({archived_count(st)})
+          </label>
+        ) : null}
         <ul className="auto_rows">
-          {st.items.map((s) => (
+          {visible_automations(st).map((s) => (
             <AutomationRow key={s.automation_id} summary={s} state={st} h={props.h} />
           ))}
         </ul>

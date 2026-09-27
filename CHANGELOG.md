@@ -7,6 +7,13 @@ Automations need a gateway that advertises the Automations API
 mode and the Automations page explain why they are unavailable.
 
 ### Added
+- **Launch** says what each mode does in one sentence under the switch
+  (**Run once**: one run now; **Automate**: an automation on a schedule or on
+  demand, managed on the Automations page).
+- **+ New automation** on the Automations page opens Launch in Automate mode;
+  `#launch/automate` links there directly.
+- The Automations page hides archived automations until **Show archived** is
+  ticked (or the Archived filter is chosen).
 - **Launch → Automate**: create an automation from three fields: **What** (a
   workflow or the gateway's default agent, and the prompt), **When** (every
   N minutes, hours or days in UTC, or once at a time; presets from every

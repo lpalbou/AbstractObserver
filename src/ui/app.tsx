@@ -30,7 +30,7 @@ import {
   type ProviderOption,
 } from "@abstractframework/ui-kit";
 import { AppAssistantDrawer } from "./app_assistant";
-import { AutomateAdvancedSchedule, AutomateWhenContext } from "./automate_form";
+import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import {
   AutomationsController,
@@ -42,6 +42,7 @@ import {
   legacy_recreate_prefill,
   normalize_run_summary,
   observer_automations_host,
+  parse_app_hash,
   parse_workflow_choice,
   workflow_choice_value,
   type AutomateForm,
@@ -855,6 +856,18 @@ export function App(): React.ReactElement {
     (fn) => automations_ctl.subscribe(fn),
     () => automations_ctl.state,
   );
+  // Deep links: #launch/automate, #launch/once, #launch, #automations.
+  useEffect(() => {
+    const apply = () => {
+      const target = parse_app_hash(window.location.hash);
+      if (!target) return;
+      if (target.page === "launch") set_launch_mode(target.mode);
+      set_page(target.page);
+    };
+    apply();
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
+  }, []);
   /** Automation titles for the navigator's automation roots (when loaded). */
   const automation_titles = useMemo(() => {
     const out: Record<string, string> = {};
@@ -4801,10 +4814,13 @@ export function App(): React.ReactElement {
     on_cancel_archive: () => automations_ctl.ask_archive(""),
     on_status_filter: (status) => void automations_ctl.set_status_filter(status),
     on_refresh: () => void automations_ctl.refresh(),
+    // "+ New automation" is a link to LAUNCH_AUTOMATE_HASH; the hash effect
+    // below opens Launch in Automate mode (also from a pasted/bookmarked link).
     on_new: () => {
       set_launch_mode("automate");
       set_page("launch");
     },
+    on_show_archived: (show) => automations_ctl.set_show_archived(show),
   };
 
   return (
@@ -5169,27 +5185,12 @@ export function App(): React.ReactElement {
               <div className="card">
                 {/* The shell header already names the page — the card leads
                   * with what to do, not a second "Launch" heading. */}
-                <div className="help_text muted">
-                  {launch_mode === "automate"
-                    ? "Create an automation: what to run, when (UTC intervals), and whether runs share context. The gateway runs it; manage it on the Automations page."
-                    : "Pick a workflow, fill its inputs, and start a run on the connected gateway."}
-                </div>
-
-                <div className="seg_toggle launch_mode_switch" role="radiogroup" aria-label="Launch mode">
-                  <button type="button" role="radio" aria-checked={launch_mode === "once"} className={`seg_btn ${launch_mode === "once" ? "active" : ""}`} onClick={() => set_launch_mode("once")}>
-                    Run once
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={launch_mode === "automate"}
-                    className={`seg_btn ${launch_mode === "automate" ? "active" : ""}`}
-                    onClick={() => set_launch_mode("automate")}
-                    title={automations_cap.available ? "Run on a schedule" : automations_cap.reason}
-                  >
-                    Automate
-                  </button>
-                </div>
+                <LaunchModeSwitch
+                  mode={launch_mode}
+                  automate_available={automations_cap.available}
+                  automate_reason={automations_cap.reason}
+                  on_change={set_launch_mode}
+                />
                 {launch_mode === "automate" && !automations_cap.available && gateway_connected ? (
                   <div className="warn_callout" role="note">{automations_cap.reason}</div>
                 ) : null}

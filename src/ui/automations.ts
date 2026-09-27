@@ -127,6 +127,28 @@ export function clean_input_data(input: Record<string, any> | null | undefined):
   return out;
 }
 
+// --- Launch modes and deep link ------------------------------------------------------
+
+export type LaunchMode = "once" | "automate";
+
+/** One sentence per mode: what the Launch button will do. */
+export const LAUNCH_MODE_HELP: Record<LaunchMode, string> = {
+  once: "Run once: start this workflow now, a single run you can watch in Observe.",
+  automate:
+    "Automate: create an automation that runs this workflow on a schedule (every N minutes, hours or days) or when you ask; manage it on the Automations page.",
+};
+
+/** Deep link to Launch in Automate mode (the Automations page's "+ New automation"). */
+export const LAUNCH_AUTOMATE_HASH = "#launch/automate";
+
+/** `#launch`, `#launch/once`, `#launch/automate`, `#automations` → the page (and Launch mode); anything else → null. */
+export function parse_app_hash(hash: string): { page: "launch"; mode: LaunchMode } | { page: "automations" } | null {
+  const h = String(hash || "").replace(/^#\/?/, "");
+  if (h === "automations") return { page: "automations" };
+  const m = /^launch(?:\/(once|automate))?$/.exec(h);
+  return m ? { page: "launch", mode: (m[1] as LaunchMode) || "once" } : null;
+}
+
 // --- Automate mode ---------------------------------------------------------------
 
 export type IntervalUnit = "m" | "h" | "d";
@@ -516,6 +538,8 @@ export type AutomationsState = {
   error: ApiError | null;
   refreshed_at: number | null;
   status_filter: AutomationStatus | "";
+  /** Archived automations are hidden unless asked for (or filtered on). */
+  show_archived: boolean;
   selected_id: string;
   detail: AutomationDetailState | null;
   trigger_sources: TriggerSourceEntry[];
@@ -532,6 +556,7 @@ export const INITIAL_AUTOMATIONS_STATE: AutomationsState = {
   error: null,
   refreshed_at: null,
   status_filter: "",
+  show_archived: false,
   selected_id: "",
   detail: null,
   trigger_sources: [],
@@ -593,6 +618,16 @@ export function wait_answer_payload(kind: unknown, payload: Record<string, any>)
     return { payload: payload.payload };
   }
   throw new Error(`This wait has no known kind (${JSON.stringify(kind)}); the gateway must type its waits (ask_user, tool_approval, event).`);
+}
+
+/** The rows the list shows: archived ones only when asked for, or when filtering on "archived". */
+export function visible_automations(state: Pick<AutomationsState, "items" | "status_filter" | "show_archived">): AutomationSummary[] {
+  if (state.show_archived || state.status_filter === "archived") return state.items;
+  return state.items.filter((s) => s.status !== "archived");
+}
+
+export function archived_count(state: Pick<AutomationsState, "items">): number {
+  return state.items.filter((s) => s.status === "archived").length;
 }
 
 /**
@@ -869,6 +904,10 @@ export class AutomationsController {
     } catch (e) {
       this.set({ error: to_api_error(e) });
     }
+  }
+
+  set_show_archived(show: boolean): void {
+    this.set({ show_archived: show });
   }
 
   ask_archive(id: string): void {

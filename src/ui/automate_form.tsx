@@ -10,7 +10,40 @@ import React from "react";
 
 import { SCHEDULE_PRESETS, TOOL_APPROVAL_CONSENT } from "@abstractframework/ui-kit";
 
-import { CONTEXT_HELP, automate_preview, type AutomateForm, type IntervalUnit } from "./automations";
+import { CONTEXT_HELP, LAUNCH_MODE_HELP, automate_preview, type AutomateForm, type IntervalUnit, type LaunchMode } from "./automations";
+
+/** Launch's mode switch with one sentence saying what the selected mode does. */
+export function LaunchModeSwitch(p: {
+  mode: LaunchMode;
+  automate_available: boolean;
+  automate_reason: string;
+  on_change(mode: LaunchMode): void;
+}): React.ReactElement {
+  const btn = (mode: LaunchMode, label: string, title?: string) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={p.mode === mode}
+      className={`seg_btn ${p.mode === mode ? "active" : ""}`}
+      data-mode={mode}
+      title={title}
+      onClick={() => p.on_change(mode)}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="launch_mode">
+      <div className="seg_toggle launch_mode_switch" role="radiogroup" aria-label="Launch mode" aria-describedby="launch_mode_help">
+        {btn("once", "Run once")}
+        {btn("automate", "Automate", p.automate_available ? undefined : p.automate_reason)}
+      </div>
+      <p className="launch_mode_help" id="launch_mode_help" data-mode-help={p.mode} aria-live="polite">
+        {LAUNCH_MODE_HELP[p.mode]}
+      </p>
+    </div>
+  );
+}
 
 export type AutomateFieldsProps = {
   form: AutomateForm;

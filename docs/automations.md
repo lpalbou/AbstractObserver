@@ -29,8 +29,18 @@ Schedules created with an older gateway keep working either way (see
 
 ## Create an automation: Launch → Automate
 
-Open **Launch** and switch **Run once | Automate** to **Automate** (the
-**New automation** button on the Automations page opens the same form).
+**Launch** has two modes, and the sentence under the switch says which one
+is selected:
+
+- **Run once**: start this workflow now, a single run you can watch in Observe.
+- **Automate**: create an automation that runs this workflow on a schedule
+  (every N minutes, hours or days) or when you ask; manage it on the
+  Automations page.
+
+Switch to **Automate**, or use **+ New automation** on the Automations page,
+which opens Launch in Automate mode. The address `#launch/automate` opens it
+directly (bookmarkable; `#launch` opens Run once, `#automations` the
+Automations page).
 
 ### What
 
@@ -100,7 +110,12 @@ request.
 **Automations** (left navigation) lists every automation of the signed-in
 gateway user. The list is read in full and refreshed every 30 seconds while
 the page is visible; **Refresh** reads it at once. Filter by status: All,
-Active, Paused, Completed, Failed, Archived.
+Active, Paused, Completed, Failed, Archived. **+ New automation** opens Launch
+in Automate mode.
+
+Archived automations are hidden by default; **Show archived (N)** lists them
+again, and the Archived filter shows only them. Their history stays
+readable.
 
 ### Rows
 
