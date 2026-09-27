@@ -196,3 +196,10 @@ export function run_duration_ms(run: RunClockFields | null | undefined, now_ms =
 export function run_duration_label(run: RunClockFields | null | undefined, now_ms = Date.now()): string {
   return format_duration_ms(run_duration_ms(run, now_ms));
 }
+
+/** What a failed Ask/summary says in the thread: the error's own message
+ * (the gateway's reason, see `gateway_error`), never a generic "failed". */
+export function ask_error_text(e: unknown): string {
+  const message = e && typeof e === "object" && "message" in e ? String((e as { message: unknown }).message || "").trim() : String(e ?? "").trim();
+  return message || "the request failed without a reason (no response body)";
+}

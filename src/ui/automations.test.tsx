@@ -242,6 +242,15 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(bad({}, { kind: "bundle", bundle_id: "unpublished", flow_id: "main" }, { prompt: "x" })).toMatchObject({ ok: false, errors: [expect.stringMatching(/bundle_ref/)] });
   });
 
+  it("the Context choice is the one history control: a Launch-mode Use Context never rides into an automation", () => {
+    const built = build_automate_request_memo({ ...DEFAULT_AUTOMATE_FORM, context: "growing" }, { choice: news, bundle_ref_for, input_data: { prompt: "p", use_context: false, temperature: 0.2 } }, new RequestIdMemo(() => "ctx"));
+    expect(built.ok).toBe(true);
+    if (built.ok) {
+      expect(built.body.context).toEqual({ mode: "growing" });
+      expect(built.body.target.input_data).toEqual({ prompt: "p", temperature: 0.2 });
+    }
+  });
+
   it("a retry of the same body reuses its request id; a changed body mints a new one", () => {
     let n = 0;
     const memo = new RequestIdMemo(() => `req-${++n}`);
@@ -261,7 +270,9 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(html).toContain("When (UTC)");
     for (const p of SCHEDULE_PRESETS) expect(html).toContain(`data-preset="${p.label}"`);
     expect(html).toContain("Runs every 24 hours (UTC), first run now.");
-    expect(html).toContain("most recent 40 messages");
+    expect(html).toContain("the most recent 50,000 tokens of whole turns are replayed");
+    // One history control: the Context choice says it owns the flow's Use Context input.
+    expect(html).toContain('data-context-owns="use_context"');
     expect(html).not.toMatch(/daily at|local time|weekly on/i);
     const adv = unescape(renderToStaticMarkup(<AutomateAdvancedSchedule form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />));
     expect(adv).toContain("Title");

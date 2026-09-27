@@ -65,6 +65,39 @@ async function _read_error(resp: Response): Promise<string> {
   }
 }
 
+/** A refused gateway call, carrying the gateway's own reason. */
+export class GatewayRequestError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "GatewayRequestError";
+    this.status = status;
+  }
+}
+
+/** The gateway's reason for a refusal, in words: FastAPI's `detail` (a string,
+ * or `{message, reason_code}`), else the body text, else the status. Never a
+ * generic "failed" (operator report 2026-09-28: Ask showed "failed to generate
+ * answer" while the gateway had said exactly why). */
+export async function gateway_error(resp: Response, what: string): Promise<GatewayRequestError> {
+  let text = "";
+  try {
+    text = (await resp.text()).trim();
+  } catch {
+    text = "";
+  }
+  let reason = text;
+  try {
+    const body = JSON.parse(text);
+    const detail = body && typeof body === "object" ? (body as any).detail : undefined;
+    if (typeof detail === "string" && detail.trim()) reason = detail.trim();
+    else if (detail && typeof detail === "object" && typeof detail.message === "string" && detail.message.trim()) reason = detail.message.trim();
+  } catch {
+    // not JSON: the body text is the reason
+  }
+  return new GatewayRequestError(resp.status, `${what} (HTTP ${resp.status}): ${reason || resp.statusText || "no reason given"}`);
+}
+
 /** Public `GET /api/gateway/about`: the versions the gateway host runs.
  * `abstractframework` is null when the meta-package is not installed there. */
 export type GatewayAbout = {
@@ -597,7 +630,7 @@ export class GatewayClient {
       },
       body: JSON.stringify(body),
     });
-    if (!r.ok) throw new Error(`generate_run_summary failed: ${r.status}`);
+    if (!r.ok) throw await gateway_error(r, "The gateway could not summarize this run");
     return await r.json();
   }
 
@@ -624,7 +657,7 @@ export class GatewayClient {
       },
       body: JSON.stringify(body),
     });
-    if (!r.ok) throw new Error(`run_chat failed: ${r.status}`);
+    if (!r.ok) throw await gateway_error(r, "The gateway could not answer");
     return await r.json();
   }
 

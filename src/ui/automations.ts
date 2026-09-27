@@ -189,8 +189,20 @@ export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
 export const CONTEXT_HELP: Record<ContextMode, string> = {
   independent: "Each run starts fresh in its own session. Runs never see each other.",
   growing:
-    "Each run is a new turn of one conversation and sees the previous runs. The history is bounded: the most recent 40 messages (at most 24,000 characters) are replayed; older runs drop out.",
+    "Each run is a new turn of one conversation and sees the previous runs. The history is bounded: the most recent 50,000 tokens of whole turns are replayed; older runs drop out.",
 };
+
+/**
+ * Workflow inputs an automation owns (operator 2026-09-28: "Use Context" on
+ * top AND Context independent/growing were one control shown twice, and they
+ * could contradict: Growing + Use Context = No silently dropped the history).
+ * The Context choice is the one control; the gateway sets `use_context` on the
+ * automation's target from it, so Automate mode neither shows nor sends it.
+ */
+export const AUTOMATION_OWNED_INPUTS: readonly string[] = ["use_context"];
+
+/** Said under the Context choice, where the hidden input went. */
+export const CONTEXT_OWNS_HISTORY = "This choice also sets the workflow's Use Context input: the workflow always reads the history the automation gives it.";
 
 /** The kit's schedule form for this Observer form and prompt. */
 export function schedule_form(form: AutomateForm, prompt: string): ScheduleForm {
@@ -225,6 +237,7 @@ export function build_automate_request(
   const cleaned = clean_input_data(opts.input_data);
   const prompt = typeof cleaned.prompt === "string" ? cleaned.prompt : "";
   delete cleaned.prompt;
+  for (const key of AUTOMATION_OWNED_INPUTS) delete cleaned[key];
   let target: AutomationTarget | null;
   try {
     target = automation_target(opts.choice, opts.bundle_ref_for, cleaned);

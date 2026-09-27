@@ -33,6 +33,7 @@ import { AppAssistantDrawer } from "./app_assistant";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import {
+  AUTOMATION_OWNED_INPUTS,
   AutomationsController,
   DEFAULT_AUTOMATE_FORM,
   RequestIdMemo,
@@ -57,6 +58,7 @@ import "./observe.css";
 
 import {
   active_run_status,
+  ask_error_text,
   clamp_preview,
   format_time_ago,
   format_time_until_from_ms,
@@ -3435,11 +3437,10 @@ export function App(): React.ReactElement {
         return [...prev, { id: `local:${random_id()}`, role: "assistant" as const, content: answer, ts }];
       });
     } catch (e: any) {
-      set_chat_error(String(e?.message || e || "Chat failed"));
-      set_chat_messages((prev) => [
-        ...prev,
-        { id: `local:${random_id()}`, role: "assistant" as const, content: "(error: failed to generate answer)", ts: now_iso() },
-      ]);
+      // The gateway's own reason, in the thread and under the composer.
+      const reason = ask_error_text(e);
+      set_chat_error(reason);
+      set_chat_messages((prev) => [...prev, { id: `local:${random_id()}`, role: "assistant" as const, content: `(error: ${reason})`, ts: now_iso() }]);
     } finally {
       set_chat_sending(false);
     }
@@ -5294,6 +5295,8 @@ export function App(): React.ReactElement {
                           if (!p || typeof p !== "object") continue;
                           const pid = String((p as any).id || "").trim();
                           if (!pid) continue;
+                          // The automation's Context choice owns these (one control, not two).
+                          if (launch_mode === "automate" && AUTOMATION_OWNED_INPUTS.includes(pid)) continue;
                           const ptype = String((p as any).type || "").trim().toLowerCase();
                           const is_wide =
                             ptype === "tools" || ptype === "skills" || ptype === "mcp" || ptype === "mcp_servers" ||
