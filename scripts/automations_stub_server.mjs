@@ -58,38 +58,17 @@ function seqOf(cursor) {
   return m ? Number(m[1]) : null;
 }
 
-/** Legacy schedule row, shaped like abstractgateway 5161785's projection
- * (observed 2026-09-27): trigger.binding_id = the wrapper run id, a
- * last_occurrence once it has run, listed last; its run's `schedule` names
- * the target by target_bundle_ref. */
-export const LEGACY_ID = "7a1c2b3d-0000-4000-8000-00000000c0de";
-function legacySeed() {
+/** The legacy schedule row comes from the canonical list fixture (captured
+ * from abstractgateway 5161785). Its RUN projection (`GET /runs/{id}` and
+ * `/runs/{id}/input_data`) is not a fixture: it is built here in the real
+ * shape observed on that gateway — `schedule` names the target only by
+ * target_bundle_ref / target_flow_id / target_workflow_id. */
+export const LEGACY_ID = loadFixture("list").items.find((s) => s.legacy === true)?.automation_id;
+if (!LEGACY_ID) throw new Error("list.json has no legacy row; the stub needs one");
+export const LEGACY_TARGET = { bundle_id: "acceptance-automations", bundle_version: "1.0.0", flow_id: "echo" };
+function legacyRunSeed(summary) {
+  const ref = `${LEGACY_TARGET.bundle_id}@${LEGACY_TARGET.bundle_version}`;
   return {
-    summary: {
-      automation_id: LEGACY_ID,
-      title: "main",
-      status: "active",
-      trigger: { binding_id: LEGACY_ID, source_id: "schedule", source_version: 1, config: { every: "1d" } },
-      context_mode: "growing",
-      occurrence_count: 1,
-      last_occurrence: {
-        run_id: "7af5a440-b8cc-493f-8475-4e2fe13f0e3a",
-        index: 1,
-        status: "completed",
-        attempts: 1,
-        fired_at: "2026-09-27T06:00:00.331230+00:00",
-        excerpt: "Five renewable-energy headlines overnight.",
-        notify: null,
-        finished_at: "2026-09-27T06:00:04.337112+00:00",
-      },
-      attention: { pending_waits: 0, unread: false, unseen_count: 0, cursor: "att1:0", items: [], waits: [] },
-      legacy: true,
-      revision: null,
-      updated_at: "2026-09-27T06:00:04.347983+00:00",
-      capabilities: ["legacy"],
-      session_kind: "automation",
-      next_fire_at: "2026-09-28T06:00:00.347613+00:00",
-    },
     run: {
       run_id: LEGACY_ID,
       workflow_id: `scheduled:${LEGACY_ID}`,
@@ -99,31 +78,31 @@ function legacySeed() {
       session_kind: "automation",
       legacy: true,
       paused: false,
-      waiting: { reason: "until", until: "2026-09-28T06:00:00Z", wait_key: `until:${LEGACY_ID}` },
+      waiting: { reason: "until", until: summary.next_fire_at ?? null, wait_key: `until:${LEGACY_ID}` },
       schedule: {
         kind: "scheduled_run",
-        interval: "1d",
+        interval: summary.trigger.config.every,
         repeat_count: null,
         repeat_until: null,
         start_at: null,
-        share_context: true,
-        target_workflow_id: "news-digest@1.2.0:main",
-        target_bundle_ref: "news-digest@1.2.0",
-        target_flow_id: "main",
-        created_at: "2026-09-01T06:00:00+00:00",
+        share_context: summary.context_mode === "growing",
+        target_workflow_id: `${ref}:${LEGACY_TARGET.flow_id}`,
+        target_bundle_ref: ref,
+        target_flow_id: LEGACY_TARGET.flow_id,
+        created_at: "2026-09-27T06:00:00+00:00",
         updated_at: null,
       },
     },
     input_data: {
       run_id: LEGACY_ID,
       workflow_id: `scheduled:${LEGACY_ID}`,
-      bundle_id: "news-digest",
-      bundle_version: "1.2.0",
-      flow_id: "main",
+      bundle_id: LEGACY_TARGET.bundle_id,
+      bundle_version: LEGACY_TARGET.bundle_version,
+      flow_id: LEGACY_TARGET.flow_id,
       input_data: {
-        prompt: "Summarise the overnight news about renewable energy in five bullets.",
+        prompt: "Legacy hourly digest",
         provider: "lmstudio",
-        workflow_selection: { workflow_id: "news-digest@1.2.0:main", source: "client" },
+        workflow_selection: { workflow_id: `${ref}:${LEGACY_TARGET.flow_id}`, source: "client" },
         _runtime: { thinking: "low" },
       },
     },
@@ -153,6 +132,12 @@ export function createAutomationsStub(options = {}) {
 
   const inboxId = attention.items[0].automation_id;
   for (const s of list.items) {
+    if (s.legacy) {
+      // Legacy rows have no occurrences on the automation routes.
+      autos.set(s.automation_id, { summary: clone(s), definition: null, occurrences: [], attention: [], seen_seq: 0, discussions: [], prompt: "" });
+      legacyRuns.set(s.automation_id, legacyRunSeed(s));
+      continue;
+    }
     const occ =
       s.automation_id === inboxId
         ? clone(occurrences.items)
@@ -187,9 +172,6 @@ export function createAutomationsStub(options = {}) {
       unlisted: s.occurrence_count - occ.length,
     });
   }
-  const legacy = legacySeed();
-  autos.set(LEGACY_ID, { summary: legacy.summary, definition: null, occurrences: [], attention: [], seen_seq: 0, discussions: [], prompt: "" });
-  legacyRuns.set(LEGACY_ID, legacy);
 
   function definitionOf(a) {
     const s = a.summary;
@@ -296,7 +278,13 @@ export function createAutomationsStub(options = {}) {
   const now = () => (options.now ? options.now() : Date.now());
   const nowIso = () => new Date(now()).toISOString().replace(/\.\d{3}Z$/, "Z");
   let seq = 100;
-  const receipt = (command_id, duplicate = false) => ({ command_id, accepted: true, duplicate, seq: duplicate ? seq : ++seq });
+  // A repeated command_id is not accepted again: {accepted:false, duplicate:true}
+  // with the first seq (observed on abstractgateway 5161785).
+  const firstSeq = new Map();
+  const receipt = (command_id, duplicate = false) => {
+    if (!duplicate) firstSeq.set(command_id, ++seq);
+    return { command_id, accepted: !duplicate, duplicate, seq: firstSeq.get(command_id) };
+  };
   const seenCommands = new Map();
 
   function create(body) {

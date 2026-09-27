@@ -13,12 +13,13 @@ import {
   createAutomationsClient,
   formatUtc,
   occurrenceViews,
+  triggerSummary,
   type AutomationSummary,
   type AutomationsClient,
 } from "@abstractframework/ui-kit";
 
 // @ts-expect-error — plain ESM helper without type declarations
-import { LEGACY_ID, loadFixture, startAutomationsStub } from "../../scripts/automations_stub_server.mjs";
+import { LEGACY_ID, LEGACY_TARGET, loadFixture, startAutomationsStub } from "../../scripts/automations_stub_server.mjs";
 import { GatewayClient } from "../lib/gateway_client";
 import { AutomateAdvancedSchedule, AutomateWhenContext } from "./automate_form";
 import {
@@ -48,9 +49,18 @@ const NOW = Date.parse("2026-09-27T07:10:00Z");
 const LIST = loadFixture("list");
 const OCC = loadFixture("occurrences");
 const COMMANDS = loadFixture("commands");
-const NEWS_ID: string = LIST.items[0].automation_id;
-const INBOX_ID: string = LIST.items[1].automation_id;
-const JOURNAL_ID: string = LIST.items[2].automation_id;
+// Roles picked by SHAPE (the fixtures are regenerated from gateway output; their order is not a contract).
+function fixture(pred: (s: any) => boolean, what: string): any {
+  const hit = LIST.items.find(pred);
+  if (!hit) throw new Error(`list.json has no ${what}`);
+  return hit;
+}
+const NEWS = fixture((s) => !s.legacy && s.status === "active" && s.attention.pending_waits === 0 && s.next_fire_at, "quiet active automation");
+const INBOX = fixture((s) => !s.legacy && s.attention.pending_waits > 0 && s.attention.unseen_count > 0, "automation waiting for a person with unseen attention");
+const JOURNAL = fixture((s) => !s.legacy && s.status === "paused", "paused automation");
+const NEWS_ID: string = NEWS.automation_id;
+const INBOX_ID: string = INBOX.automation_id;
+const JOURNAL_ID: string = JOURNAL.automation_id;
 
 type Stub = Awaited<ReturnType<typeof startAutomationsStub>>;
 let stub: Stub;
@@ -262,17 +272,19 @@ describe("Automations page", () => {
     const gets = stub.requests.filter((r: any) => r.method === "GET" && r.path.startsWith("/api/gateway/automations?"));
     expect(gets.length).toBeGreaterThanOrEqual(2); // pageSize 2: the client followed next_cursor
     expect(gets.every((r: any) => !r.path.includes("changed_since"))).toBe(true);
-    expect(ctl.state.items.map((s) => s.automation_id)).toEqual([...LIST.items.map((s: any) => s.automation_id), LEGACY_ID]);
+    expect(ctl.state.items.map((s) => s.automation_id)).toEqual(LIST.items.map((s: any) => s.automation_id));
     const html = list_html();
     for (const s of LIST.items) {
       expect(html).toContain(s.title);
-      expect(html).toContain(s.last_occurrence.excerpt);
+      expect(html).toContain(triggerSummary(s.trigger));
+      if (s.last_occurrence) expect(html).toContain(s.last_occurrence.excerpt);
     }
-    expect(html).toContain("every 8 hours (UTC)");
-    expect(html).toContain("every 30 minutes (UTC)");
-    expect(html).toContain(`next: ${formatUtc(LIST.items[0].next_fire_at)}`);
+    expect(html).toContain(`next: ${formatUtc(NEWS.next_fire_at)}`);
     expect(html).toContain("next: none while paused");
-    expect(html).toContain(attentionLabel(LIST.items[1]));
+    const inboxRow = html.slice(html.indexOf(`data-automation-id="${INBOX_ID}"`));
+    expect(inboxRow.slice(0, inboxRow.indexOf("</li>"))).toContain(`data-field="attention">${attentionLabel(INBOX)}`);
+    const newsRow = html.slice(html.indexOf(`data-automation-id="${NEWS_ID}"`));
+    expect(newsRow.slice(0, newsRow.indexOf("</li>"))).not.toContain('data-field="attention"'); // quiet stays quiet
   });
 
   it("opens the panel for a row: definition, occurrences as chat pairs with failure and wait states", async () => {
@@ -280,7 +292,7 @@ describe("Automations page", () => {
     await ctl.select(NEWS_ID);
     const pending = ctl.select(INBOX_ID);
     expect(detail_html()).toContain("Loading…"); // never the previous automation's panel
-    expect(detail_html()).not.toContain(LIST.items[0].title);
+    expect(detail_html()).not.toContain(NEWS.title);
     await pending;
     expect(ctl.state.detail?.definition?.revision).toBe(1);
     expect(ctl.state.detail!.occurrences).toHaveLength(2); // stub pages of 2, newest first
@@ -304,30 +316,59 @@ describe("Automations page", () => {
     expect(views.map((v) => v.row.index)).toEqual([...OCC.items].map((o: any) => o.index).sort((a: number, b: number) => a - b));
   });
 
-  it("row and panel actions send the exact command bodies of commands.json", async () => {
+  it("row and panel actions send the exact request bodies of commands.json", async () => {
+    // A controller whose host mints the fixture's command ids (wait answers).
+    ctl = new AutomationsController(client, observer_automations_host(gateway, next_id, () => "2026-09-27T07:10:00Z"), []);
     await ctl.refresh();
-    for (const fx of COMMANDS.items) {
-      if (fx.name.endsWith("(repeat)")) continue;
-      const id = fx.request.path.split("/")[4];
+    const panel = () => automation_panel_props(ctl, host_handlers)!;
+    const idOf = (path: string) => path.split("/")[4];
+    // stop_current last: it would cancel the waits the answers resolve.
+    const ordered = [...COMMANDS.items].sort((a: any, b: any) => Number(a.request.body.type === "automation.stop_current") - Number(b.request.body.type === "automation.stop_current"));
+    const seenDup = new Set<string>();
+    let covered = 0;
+    for (const fx of ordered) {
+      const { method, path, body } = fx.request;
       const before = stub.requests.length;
-      if (fx.name === "revise") {
-        await ctl.select(id);
-        const p = automation_panel_props(ctl, host_handlers)!;
-        await p.onRevise(fx.request.body.changes, fx.request.body.expected_revision, { command_id: fx.request.body.command_id });
-      } else if (fx.name === "stop_current") {
-        stub.fire(id, { status: "running" });
-        await ctl.refresh();
-        await ctl.select(id);
-        const p = automation_panel_props(ctl, host_handlers)!;
-        await p.onCommand("automation.stop_current", undefined, { command_id: fx.request.body.command_id });
+      if (method === "PATCH") {
+        await ctl.select(idOf(path));
+        await panel().onRevise(body.changes, body.expected_revision, { command_id: body.command_id });
+      } else if (/^\/api\/gateway\/automations\/[^/]+\/commands$/.test(path)) {
+        const id = idOf(path);
+        const action = String(body.type).replace("automation.", "");
+        const key = `${id}|${body.command_id}`;
+        if (seenDup.has(key)) {
+          // Same command_id again: the gateway answers it as a duplicate, not a new command.
+          const r = await client.sendAutomationCommand(id, { type: body.type, command_id: body.command_id });
+          expect(r, fx.name).toMatchObject({ command_id: fx.response.command_id, accepted: fx.response.accepted, duplicate: true });
+        } else if (action === "stop_current") {
+          stub.fire(id, { status: "running" });
+          await ctl.refresh();
+          await ctl.select(id);
+          await panel().onCommand(body.type, undefined, { command_id: body.command_id });
+        } else {
+          ids.push(body.command_id);
+          await ctl.row_action(summary_of(id), action as "pause" | "resume" | "run_now" | "archive");
+          expect(ctl.state.error, fx.name).toBeNull();
+        }
+        seenDup.add(key);
+      } else if (path.endsWith("/seen")) {
+        await ctl.select(idOf(path));
+        await panel().onSeen(body.attention_cursor);
+      } else if (path.endsWith("/discuss")) {
+        await ctl.select(idOf(path));
+        await panel().onDiscuss(body.occurrence_index, body.prompt, { request_id: body.request_id });
+      } else if (path === "/api/gateway/commands") {
+        await ctl.select(INBOX_ID);
+        ids.push(body.command_id);
+        await panel().onAnswerWait(body.run_id, body.payload.wait_key, body.payload.payload);
       } else {
-        ids.push(fx.request.body.command_id);
-        await ctl.row_action(summary_of(id), fx.name);
-        expect(ctl.state.error).toBeNull();
+        throw new Error(`commands.json entry this test does not drive: ${fx.name}`);
       }
-      const sent = requests_since(before).find((r) => r.method === fx.request.method && r.path === fx.request.path);
+      const sent = requests_since(before).find((r) => r.method === method && r.path === path);
       expect(sent, fx.name).toEqual(fx.request);
+      covered += 1;
     }
+    expect(covered).toBe(COMMANDS.items.length);
   });
 
   it("Run now is enabled while paused and keeps the automation paused", async () => {
@@ -381,13 +422,15 @@ describe("Automations page", () => {
     const run = await gateway.get_run(LEGACY_ID);
     const input = await gateway.get_run_input_data(LEGACY_ID);
     const prefill = legacy_recreate_prefill(run, input);
-    expect(prefill.choice).toEqual({ kind: "bundle", bundle_id: "news-digest", flow_id: "main" });
-    expect(prefill.form).toMatchObject({ when: "every", amount: "1", unit: "d", context: "growing" });
-    expect(prefill.input_data).toEqual({ prompt: input.input_data.prompt, provider: "lmstudio" });
+    const legacyRow = LIST.items.find((s: any) => s.legacy);
+    const [, amount, unit] = /^([1-9][0-9]*)([mhd])$/.exec(legacyRow.trigger.config.every)!;
+    expect(prefill.choice).toEqual({ kind: "bundle", bundle_id: LEGACY_TARGET.bundle_id, flow_id: LEGACY_TARGET.flow_id });
+    expect(prefill.form).toMatchObject({ when: "every", amount, unit, context: legacyRow.context_mode });
+    expect(prefill.input_data).toEqual({ prompt: input.input_data.prompt, provider: "lmstudio" }); // no workflow_selection, no _runtime
     expect(legacy_recreate_prefill({ schedule: { ...run.schedule, interval: "250ms" } }, input).notes[0]).toMatch(/250ms/);
     // The gateway's schedule names the target by target_bundle_ref only (observed at abstractgateway 2c8d8b3).
     expect(run.schedule.target_bundle_id).toBeUndefined();
-    expect(legacy_recreate_prefill(run, { input_data: input.input_data }).choice).toEqual({ kind: "bundle", bundle_id: "news-digest", flow_id: "main" });
+    expect(legacy_recreate_prefill(run, { input_data: input.input_data }).choice).toEqual({ kind: "bundle", bundle_id: LEGACY_TARGET.bundle_id, flow_id: LEGACY_TARGET.flow_id });
   });
 
   it("answers each wait by its kind (decision D1): tool approval with {approved}, never a text guess", async () => {
