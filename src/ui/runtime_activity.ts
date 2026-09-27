@@ -8,6 +8,7 @@ export type RuntimeActivityQueue =
   | "running"
   | "failed"
   | "scheduled"
+  | "subflows"
   | "finished"
   | "all";
 
@@ -24,6 +25,9 @@ export type RuntimeActivityRun = {
   finished_at?: string | null;
   session_id?: string | null;
   parent_run_id?: string | null;
+  /** Gateway automation attribution (`controller` = an automation root). */
+  role?: string | null;
+  is_scheduled?: boolean | null;
   waiting_reason?: string | null;
   waiting?: WaitState | Record<string, any> | null;
   error?: any;
@@ -101,6 +105,9 @@ export function runtime_wait_kind(run: RuntimeActivityRun | null | undefined): R
   const tool_calls = extract_tool_calls_from_wait(wait);
   if (tool_calls.length) return "tool_approval";
   if (reason === "until") return "scheduled";
+  // An automation controller parks between occurrences (its wake wait):
+  // scheduled work by attribution, not an external event.
+  if (String(run?.role || "").trim() === "controller") return "scheduled";
   if (reason === "subworkflow") return "subworkflow";
   if (reason === "event") return wait_has_human_prompt(wait) ? "user_response" : "external_event";
   if (reason === "user") return "user_response";
@@ -117,7 +124,7 @@ export function runtime_wait_reason_label(run: RuntimeActivityRun | null | undef
     if (Array.isArray(wait?.choices) && wait.choices.length > 0) return "Choice required";
     return "User response needed";
   }
-  if (kind === "scheduled") return "Scheduled wait";
+  if (kind === "scheduled") return String(run?.role || "").trim() === "controller" ? "Automation waiting for its next run" : "Scheduled wait";
   if (kind === "subworkflow") return "Waiting for subworkflow";
   if (kind === "external_event") return "Waiting for external event";
   if (kind === "unknown_wait") return "Waiting, context unclear";
@@ -173,7 +180,8 @@ export function runtime_activity_view(
   let queue: RuntimeActivityQueue = "all";
   if (wait_kind === "tool_approval") queue = "tool_approval";
   else if (wait_kind === "user_response") queue = "user_wait";
-  else if (wait_kind === "scheduled" || wait_kind === "subworkflow" || wait_kind === "external_event") queue = "scheduled";
+  else if (wait_kind === "scheduled") queue = "scheduled";
+  else if (wait_kind === "subworkflow" || wait_kind === "external_event") queue = "subflows";
   else if (status === "failed") queue = "failed";
   else if (status === "running") queue = "running";
   else if (is_terminal) queue = "finished";
@@ -258,6 +266,7 @@ export function count_runtime_activity_queues(views: RuntimeActivityView[]): Run
     running: 0,
     failed: 0,
     scheduled: 0,
+    subflows: 0,
     finished: 0,
     all: views.length,
   };

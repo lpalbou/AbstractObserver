@@ -157,7 +157,8 @@ export function RuntimeActivityConsole(props: {
     { key: "tool_approval", label: "Tool approvals", count: counts.tool_approval },
     { key: "running", label: "Running", count: counts.running },
     { key: "failed", label: "Failed", count: counts.failed },
-    { key: "scheduled", label: "Scheduled/subflows", count: counts.scheduled },
+    { key: "scheduled", label: "Scheduled", count: counts.scheduled },
+    { key: "subflows", label: "Subflows / external events", count: counts.subflows },
     { key: "finished", label: "Finished", count: counts.finished },
     { key: "all", label: "All loaded", count: counts.all },
   ];

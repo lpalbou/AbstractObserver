@@ -1,0 +1,160 @@
+/* Automations page + Launch "Automate" mode (Automations v1).
+ * Colors only from the shipped tokens (styles.css :root + kit theme); the
+ * panel itself is the kit's AutomationPanel (theme.css af-auto*). */
+
+.auto_page {
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px 18px;
+  min-height: 0;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .auto_page {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+.auto_list,
+.auto_detail {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.auto_detail {
+  overflow: auto;
+  padding: 12px 14px;
+}
+
+.auto_detail_empty {
+  justify-content: center;
+}
+
+.auto_rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auto_row {
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--raised-bg);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auto_row.selected {
+  border-color: var(--pane-border-strong);
+  box-shadow: inset 2.5px 0 0 var(--accent);
+}
+
+.auto_row_main {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.auto_row_main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.auto_row_title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.auto_row_facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+}
+
+.auto_row_excerpt {
+  font-size: var(--t-small);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.auto_row_actions,
+.auto_row_confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.auto_row_confirm {
+  font-size: var(--t-small);
+  color: var(--text-secondary);
+}
+
+/* Launch: mode switch + Automate fields */
+.launch_mode_switch {
+  display: inline-flex;
+  gap: 0;
+  margin: 10px 0 4px;
+}
+
+.automate_fields fieldset {
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.automate_fields legend {
+  font-size: var(--t-section);
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.automate_row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.automate_row input[type="number"] {
+  width: 90px;
+}
+
+.automate_preview {
+  font-size: var(--t-small);
+  color: var(--text-secondary);
+}
+
+.automate_errors {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--error);
+  font-size: var(--t-small);
+}

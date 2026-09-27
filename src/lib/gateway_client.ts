@@ -1,3 +1,5 @@
+import { createAutomationsClient, type AutomationsClient } from "@abstractframework/ui-kit";
+
 import { LedgerStreamEvent } from "./types";
 import { SseParser } from "./sse_parser";
 
@@ -81,14 +83,18 @@ export class GatewayClient {
   async start_run(
     flow_id: string | null | undefined,
     input_data: Record<string, any>,
-    opts?: { bundle_id?: string; session_id?: string | null }
+    opts?: { bundle_id?: string; session_id?: string | null; interface?: string }
   ): Promise<string> {
     const bundle_id = String(opts?.bundle_id || "").trim();
     const session_id = opts?.session_id === null || opts?.session_id === undefined ? "" : String(opts.session_id || "").trim();
     const fid = String(flow_id || "").trim();
+    const iface = String(opts?.interface || "").trim();
+    // The gateway default agent: `flow_id: "@default"` + `interface`, never a bundle id.
+    if (fid === "@default" && (!iface || bundle_id)) throw new Error("start_run: flow_id '@default' needs `interface` and no bundle_id");
     const req_body: any = { input_data: input_data || {} };
     if (bundle_id) req_body.bundle_id = bundle_id;
     if (fid) req_body.flow_id = fid;
+    if (fid === "@default") req_body.interface = iface;
     if (session_id) req_body.session_id = session_id;
     const r = await fetch(_join(this._cfg.base_url, "/api/gateway/runs/start"), {
       method: "POST",
@@ -102,52 +108,6 @@ export class GatewayClient {
     const body = await r.json();
     const run_id = body?.run_id;
     if (typeof run_id !== "string" || !run_id) throw new Error("start_run: missing run_id");
-    return run_id;
-  }
-
-  async schedule_run(args: {
-    bundle_id: string;
-    flow_id: string;
-    input_data: Record<string, any>;
-    start_at?: string | null;
-    interval?: string | null;
-    repeat_count?: number | null;
-    repeat_until?: string | null;
-    share_context?: boolean | null;
-    session_id?: string | null;
-  }): Promise<string> {
-    const bundle_id = String(args?.bundle_id || "").trim();
-    const flow_id = String(args?.flow_id || "").trim();
-    if (!bundle_id) throw new Error("schedule_run: bundle_id is required");
-    if (!flow_id) throw new Error("schedule_run: flow_id is required");
-    const req_body: any = {
-      bundle_id,
-      flow_id,
-      input_data: args?.input_data || {},
-    };
-    const start_at = args?.start_at === null || args?.start_at === undefined ? "" : String(args.start_at || "").trim();
-    if (start_at) req_body.start_at = start_at;
-    const interval = args?.interval === null || args?.interval === undefined ? "" : String(args.interval || "").trim();
-    if (interval) req_body.interval = interval;
-    if (typeof args?.repeat_count === "number" && Number.isFinite(args.repeat_count)) req_body.repeat_count = Number(args.repeat_count);
-    const repeat_until = args?.repeat_until === null || args?.repeat_until === undefined ? "" : String(args.repeat_until || "").trim();
-    if (repeat_until) req_body.repeat_until = repeat_until;
-    if (typeof args?.share_context === "boolean") req_body.share_context = Boolean(args.share_context);
-    const session_id = args?.session_id === null || args?.session_id === undefined ? "" : String(args.session_id || "").trim();
-    if (session_id) req_body.session_id = session_id;
-
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/runs/schedule"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ..._auth_headers(this._cfg.auth_token),
-      },
-      body: JSON.stringify(req_body),
-    });
-    if (!r.ok) throw new Error(`schedule_run failed: ${r.status}`);
-    const body = await r.json();
-    const run_id = body?.run_id;
-    if (typeof run_id !== "string" || !run_id) throw new Error("schedule_run: missing run_id");
     return run_id;
   }
 
@@ -955,6 +915,28 @@ export class GatewayClient {
     });
     if (!r.ok) throw new Error(`get_workflow_flow failed: ${r.status}`);
     return await r.json();
+  }
+
+  /** `GET /api/gateway/discovery/capabilities` (the capability descriptor,
+   * incl. `capabilities.contracts.common.automations`). */
+  async discovery_capabilities(): Promise<any> {
+    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/discovery/capabilities"), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: _deadline(),
+    });
+    if (!r.ok) throw new Error(`discovery_capabilities failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
+  /** The Automations v1 client (ui-kit) over this connection: same origin or
+   * direct URL, the same bearer / session CSRF headers as every other call. */
+  automations_client(): AutomationsClient {
+    const token = this._cfg.auth_token;
+    return createAutomationsClient({
+      fetch: (input, init) => fetch(input, init),
+      baseUrl: this._cfg.base_url,
+      headers: () => _auth_headers(token),
+    });
   }
 
   async submit_command(command: {

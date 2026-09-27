@@ -52,7 +52,11 @@ describe("runtime activity view model", () => {
 
     expect(counts.user_wait).toBe(1);
     expect(counts.tool_approval).toBe(1);
-    expect(counts.scheduled).toBe(2);
+    // Scheduled and subflow/external-event waits are separate queues.
+    expect(counts.scheduled).toBe(1);
+    expect(counts.subflows).toBe(1);
+    expect(filter_runtime_activity_views(views, { queue: "scheduled" }).map((v) => v.run_id)).toEqual(["schedule"]);
+    expect(filter_runtime_activity_views(views, { queue: "subflows" }).map((v) => v.run_id)).toEqual(["child"]);
     expect(counts.attention).toBe(2);
     expect(filter_runtime_activity_views(views, { queue: "user_wait" }).map((v) => v.run_id)).toEqual(["answer"]);
   });

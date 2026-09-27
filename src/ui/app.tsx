@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractframework/monitor-flow";
 import "@abstractframework/monitor-flow/agent_cycles.css";
@@ -15,6 +15,8 @@ import {
 import {
   AfAppearanceDialog,
   AfSelect,
+  apiErrorText,
+  type ApiError,
   AfTopBarActions,
   GatewayConnectModal,
   Icon,
@@ -28,6 +30,22 @@ import {
   type ProviderOption,
 } from "@abstractframework/ui-kit";
 import { AppAssistantDrawer } from "./app_assistant";
+import { AutomateAdvancedSchedule, AutomateWhenContext } from "./automate_form";
+import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
+import {
+  AutomationsController,
+  DEFAULT_AUTOMATE_FORM,
+  RequestIdMemo,
+  automations_capability,
+  build_automate_request_memo,
+  default_agent_choices,
+  legacy_recreate_prefill,
+  normalize_run_summary,
+  parse_workflow_choice,
+  workflow_choice_value,
+  type AutomateForm,
+  type WorkflowChoice,
+} from "./automations";
 import { load_gateway_about_rows, observer_identity, type AboutRow } from "./about";
 import { registerMonitorGpuWidget } from "@abstractframework/monitor-gpu";
 
@@ -47,7 +65,6 @@ import {
   safe_json_inline,
   sanitize_filename_part,
   short_id,
-  terminal_run_status,
 } from "./format";
 import {
   artifact_display_type_label_for,
@@ -102,6 +119,7 @@ import { McpWorkerClient } from "../lib/mcp_worker_client";
 import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
 import { RecordBuffer } from "./record_buffer";
+import { build_run_tree_sections } from "./run_tree";
 import {
   artifact_preview_kind,
   artifact_text_render_kind,
@@ -168,7 +186,11 @@ type BundleInfo = {
 type WorkflowOption = {
   workflow_id: string; // bundle_id:flow_id
   bundle_id: string;
+  /** `bundle_id@version` as `/bundles` lists it (the automation target ref). */
+  bundle_ref: string;
   flow_id: string;
+  /** Interfaces this entrypoint is currently the gateway default agent for. */
+  agent_default_interfaces: string[];
   label: string;
   description?: string;
   /** True when the entrypoint declares at least one interface contract —
@@ -477,7 +499,7 @@ export function App(): React.ReactElement {
   // observer's purpose is observing and discussing the running system.
   // "board" = Mission Control (the new landing page, maintainer sign-off
   // 2026-07-12): Pending/Working/Review/Done across runs + entities.
-  const [page, set_page] = useState<"board" | "observe" | "launch" | "runtime" | "settings">("board");
+  const [page, set_page] = useState<"board" | "observe" | "launch" | "automations" | "runtime" | "settings">("board");
 
   const [settings, set_settings] = useState<Settings>(() => load_settings());
   const monitor_gpu_enabled = typeof window !== "undefined" && window.__ABSTRACT_UI_CONFIG__?.monitor_gpu === true;
@@ -526,9 +548,22 @@ export function App(): React.ReactElement {
   /** Feature-detected MCP server inventory (null = gateway doesn't serve
    * one yet — Launch renders the honest absent state). */
   const [gateway_mcp_servers, set_gateway_mcp_servers] = useState<Array<{ name: string; url?: string; description?: string }> | null>(null);
-  /** Run-level skills selection for the NEXT launch (rides
-   * input_data.skills — the 0087 lane). Reset with the workflow. */
-  const [launch_skills, set_launch_skills] = useState<string[]>([]);
+  /** Launch mode: run the workflow once now, or create an automation. */
+  const [launch_mode, set_launch_mode] = useState<"once" | "automate">("once");
+  /** Non-empty when the Launch target is the gateway default agent of this
+   * interface (`flow_id: "@default"`); bundle_id/flow_id are empty then. */
+  const [launch_default_interface, set_launch_default_interface] = useState<string>("");
+  const [automate_form, set_automate_form] = useState<AutomateForm>(DEFAULT_AUTOMATE_FORM);
+  const [automate_errors, set_automate_errors] = useState<string[]>([]);
+  const [automate_api_error, set_automate_api_error] = useState<ApiError | null>(null);
+  const [automate_submitting, set_automate_submitting] = useState(false);
+  const [automate_notes, set_automate_notes] = useState<string[]>([]);
+  const automate_request_ids = useRef<RequestIdMemo>(new RequestIdMemo(random_id));
+  /** `capabilities.contracts.common.automations` of the connected gateway. */
+  const [automations_cap, set_automations_cap] = useState<{ available: boolean; reason: string }>({
+    available: false,
+    reason: "Sign in to a gateway to use automations.",
+  });
   /* Unified top-right cluster (operator directive + plans/unified-top-bar.md):
    * assistant drawer + shared appearance dialog + the ONE disconnect pill.
    * Appearance persistence is the kit's per-app hook (theme/font/header
@@ -592,22 +627,11 @@ export function App(): React.ReactElement {
   const [run_state, set_run_state] = useState<any>(null);
 
   const [new_run_error, set_new_run_error] = useState<string>("");
-  const [schedule_error, set_schedule_error] = useState<string>("");
-  const [schedule_submitting, set_schedule_submitting] = useState(false);
   const [bundle_uploading, set_bundle_uploading] = useState(false);
   const bundle_upload_input_ref = useRef<HTMLInputElement | null>(null);
 
   const [pin_json_text_by_id, set_pin_json_text_by_id] = useState<Record<string, string>>({});
   const [pin_json_error_by_id, set_pin_json_error_by_id] = useState<Record<string, string>>({});
-  const [schedule_start_mode, set_schedule_start_mode] = useState<"now" | "at">("now");
-  const [schedule_start_at_local, set_schedule_start_at_local] = useState<string>("");
-  const [schedule_repeat_mode, set_schedule_repeat_mode] = useState<"once" | "forever" | "count" | "until">("once");
-  const [schedule_every_n, set_schedule_every_n] = useState<number>(1);
-  const [schedule_every_unit, set_schedule_every_unit] = useState<"minutes" | "hours" | "days" | "weeks" | "months">("days");
-  const [schedule_repeat_count, set_schedule_repeat_count] = useState<number>(2);
-  const [schedule_repeat_until_date_local, set_schedule_repeat_until_date_local] = useState<string>("");
-  const [schedule_repeat_until_time_local, set_schedule_repeat_until_time_local] = useState<string>("23:59");
-  const [schedule_share_context, set_schedule_share_context] = useState<boolean>(true);
   const [schedule_edit_open, set_schedule_edit_open] = useState(false);
   const [schedule_edit_interval, set_schedule_edit_interval] = useState<string>("");
   const [schedule_edit_apply_immediately, set_schedule_edit_apply_immediately] = useState<boolean>(true);
@@ -820,6 +844,31 @@ export function App(): React.ReactElement {
       }),
     [settings.gateway_auth_mode, settings.gateway_url, settings.auth_token]
   );
+  /** Automations page state machine over this connection (ui-kit client). */
+  const automations_ctl = useMemo(
+    () =>
+      new AutomationsController(gateway.automations_client(), {
+        // The existing wait-answer path (same command as the board and the run view).
+        answer_wait: async (rid, wait_key, payload) => {
+          await gateway.submit_command({ command_id: random_id(), run_id: rid, type: "resume", payload: { wait_key, payload }, client_id: "web_pwa" });
+        },
+        legacy_command: async (rid, type, payload) => {
+          await gateway.submit_command({ command_id: random_id(), run_id: rid, type, payload, client_id: "web_pwa" });
+        },
+        now_iso,
+      }),
+    [gateway],
+  );
+  const automations_state = useSyncExternalStore(
+    (fn) => automations_ctl.subscribe(fn),
+    () => automations_ctl.state,
+  );
+  /** Automation titles for the navigator's automation roots (when loaded). */
+  const automation_titles = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const a of automations_state.items) out[a.automation_id] = a.title;
+    return out;
+  }, [automations_state.items]);
   // About dialog: identity is fixed for the build; gateway versions are
   // fetched each time the dialog opens (the latest answer wins).
   const about_identity = useMemo(() => observer_identity(), []);
@@ -963,7 +1012,17 @@ export function App(): React.ReactElement {
     });
   }, [adaptive_pins, input_data_obj, pin_json_error_by_id]);
 
-  const selected_workflow_value = bundle_id.trim() && flow_id.trim() ? `${bundle_id.trim()}:${flow_id.trim()}` : "";
+  /** The Launch target: a bundle flow, or the gateway default agent. */
+  const launch_choice: WorkflowChoice | null = launch_default_interface
+    ? { kind: "default", interface: launch_default_interface }
+    : bundle_id.trim() && flow_id.trim()
+      ? { kind: "bundle", bundle_id: bundle_id.trim(), flow_id: flow_id.trim() }
+      : null;
+  const selected_workflow_value = workflow_choice_value(launch_choice);
+  /** The ONE skills selection (input_data.skills), read back from the inputs. */
+  const launch_skills: string[] = Array.isArray((input_data_obj as any)?.skills)
+    ? ((input_data_obj as any).skills as any[]).map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
 
   const workflow_label_by_id = useMemo(() => {
     const out: Record<string, string> = {};
@@ -1164,7 +1223,19 @@ export function App(): React.ReactElement {
         const description = String(ep?.description || "").trim();
         const interfaces = Array.isArray(ep?.interfaces) ? ep.interfaces : [];
         const has_interface = interfaces.some((i: any) => String(i || "").trim().length > 0);
-        out.push({ workflow_id, bundle_id: bid, flow_id: fid, label, description: description || undefined, has_interface });
+        const agent_default_interfaces = Array.isArray(ep?.agent_default_interfaces)
+          ? (ep.agent_default_interfaces as any[]).map((x) => String(x || "").trim()).filter(Boolean)
+          : [];
+        out.push({
+          workflow_id,
+          bundle_id: bid,
+          bundle_ref: String(b?.bundle_ref || "").trim(),
+          flow_id: fid,
+          label,
+          description: description || undefined,
+          has_interface,
+          agent_default_interfaces,
+        });
       }
     }
     out.sort((a, b) => a.label.localeCompare(b.label));
@@ -1177,31 +1248,9 @@ export function App(): React.ReactElement {
     const epoch = discovery_epoch_ref.current;
     set_runs_loading(true);
     try {
-      const normalize_runs = (items: any[]): RunSummary[] =>
-        items
-        .map((r) => ({
-          run_id: String(r?.run_id || "").trim(),
-          workflow_id: typeof r?.workflow_id === "string" ? String(r.workflow_id) : r?.workflow_id ?? null,
-          status: typeof r?.status === "string" ? String(r.status) : "",
-          created_at: typeof r?.created_at === "string" ? String(r.created_at) : r?.created_at ?? null,
-          updated_at: typeof r?.updated_at === "string" ? String(r.updated_at) : r?.updated_at ?? null,
-          ledger_len: typeof r?.ledger_len === "number" ? Number(r.ledger_len) : r?.ledger_len ?? null,
-          parent_run_id: typeof r?.parent_run_id === "string" ? String(r.parent_run_id) : r?.parent_run_id ?? null,
-          session_id: typeof r?.session_id === "string" ? String(r.session_id) : r?.session_id ?? null,
-          is_scheduled: typeof r?.is_scheduled === "boolean" ? Boolean(r.is_scheduled) : r?.is_scheduled ?? null,
-          paused: typeof r?.paused === "boolean" ? Boolean(r.paused) : r?.paused ?? null,
-          waiting_reason: typeof r?.waiting?.reason === "string" ? String(r.waiting.reason) : r?.waiting?.reason ?? null,
-          schedule_interval: typeof r?.schedule?.interval === "string" ? String(r.schedule.interval).trim() : r?.schedule?.interval ?? null,
-          schedule_target_workflow_id:
-            typeof r?.schedule?.target_workflow_id === "string" ? String(r.schedule.target_workflow_id).trim() : r?.schedule?.target_workflow_id ?? null,
-          current_node: typeof r?.current_node === "string" ? String(r.current_node).trim() : r?.current_node ?? null,
-          llm_calls: typeof r?.llm_calls === "number" ? Number(r.llm_calls) : r?.llm_calls ?? null,
-          tool_calls: typeof r?.tool_calls === "number" ? Number(r.tool_calls) : r?.tool_calls ?? null,
-          tokens_total: typeof r?.tokens_total === "number" ? Number(r.tokens_total) : r?.tokens_total ?? null,
-          error: r?.error ?? null,
-          waiting: r?.waiting ?? null,
-        }))
-        .filter((r) => Boolean(r.run_id));
+      // One normalizer (automations.ts) keeps every listing field a view
+      // uses, including actor_id and the automation attribution.
+      const normalize_runs = (items: any[]): RunSummary[] => items.map(normalize_run_summary).filter((r) => Boolean(r.run_id));
 
       const [root_runs, all_runs] = await Promise.all([
         gateway_client.list_runs({ limit: 200, root_only: true, include_metrics: true }),
@@ -1265,11 +1314,12 @@ export function App(): React.ReactElement {
     set_gateway_connected(true);
     set_discovered_models_by_provider({});
 
-    const [bundles_res, , tools_res, providers_res] = await Promise.allSettled([
+    const [bundles_res, , tools_res, providers_res, caps_res] = await Promise.allSettled([
       gateway_for_connect.list_bundles(),
       refresh_runs(gateway_for_connect),
       gateway_for_connect.discovery_tools(),
       gateway_for_connect.discovery_providers({ include_models: false }),
+      gateway_for_connect.discovery_capabilities(),
     ]);
     // EPOCH GUARD (adversary 2026-07-13): a sign-out that happened during
     // the awaits must not have its cleared state repopulated by these
@@ -1285,6 +1335,12 @@ export function App(): React.ReactElement {
       push_log({ ts: now_iso(), kind: "error", title: "Discovery failed", preview: clamp_preview(String(bundles_res.reason || "")) });
       return;
     }
+
+    set_automations_cap(
+      caps_res.status === "fulfilled"
+        ? automations_capability(caps_res.value)
+        : { available: false, reason: `Could not read the gateway capabilities: ${String((caps_res.reason as any)?.message || caps_res.reason)}` },
+    );
 
     let workflow_count = 0;
     if (bundles_res.status === "fulfilled") {
@@ -2816,9 +2872,10 @@ export function App(): React.ReactElement {
   }
 
 	  async function start_new_run(): Promise<string | null> {
-    const fid = flow_id.trim();
-    const bid = bundle_id.trim();
-    if (!fid || !bid) {
+    const choice = launch_choice;
+    const fid = choice?.kind === "bundle" ? choice.flow_id : choice?.kind === "default" ? "@default" : "";
+    const bid = choice?.kind === "bundle" ? choice.bundle_id : "";
+    if (!choice) {
       const msg = "Select a workflow first (Launch → pick a workflow).";
       set_error_text(msg);
       return msg;
@@ -2862,7 +2919,8 @@ export function App(): React.ReactElement {
 	        return msg;
 	      }
       const rid = await gateway.start_run(fid, input_data, {
-        bundle_id: bid,
+        ...(bid ? { bundle_id: bid } : {}),
+        ...(choice.kind === "default" ? { interface: choice.interface } : {}),
         session_id: String(start_session_id || "").trim() || null,
       });
       set_root_run_id(rid);
@@ -2881,175 +2939,91 @@ export function App(): React.ReactElement {
     }
   }
 
-  async function start_scheduled_run(args: {
-    start_mode: "now" | "at";
-    start_at_local: string;
-    repeat_mode: "once" | "forever" | "count" | "until";
-    every_n: number;
-    every_unit: "minutes" | "hours" | "days" | "weeks" | "months";
-    repeat_count: number;
-    repeat_until_date_local?: string;
-    repeat_until_time_local?: string;
-    share_context: boolean;
-  }): Promise<string | null> {
-    const fid = flow_id.trim();
-    const bid = bundle_id.trim();
-    if (!fid || !bid) {
-      const msg = "Select a workflow first (Launch → pick a workflow).";
-      set_error_text(msg);
-      return msg;
+  /** Launch → Automate: `POST /api/gateway/automations`, then open it. */
+  async function submit_automate(): Promise<void> {
+    set_automate_errors([]);
+    set_automate_api_error(null);
+    if (!automations_cap.available) {
+      set_automate_errors([automations_cap.reason]);
+      return;
     }
-
-    if (schedule_submitting) return "Schedule already in progress";
-
-    set_schedule_error("");
-    set_error_text("");
-    set_schedule_submitting(true);
-    set_connecting(true);
-	    try {
-	      let input_data: Record<string, any> = {};
-      const raw = input_data_text.trim();
-      if (raw) {
-        try {
-          input_data = JSON.parse(raw);
-          if (typeof input_data !== "object" || input_data === null || Array.isArray(input_data)) {
-            throw new Error("input_data must be a JSON object");
-          }
-        } catch (e: any) {
-          const msg = `Invalid input_data JSON: ${String(e?.message || e)}`;
-          set_schedule_error(msg);
-	          return msg;
-	        }
-	      }
-	
-	      const prompt_pin = (adaptive_pins || []).find((p) => p && typeof p === "object" && (p as any).id === "prompt");
-	      const prompt_default_specified =
-	        prompt_pin && typeof prompt_pin === "object" && Object.prototype.hasOwnProperty.call(prompt_pin, "default");
-	      const raw_prompt = (input_data as any)?.prompt;
-	      const prompt_text = typeof raw_prompt === "string" ? raw_prompt.trim() : "";
-	      if (prompt_pin && !prompt_default_specified && !prompt_text) {
-	        const msg = "Missing required input_data.prompt";
-	        set_schedule_error(msg);
-	        return msg;
-	      }
-
-	      let start_at: string | null = null;
-      let start_at_dt_utc: Date | null = null;
-      if (args.start_mode === "now") {
-        start_at = "now";
-        start_at_dt_utc = new Date();
-      } else {
-        const local = String(args.start_at_local || "").trim();
-        if (!local) {
-          const msg = "Pick a start date/time (or choose 'now').";
-          set_schedule_error(msg);
-          return msg;
-        }
-        const dt = new Date(local);
-        if (!Number.isFinite(dt.getTime())) {
-          const msg = "Invalid start date/time";
-          set_schedule_error(msg);
-          return msg;
-        }
-        start_at = dt.toISOString();
-        start_at_dt_utc = new Date(start_at);
-      }
-
-      const every_raw = Number.isFinite(args.every_n) ? args.every_n : 1;
-      const every_n = Math.max(1, Math.min(10_000, Math.floor(every_raw)));
-      const every_unit = String(args.every_unit || "").trim() as any;
-
-      let interval: string = "1d";
-      if (every_unit === "minutes") interval = `${every_n}m`;
-      else if (every_unit === "hours") interval = `${every_n}h`;
-      else if (every_unit === "days") interval = `${every_n}d`;
-      else if (every_unit === "weeks") interval = `${every_n * 7}d`;
-      else if (every_unit === "months") interval = `${every_n * 30}d`;
-
-      const repeat_mode = args.repeat_mode;
-      const interval_to_send = repeat_mode === "once" ? null : interval;
-      const repeat_count =
-        repeat_mode === "count" ? Math.max(1, Math.floor(Number.isFinite(args.repeat_count) ? args.repeat_count : 1)) : null;
-      let repeat_until: string | null = null;
-      if (repeat_mode === "until") {
-        const d = String(args.repeat_until_date_local || "").trim();
-        const t = String(args.repeat_until_time_local || "").trim() || "23:59";
-        if (!d) {
-          const msg = "Pick an end date (Until).";
-          set_schedule_error(msg);
-          return msg;
-        }
-        const dt = new Date(`${d}T${t}`);
-        if (!Number.isFinite(dt.getTime())) {
-          const msg = "Invalid end date/time";
-          set_schedule_error(msg);
-          return msg;
-        }
-        repeat_until = dt.toISOString();
-        if (start_at_dt_utc && Number.isFinite(start_at_dt_utc.getTime()) && dt.getTime() < start_at_dt_utc.getTime()) {
-          const msg = "End date must be after the start date.";
-          set_schedule_error(msg);
-          return msg;
-        }
-      }
-
-      const rid = await gateway.schedule_run({
-        bundle_id: bid,
-        flow_id: fid,
-        input_data,
-        start_at,
-        interval: interval_to_send,
-	        repeat_count,
-	        repeat_until,
-        share_context: Boolean(args.share_context),
-        session_id: String(start_session_id || "").trim() || null,
-      });
-      set_root_run_id(rid);
-      set_run_id(rid);
-      set_schedule_error("");
-      await connect_to_run(rid);
-      void refresh_runs();
-      return null;
+    const built = build_automate_request_memo(
+      automate_form,
+      { choice: launch_choice, bundle_ref_for: (bid) => workflow_options.find((w) => w.bundle_id === bid)?.bundle_ref || "", input_data: input_data_obj },
+      automate_request_ids.current,
+    );
+    if (!built.ok) {
+      set_automate_errors(built.errors);
+      return;
+    }
+    set_automate_submitting(true);
+    try {
+      const res = await gateway.automations_client().createAutomation(built.body);
+      automate_request_ids.current.reset();
+      set_automate_notes([]);
+      push_log({ ts: now_iso(), kind: "info", title: "Automation created", preview: clamp_preview(`${built.body.title} · ${res.automation_id}`) });
+      set_page("automations");
+      await automations_ctl.refresh();
+      await automations_ctl.select(res.automation_id);
     } catch (e: any) {
-      const msg = String(e?.message || e || "schedule failed");
-      set_schedule_error(msg);
-      set_error_text(msg);
-      return msg;
+      const err = (e && typeof e === "object" && typeof e.code === "string" ? (e as ApiError) : null) || {
+        status: 0,
+        code: "client_error",
+        message: String(e?.message || e || "Create failed"),
+      };
+      set_automate_api_error(err);
     } finally {
-      set_connecting(false);
-      set_schedule_submitting(false);
+      set_automate_submitting(false);
     }
   }
 
   async function submit_launch(): Promise<void> {
     set_new_run_error("");
-    set_schedule_error("");
-    const should_schedule = schedule_start_mode !== "now" || schedule_repeat_mode !== "once";
-    const err = should_schedule
-      ? await start_scheduled_run({
-          start_mode: schedule_start_mode,
-          start_at_local: schedule_start_at_local,
-          repeat_mode: schedule_repeat_mode,
-          every_n: schedule_every_n,
-          every_unit: schedule_every_unit,
-          repeat_count: schedule_repeat_count,
-          repeat_until_date_local: schedule_repeat_until_date_local,
-          repeat_until_time_local: schedule_repeat_until_time_local,
-          share_context: schedule_share_context,
-        })
-      : await start_new_run();
+    if (launch_mode === "automate") {
+      await submit_automate();
+      return;
+    }
+    const err = await start_new_run();
     if (err) {
       set_new_run_error(err);
       return;
     }
-    // Launch is not a dead end: BOTH paths land the operator on the run
-    // they just created. The scheduled path used to stay on Launch with
-    // zero visible change (adversary 2 P0-3: "click → nothing happens")
-    // while silently attaching in the background — now it navigates like
-    // the immediate path and the schedule chip on the run view is the
-    // confirmation.
+    // Launch is not a dead end: the operator lands on the run just created.
     set_right_tab("overview");
     set_page("observe");
+  }
+
+  /** Select a Launch target (a bundle flow or the gateway default agent). */
+  async function choose_launch_target(choice: WorkflowChoice | null): Promise<void> {
+    // Skills are per-launch state; a new workflow starts clean (the ONE
+    // skills picker reads input_data.skills).
+    update_input_data_field("skills", undefined);
+    if (!choice) return;
+    if (choice.kind === "default") {
+      set_launch_default_interface(choice.interface);
+      set_bundle_id("");
+      set_flow_id("");
+      set_bundle_info(null);
+      return;
+    }
+    set_launch_default_interface("");
+    set_bundle_id(choice.bundle_id);
+    set_flow_id(choice.flow_id);
+    set_graph_flow_id(choice.flow_id);
+    await load_bundle_info(choice.bundle_id);
+  }
+
+  /** Legacy schedule → Launch → Automate, prefilled (the legacy run is not changed). */
+  async function recreate_legacy_as_automation(run_id_to_copy: string): Promise<void> {
+    const [run, input] = await Promise.all([gateway.get_run(run_id_to_copy), gateway.get_run_input_data(run_id_to_copy)]);
+    const prefill = legacy_recreate_prefill(run, input);
+    await choose_launch_target(prefill.choice);
+    set_input_data_text(JSON.stringify(prefill.input_data, null, 2));
+    set_automate_form(prefill.form);
+    set_automate_notes([`Recreating the legacy schedule ${short_id(run_id_to_copy, 14)} as an automation. The legacy schedule keeps running until you suspend it.`, ...prefill.notes]);
+    automate_request_ids.current.reset();
+    set_launch_mode("automate");
+    set_page("launch");
   }
 
   async function attach_to_run(rid: string, opts?: { root_run_id?: string }): Promise<void> {
@@ -3825,10 +3799,9 @@ export function App(): React.ReactElement {
   const schedule_interval = typeof schedule_meta?.interval === "string" ? String(schedule_meta.interval).trim() : "";
   const schedule_share_ctx = typeof schedule_meta?.share_context === "boolean" ? Boolean(schedule_meta.share_context) : null;
   const schedule_meta_repeat_count = typeof schedule_meta?.repeat_count === "number" ? Number(schedule_meta.repeat_count) : null;
-  const is_scheduled_run =
-    Boolean(run_state?.is_scheduled) ||
-    Boolean(schedule_meta) ||
-    (typeof run_state?.workflow_id === "string" && String(run_state.workflow_id).startsWith("scheduled:"));
+  // Legacy schedules are recognised by the gateway's structure (is_scheduled,
+  // schedule metadata), never by a workflow-id prefix.
+  const is_scheduled_run = Boolean(run_state?.is_scheduled) || Boolean(schedule_meta);
   const is_scheduled_recurrent = is_scheduled_run && Boolean(schedule_interval);
 
   const primary_control_label = is_scheduled_run ? (run_paused ? "Resume schedule" : "Suspend schedule") : run_status === "running" && !run_paused ? "Pause" : "Resume";
@@ -3923,8 +3896,8 @@ export function App(): React.ReactElement {
 
   const scheduled_workflow_id = useMemo(() => {
     const wid = String(run_state?.workflow_id || "").trim();
-    return connected && wid.startsWith("scheduled:") ? wid : "";
-  }, [connected, run_state?.workflow_id]);
+    return connected && is_scheduled_run ? wid : "";
+  }, [connected, is_scheduled_run, run_state?.workflow_id]);
 
   const graph_active_node_id = useMemo(() => {
     if (!connected || !run_id.trim()) return active_node_id;
@@ -4540,86 +4513,17 @@ export function App(): React.ReactElement {
     });
   }, [all_run_options, run_options, run_id, run_state, records.length, subrun_ids, session_id_for_run]);
 
-  const observe_sections = useMemo<RunTreeSection[]>(() => {
-    const q = observe_search.trim().toLowerCase();
-    const rows = runtime_run_rows;
-    const children_by_parent: Record<string, RunSummary[]> = {};
-    const by_id: Record<string, RunSummary> = {};
-    for (const r of rows) {
-      const rid = String(r.run_id || "").trim();
-      if (!rid) continue;
-      by_id[rid] = r;
-      const parent = String(r.parent_run_id || subrun_parent_ref.current[rid] || "").trim();
-      if (parent) {
-        if (!children_by_parent[parent]) children_by_parent[parent] = [];
-        children_by_parent[parent].push(r);
-      }
-    }
-
-    const matches_status = (r: RunSummary): boolean => {
-      const st = String(r.status || "").trim().toLowerCase();
-      if (observe_filter === "all") return true;
-      if (observe_filter === "active") return active_run_status(st);
-      if (observe_filter === "waiting") return st === "waiting";
-      if (observe_filter === "terminal") return terminal_run_status(st);
-      if (observe_filter === "failed") return st === "failed";
-      return true;
-    };
-    const matches_query = (r: RunSummary): boolean => {
-      if (!q) return true;
-      const wid = String(r.workflow_id || r.schedule_target_workflow_id || "").trim();
-      const label = wid ? workflow_label_by_id[wid] || wid : "";
-      const hay = [r.run_id, wid, label, r.session_id, r.status].join(" ").toLowerCase();
-      return hay.includes(q);
-    };
-    const root_ids = new Set<string>();
-    for (const r of rows) {
-      const rid = String(r.run_id || "").trim();
-      if (!rid) continue;
-      const parent = String(r.parent_run_id || subrun_parent_ref.current[rid] || "").trim();
-      if (!parent || !by_id[parent]) root_ids.add(rid);
-    }
-
-    const section_map: Record<string, RunTreeSection> = {};
-    const group_for = (r: RunSummary): { key: string; label: string } => {
-      if (observe_group_by === "workflow") {
-        const wid = String(r.schedule_target_workflow_id || r.workflow_id || "").trim() || "(unknown workflow)";
-        return { key: wid, label: workflow_label_by_id[wid] || wid };
-      }
-      if (observe_group_by === "session") {
-        const sid = String(r.session_id || "").trim() || "(no session)";
-        return { key: sid, label: sid };
-      }
-      const st = String(r.status || "").trim().toLowerCase() || "unknown";
-      if (active_run_status(st)) return { key: "active", label: "Active" };
-      if (st === "failed") return { key: "failed", label: "Failed" };
-      if (terminal_run_status(st)) return { key: "finished", label: "Finished" };
-      return { key: st, label: st };
-    };
-
-    for (const rid of root_ids) {
-      const root = by_id[rid];
-      if (!root) continue;
-      const children = [...(children_by_parent[rid] || [])].sort((a, b) => {
-        const am = parse_iso_ms(a.updated_at || a.created_at) ?? 0;
-        const bm = parse_iso_ms(b.updated_at || b.created_at) ?? 0;
-        return bm - am;
-      });
-      const child_matches = children.some((c) => matches_status(c) && matches_query(c));
-      if (!(matches_status(root) && matches_query(root)) && !child_matches) continue;
-      const g = group_for(root);
-      if (!section_map[g.key]) section_map[g.key] = { key: g.key, label: g.label, rows: [] };
-      section_map[g.key].rows.push({ run: root, children });
-    }
-
-    return Object.values(section_map).sort((a, b) => {
-      const order: Record<string, number> = { active: 0, waiting: 1, failed: 2, finished: 3 };
-      const ao = order[a.key] ?? 10;
-      const bo = order[b.key] ?? 10;
-      if (ao !== bo) return ao - bo;
-      return a.label.localeCompare(b.label);
-    });
-  }, [runtime_run_rows, observe_search, observe_filter, observe_group_by, workflow_label_by_id]);
+  const observe_sections = useMemo<RunTreeSection[]>(
+    () =>
+      build_run_tree_sections(runtime_run_rows, {
+        query: observe_search,
+        filter: observe_filter,
+        group_by: observe_group_by,
+        workflow_label_by_id,
+        parent_hint: (rid) => subrun_parent_ref.current[rid] || "",
+      }),
+    [runtime_run_rows, observe_search, observe_filter, observe_group_by, workflow_label_by_id],
+  );
 
   const provider_activities = useMemo<ProviderActivity[]>(() => build_provider_activities_from_ledger(ledger_record_items as any), [ledger_record_items]);
 
@@ -4733,13 +4637,178 @@ export function App(): React.ReactElement {
     { id: "observe", label: "Observe", icon: <Icon name="history" size={16} /> },
     { id: "runtime", label: "System", icon: <Icon name="server" size={16} /> },
     { id: "launch", label: "Launch", icon: <Icon name="send" size={16} /> },
+    { id: "automations", label: "Automations", icon: <Icon name="refresh" size={16} /> },
   ];
   const PAGE_TITLE: Record<string, string> = {
     board: "Board",
     observe: "Observe",
     runtime: "System",
     launch: "Launch",
+    automations: "Automations",
     settings: "Settings",
+  };
+
+  /* Launch extras shared by both modes (under Advanced in Automate mode):
+   * the ONE skills picker, the workspace, and bundle upload/reload (moved
+   * out of the picker row). */
+  const launch_extras = (
+    <>
+                  {/* ── CAPABILITIES: run-level skills attachment (operator directive
+                    * 2026-07-15 16:22; contract = decision:launch-skills-selection-
+                    * contract). Selection rides input_data.skills (names); the
+                    * gateway resolves through the trust gate into
+                    * _runtime.skills_block (card 0087, closed end-to-end c2442).
+                    * Render rules are skill's (c2372, adopted c2376): attachable =
+                    * selectable · requires_review = selectable with the verdict
+                    * visible (the gateway HOLDS unverified at start — selecting is
+                    * safe, the resolution records it) · blocked = visible but
+                    * refused, with reasons. Never a fabricated list: no inventory
+                    * → honest absent line. ── */}
+                  {launch_choice ? (
+                    <details className="launch_capabilities" style={{ marginTop: "10px" }}>
+                      <summary className="help_text muted" style={{ cursor: "pointer" }}>
+                        Capabilities{launch_skills.length ? ` · ${launch_skills.length} skill${launch_skills.length === 1 ? "" : "s"}` : ""}
+                      </summary>
+                      <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                        Skills attach knowledge procedures to this run. The gateway resolves selections through the trust gate at start: validated skills activate, unverified ones are held for review, blocked ones never ride.
+                      </div>
+                      {assistant_skills === null ? (
+                        <div className="help_text muted" style={{ marginTop: "8px" }}>
+                          This gateway does not serve a skills inventory yet — the shelf lights up here when it ships.
+                        </div>
+                      ) : !assistant_skills.length ? (
+                        <div className="help_text muted" style={{ marginTop: "8px" }}>The gateway's skills shelf is empty.</div>
+                      ) : (
+                        <div className="launch_skill_list">
+                          {assistant_skills.map((s) => {
+                            const selected = launch_skills.includes(s.name);
+                            const blocked = s.blocked === true;
+                            const review = s.requires_review === true && !blocked;
+                            return (
+                              <label
+                                key={s.name}
+                                className={`launch_skill_row ${blocked ? "is_blocked" : ""} ${selected ? "is_on" : ""}`}
+                                title={[s.description || "", s.tree_hash ? `tree ${s.tree_hash.slice(0, 16)}…` : "", blocked && s.reasons?.length ? `blocked: ${s.reasons.join("; ")}` : ""].filter(Boolean).join("\n")}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  disabled={blocked || connecting || resuming || automate_submitting}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? Array.from(new Set([...launch_skills, s.name]))
+                                      : launch_skills.filter((n) => n !== s.name);
+                                    update_input_data_field("skills", next.length ? next : undefined);
+                                  }}
+                                />
+                                <span className="launch_skill_name">{s.name}</span>
+                                {s.trust_level ? <span className={`chip ${blocked ? "danger" : review ? "warn" : "muted"}`}>{blocked ? "blocked" : review ? "review" : s.trust_level}</span> : null}
+                                {s.description ? <span className="launch_skill_desc">{s.description}</span> : null}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {launch_skills.length ? (
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)", marginTop: "6px" }}>
+                          Selected skills ride the run as input_data.skills; the resolved verdicts land in the run's record.
+                        </div>
+                      ) : null}
+                    </details>
+                  ) : null}
+
+                  <details style={{ marginTop: "10px" }}>
+                    <summary className="help_text muted" style={{ cursor: "pointer" }}>
+                      Workspace
+                    </summary>
+                    <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                      Controls what the agent can access via filesystem tools.
+                    </div>
+
+                    <div className="launch_grid" style={{ marginTop: "8px" }}>
+                      <div className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
+                        <label className="launch_label">Workspace Root</label>
+                        <input className="mono" value={workspace_root_value} onChange={(e) => update_input_data_field("workspace_root", e.target.value)} placeholder="/path/to/workspace" disabled={connecting || resuming} />
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = gateway default (isolated per-run workspace)</div>
+                      </div>
+                      <div className="launch_grid_cell">
+                        <label className="launch_label">Access Mode</label>
+                        <select className="mono" value={(workspace_access_mode_value || "workspace_only").trim() || "workspace_only"} onChange={(e) => update_input_data_field("workspace_access_mode", e.target.value)} disabled={connecting || resuming}>
+                          <option value="workspace_only">workspace_only</option>
+                          <option value="workspace_or_allowed">workspace_or_allowed</option>
+                          <option value="all_except_ignored">all_except_ignored</option>
+                      </select>
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>workspace_only: absolute paths must stay under root. workspace_or_allowed: allow additional roots.</div>
+                      </div>
+                    </div>
+
+                    {(workspace_access_mode_value || "").trim() === "workspace_or_allowed" ? (
+                      <div className="field" style={{ marginTop: "8px" }}>
+                        <label className="launch_label">Allowed Paths</label>
+                        <textarea className="mono" rows={3} value={workspace_allowed_paths_value} onChange={(e) => update_input_data_field("workspace_allowed_paths", e.target.value)} placeholder={"/path/to/project\n/path/to/workspace"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated directories (absolute or relative to workspace_root)</div>
+                      </div>
+                    ) : null}
+
+                    <div className="field" style={{ marginTop: "8px" }}>
+                      <label className="launch_label">Ignored Paths</label>
+                      <textarea className="mono" rows={3} value={workspace_ignored_paths_value} onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)} placeholder={"node_modules\nruntime\nsecret"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
+                      <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated paths to block (absolute or relative to workspace_root)</div>
+	                    </div>
+	                  </details>
+
+                  <details className="launch_bundles" style={{ marginTop: "10px" }}>
+                    <summary className="help_text muted" style={{ cursor: "pointer" }}>
+                      Workflow bundles
+                    </summary>
+                    <div className="launch_workflow_bar" style={{ marginTop: "8px" }}>
+                      <input ref={bundle_upload_input_ref} type="file" accept=".flow" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files.length ? e.target.files[0] : null; if (!f) return; void upload_gateway_bundle(f); }} />
+                      <button type="button" className="btn launch_btn_upload" onClick={() => bundle_upload_input_ref.current?.click()} disabled={!gateway_connected || discovery_loading || bundle_uploading || connecting || resuming} title="Upload a .flow bundle">{bundle_uploading ? "…" : "Upload .flow"}</button>
+                      <button type="button" className="btn launch_btn_reload" onClick={() => void reload_gateway_bundles()} disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming} title="Reload picks up server-side edits"><Icon name="refresh" size={14} />{bundles_reloading ? "…" : "Reload bundles"}</button>
+                    </div>
+                  </details>
+    </>
+  );
+
+  function open_run_in_observe(rid: string): void {
+    set_page("observe");
+    set_right_tab("overview");
+    void attach_to_run(rid);
+  }
+
+  const automations_handlers: AutomationsHandlers = {
+    on_select: (id) => void automations_ctl.select(id),
+    on_row_action: (summary, action) => {
+      // Edit and Discuss need a form or an occurrence: they open the panel.
+      if (action === "edit" || action === "discuss") {
+        void automations_ctl.select(summary.automation_id);
+        return;
+      }
+      if (action === "archive") {
+        automations_ctl.ask_archive(summary.automation_id);
+        return;
+      }
+      void automations_ctl.row_action(summary, action);
+    },
+    on_legacy_action: (summary, action) => {
+      if (action === "open_run") {
+        open_run_in_observe(summary.automation_id);
+        return;
+      }
+      if (action === "recreate") {
+        void recreate_legacy_as_automation(summary.automation_id).catch((e) => automations_ctl.report_error(e));
+        return;
+      }
+      void automations_ctl.legacy_action(summary, action);
+    },
+    on_confirm_archive: (summary) => void automations_ctl.row_action(summary, "archive"),
+    on_cancel_archive: () => automations_ctl.ask_archive(""),
+    on_status_filter: (status) => void automations_ctl.set_status_filter(status),
+    on_refresh: () => void automations_ctl.refresh(),
+    on_new: () => {
+      set_launch_mode("automate");
+      set_page("launch");
+    },
   };
 
   return (
@@ -4915,6 +4984,10 @@ export function App(): React.ReactElement {
                 void attach_to_run(rid);
               }}
               on_resume_wait={board_resume_wait}
+              on_open_automation={(automation_id) => {
+                set_page("automations");
+                void automations_ctl.refresh().then(() => automations_ctl.select(automation_id));
+              }}
               entity_app_href={entity_app_url}
               on_read_diary={(name, entry_id) => gateway.read_entity_diary_entry(name, entry_id)}
               phase_graph={phase_graph}
@@ -5100,7 +5173,37 @@ export function App(): React.ReactElement {
               <div className="card">
                 {/* The shell header already names the page — the card leads
                   * with what to do, not a second "Launch" heading. */}
-                <div className="help_text muted">Pick a workflow, fill its inputs, and start a run on the connected gateway.</div>
+                <div className="help_text muted">
+                  {launch_mode === "automate"
+                    ? "Create an automation: what to run, when (UTC intervals), and whether runs share context. The gateway runs it; manage it on the Automations page."
+                    : "Pick a workflow, fill its inputs, and start a run on the connected gateway."}
+                </div>
+
+                <div className="seg_toggle launch_mode_switch" role="radiogroup" aria-label="Launch mode">
+                  <button type="button" role="radio" aria-checked={launch_mode === "once"} className={`seg_btn ${launch_mode === "once" ? "active" : ""}`} onClick={() => set_launch_mode("once")}>
+                    Run once
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={launch_mode === "automate"}
+                    className={`seg_btn ${launch_mode === "automate" ? "active" : ""}`}
+                    onClick={() => set_launch_mode("automate")}
+                    title={automations_cap.available ? "Run on a schedule" : automations_cap.reason}
+                  >
+                    Automate
+                  </button>
+                </div>
+                {launch_mode === "automate" && !automations_cap.available && gateway_connected ? (
+                  <div className="warn_callout" role="note">{automations_cap.reason}</div>
+                ) : null}
+                {launch_mode === "automate" && automate_notes.length ? (
+                  <div className="help_text" role="note">
+                    {automate_notes.map((n) => (
+                      <div key={n}>{n}</div>
+                    ))}
+                  </div>
+                ) : null}
 
                 {!gateway_connected ? (
                   <div className="warn_callout">
@@ -5112,23 +5215,18 @@ export function App(): React.ReactElement {
                   </div>
                 ) : null}
 
+                {launch_mode === "automate" ? <div className="section_title">What</div> : null}
                 <div className="launch_workflow_bar">
                   <select
                     className="launch_workflow_select"
+                    aria-label="Workflow"
                     value={selected_workflow_value}
                     onChange={async (e) => {
-                      const wid = String(e.target.value || "").trim();
-                      if (!wid) return;
-                      const parsed = parse_namespaced_workflow_id(wid);
-                      if (!parsed) return;
-                      set_bundle_id(parsed.bundle_id);
-                      set_flow_id(parsed.flow_id);
-                      set_graph_flow_id(parsed.flow_id);
-                      // Capabilities are per-launch state; a new workflow starts clean.
-                      set_launch_skills([]);
-                      await load_bundle_info(parsed.bundle_id);
+                      const choice = parse_workflow_choice(String(e.target.value || ""));
+                      if (!choice) return;
+                      await choose_launch_target(choice);
                     }}
-                    disabled={discovery_loading || !launchable_workflow_options.length}
+                    disabled={discovery_loading || !gateway_connected}
                   >
                     <option value="">
                       {launchable_workflow_options.length
@@ -5139,16 +5237,22 @@ export function App(): React.ReactElement {
                             : "(no executable workflows published on this gateway)"
                           : "(sign in to load workflows)"}
                     </option>
-                    {launchable_workflow_options.map((w) => (
-                      <option key={w.workflow_id} value={w.workflow_id}>
-                        {w.label}
-                      </option>
-                    ))}
+                    <optgroup label="Gateway default">
+                      {default_agent_choices(workflow_options).map((d) => (
+                        <option key={d.value} value={d.value}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Workflows">
+                      {launchable_workflow_options.map((w) => (
+                        <option key={w.workflow_id} value={w.workflow_id}>
+                          {w.label}
+                        </option>
+                      ))}
+                    </optgroup>
                   </select>
-                  <input ref={bundle_upload_input_ref} type="file" accept=".flow" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files.length ? e.target.files[0] : null; if (!f) return; void upload_gateway_bundle(f); }} />
-                  <button type="button" className="btn launch_btn_upload" onClick={() => bundle_upload_input_ref.current?.click()} disabled={!gateway_connected || discovery_loading || bundle_uploading || connecting || resuming} title="Upload a .flow bundle">{bundle_uploading ? "…" : "Upload"}</button>
-                  <button type="button" className="btn launch_btn_reload" onClick={() => void reload_gateway_bundles()} disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming} title="Reload picks up server-side edits"><Icon name="refresh" size={14} />{bundles_reloading ? "…" : "Reload"}</button>
-                    </div>
+                </div>
                 <div className="field">
                   {selected_entrypoint?.description ? (
                     <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
@@ -5170,7 +5274,7 @@ export function App(): React.ReactElement {
                 <div className="section_divider" />
                 <div className="section_title">Inputs</div>
 
-                  {!bundle_id.trim() || !flow_id.trim() ? (
+                  {!launch_choice ? (
                     <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
                       Select a workflow above to configure inputs.
                     </div>
@@ -5229,24 +5333,14 @@ export function App(): React.ReactElement {
                           const merged_options = Array.from(new Set([...available_tool_names, ...selected, ...default_tools])).sort();
                           return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><MultiSelect options={merged_options} value={selected} disabled={disabled} placeholder="(no tools selected)" onChange={(next) => update_input_data_field(pid, next)} /></div>);
                         }
-                        /* SKILLS / MCP pins (operator 2026-07-15): same picker shape
-                         * as Tools, fed by the gateway's feature-detected inventories
-                         * (abstractskill shelf / MCP registry). A workflow declaring
-                         * the pin against a gateway that serves no inventory gets the
-                         * honest absent line — never a fabricated list. Alignment
-                         * thread with gateway/skill on agora (same day). */
-                        if (ptype === "skills" || pid === "skills") {
-                          const selected = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
-                          if (assistant_skills === null && !selected.length) {
-                            return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><div className="help_text muted">This gateway does not serve a skills inventory yet — skill selection lights up here when it ships (abstractskill shelf via abstractgateway).</div></div>);
-                          }
-                          // Trust verdicts are the gateway's (c2243): BLOCKED skills
-                          // never enter the selectable set. A previously-selected
-                          // name stays visible (user state), never silently dropped.
-                          const names = (assistant_skills || []).filter((s) => s.blocked !== true).map((s) => s.name);
-                          const merged = Array.from(new Set([...names, ...selected])).sort();
-                          return (<div key={pid} className="launch_field_wide"><label className="launch_label">{display_label}</label><MultiSelect options={merged} value={selected} disabled={disabled} placeholder="(no skills selected)" onChange={(next) => update_input_data_field(pid, next)} /></div>);
-                        }
+                        /* SKILLS: ONE picker. A declared `skills` pin is served by the
+                         * trust-aware Capabilities picker below (it writes the same
+                         * input_data.skills), never by a second list here. */
+                        if (ptype === "skills" || pid === "skills") return null;
+                        /* MCP pins (operator 2026-07-15): same picker shape as Tools,
+                         * fed by the gateway's feature-detected MCP registry. A workflow
+                         * declaring the pin against a gateway that serves no inventory
+                         * gets the honest absent line — never a fabricated list. */
                         if (ptype === "mcp" || ptype === "mcp_servers" || pid === "mcp" || pid === "mcp_servers") {
                           const selected = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
                           if (gateway_mcp_servers === null && !selected.length) {
@@ -5337,165 +5431,20 @@ export function App(): React.ReactElement {
                     </>
                   )}
 
-                  {/* ── CAPABILITIES: run-level skills attachment (operator directive
-                    * 2026-07-15 16:22; contract = decision:launch-skills-selection-
-                    * contract). Selection rides input_data.skills (names); the
-                    * gateway resolves through the trust gate into
-                    * _runtime.skills_block (card 0087, closed end-to-end c2442).
-                    * Render rules are skill's (c2372, adopted c2376): attachable =
-                    * selectable · requires_review = selectable with the verdict
-                    * visible (the gateway HOLDS unverified at start — selecting is
-                    * safe, the resolution records it) · blocked = visible but
-                    * refused, with reasons. Never a fabricated list: no inventory
-                    * → honest absent line. ── */}
-                  {bundle_id.trim() && flow_id.trim() ? (
-                    <details className="launch_capabilities" style={{ marginTop: "10px" }}>
+                {launch_mode === "automate" ? (
+                  <>
+                    <AutomateWhenContext form={automate_form} disabled={automate_submitting} on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))} />
+                    <details className="launch_advanced" style={{ marginTop: "10px" }}>
                       <summary className="help_text muted" style={{ cursor: "pointer" }}>
-                        Capabilities{launch_skills.length ? ` · ${launch_skills.length} skill${launch_skills.length === 1 ? "" : "s"}` : ""}
+                        Advanced{launch_skills.length ? ` · ${launch_skills.length} skill${launch_skills.length === 1 ? "" : "s"}` : ""}
                       </summary>
-                      <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-                        Skills attach knowledge procedures to this run. The gateway resolves selections through the trust gate at start: validated skills activate, unverified ones are held for review, blocked ones never ride.
-                      </div>
-                      {assistant_skills === null ? (
-                        <div className="help_text muted" style={{ marginTop: "8px" }}>
-                          This gateway does not serve a skills inventory yet — the shelf lights up here when it ships.
-                        </div>
-                      ) : !assistant_skills.length ? (
-                        <div className="help_text muted" style={{ marginTop: "8px" }}>The gateway's skills shelf is empty.</div>
-                      ) : (
-                        <div className="launch_skill_list">
-                          {assistant_skills.map((s) => {
-                            const selected = launch_skills.includes(s.name);
-                            const blocked = s.blocked === true;
-                            const review = s.requires_review === true && !blocked;
-                            return (
-                              <label
-                                key={s.name}
-                                className={`launch_skill_row ${blocked ? "is_blocked" : ""} ${selected ? "is_on" : ""}`}
-                                title={[s.description || "", s.tree_hash ? `tree ${s.tree_hash.slice(0, 16)}…` : "", blocked && s.reasons?.length ? `blocked: ${s.reasons.join("; ")}` : ""].filter(Boolean).join("\n")}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selected}
-                                  disabled={blocked || connecting || resuming}
-                                  onChange={(e) => {
-                                    const next = e.target.checked
-                                      ? Array.from(new Set([...launch_skills, s.name]))
-                                      : launch_skills.filter((n) => n !== s.name);
-                                    set_launch_skills(next);
-                                    update_input_data_field("skills", next.length ? next : undefined);
-                                  }}
-                                />
-                                <span className="launch_skill_name">{s.name}</span>
-                                {s.trust_level ? <span className={`chip ${blocked ? "danger" : review ? "warn" : "muted"}`}>{blocked ? "blocked" : review ? "review" : s.trust_level}</span> : null}
-                                {s.description ? <span className="launch_skill_desc">{s.description}</span> : null}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {launch_skills.length ? (
-                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)", marginTop: "6px" }}>
-                          Selected skills ride the run as input_data.skills; the resolved verdicts land in the run's record.
-                        </div>
-                      ) : null}
+                      <AutomateAdvancedSchedule form={automate_form} disabled={automate_submitting} on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))} />
+                      {launch_extras}
                     </details>
-                  ) : null}
-
-                  {/* Advanced JSON + session_id removed: raw JSON is an implementation
-                      detail (form fields are the source of truth), and session_id is
-                      auto-generated — no user-facing reason to expose either. */}
-
-                  <details style={{ marginTop: "10px" }}>
-                    <summary className="help_text muted" style={{ cursor: "pointer" }}>
-                      Workspace
-                    </summary>
-                    <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
-                      Controls what the agent can access via filesystem tools.
-                    </div>
-
-                    <div className="launch_grid" style={{ marginTop: "8px" }}>
-                      <div className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
-                        <label className="launch_label">Workspace Root</label>
-                        <input className="mono" value={workspace_root_value} onChange={(e) => update_input_data_field("workspace_root", e.target.value)} placeholder="/path/to/workspace" disabled={connecting || resuming} />
-                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = gateway default (isolated per-run workspace)</div>
-                      </div>
-                      <div className="launch_grid_cell">
-                        <label className="launch_label">Access Mode</label>
-                        <select className="mono" value={(workspace_access_mode_value || "workspace_only").trim() || "workspace_only"} onChange={(e) => update_input_data_field("workspace_access_mode", e.target.value)} disabled={connecting || resuming}>
-                          <option value="workspace_only">workspace_only</option>
-                          <option value="workspace_or_allowed">workspace_or_allowed</option>
-                          <option value="all_except_ignored">all_except_ignored</option>
-                      </select>
-                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>workspace_only: absolute paths must stay under root. workspace_or_allowed: allow additional roots.</div>
-                      </div>
-                    </div>
-
-                    {(workspace_access_mode_value || "").trim() === "workspace_or_allowed" ? (
-                      <div className="field" style={{ marginTop: "8px" }}>
-                        <label className="launch_label">Allowed Paths</label>
-                        <textarea className="mono" rows={3} value={workspace_allowed_paths_value} onChange={(e) => update_input_data_field("workspace_allowed_paths", e.target.value)} placeholder={"/path/to/project\n/path/to/workspace"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
-                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated directories (absolute or relative to workspace_root)</div>
-                      </div>
-                    ) : null}
-
-                    <div className="field" style={{ marginTop: "8px" }}>
-                      <label className="launch_label">Ignored Paths</label>
-                      <textarea className="mono" rows={3} value={workspace_ignored_paths_value} onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)} placeholder={"node_modules\nruntime\nsecret"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
-                      <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated paths to block (absolute or relative to workspace_root)</div>
-	                    </div>
-	                  </details>
-
-                <div className="section_divider" />
-                <div className="section_title">Schedule</div>
-
-                    {schedule_error ? (
-                  <div className="observe_context_card error" style={{ marginTop: "6px" }}>
-                    <span className="chip mono danger">error</span>
-                    <span className="mono">{schedule_error}</span>
-                      </div>
-                    ) : null}
-
-                <div className="sched_grid">
-                  <div className="sched_cell">
-                    <label className="launch_label">Start</label>
-                    <div className="sched_radio_row">
-                      <label className="sched_radio"><input type="radio" name="schedule_start" checked={schedule_start_mode === "now"} onChange={() => set_schedule_start_mode("now")} /><span>Now</span></label>
-                      <label className="sched_radio"><input type="radio" name="schedule_start" checked={schedule_start_mode === "at"} onChange={() => set_schedule_start_mode("at")} /><span>Scheduled</span></label>
-                      </div>
-                    {schedule_start_mode === "at" ? (<input type="datetime-local" value={schedule_start_at_local} onChange={(e) => set_schedule_start_at_local(e.target.value)} style={{ marginTop: "6px" }} />) : null}
-                        </div>
-                  <div className="sched_cell">
-                    <label className="launch_label">Cadence</label>
-                      <select value={schedule_repeat_mode} onChange={(e) => set_schedule_repeat_mode(e.target.value as any)}>
-                      <option value="once">Run once</option>
-                      <option value="forever">Repeat forever</option>
-                      <option value="count">Repeat N times</option>
-                      <option value="until">Repeat until date</option>
-                      </select>
-                    </div>
-                    {schedule_repeat_mode !== "once" ? (
-                    <div className="sched_cell">
-                      <label className="launch_label">Every</label>
-                      <div className="sched_inline">
-                        <input type="number" min={1} value={String(schedule_every_n)} onChange={(e) => set_schedule_every_n(Math.max(1, parseInt(e.target.value || "1", 10) || 1))} style={{ width: "70px" }} />
-                              <select value={schedule_every_unit} onChange={(e) => set_schedule_every_unit(e.target.value as any)}>
-                          <option value="minutes">min</option><option value="hours">hours</option><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option>
-                              </select>
-                            </div>
-                          </div>
-                        ) : null}
-                    {schedule_repeat_mode === "count" ? (
-                    <div className="sched_cell"><label className="launch_label">Total runs</label><input type="number" min={1} value={String(schedule_repeat_count)} onChange={(e) => set_schedule_repeat_count(Math.max(1, parseInt(e.target.value || "1", 10) || 1))} style={{ width: "100px" }} /></div>
-                    ) : null}
-                    {schedule_repeat_mode === "until" ? (
-                    <div className="sched_cell"><label className="launch_label">End date</label><div className="sched_inline"><input type="date" value={schedule_repeat_until_date_local} onChange={(e) => set_schedule_repeat_until_date_local(e.target.value)} /><input type="time" value={schedule_repeat_until_time_local} onChange={(e) => set_schedule_repeat_until_time_local(e.target.value)} /></div></div>
-                    ) : null}
-                </div>
-                <label className="launch_checkbox" style={{ marginTop: "8px" }}>
-                        <input type="checkbox" checked={schedule_share_context} onChange={(e) => set_schedule_share_context(Boolean(e.target.checked))} />
-                  <span>Share context across executions <span className="help_text muted" style={{ fontSize: "var(--font-size-xxs)", fontWeight: 400 }}>(when disabled, each run gets its own isolated session)</span></span>
-                      </label>
+                  </>
+                ) : (
+                  launch_extras
+                )}
 
                 {/* ── Launch button ── */}
                 <div className="section_divider" />
@@ -5503,31 +5452,50 @@ export function App(): React.ReactElement {
                   <div className="observe_context_card error" style={{ marginBottom: "10px" }}>
                     <span className="chip mono danger">error</span>
                     <span className="mono">{new_run_error}</span>
-                    </div>
+                  </div>
+                ) : null}
+                {launch_mode === "automate" && automate_errors.length ? (
+                  <ul className="automate_errors" role="alert">
+                    {automate_errors.map((e) => (
+                      <li key={e}>{e}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {launch_mode === "automate" && automate_api_error ? (
+                  <div className="observe_context_card error" role="alert" data-code={automate_api_error.code} style={{ marginBottom: "10px" }}>
+                    <span className="chip mono danger">{automate_api_error.code}</span>
+                    <span>
+                      <strong>{apiErrorText(automate_api_error).title}</strong> {apiErrorText(automate_api_error).detail}
+                      {automate_api_error.field ? <span className="mono"> ({automate_api_error.field})</span> : null}
+                    </span>
+                  </div>
                 ) : null}
                 <div className="launch_actions_bar launch_actions_stack">
                   {(() => {
                     // A dead button must SAY WHY (adversary 2 P1-C2: nine
                     // silent disable conditions read as "broken app").
+                    const automate = launch_mode === "automate";
                     const disabled_reason = !gateway_connected
                       ? "Sign in first"
-                      : !bundle_id.trim() || !flow_id.trim()
+                      : !launch_choice
                         ? "Select a workflow"
                         : input_data_obj === null
                           ? "Inputs contain invalid JSON"
-                          : connecting || resuming
-                            ? "Attaching to a run…"
-                            : discovery_loading || bundle_loading
-                              ? "Loading…"
-                              : schedule_submitting
-                                ? "Submitting…"
-                                : "";
+                          : automate && !automations_cap.available
+                            ? "Automations unavailable on this gateway"
+                            : connecting || resuming
+                              ? "Attaching to a run…"
+                              : discovery_loading || bundle_loading
+                                ? "Loading…"
+                                : automate_submitting
+                                  ? "Submitting…"
+                                  : "";
                     return (
                       <>
                         <button className="launch_submit_btn" onClick={() => void submit_launch()} disabled={Boolean(disabled_reason)} title={disabled_reason}>
-                          {schedule_submitting || connecting ? "Launching…" : schedule_start_mode !== "now" || schedule_repeat_mode !== "once" ? "Launch (scheduled)" : "Launch now"}
+                          {automate ? (automate_submitting ? "Creating…" : "Create automation") : connecting ? "Launching…" : "Launch now"}
                         </button>
-                        {disabled_reason && !schedule_submitting && !connecting ? (
+                        {disabled_reason && !automate_submitting && !connecting ? (
                           <span className="mono muted launch_disabled_reason">{disabled_reason}</span>
                         ) : null}
                       </>
@@ -5537,6 +5505,20 @@ export function App(): React.ReactElement {
               </div>
             </div>
           </div>
+        ) : null}
+
+        {page === "automations" ? (
+          <AutomationsPage
+            ctl={automations_ctl}
+            active={page === "automations" && gateway_connected}
+            available={automations_cap}
+            h={automations_handlers}
+            host={{
+              on_open_run: (rid) => open_run_in_observe(rid),
+              // Discuss opens the NEW discussion session's root run in Observe.
+              on_open_session: (d) => open_run_in_observe(d.run_id),
+            }}
+          />
         ) : null}
 
         {page === "runtime" ? (
@@ -5651,6 +5633,7 @@ export function App(): React.ReactElement {
                 on_sign_in={() => gateway_connection.openModal()}
                 total_runs={runtime_run_rows.length}
                 workflow_label_by_id={workflow_label_by_id}
+                automation_titles={automation_titles}
                 on_search={set_observe_search}
                 on_filter={set_observe_filter}
                 on_group_by={set_observe_group_by}
@@ -5831,6 +5814,7 @@ export function App(): React.ReactElement {
                       <div className="observe_context_actions">
                         {is_scheduled_recurrent ? (<button className="btn" onClick={() => { set_schedule_edit_interval(schedule_interval || ""); set_schedule_edit_apply_immediately(true); set_schedule_edit_error(""); set_schedule_edit_open(true); }} disabled={connecting || schedule_edit_submitting}>Edit schedule</button>) : null}
                         {is_scheduled_recurrent ? (<button className="btn" onClick={() => { set_compact_error(""); set_compact_open(true); }} disabled={connecting || compact_submitting}>Compact context</button>) : null}
+                        <button className="btn" onClick={() => void recreate_legacy_as_automation(run_id.trim()).catch((e: any) => set_error_text(String(e?.message || e)))} disabled={connecting || !run_id.trim()} title="Open Launch → Automate prefilled from this schedule (this schedule is not changed)">Recreate as automation</button>
                     </div>
                   </div>
                 ) : null}

@@ -32,6 +32,7 @@ import {
 import { extract_response_text_from_record, type LatestRunSummary, type ProviderActivity, type UiLogItem } from "./ledger_views";
 import { RunStatusPill, run_error_label, run_workflow_label } from "./run_labels";
 import { run_status_class, run_status_word, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
+import { run_session_tag, run_session_tag_label } from "./automations";
 
 /* Story → Chronology renders this many newest steps until expanded. */
 const CHRONOLOGY_PREVIEW_COUNT = 30;
@@ -81,6 +82,26 @@ export function AskForm(props: { wait: WaitState; disabled?: boolean; on_submit:
   );
 }
 
+/** A navigator row's label: an automation root reads as its title. */
+export function run_tree_label(run: RunSummary, labels: Record<string, string>, automation_titles: Record<string, string>): string {
+  if (run_session_tag(run) === "automation") {
+    const id = String(run.automation_id || run.run_id || "").trim();
+    return automation_titles[id] || "Automation";
+  }
+  return run_workflow_label(run, labels);
+}
+
+/** The automation tag chip (gateway attribution; nothing for chat runs). */
+export function RunTag(props: { run: RunSummary }): React.ReactElement | null {
+  const tag = run_session_tag(props.run);
+  if (!tag) return null;
+  return (
+    <span className="chip scheduled run_tree_tag" data-tag={tag}>
+      {run_session_tag_label(props.run)}
+    </span>
+  );
+}
+
 export function WorkflowRunNavigator(props: {
   sections: RunTreeSection[];
   selected_run_id: string;
@@ -93,6 +114,8 @@ export function WorkflowRunNavigator(props: {
   on_sign_in: () => void;
   total_runs: number;
   workflow_label_by_id: Record<string, string>;
+  /** automation_id → title (from the Automations list, when loaded). */
+  automation_titles: Record<string, string>;
   on_search: (value: string) => void;
   on_filter: (value: RunFilterMode) => void;
   on_group_by: (value: "status" | "workflow" | "session") => void;
@@ -181,8 +204,9 @@ export function WorkflowRunNavigator(props: {
                     title={root_id}
                   >
                     <div className="run_tree_item_top">
-                      <span className="run_tree_label">{run_workflow_label(root, props.workflow_label_by_id)}</span>
-                      <RunStatusPill status={run_status_word(root)} />
+                      <span className="run_tree_label">{run_tree_label(root, props.workflow_label_by_id, props.automation_titles)}</span>
+                      <RunTag run={root} />
+                      {root.status ? <RunStatusPill status={run_status_word(root)} /> : null}
                     </div>
                     <div className="run_tree_meta">
                       <span className="mono">{short_id(root_id, 13)}</span>
@@ -202,7 +226,8 @@ export function WorkflowRunNavigator(props: {
                             title={child_id}
                           >
                             <div className="run_tree_item_top">
-                              <span className="run_tree_label">{run_workflow_label(child, props.workflow_label_by_id)}</span>
+                              <span className="run_tree_label">{run_tree_label(child, props.workflow_label_by_id, props.automation_titles)}</span>
+                              <RunTag run={child} />
                               <RunStatusPill status={run_status_word(child)} />
                             </div>
                             <div className="run_tree_meta">

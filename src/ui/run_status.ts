@@ -86,6 +86,15 @@ export type RunSummary = {
   ledger_len?: number | null;
   parent_run_id?: string | null;
   session_id?: string | null;
+  /** The principal that started the run (gateway listing field). */
+  actor_id?: string | null;
+  /** Automation attribution stamped by the gateway at index time
+   * (contract E/F): `chat|automation|occurrence|discussion`. */
+  session_kind?: string | null;
+  automation_id?: string | null;
+  /** `controller|occurrence|descendant|discussion|legacy_schedule` or null. */
+  role?: string | null;
+  occurrence_index?: number | null;
   is_scheduled?: boolean | null;
   paused?: boolean | null;
   waiting_reason?: string | null;

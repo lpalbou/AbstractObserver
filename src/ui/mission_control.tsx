@@ -14,6 +14,7 @@
 // - Staleness is visible (data age chip) because the board is only as live
 //   as its poll — pretending otherwise is the old dashboard lie.
 import { useEffect, useMemo, useState } from "react";
+import { is_automation_controller, run_session_tag, run_session_tag_label, type RunSessionTag } from "./automations";
 import "./board.css";
 
 import { AfMemoryHintChip } from "@abstractframework/ui-kit";
@@ -56,6 +57,11 @@ export type BoardCard = {
   error: string;
   paused: boolean;
   is_subrun: boolean;
+  /** Automation tag from the gateway's attribution (never a workflow-id prefix). */
+  tag: RunSessionTag | null;
+  tag_label: string;
+  /** The automation an occurrence belongs to ("" otherwise). */
+  automation_id: string;
 };
 
 export type EntityTile = {
@@ -280,6 +286,9 @@ export function board_card(run: RunSummary, now_ms = Date.now()): BoardCard {
     error: String((run as any)?.error || "").trim(),
     paused: Boolean(run?.paused),
     is_subrun: Boolean(String(run?.parent_run_id || "").trim()),
+    tag: run_session_tag(run),
+    tag_label: run_session_tag_label(run),
+    automation_id: run_session_tag(run) === "occurrence" ? String(run?.automation_id || "").trim() : "",
   };
 }
 
@@ -304,6 +313,7 @@ export function board_columns(
   for (const run of review_source || []) {
     const rid = String(run?.run_id || "").trim();
     if (!run || !rid || seen_review.has(rid)) continue;
+    if (is_automation_controller(run)) continue;
     if (!needs_human(run)) continue;
     seen_review.add(rid);
     out.review.push(board_card(run, now_ms));
@@ -312,6 +322,9 @@ export function board_columns(
     const rid = String(run?.run_id || "").trim();
     if (!run || !rid) continue;
     if (seen_review.has(rid)) continue; // already carded in Review
+    // An automation controller parks in its wait between occurrences — it
+    // lives on the Automations page, never as a (forever) Pending card.
+    if (is_automation_controller(run)) continue;
     const card = board_card(run, now_ms);
     // A root whose own wait classified review but which the review source
     // missed (all_runs page bounds) still lands in Review, never dropped.
@@ -613,6 +626,8 @@ export type MissionControlProps = {
   on_refresh: () => void;
   on_open_run: (run_id: string) => void;
   on_resume_wait: (run_id: string, wait_key: string, payload: any) => Promise<void>;
+  /** Open an occurrence's automation on the Automations page. */
+  on_open_automation: (automation_id: string) => void;
   entity_app_href: string;
   /** Operator diary door transport (kit renders, app owns transport). The
    * read is MARKER-FIRST gateway-side — every click lands a diary_read
@@ -723,6 +738,21 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
         <div className="mc_card_meta">
           <span className="mono" title={card.run_id}>{short_run_id(card.run_id)}</span>
           {card.is_subrun ? <span title="This wait lives in a child run of an agent workflow">subrun</span> : null}
+          {card.tag ? <span className="mc_pill" data-tag={card.tag}>{card.tag_label}</span> : null}
+          {card.automation_id ? (
+            <button
+              type="button"
+              className="btn btn_sm"
+              title="Open this occurrence's automation"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.on_open_automation(card.automation_id);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              Automation
+            </button>
+          ) : null}
           {card.duration_ms >= 0 ? <span>{format_duration(card.duration_ms)}</span> : null}
           {card.tokens_total !== null ? <span>{card.tokens_total.toLocaleString()} tk</span> : null}
           {card.tool_calls !== null && card.tool_calls > 0 ? <span>{card.tool_calls} tools</span> : null}
