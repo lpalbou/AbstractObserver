@@ -3079,9 +3079,9 @@ refused while an occurrence is in progress (`automation_busy`).
 ## Does discussing a result change the automation?
 No. **Discuss** forks the automation at that occurrence: a new session with
 the automation's history up to it (runs 1 to N), opened in Observe. It works
-in its own writable workspace, with the automation's folder mounted read-only;
-nothing flows back into the automation or its next runs. File tools refuse
-writes into the mounted folder; shell commands are not sandboxed.
+in its own writable workspace, with the automation's folder mounted read-only
+for the file tools (shell commands are not sandboxed); nothing is written back
+into the automation's session or its next runs.
 
 ## Why is my automation not on the Board?
 An automation between runs is not a run you can act on, so it lives on the
@@ -3720,10 +3720,11 @@ occurrence #N with its full history (runs 1 to N) in context, and opens it in
 **Observe**, where you continue the chat.
 
 - The discussion works in its **own writable workspace**.
-- The automation's folder is **mounted read-only** in it, so it can read what
-  the runs produced.
-- Nothing flows back: the automation, its folder and its next runs never see
-  the discussion.
+- The automation's folder is **mounted read-only** in it for the file tools,
+  so it can read what the runs produced (shell commands are not sandboxed; see
+  below).
+- Nothing is written back into the automation's session: the automation and
+  its next runs never see the discussion.
 
 After **Start discussion** the Observer shows both folders from the gateway's
 answer: the discussion's own workspace (`workspace_root`) and the automation's

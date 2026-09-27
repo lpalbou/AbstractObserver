@@ -519,6 +519,7 @@ describe("Automations page", () => {
       expect(notice).toContain(r.workspace_root);
       expect(notice).toContain(r.mounted_workspace);
       expect(notice).toMatch(/read-only/);
+      expect(notice).toMatch(/shell commands are not sandboxed/); // the mount binds the file tools only
     }
   });
 

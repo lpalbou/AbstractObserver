@@ -601,7 +601,7 @@ export function wait_answer_payload(kind: unknown, payload: Record<string, any>)
  * automation's folder mounted read-only.
  */
 export function discussion_notice(index: number, r: DiscussResponse): string {
-  return `Discussion started from #${index} (session ${r.session_id}). It works in its own workspace ${r.workspace_root}; the automation's files are mounted read-only at ${r.mounted_workspace}. Nothing flows back into the automation.`;
+  return `Discussion started from #${index} (session ${r.session_id}). It works in its own workspace ${r.workspace_root}; the automation's files are mounted read-only at ${r.mounted_workspace} for the file tools (shell commands are not sandboxed), and nothing is written back into the automation's session.`;
 }
 
 /** Poll interval of the Automations page while visible. */

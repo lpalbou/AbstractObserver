@@ -230,10 +230,11 @@ occurrence #N with its full history (runs 1 to N) in context, and opens it in
 **Observe**, where you continue the chat.
 
 - The discussion works in its **own writable workspace**.
-- The automation's folder is **mounted read-only** in it, so it can read what
-  the runs produced.
-- Nothing flows back: the automation, its folder and its next runs never see
-  the discussion.
+- The automation's folder is **mounted read-only** in it for the file tools,
+  so it can read what the runs produced (shell commands are not sandboxed; see
+  below).
+- Nothing is written back into the automation's session: the automation and
+  its next runs never see the discussion.
 
 After **Start discussion** the Observer shows both folders from the gateway's
 answer: the discussion's own workspace (`workspace_root`) and the automation's
