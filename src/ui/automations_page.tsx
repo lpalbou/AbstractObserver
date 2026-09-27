@@ -113,6 +113,11 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
         </span>
         <span className="auto_row_facts">
           <span data-field="cadence">{v.cadence}</span>
+          {v.current ? (
+            <span className="auto_row_current" data-field="current">
+              {v.current}
+            </span>
+          ) : null}
           <span data-field="next">next: {v.next_run}</span>
           <span data-field="last-status">{v.last_status}</span>
         </span>

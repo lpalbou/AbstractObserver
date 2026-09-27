@@ -10,6 +10,8 @@ import {
   DISCUSS_LABEL,
   SCHEDULE_PRESETS,
   TOOL_APPROVAL_CONSENT,
+  currentOccurrenceLabel,
+  relativeIn,
   attentionLabel,
   createAutomationsClient,
   formatUtc,
@@ -38,6 +40,7 @@ import {
   parse_workflow_choice,
   run_session_tag,
   wait_answer_payload,
+  automation_row_view,
   LAUNCH_AUTOMATE_HASH,
   LAUNCH_MODE_HELP,
   parse_app_hash,
@@ -181,6 +184,9 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
       },
     });
     expect(res.summary.trigger.config.every).toBe(every);
+    // Summary shape of the gateway (list.json): its own workspace and the in-flight run (none yet).
+    expect(Object.keys(res.summary).sort()).toEqual(expect.arrayContaining(["workspace_root", "current_occurrence"]));
+    expect(res.summary.current_occurrence).toBeNull();
   });
 
   it("once at a UTC time, and custom count/until/first run under Advanced", async () => {
@@ -295,6 +301,29 @@ describe("Automations page", () => {
     expect(inboxRow.slice(0, inboxRow.indexOf("</li>"))).toContain(`data-field="attention">${attentionLabel(INBOX)}`);
     const newsRow = html.slice(html.indexOf(`data-automation-id="${NEWS_ID}"`));
     expect(newsRow.slice(0, newsRow.indexOf("</li>"))).not.toContain('data-field="attention"'); // quiet stays quiet
+  });
+
+  it("rows say what runs now from current_occurrence and when it runs next from next_fire_at — never from last_occurrence", async () => {
+    const now = Date.parse("2026-09-27T06:35:00Z");
+    expect(INBOX.current_occurrence, "fixture: the inbox has a run in flight").toBeTruthy();
+    const inbox = automation_row_view(INBOX, now);
+    expect(inbox.current).toBe(currentOccurrenceLabel(INBOX));
+    expect(inbox.next_run).toBe(`${formatUtc(INBOX.next_fire_at)} (${relativeIn(INBOX.next_fire_at, now)})`); // next run shown while one is running
+    expect(automation_row_view(NEWS, now).current).toBeNull();
+    // A last occurrence that reads "running" is history, not the current run.
+    const stale = { ...NEWS, current_occurrence: null, last_occurrence: { ...NEWS.last_occurrence, status: "running" } };
+    expect(automation_row_view(stale, now).current).toBeNull();
+    expect(automation_row_controls(stale, false).run_now.enabled).toBe(true);
+    // A run in flight with a completed last occurrence is still in flight.
+    const flying = { ...NEWS, current_occurrence: { index: 7, run_id: "r7", attempt: 2, status: "backoff" } };
+    expect(automation_row_view(flying, now).current).toBe(currentOccurrenceLabel(flying));
+    expect(automation_row_controls(flying, false).run_now.enabled).toBe(false);
+    await ctl.refresh();
+    const html = list_html();
+    const row = (id: string) => { const h = html.slice(html.indexOf(`data-automation-id="${id}"`)); return h.slice(0, h.indexOf("</li>")); };
+    expect(row(INBOX_ID)).toContain(`data-field="current">${currentOccurrenceLabel(INBOX)}`);
+    expect(row(NEWS_ID)).not.toContain('data-field="current"');
+    expect(row(JOURNAL_ID)).toContain("next: none while paused");
   });
 
   it("opens the panel for a row: definition, occurrences as chat pairs with failure and wait states", async () => {

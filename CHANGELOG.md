@@ -12,6 +12,10 @@ mode and the Automations page explain why they are unavailable.
   demand, managed on the Automations page).
 - **+ New automation** on the Automations page opens Launch in Automate mode;
   `#launch/automate` links there directly.
+- Automation rows show the run in progress ("Run #7 running") and the next
+  run with its distance ("in 25 min"), each from its own gateway field; Run
+  now and Stop current follow the run in progress, never the last run's
+  status.
 - The Automations page hides archived automations until **Show archived** is
   ticked (or the Archived filter is chosen).
 - **Launch → Automate**: create an automation from three fields: **What** (a

@@ -123,9 +123,14 @@ Each row shows:
 
 - the title, the state (active, paused, completed, failed, archived) and,
   when something needs you, a badge such as "2 unseen · 1 waiting for you";
+- the run in progress, when there is one ("Run #7 running", "Run #7
+  starting", "Run #7 waiting to retry (attempt 2)"), from the gateway's
+  current occurrence;
 - the cadence ("every 8 hours (UTC)", or "manual runs only"), the next run
-  ("none while paused" when paused), and the last run's number and status
-  ("#3 completed", "#2 failed after 3 attempts", or "no runs yet");
+  with how far away it is ("2026-09-27 08:00 UTC (in 25 min)"; shown also
+  while a run is in progress; "none while paused" when paused), and the last
+  finished run's number and status ("#3 completed", "#2 failed after 3
+  attempts", or "no runs yet");
 - an excerpt of the last answer.
 
 Row controls (a disabled control explains why when you hover it):
@@ -133,7 +138,7 @@ Row controls (a disabled control explains why when you hover it):
 | Control | What it does |
 | --- | --- |
 | **Pause** / **Resume** | Pause skips scheduled runs. Resume re-arms the schedule; the ticks that passed while paused are not run. |
-| **Run now** | Runs one occurrence immediately. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). It is disabled while an occurrence is in progress. |
+| **Run now** | Runs one occurrence immediately. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). |
 | **Edit**, **Discuss** | Open the automation's panel, where you revise it or pick the result to discuss. |
 | **Archive…** | Asks first ("Its history stays readable; it will not run again."), then stops the automation for good. |
 

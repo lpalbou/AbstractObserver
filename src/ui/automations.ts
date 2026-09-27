@@ -22,6 +22,8 @@
 import {
   attentionLabel,
   automationControls,
+  currentOccurrenceLabel,
+  relativeIn,
   buildCreateRequest,
   formatUtc,
   isApiError,
@@ -378,6 +380,8 @@ export type AutomationRowView = {
   title: string;
   cadence: string;
   next_run: string;
+  /** "Run #7 running" — from `current_occurrence` only; null when nothing is in flight. */
+  current: string | null;
   state: AutomationStatus;
   last: string;
   last_status: string;
@@ -385,7 +389,12 @@ export type AutomationRowView = {
   legacy: boolean;
 };
 
-export function automation_row_view(s: AutomationSummary): AutomationRowView {
+/**
+ * Two facts, two fields (never inferred from `last_occurrence`): what runs now
+ * comes from `current_occurrence`, when it runs next from `next_fire_at`
+ * (present exactly while active and scheduled, also during a run).
+ */
+export function automation_row_view(s: AutomationSummary, now_ms: number = Date.now()): AutomationRowView {
   const legacy = is_legacy_summary(s);
   const last = s.last_occurrence;
   const attempts = last && last.attempts > 1 ? ` after ${last.attempts} attempts` : "";
@@ -394,7 +403,8 @@ export function automation_row_view(s: AutomationSummary): AutomationRowView {
     id: s.automation_id,
     title: s.title,
     cadence: triggerSummary(s.trigger),
-    next_run: s.next_fire_at ? formatUtc(s.next_fire_at) : s.status === "paused" ? "none while paused" : "none scheduled",
+    next_run: s.next_fire_at ? `${formatUtc(s.next_fire_at)} (${relativeIn(s.next_fire_at, now_ms)})` : s.status === "paused" ? "none while paused" : "none scheduled",
+    current: currentOccurrenceLabel(s),
     state: s.status,
     last: last ? last.excerpt : "",
     last_status: last ? `#${last.index} ${last.status}${attempts}` : "no runs yet",
@@ -410,8 +420,9 @@ export type LegacyAction = "legacy_pause" | "legacy_resume" | "legacy_run_now" |
  * Discuss open the panel (they need a form / an occurrence). */
 export function automation_row_controls(s: AutomationSummary, busy: boolean): Record<RowAction, { enabled: boolean; reason?: string }> {
   const c = automationControls(s, [], busy);
+  // Discuss opens the panel; the panel offers it per FINISHED occurrence, so
+  // the row only needs an occurrence to exist (nothing inferred from its status).
   const last = s.last_occurrence;
-  const in_progress = !!last && ["running", "waiting", "backoff"].includes(last.status);
   const discuss =
     busy
       ? { enabled: false, reason: "Working…" }
@@ -421,9 +432,7 @@ export function automation_row_controls(s: AutomationSummary, busy: boolean): Re
           ? { enabled: false, reason: "Not permitted for this automation." }
           : !last
             ? { enabled: false, reason: "No occurrence to discuss yet." }
-            : in_progress
-              ? { enabled: false, reason: "The latest occurrence is still in progress." }
-              : { enabled: true };
+            : { enabled: true };
   return { pause: c.pause, resume: c.resume, run_now: c.run_now, edit: c.revise, archive: c.archive, discuss };
 }
 

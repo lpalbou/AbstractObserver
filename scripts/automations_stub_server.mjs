@@ -185,7 +185,7 @@ export function createAutomationsStub(options = {}) {
       context: { mode: s.context_mode, growing: {} },
       policy: { serial: true, misfire: "coalesce", failure: "continue", retry: { max_attempts: 3, backoff: { initial: "30s", factor: 2, max: "10m" } } },
       session_id: `automation-session:${s.automation_id}`,
-      workspace_root: `/tmp/automations/${s.automation_id}`,
+      workspace_root: s.workspace_root ?? `/tmp/automations/${s.automation_id}`,
       created_at: s.trigger.config.start_at ?? "2026-09-27T00:00:00Z",
       archived_at: s.status === "archived" ? s.updated_at : null,
     };
@@ -210,7 +210,15 @@ export function createAutomationsStub(options = {}) {
     return [...a.occurrences].sort((x, y) => y.index - x.index)[0];
   }
 
+  /** The in-flight occurrence (the controller's pending_occurrence), or null. */
+  function currentOf(a) {
+    const o = [...a.occurrences].sort((x, y) => y.index - x.index).find((x) => ["admitted", "running", "waiting", "backoff"].includes(x.status));
+    if (!o) return null;
+    return { index: o.index, run_id: o.run_id, attempt: o.attempts, status: o.status === "backoff" ? "backoff" : o.status === "admitted" ? "admitted" : "running" };
+  }
+
   function refreshLast(a) {
+    if (!a.summary.legacy) a.summary.current_occurrence = currentOf(a);
     const o = newestOccurrence(a);
     a.summary.occurrence_count = a.occurrences.length + (a.unlisted ?? 0);
     if (o) {
@@ -236,7 +244,7 @@ export function createAutomationsStub(options = {}) {
   }
 
   function busy(a) {
-    return a.occurrences.some((o) => ["running", "waiting", "backoff"].includes(o.status)) || a.manualPending;
+    return currentOf(a) !== null || a.manualPending;
   }
 
   function validateTarget(t) {
@@ -324,6 +332,8 @@ export function createAutomationsStub(options = {}) {
       updated_at: nowIso(),
       capabilities: ["revise", "pause", "resume", "run_now", "stop_current", "archive", "discuss"],
       session_kind: "automation",
+      workspace_root: `/tmp/stub-gateway/workspaces/session-automation-${id}`,
+      current_occurrence: null,
     };
     const t = body.target;
     const resolved =
