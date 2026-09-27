@@ -31,7 +31,7 @@ flowchart LR
   U[User] --> O[AbstractObserver<br/>browser UI]
   O -->|HTTP fetch + SSE| G[AbstractGateway<br/>/api/gateway/*]
   G --> R[AbstractRuntime<br/>durable runs + append-only ledger]
-  R --> C[AbstractCore<br/>LLM + tools (optional)]
+  R --> C["AbstractCore<br/>LLM + tools (optional)"]
 ```
 
 ## Quickstart (npm)
@@ -91,10 +91,10 @@ All pages share the same gateway connection settings.
 
 - **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
-- **Runtime**: Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
-- **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context); bundle upload/reload
-- **Automations**: every automation of the signed-in user, with pause/resume/run now/revise/archive, its runs read as a conversation, answers to waiting runs, and Discuss (a forked session); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
-- **Runtime → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
+- **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
+- **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
+- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), and Discuss (a forked session with a read-only workspace); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
+- **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
 
@@ -105,6 +105,8 @@ All pages share the same gateway connection settings.
 - Architecture (with diagrams): `docs/architecture.md`
 - Configuration & deployment: `docs/configuration.md`
 - API (gateway endpoints used): `docs/api.md`
+- Automations (create, manage, answer, discuss): `docs/automations.md`
+- Troubleshooting: `docs/troubleshooting.md`
 - Development: `docs/development.md`
 - Security & trust boundaries: `docs/security.md`
 

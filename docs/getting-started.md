@@ -62,9 +62,15 @@ Go to **Launch**:
   gateway's default agent), fill its inputs, click **Launch now**
   (`POST /api/gateway/runs/start`);
 - **Automate**: the same workflow and prompt, plus **When** (every N
-  minutes/hours/days in UTC, or once at a time) and **Context** (independent
-  or growing); **Create automation** sends `POST /api/gateway/automations` and
-  opens it on the **Automations** page.
+  minutes/hours/days in UTC, or once at a time), **Context** (independent
+  or growing) and **Tools** (run without asking, which creating the
+  automation approves, or ask each time); **Create automation** sends
+  `POST /api/gateway/automations` and opens it on the **Automations** page.
+
+On the **Automations** page you pause, resume, run now, revise or archive an
+automation, read its runs as a conversation, answer runs that wait for you,
+and discuss a result in a separate session. Automations need a gateway that
+advertises the Automations API; otherwise the page says so.
 
 Details: `automations.md`; endpoints: `api.md`.
 

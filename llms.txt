@@ -28,15 +28,18 @@ Notes:
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): CLI env vars, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
-- [Automations](docs/automations.md): Launch → Automate, the Automations page, legacy schedules, and the automation endpoints the UI calls
+- [Automations](docs/automations.md): Launch → Automate (what, when in UTC intervals, independent/growing context, tool approval), the Automations page (controls, 409 conflicts), runs as a conversation, answering waits by kind, Discuss, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
-- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker)
+- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations)
 
 ## Key entrypoints (code)
 - [CLI server](bin/cli.js): static server (`PORT`, `HOST`, `ABSTRACTOBSERVER_GATEWAY_URL`), SPA fallback, `@abstractframework/app-server` session proxy, optional GPU widget config injection
 - [App shell + pages](src/ui/app.tsx): settings, page routing, observe/launch flows, durable commands
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
+- [Automations rules + controller](src/ui/automations.ts): workflow choice (`@default`), create body, run tags, capability gate, legacy prefill, typed wait answers, page controller
+- [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring; the When/Context/Tools fields
+- [Automations stub gateway](scripts/automations_stub_server.mjs): dev/test stub serving the ui-kit fixtures
 - [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy
 - [Package metadata](package.json): npm name/version, scripts, Node engine
 - [llms-full generator](scripts/generate-llms-full.mjs): defines which files are embedded into `llms-full.txt`

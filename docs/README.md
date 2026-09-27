@@ -15,6 +15,8 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **See which gateway endpoints are required for each UI feature** → `api.md`
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
 - **Understand Runtime Activity vs Artifact Explorer vs Observe** → `architecture.md` → "Runtime Boundary"
+- **Understand how automations map to gateway routes and runtime runs** → `architecture.md` → "Automations"
+- **Fix an automation problem (unavailable, 409 conflicts, a wait that cannot be answered)** → `troubleshooting.md` → "Automations"
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
 - **See which version I run (About dialog)** → `faq.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
@@ -23,6 +25,9 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 ## Core concepts
 - `architecture.md` — component view + data flow diagrams
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
+
+## Topic guides
+- `automations.md` — Launch → Automate (what, when, context, tools), the Automations page (rows, controls, conflicts), the automation panel (runs as a conversation, answering waits, run details, Discuss), automation tags on Board / Observe / System, legacy schedules and Recreate, and the stub gateway for development
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
 
 ## Artifacts, server files and local files
@@ -41,8 +46,8 @@ with browser-local files or arbitrary server filesystem browsing:
 ## Operate and extend
 - `configuration.md` — CLI env vars, UI settings, deployment patterns
 - `security.md` — trust boundaries (process manager, remote tool worker, cross-origin)
-- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL, About shows the gateway unavailable)
-- `development.md` — run from source, tests, build (includes workspace dependency notes)
+- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL, About shows the gateway unavailable, automations)
+- `development.md` — run from source, tests, build, the automations stub gateway (includes workspace dependency notes)
 
 ## Project meta
 - Changelog: `../CHANGELOG.md`

@@ -1,6 +1,6 @@
 # FAQ
 
-> Last updated: 2026-09-26
+> Last updated: 2026-09-27
 
 ## What is AbstractObserver?
 AbstractObserver is a **gateway-only** observability UI (Web/PWA) for AbstractFramework runs:
@@ -112,6 +112,50 @@ Evidence: `src/lib/gateway_client.ts` and `src/lib/sse_parser.ts`. Diagram: `arc
 It depends on which UI pages/features you use.
 For the authoritative list grouped by feature, see `api.md` (grounded in `src/lib/gateway_client.ts`).
 
+## What is an automation, and who runs it?
+A workflow the gateway runs for you on a schedule (every N minutes, hours or
+days in UTC, or once at a time). The gateway and AbstractRuntime run it and
+keep every run; the Observer creates it (**Launch → Automate**), manages it
+(**Automations**) and reads its runs. Closing the browser changes nothing.
+Guide: `automations.md`.
+
+## Independent or Growing context: which should I pick?
+**Independent** (default) when every run stands alone ("check the machine").
+**Growing** when each run should see the previous ones ("follow this market
+and tell me what changed"): runs are turns of one conversation, and the
+replayed history is bounded to the most recent 40 messages (at most 24,000
+characters). See `automations.md` → "Context".
+
+## Why do the tools of my automation run without asking?
+Because an unattended run cannot stop at every tick, creating the automation
+approves its tool calls. Choose **Ask each time** in Launch → Automate to make
+each tool call wait for your approval on the Automations page. Questions a
+workflow asks you always wait. See `automations.md` → "Tools".
+
+## Why is there no time zone or calendar schedule (for example "every day at 9:00 local")?
+Schedules are fixed UTC intervals: "every 24 hours" is 24 hours after the
+previous tick. Set **First run at (UTC)** under Advanced to choose the anchor.
+
+## Does "Run now" resume a paused automation?
+No. Run now starts one occurrence and the automation stays paused. It is
+refused while an occurrence is in progress (`automation_busy`).
+
+## Does discussing a result change the automation?
+No. **Discuss** forks a new session seeded with the automation's conversation
+up to that occurrence, opens it in Observe, and mounts the automation's
+workspace read-only. The automation's next runs never see the discussion.
+
+## Why is my automation not on the Board?
+An automation between runs is not a run you can act on, so it lives on the
+Automations page. Its occurrences are Board cards (tag `occurrence #N`) with
+an **Automation** button back to it.
+
+## What happens to my legacy schedules?
+They keep running with their controls (Suspend / Resume / Run now / Open run,
+Edit schedule in the run view). **Recreate as automation** prefills Launch →
+Automate from one; the legacy schedule is not changed until you suspend it.
+See `automations.md` → "Legacy schedules".
+
 ## Where are Backlog / Inbox / Processes?
 
 They live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
@@ -173,5 +217,6 @@ Evidence: `vite.config.ts`. See `development.md`.
 - Architecture: `architecture.md`
 - Configuration: `configuration.md`
 - API (gateway endpoints used): `api.md`
+- Automations: `automations.md`
 - Security: `security.md`
 - Troubleshooting: `troubleshooting.md`

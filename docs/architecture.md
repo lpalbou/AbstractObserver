@@ -1,6 +1,6 @@
 # AbstractObserver — Architecture
 
-> Last updated: 2026-09-26
+> Last updated: 2026-09-27
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
@@ -69,6 +69,57 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
+## Automations: Observer ↔ gateway ↔ runtime
+The Automations page and Launch → Automate are thin clients of the gateway's
+Automations API. The gateway owns the automation (definition, trigger,
+attention) and drives it in AbstractRuntime: each automation is a controller
+root run that waits between ticks, each tick starts an occurrence (a child
+run), and **Discuss** forks a separate discussion session. The Observer reads
+these runs back through `/runs` and tags them from the gateway's attribution
+(`role`, `session_kind`), never from workflow names.
+
+```mermaid
+flowchart LR
+  subgraph OBS["AbstractObserver (browser)"]
+    L["Launch → Automate<br/><code>automate_form.tsx</code>"]
+    AP["Automations page + kit AutomationPanel<br/><code>automations_page.tsx</code>, <code>automations.ts</code>"]
+    BV["Board / Observe navigator / System<br/>tags from role + session_kind"]
+  end
+  subgraph GW["AbstractGateway /api/gateway"]
+    CAP["GET /discovery/capabilities<br/>contracts.common.automations"]
+    AUTO["/automations: list, create, get,<br/>occurrences, PATCH revise,<br/>commands, discuss, seen<br/>+ /trigger-sources"]
+    CMD["POST /commands<br/>resume with wait_key + payload<br/>legacy pause / resume"]
+    RUNS["GET /runs, /runs/{id}/ledger"]
+  end
+  subgraph RT[AbstractRuntime]
+    CTRL["Controller root run<br/>role controller, waits for next tick"]
+    OCC["Occurrence child runs<br/>role occurrence, index N"]
+    DISC["Discussion session<br/>session_kind discussion,<br/>read-only workspace"]
+    LEG["Legacy schedule runs<br/>role legacy_schedule"]
+  end
+  L -->|POST /automations| AUTO
+  AP --> AUTO
+  AP -->|answer a wait| CMD
+  L -. gate .-> CAP
+  AP -. gate .-> CAP
+  BV --> RUNS
+  AUTO --> CTRL
+  CTRL -->|each tick| OCC
+  AUTO -->|discuss| DISC
+  CMD --> OCC
+  CMD --> LEG
+  RUNS --> CTRL
+  RUNS --> OCC
+  RUNS --> DISC
+  RUNS --> LEG
+```
+
+The page lists automations in full pages every 30 seconds while visible, and
+re-reads shortly after each command because the gateway applies accepted
+commands asynchronously. Wait answers are typed by the wait's kind
+(`ask_user`, `tool_approval`, `event`) and go through the same `resume`
+command as the Board and the run view. User guide: `automations.md`.
+
 ## Observe projections
 The raw ledger remains the authoritative record, but the default Observe experience projects it into human-readable views:
 - a run tree grouped by status, workflow, or session, with subruns nested under their parent run;
@@ -129,4 +180,5 @@ See `security.md` for operational guidance.
 - Project overview + install: `../README.md`
 - API (gateway endpoints used): `api.md`
 - Configuration & deployment: `configuration.md`
+- Automations (user guide): `automations.md`
 - Security & trust boundaries: `security.md`

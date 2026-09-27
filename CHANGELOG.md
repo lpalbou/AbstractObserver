@@ -2,43 +2,62 @@
 
 ## Unreleased
 
+Automations need a gateway that advertises the Automations API
+(`capabilities.contracts.common.automations`); on other gateways the Automate
+mode and the Automations page explain why they are unavailable.
+
 ### Added
-- **Automations** (needs a gateway with the Automations API): a new
-  **Automations** page lists every automation of the signed-in user with its
-  cadence, next run, state, last result and what needs you. Pause, resume,
-  run now (also while paused; it stays paused), revise, stop the current run
-  and archive. Opening an automation shows its runs as a conversation: what
-  fired and the answer, with failures, notifications and questions marked.
-  Answer a waiting run in place, open any run in Observe, or **Discuss** a
-  result in a new session that never changes the automation (its workspace
-  is read-only there).
-- **Launch → Automate**: create an automation in three steps: what (a
-  workflow or the gateway's default agent, and the prompt), when (every N
-  minutes, hours or days in UTC, or once at a time; presets from every
-  5 minutes to every 7 days) and context (independent, or growing with a
-  bounded history). Title, first run, run limit, end time, skills, workspace
-  and bundle upload / reload are under Advanced.
-- Automate states that tools run without asking (creating the automation
-  approves them) and offers "Ask each time" instead.
-- Waiting runs are answered by the kind of wait: a question, a tool
-  approval (Approve / Deny, with the tool calls shown) or an event payload.
-  Tool calls awaiting approval also show on the Board in the new format.
+- **Launch → Automate**: create an automation from three fields: **What** (a
+  workflow or the gateway's default agent, and the prompt), **When** (every
+  N minutes, hours or days in UTC, or once at a time; presets from every
+  5 minutes to every 7 days) and **Context** (independent, or growing with a
+  bounded history). **Tools** states that tools run without asking because
+  creating the automation approves them, and offers **Ask each time**.
+  Title, first run, run limit, end time, skills, workspace and bundle
+  upload / reload are under **Advanced**. Retrying the same request does not
+  create a second automation.
+- **Automations** page: every automation of the signed-in user with its
+  cadence, next run, state, last result and what needs you, refreshed every
+  30 seconds while visible and filterable by status. Controls: pause,
+  resume, run now (also while paused; the automation stays paused), stop
+  current, revise, archive. Conflicts (`automation_busy`,
+  `revision_conflict`, `invalid_state`, `identity_conflict`) are explained
+  in one sentence with the gateway's message.
+- The automation panel shows the runs as a conversation (what fired, then
+  the answer), quiet by default, with notifications, failures (reason and
+  attempts) and waits marked, a **Needs attention** list, and **Load earlier
+  occurrences**. Run details open the run in Observe or the raw ledger and
+  workspace.
+- Waiting runs are answered in place by the kind of wait: a question (text
+  or a choice), a tool approval (the tool calls with their arguments, then
+  Approve / Deny) or an event (a JSON payload). Tool approvals on the Board
+  and in the run view list the tool calls too.
+- **Discuss — forked session, read-only workspace**: start a new session
+  from a finished occurrence, seeded with the automation's conversation up to
+  it, and continue in Observe. The automation and its next runs are not
+  affected.
+- Board, Observe and System tag automation runs from the gateway's
+  attribution: occurrence cards carry `occurrence #N` and an **Automation**
+  button; the run navigator groups occurrences under their automation and
+  tags discussions and legacy schedules; System → Activity lists
+  **Scheduled** separately from **Subflows / external events**.
 - **Run once** can start the gateway's default agent.
-- Legacy schedules: **Recreate as automation** (Automations page and the
-  run view) opens Automate prefilled from the schedule.
+- Legacy schedules appear on the Automations page with their own controls
+  (suspend, resume, run now, open run) and **Recreate as automation**, which
+  opens Automate prefilled from the schedule and leaves the schedule itself
+  unchanged.
+- `scripts/automations_stub_server.mjs`: a stub gateway for the Automations
+  routes, serving the ui-kit's canonical fixtures, for development and tests.
 
 ### Changed
-- The Launch page's schedule section (start at, repeat modes, weeks and
-  months) is replaced by Automate mode. Existing schedules keep their
-  suspend / resume / run now / edit controls in the run view.
-- One skills picker on Launch (the trust-aware list); a workflow's `skills`
-  input no longer shows a second one.
-- Board, Observe and System tag automation runs from the gateway's
-  attribution: occurrences link to their automation and group under it in
-  the run navigator; an automation waiting for its next run is no longer a
-  Board card; System → Activity splits **Scheduled** from **Subflows /
-  external events**. A workflow id starting with `scheduled:` alone no longer
-  marks a run as scheduled.
+- Launch creates schedules through **Automate**; the previous schedule form
+  (start at, repeat modes, weeks and months) is removed. Existing schedules
+  keep their suspend / resume / run now / edit controls in the run view.
+- Launch has one skills picker (the trust-aware list); a workflow's `skills`
+  input does not add a second one.
+- A run is treated as scheduled only from the gateway's attribution, not
+  from a workflow id starting with `scheduled:`. An automation waiting for
+  its next run is shown on the Automations page rather than as a Board card.
 - Run listings keep `actor_id`.
 
 ## [0.1.13] - 2026-09-26

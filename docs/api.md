@@ -44,8 +44,10 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `POST /api/gateway/automations/{id}/discuss` — start a discussion session (opened in Observe)
 - `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
+- `POST /api/gateway/commands` — answer an occurrence's wait with `type: "resume"` and `{wait_key, payload}` on the waiting run; the payload follows the wait's kind: `ask_user` → `{response}`, `tool_approval` → `{approved, tool_ids?}`, `event` → `{payload}`. Legacy schedule rows use `pause` / `resume` (run now = `resume` with `{payload: {mode: "run_now", requested_at}}`).
+- `GET /api/gateway/runs/{run_id}` + `GET /api/gateway/runs/{run_id}/input_data` — read a legacy schedule for **Recreate as automation**
 
-Errors use `{"detail": {"reason_code", "message", "field"?, "command_id"?}}`. See `automations.md`.
+Errors use `{"detail": {"reason_code", "message", "field"?, "command_id"?}}`; the UI shows one sentence per `reason_code` plus the gateway's message. Conflicts are HTTP 409: `automation_busy`, `revision_conflict`, `invalid_state`, `identity_conflict`. Create and command requests carry a `request_id` / `command_id` that is reused on retry, so a retried request is idempotent. See `automations.md`.
 
 ## Optional endpoints (feature-gated in the UI)
 These power additional pages/drawers. If your gateway does not expose them, the corresponding UI areas will show errors or empty states.
@@ -122,4 +124,5 @@ These power additional pages/drawers. If your gateway does not expose them, the 
 - Getting started: `getting-started.md`
 - Architecture: `architecture.md`
 - Configuration & deployment: `configuration.md`
+- Automations (user guide): `automations.md`
 - Security & trust boundaries: `security.md`

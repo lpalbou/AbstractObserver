@@ -51,8 +51,57 @@ If you see stale UI assets:
 
 In dev, AbstractObserver automatically unregisters service workers on load (see `src/main.tsx`).
 
+## Automations
+
+### Launch → Automate and the Automations page say the API is unavailable
+"This gateway does not advertise the Automations API" means
+`GET /api/gateway/discovery/capabilities` has no
+`capabilities.contracts.common.automations` entry: upgrade AbstractGateway to a
+version with automations. "This gateway has the Automations API turned off"
+means the gateway reports it but disabled it; ask the gateway admin. Legacy
+schedules stay manageable from their run view in both cases. See
+`automations.md` → "Before you start".
+
+### "An occurrence is already running or queued. Wait for it to finish."
+HTTP 409 `automation_busy`: **Run now** (or another command) was sent while an
+occurrence is in progress. Wait for it to finish, or use **Stop current** in
+the automation's panel.
+
+### "The automation changed since this view loaded. Reload it, then try again."
+HTTP 409 `revision_conflict`: someone (another tab, AbstractAssistant, a
+command sent moments before) revised the automation after you opened it. Select it again
+and repeat the revision.
+
+### "The automation's current state does not allow this."
+HTTP 409 `invalid_state`: for example resuming an archived automation or
+stopping when nothing runs. The row and panel controls explain on hover why a
+control is disabled.
+
+### A command was accepted but the row did not change
+The gateway queues commands and applies them moments later. The page re-reads
+the list immediately and again over the next few seconds; press **Refresh** if
+it still looks unchanged, then check the automation's latest occurrence.
+
+### A waiting run cannot be answered from the panel
+The panel answers typed waits only (`ask_user`, `tool_approval`, `event`). A
+wait of another kind says "This kind of wait (…) cannot be answered here; open the run." Open
+the run (**Run details → Open run ledger**) and answer it from the run view.
+For a tool approval that does not list its tool calls, open the run to see
+them before approving. An event payload must be valid JSON.
+
+### "The gateway listed no bundle_ref for bundle …"
+Launch → Automate needs the workflow's published bundle reference from
+`GET /api/gateway/bundles`. Reload bundles (Launch → Advanced), then create
+again.
+
+### Recreate as automation leaves the interval empty
+The legacy interval is not a whole number of minutes, hours or days (for
+example milliseconds or fractions). Choose an interval in **When**; the note
+above the form names the original value.
+
 ## See also
 - Getting started: `getting-started.md`
 - FAQ: `faq.md`
+- Automations: `automations.md`
 - Configuration & deployment: `configuration.md`
 - Security & trust boundaries: `security.md`
