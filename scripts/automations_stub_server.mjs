@@ -164,6 +164,8 @@ export function createAutomationsStub(options = {}) {
       seen_seq: seqOf(s.attention.cursor) - s.attention.unseen_count,
       discussions: [],
       prompt: s.title,
+      // Fixture counts include occurrences the fixtures do not spell out.
+      unlisted: s.occurrence_count - occ.length,
     });
   }
   const legacy = legacySeed();
@@ -209,7 +211,7 @@ export function createAutomationsStub(options = {}) {
 
   function refreshLast(a) {
     const o = newestOccurrence(a);
-    a.summary.occurrence_count = a.occurrences.length;
+    a.summary.occurrence_count = a.occurrences.length + (a.unlisted ?? 0);
     if (o) {
       a.summary.last_occurrence = {
         run_id: o.run_id,

@@ -41,6 +41,7 @@ import {
   default_agent_choices,
   legacy_recreate_prefill,
   normalize_run_summary,
+  observer_automations_host,
   parse_workflow_choice,
   workflow_choice_value,
   type AutomateForm,
@@ -847,16 +848,7 @@ export function App(): React.ReactElement {
   /** Automations page state machine over this connection (ui-kit client). */
   const automations_ctl = useMemo(
     () =>
-      new AutomationsController(gateway.automations_client(), {
-        // The existing wait-answer path (same command as the board and the run view).
-        answer_wait: async (rid, wait_key, payload) => {
-          await gateway.submit_command({ command_id: random_id(), run_id: rid, type: "resume", payload: { wait_key, payload }, client_id: "web_pwa" });
-        },
-        legacy_command: async (rid, type, payload) => {
-          await gateway.submit_command({ command_id: random_id(), run_id: rid, type, payload, client_id: "web_pwa" });
-        },
-        now_iso,
-      }),
+      new AutomationsController(gateway.automations_client(), observer_automations_host(gateway, random_id, now_iso)),
     [gateway],
   );
   const automations_state = useSyncExternalStore(

@@ -536,6 +536,27 @@ export type AutomationsHost = {
   now_iso(): string;
 };
 
+/**
+ * The Observer's host for the page: waits are answered with the SAME command
+ * the board and the run view send (`resume` + `{wait_key, payload}`), legacy
+ * rows use the legacy command types — both through `POST /api/gateway/commands`.
+ */
+export function observer_automations_host(
+  gateway: { submit_command(c: { command_id: string; run_id: string; type: string; payload: any; client_id?: string }): Promise<any> },
+  mint: () => string,
+  now_iso: () => string,
+): AutomationsHost {
+  return {
+    answer_wait: async (run_id, wait_key, payload) => {
+      await gateway.submit_command({ command_id: mint(), run_id, type: "resume", payload: { wait_key, payload }, client_id: "web_pwa" });
+    },
+    legacy_command: async (run_id, type, payload) => {
+      await gateway.submit_command({ command_id: mint(), run_id, type, payload, client_id: "web_pwa" });
+    },
+    now_iso,
+  };
+}
+
 /** Poll interval of the Automations page while visible. */
 export const AUTOMATIONS_POLL_MS = 30_000;
 /** Page size for list and occurrences (the client polls FULL pages). */
