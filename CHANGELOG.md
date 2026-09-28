@@ -48,6 +48,12 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
   20 messages). The gateway replays the newest whole messages up to 50,000
   tokens; when it drops older ones, the chat says so under the answer
   ("Earlier messages not replayed: N", with the token count) (gateway).
+- The top-bar **Assistant** sends only the question (the documentation index
+  is its system prompt). Earlier turns are replayed by the gateway from the
+  conversation's own session (newest whole turns up to 50,000 tokens), not
+  copied into the prompt as the last 6 turns cut to 1,200 characters each.
+  **New conversation** in the drawer starts a fresh session; the drawer shows
+  when earlier messages were not replayed (gateway).
 
 ### Security
 - Requires `@abstractframework/app-server` 0.1.11 or later: a browser counts

@@ -12,13 +12,15 @@
 // RUN's ledger; this assistant answers questions about the APP itself.
 import React, { useMemo, useRef, useState } from "react";
 import { AfDrawer } from "@abstractframework/ui-kit";
-import { AssistantPanel, type AssistantAsk } from "@abstractframework/panel-chat";
+import { AssistantPanel, type AssistantAsk, type ChatMessage } from "@abstractframework/panel-chat";
 // Vite inlines the docs index as a string (build-time, versioned with the app).
 // eslint-disable-next-line import/no-unresolved
 import docs_index from "../../llms.txt?raw";
 import type { GatewayClient } from "../lib/gateway_client";
+import { random_id } from "../lib/ids";
+import type { RunChatHistoryReport } from "../lib/types";
+import { RunChatReplayNote } from "./run_chat";
 
-const ASSISTANT_SESSION_ID = "observer-docs-assistant";
 const POLL_INTERVAL_MS = 1500;
 const ANSWER_TIMEOUT_MS = 120_000;
 
@@ -36,44 +38,36 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-// Prompt-shaping bounds. ADR-0026 §1: both may cut real conversation, so
-// both are MARKED in-band — an unmarked cut reads to the model as "that is
-// the whole exchange", and it answers confidently from an amputated view.
-const HISTORY_TURNS = 6;
-const TURN_CHARS = 1200;
+// History (ADR-0026, operator ruling 2026-09-28): no client-side copy of the
+// conversation, no turn count, no character cut. Every question is a run of
+// ONE gateway session per conversation with `use_session_history`: the
+// gateway replays that session's earlier turns through the runtime's history
+// window (the newest whole turns up to 50,000 tokens) and records the receipt
+// in the run (`session_history` on GET /runs/{id}). The docs index rides the
+// system prompt, so replayed turns are the user's questions and the answers.
+const SYSTEM_PROMPT = [
+  "You are the AbstractObserver in-app assistant. Answer questions about",
+  "using and understanding the AbstractObserver web app (pages: Board,",
+  "Observe/run page with Story/Ledger/Flow/Ask tabs, System with",
+  "Activity/Artifacts/Memory/Logs, Launch, Settings). Ground every answer",
+  "in the documentation index below; when the docs don't cover something,",
+  "say so plainly instead of guessing. Be concise and concrete.",
+  "",
+  "=== DOCUMENTATION INDEX (llms.txt) ===",
+  docs_index,
+  "=== END DOCUMENTATION ===",
+].join("\n");
 
-function build_prompt(question: string, history: Array<{ role: string; content: string }>): string {
-  const shown = history.slice(-HISTORY_TURNS);
-  const dropped = history.length - shown.length;
-  const turns = shown
-    .map((m) => {
-      const who = m.role === "assistant" ? "Assistant" : "User";
-      const text = String(m.content || "");
-      // [#TRUNCATION] per-turn prompt bound; the full turn stays in the UI history
-      const body =
-        text.length > TURN_CHARS
-          ? `${text.slice(0, TURN_CHARS)}… [#TRUNCATION: ${TURN_CHARS} of ${text.length} chars of this turn]`
-          : text;
-      return `${who}: ${body}`;
-    })
-    .join("\n");
-  // [#TRUNCATION] conversation window bound; older turns remain in the UI
-  const window_note =
-    dropped > 0 ? `[#TRUNCATION: showing the last ${shown.length} turns; ${dropped} earlier turn(s) omitted]\n` : "";
-  return [
-    "You are the AbstractObserver in-app assistant. Answer questions about",
-    "using and understanding the AbstractObserver web app (pages: Board,",
-    "Observe/run page with Story/Ledger/Flow/Ask tabs, System with",
-    "Activity/Artifacts/Memory/Logs, Launch, Settings). Ground every answer",
-    "in the documentation index below; when the docs don't cover something,",
-    "say so plainly instead of guessing. Be concise and concrete.",
-    "",
-    "=== DOCUMENTATION INDEX (llms.txt) ===",
-    docs_index,
-    "=== END DOCUMENTATION ===",
-    turns ? "\nConversation so far:\n" + window_note + turns : "",
-    `\nUser question: ${question}`,
-  ].join("\n");
+const SESSION_PREFIX = "observer-docs-assistant";
+
+/** A fresh conversation's session id: the gateway replays nothing from another conversation. */
+export function new_docs_session_id(): string {
+  return `${SESSION_PREFIX}:${random_id()}`;
+}
+
+/** The run input for one question: the question alone, the docs in the system prompt, history from the session. */
+export function docs_question_input(question: string): Record<string, unknown> {
+  return { prompt: question, system: SYSTEM_PROMPT, use_session_history: true, use_context: true };
 }
 
 /** Extract the final assistant text from a completed run's ledger. */
@@ -97,16 +91,20 @@ function extract_answer(records: any[]): string {
 }
 
 /**
- * The injected transport: ask(question) → one gateway basic-agent run on a
- * stable session, polled to terminal, answer read from the run's ledger.
+ * The injected transport: ask(question) → one gateway basic-agent run on this
+ * conversation's session, polled to terminal, answer read from the run's
+ * ledger; the run's history receipt goes to `on_history`.
  */
-export function make_docs_ask(get_gateway: () => GatewayClient): AssistantAsk {
+export function make_docs_ask(
+  get_gateway: () => GatewayClient,
+  get_session_id: () => string,
+  on_history: (history: RunChatHistoryReport | null) => void = () => {}
+): AssistantAsk {
   return async (question, ctx) => {
     const gateway = get_gateway();
-    const history = ctx.history.map((m) => ({ role: m.role, content: String(m.content ?? "") }));
-    const run_id = await gateway.start_run(null, { prompt: build_prompt(question, history) }, {
+    const run_id = await gateway.start_run(null, docs_question_input(question), {
       bundle_id: "basic-agent",
-      session_id: ASSISTANT_SESSION_ID,
+      session_id: get_session_id(),
     });
 
     const started = Date.now();
@@ -122,6 +120,7 @@ export function make_docs_ask(get_gateway: () => GatewayClient): AssistantAsk {
         throw new Error(`The assistant run ${status}: ${err}`);
       }
       if (status === "completed") {
+        on_history(run?.session_history ?? null);
         const page = await gateway.get_ledger(run_id, { after: 0, limit: 500, signal: ctx.signal });
         const answer = extract_answer(page.items);
         return answer || "(the run completed but produced no readable answer — inspect it on the Observe page)";
@@ -142,13 +141,38 @@ export function AppAssistantDrawer(props: {
   // conversation survives close/reopen (kit keep-alive contract).
   const gateway_ref = useRef(props.gateway);
   gateway_ref.current = props.gateway;
-  const ask = useMemo(() => make_docs_ask(() => gateway_ref.current), []);
+  // One gateway session per conversation, for as long as this drawer lives;
+  // "New conversation" starts another, so nothing earlier is replayed.
+  const session_ref = useRef<string>(new_docs_session_id());
+  const [messages, set_messages] = useState<ChatMessage[]>([]);
+  const [history, set_history] = useState<RunChatHistoryReport | null>(null);
+  const ask = useMemo(() => make_docs_ask(() => gateway_ref.current, () => session_ref.current, set_history), []);
   const [busy_hint] = useState<string | undefined>(undefined);
+  const new_conversation = () => {
+    session_ref.current = new_docs_session_id();
+    set_messages([]);
+    set_history(null);
+  };
 
   return (
-    <AfDrawer open={props.open} onClose={props.onClose} label="Observer assistant" title="Assistant" width={420} topOffset={props.topOffset}>
+    <AfDrawer
+      open={props.open}
+      onClose={props.onClose}
+      label="Observer assistant"
+      title="Assistant"
+      width={420}
+      topOffset={props.topOffset}
+      headerActions={
+        <button className="btn" type="button" disabled={!messages.length} onClick={new_conversation} title="Start a new conversation (nothing earlier is replayed)">
+          New conversation
+        </button>
+      }
+    >
+      <RunChatReplayNote history={history} />
       <AssistantPanel
         ask={ask}
+        messages={messages}
+        onMessagesChange={set_messages}
         assistantName="Observer"
         placeholder="Ask about the observer…"
         blockedNotice={props.connected ? busy_hint : "Connect to the gateway to use the assistant."}
