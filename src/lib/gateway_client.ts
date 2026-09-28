@@ -1,6 +1,6 @@
 import { createAutomationsClient, gatewayApiPath, joinBaseUrl, type AutomationsClient } from "@abstractframework/ui-kit";
 
-import { LedgerStreamEvent } from "./types";
+import { LedgerStreamEvent, type RunChatHistoryReport } from "./types";
 import { SseParser } from "./sse_parser";
 
 export type GatewayClientConfig = {
@@ -637,7 +637,16 @@ export class GatewayClient {
   async run_chat(
     run_id: string,
     opts: { provider?: string; model?: string; include_subruns?: boolean; messages: Array<{ role: string; content: string }>; persist?: boolean }
-  ): Promise<{ ok: boolean; run_id: string; provider: string; model: string; generated_at: string; answer: string }> {
+  ): Promise<{
+    ok: boolean;
+    run_id: string;
+    provider: string;
+    model: string;
+    generated_at: string;
+    answer: string;
+    /** The gateway's history-window receipt for `messages` (AbstractGateway 0.7.0+; absent on older gateways). */
+    history?: RunChatHistoryReport;
+  }> {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("run_chat: run_id is required");
     const body: any = {

@@ -50,4 +50,14 @@ export type ToolResult = {
   error: string | null;
 };
 
-
+/** The gateway's history-window receipt (`POST /runs/{id}/chat` → `history`; AbstractGateway 0.7.0+). */
+export type RunChatHistoryReport = {
+  policy?: string;
+  max_tokens?: number;
+  replayed_messages?: number;
+  replayed_tokens?: number;
+  dropped_messages?: number;
+  dropped_tokens?: number;
+  dropped_counts_complete?: boolean;
+  oversize_turn_kept?: boolean;
+};

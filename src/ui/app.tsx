@@ -30,6 +30,7 @@ import {
   type ProviderOption,
 } from "@abstractframework/ui-kit";
 import { AppAssistantDrawer } from "./app_assistant";
+import { RunChatReplayNote, run_chat_history, type RunChatHistoryReport } from "./run_chat";
 import { REVEAL_PATH, run_id_from_location } from "../lib/app_paths";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
@@ -649,6 +650,8 @@ export function App(): React.ReactElement {
   const [chat_sending, set_chat_sending] = useState<boolean>(false);
   const [chat_export_state, set_chat_export_state] = useState<"idle" | "copied" | "failed">("idle");
   const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string }>>([]);
+  /** The gateway's history-window receipt for the latest answer (shown when older messages were not replayed). */
+  const [chat_replay_history, set_chat_replay_history] = useState<RunChatHistoryReport | null>(null);
   const chat_input_ref = useRef<HTMLTextAreaElement | null>(null);
   const [chat_thread_saving, set_chat_thread_saving] = useState(false);
   const [chat_thread_save_error, set_chat_thread_save_error] = useState<string>("");
@@ -3092,6 +3095,7 @@ export function App(): React.ReactElement {
     set_summary_error("");
 
     set_chat_messages([]);
+    set_chat_replay_history(null);
     set_chat_input("");
     set_chat_error("");
 	    set_chat_sending(false);
@@ -3109,6 +3113,7 @@ export function App(): React.ReactElement {
 
   useEffect(() => {
     set_chat_messages([]);
+    set_chat_replay_history(null);
     set_chat_input("");
     set_chat_error("");
 	    set_chat_sending(false);
@@ -3379,7 +3384,8 @@ export function App(): React.ReactElement {
     set_chat_input("");
 
     try {
-      const history = [...chat_messages, user_msg].slice(-20).map((m) => ({ role: m.role, content: m.content }));
+      // The whole chat (ADR-0026): the gateway applies the one history window and says what it replayed.
+      const history = run_chat_history(chat_messages, user_msg);
       const provider = settings.maintenance_ai_provider.trim();
       const model = settings.maintenance_ai_model.trim();
       const res = await gateway.run_chat(rid, {
@@ -3390,6 +3396,7 @@ export function App(): React.ReactElement {
       });
       const answer = String(res?.answer || "").trim() || "(empty response)";
       const ts = String(res?.generated_at || "").trim() || now_iso();
+      set_chat_replay_history(res?.history ?? null);
 
       set_chat_messages((prev) => {
         return [...prev, { id: `local:${random_id()}`, role: "assistant" as const, content: answer, ts }];
@@ -3630,6 +3637,7 @@ export function App(): React.ReactElement {
       }
 
       set_chat_messages(msgs);
+      set_chat_replay_history(null);
       set_chat_input("");
       set_chat_error("");
       set_chat_thread_save_error("");
@@ -6136,6 +6144,7 @@ export function App(): React.ReactElement {
                             disabled={!chat_messages.length || chat_sending || chat_thread_saving || saved_chat_thread_loading}
                             onClick={() => {
                               set_chat_messages([]);
+                              set_chat_replay_history(null);
                               set_chat_input("");
                               set_chat_error("");
                               set_chat_thread_save_error("");
@@ -6220,6 +6229,8 @@ export function App(): React.ReactElement {
                       <ChatThread
                         messages={chat_messages}
                         className="log_scroll"
+                        after={<RunChatReplayNote history={chat_replay_history} />}
+                        afterKey={chat_replay_history ? `${chat_replay_history.replayed_messages}:${chat_replay_history.dropped_messages}` : null}
                         messageProps={
                           chat_voice.tts_supported && gateway_connected && Boolean(chat_voice_run_id.trim())
                             ? {

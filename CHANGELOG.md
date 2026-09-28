@@ -44,6 +44,10 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
   (gateway).
 - Growing context copy: the most recent 50,000 tokens of whole turns are
   replayed.
+- A run's **Ask** chat sends the whole conversation (it sent only the last
+  20 messages). The gateway replays the newest whole messages up to 50,000
+  tokens; when it drops older ones, the chat says so under the answer
+  ("Earlier messages not replayed: N", with the token count) (gateway).
 
 ### Security
 - Requires `@abstractframework/app-server` 0.1.11 or later: a browser counts
