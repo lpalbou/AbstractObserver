@@ -198,11 +198,12 @@ describe("action feedback is brief, not left lying around", () => {
     expect(dismissed).toBe(0);
   });
 
-  it("the panel's disabled-control reasons are tooltips and screen-reader text, not a visible line", async () => {
+  it("the panel's disabled-control reasons are one compact visible line, and each disabled button's tooltip", async () => {
     await ctl.select(ID);
     const html = detail_html({ open: false, on_change: () => {} });
-    const reasons = /<p class="af-auto__reasons[^"]*"/.exec(html)?.[0] ?? "";
-    expect(reasons).toContain("af-auto__sr-only");
+    const reasons = /<p class="af-auto__reasons"><svg[^]*?<\/p>/.exec(html)?.[0] ?? "";
+    expect(reasons).toMatch(/<span id="[^"]+">[^<]+: [^<]+<\/span>/);
+    expect(html).not.toContain("af-auto__sr-only");
     const controls = /<div class="af-auto__controls"[^]*?<\/div>/.exec(html)?.[0] ?? "";
     const disabled = buttons(controls, 'disabled=""');
     expect(disabled.length).toBeGreaterThan(0);
