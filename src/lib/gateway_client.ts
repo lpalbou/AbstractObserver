@@ -39,10 +39,9 @@ function _deadline(caller?: AbortSignal, ms = 30_000): AbortSignal {
   return typeof any_fn === "function" ? any_fn([caller, timeout]) : caller;
 }
 
-function _auth_headers(token?: string): Record<string, string> {
-  const t = (token || "").trim();
+/** The browser session's CSRF header (the app server refuses a mutating request without it). */
+export function csrf_headers(): Record<string, string> {
   const out: Record<string, string> = {};
-  if (t) out.Authorization = `Bearer ${t}`;
   try {
     const csrf = document.cookie
       .split(";")
@@ -54,6 +53,13 @@ function _auth_headers(token?: string): Record<string, string> {
     // non-browser tests
   }
   return out;
+}
+
+function _auth_headers(token?: string): Record<string, string> {
+  const t = (token || "").trim();
+  const out: Record<string, string> = {};
+  if (t) out.Authorization = `Bearer ${t}`;
+  return { ...out, ...csrf_headers() };
 }
 
 async function _read_error(resp: Response): Promise<string> {

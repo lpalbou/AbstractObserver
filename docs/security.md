@@ -16,6 +16,10 @@ Guidance:
   A page from another site whose name resolves to `127.0.0.1` (DNS
   rebinding) is refused, for the folder reveal and for browser-supplied
   Gateway URL changes alike.
+- The folder reveal is a mutating route like the session proxy's: it needs
+  the browser session's CSRF token in the `X-AbstractObserver-CSRF` header
+  (a cross-site page can neither read the cookie nor send the header), and a
+  request whose `Origin` names another site is refused.
 - For shared deployments, put the gateway behind an authenticated reverse proxy and use HTTPS.
 
 ## Tokens and browser sessions

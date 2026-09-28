@@ -15,12 +15,17 @@ export type { RunChatHistoryReport };
  * `history`; the Observer shows it when older messages were not replayed.
  */
 
-/** Every message of the chat plus the new question, as the gateway's `messages`. */
+/**
+ * Every message of the chat plus the new question, as the gateway's
+ * `messages`. The chat's own error cards (`local_error`: "(error: …)" when a
+ * request failed) are the Observer's, never the model's words: they are not
+ * sent back as history.
+ */
 export function run_chat_history(
-  messages: ReadonlyArray<{ role: string; content: string }>,
+  messages: ReadonlyArray<{ role: string; content: string; local_error?: boolean }>,
   question: { role: string; content: string }
 ): Array<{ role: string; content: string }> {
-  return [...messages, question].map((m) => ({ role: m.role, content: m.content }));
+  return [...messages.filter((m) => !m.local_error), question].map((m) => ({ role: m.role, content: m.content }));
 }
 
 function count(n: unknown): number {

@@ -79,6 +79,11 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
   as on this machine only when its address is loopback and the page's host
   names loopback, so a DNS-rebinding page can neither reveal a folder nor
   change the Gateway URL.
+- The folder reveal (`POST api/local/reveal`) follows the rule of every
+  mutating route of the app's origin: it needs this browser session's CSRF
+  token in `X-AbstractObserver-CSRF` (or `X-Abstract-CSRF`), and a request
+  that names another site's `Origin` is refused. A cross-site POST could open
+  a file-manager window on any folder that exists on the machine.
 
 ### Fixed
 - A run's ledger and artifacts in the automation panel open through the
@@ -87,9 +92,13 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
 - An HTML artifact preview shows its source instead of opening it as a page
   in the app's origin.
 - Ask and Summary show the gateway's reason when it cannot answer, instead of
-  "(error: failed to generate answer)".
+  "(error: failed to generate answer)". The Ask chat's own "(error: …)" cards
+  are no longer sent back to the model as history with the next question.
 - Ask about an automation (or any run) answers on gateways whose default text
   model is an endpoint profile (gateway).
+- CI and release build against a pinned AbstractUIC release (`v0.1.15`)
+  instead of its default branch; the workflows no longer claim app-server is
+  a `file:` link.
 - A new automation or launch no longer inherits the workspace folder of a run
   viewed in Observe (gateway), and a reused gateway folder is refused with a
   message that says to leave the field empty.

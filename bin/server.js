@@ -14,6 +14,7 @@
  * - The session proxy sets its cookies at `Path=<basePath>/`.
  */
 
+import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, normalize, resolve, sep } from "node:path";
 import { spawn as nodeSpawn } from "node:child_process";
@@ -124,10 +125,33 @@ export function createObserverHandler(options) {
     }
   }
 
-  /** Open a run's folder on THIS machine: only for a browser on this machine. */
+  /**
+   * The rule of every mutating route of this origin (the session proxy's):
+   * the request presents the browser session's CSRF token in the app CSRF
+   * header (`X-AbstractObserver-CSRF`, or the canonical `X-Abstract-CSRF`),
+   * which a cross-site page can neither read nor send; and a request that
+   * names its `Origin` names this one. Returns the refusal, or null.
+   */
+  function crossSiteRefusal(req, ctx) {
+    const origin = String(req.headers.origin || "").trim();
+    if (origin && origin !== `${ctx.proto}://${ctx.host}`) return "Cross-site request refused.";
+    const expected = proxy.browserSession(req).csrfToken;
+    const presented = String(proxy.csrfHeaderNames.map((h) => req.headers[h]).find((v) => v) || "").trim();
+    const a = Buffer.from(presented, "utf8");
+    const b = Buffer.from(String(expected || ""), "utf8");
+    if (!expected || a.length !== b.length || !timingSafeEqual(a, b)) return "Browser session CSRF token missing or invalid.";
+    return null;
+  }
+
+  /** Open a run's folder on THIS machine: only for a browser on this machine, from this app's own page. */
   function reveal(req, res, ctx) {
     if (!ctx.clientIsLoopback) {
       json(res, 403, { ok: false, error: "Folder reveal is only available on the machine running the observer." });
+      return;
+    }
+    const refused = crossSiteRefusal(req, ctx);
+    if (refused) {
+      json(res, 403, { ok: false, error: refused, reason_code: "csrf_required" });
       return;
     }
     let body = "";

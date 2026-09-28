@@ -46,6 +46,7 @@ afterAll(async () => {
 });
 
 const MOUNT = { "X-Forwarded-Prefix": "/apps/observer", "X-Forwarded-Proto": "http", "X-Forwarded-Host": "vps.example:8080" };
+const CSRF = "csrf-token-of-this-browser-session";
 
 describe("mounted at /apps/observer/ (through the gateway)", () => {
   it("announces itself on every response", async () => {
@@ -80,10 +81,31 @@ describe("mounted at /apps/observer/ (through the gateway)", () => {
     const rebound = await fetch(base + "/api/local/reveal", { method: "POST", body, headers: { ...MOUNT, "X-Forwarded-For": "127.0.0.1" } });
     expect(rebound.status).toBe(403);
     expect(spawned).toEqual([]);
-    const LOCAL_MOUNT = { ...MOUNT, "X-Forwarded-Host": "127.0.0.1:8080" };
-    const local = await fetch(base + "/api/local/reveal", { method: "POST", body, headers: { ...LOCAL_MOUNT, "X-Forwarded-For": "127.0.0.1" } });
+    const LOCAL_MOUNT = { ...MOUNT, "X-Forwarded-Host": "127.0.0.1:8080", "X-Forwarded-For": "127.0.0.1", Cookie: `abstractobserver_gateway_csrf=${CSRF}` };
+    const local = await fetch(base + "/api/local/reveal", { method: "POST", body, headers: { ...LOCAL_MOUNT, "X-AbstractObserver-CSRF": CSRF } });
     expect(local.status).toBe(200);
     expect(spawned.map((s) => s.args[0])).toEqual([join(dir, "ws", "run-folder")]);
+  });
+
+  it("the folder reveal follows the origin's CSRF rule: a cross-site POST cannot open a folder", async () => {
+    spawned.length = 0;
+    const body = JSON.stringify({ path: "run-folder" });
+    const LOCAL = { ...MOUNT, "X-Forwarded-Host": "127.0.0.1:8080", "X-Forwarded-For": "127.0.0.1" };
+    const withCookie = { ...LOCAL, Cookie: `abstractobserver_gateway_csrf=${CSRF}` };
+    const post = (headers: Record<string, string>) => fetch(base + "/api/local/reveal", { method: "POST", body, headers });
+    // A cross-site form/fetch carries the cookie but cannot read it into the header.
+    const noHeader = await post(withCookie);
+    expect(noHeader.status).toBe(403);
+    expect((await noHeader.json()).reason_code).toBe("csrf_required");
+    expect((await post({ ...withCookie, "X-AbstractObserver-CSRF": "guess" })).status).toBe(403);
+    expect((await post({ ...LOCAL, "X-AbstractObserver-CSRF": CSRF })).status).toBe(403); // no session cookie
+    // Another site's Origin is refused even with the token.
+    expect((await post({ ...withCookie, "X-AbstractObserver-CSRF": CSRF, Origin: "http://evil.example" })).status).toBe(403);
+    expect(spawned).toEqual([]);
+    // This page (its own Origin, the token in the app or the canonical header) is served.
+    expect((await post({ ...withCookie, "X-AbstractObserver-CSRF": CSRF, Origin: "http://127.0.0.1:8080" })).status).toBe(200);
+    expect((await post({ ...withCookie, "X-Abstract-CSRF": CSRF })).status).toBe(200);
+    expect(spawned).toHaveLength(2);
   });
 
   it("a malformed forwarded prefix is refused, never guessed", async () => {

@@ -119,7 +119,7 @@ import {
   RunOverviewPanel,
   WorkflowRunNavigator,
 } from "./run_panels";
-import { GatewayClient } from "../lib/gateway_client";
+import { GatewayClient, csrf_headers } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
 import { McpWorkerClient } from "../lib/mcp_worker_client";
 import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
@@ -649,7 +649,8 @@ export function App(): React.ReactElement {
   const [chat_voice_run_id, set_chat_voice_run_id] = useState<string>("");
   const [chat_sending, set_chat_sending] = useState<boolean>(false);
   const [chat_export_state, set_chat_export_state] = useState<"idle" | "copied" | "failed">("idle");
-  const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string }>>([]);
+  // `local_error`: the chat's own "(error: …)" card, never sent back to the model (run_chat_history).
+  const [chat_messages, set_chat_messages] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; ts: string; local_error?: boolean }>>([]);
   /** The gateway's history-window receipt for the latest answer (shown when older messages were not replayed). */
   const [chat_replay_history, set_chat_replay_history] = useState<RunChatHistoryReport | null>(null);
   const chat_input_ref = useRef<HTMLTextAreaElement | null>(null);
@@ -2001,7 +2002,8 @@ export function App(): React.ReactElement {
     try {
       const r = await fetch(REVEAL_PATH, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // The app server refuses a reveal without this session's CSRF token.
+        headers: { "Content-Type": "application/json", ...csrf_headers() },
         body: JSON.stringify({ path: ws }),
       });
       const body = await r.json().catch(() => ({}));
@@ -3405,7 +3407,7 @@ export function App(): React.ReactElement {
       // The gateway's own reason, in the thread and under the composer.
       const reason = ask_error_text(e);
       set_chat_error(reason);
-      set_chat_messages((prev) => [...prev, { id: `local:${random_id()}`, role: "assistant" as const, content: `(error: ${reason})`, ts: now_iso() }]);
+      set_chat_messages((prev) => [...prev, { id: `local:${random_id()}`, role: "assistant" as const, content: `(error: ${reason})`, ts: now_iso(), local_error: true }]);
     } finally {
       set_chat_sending(false);
     }

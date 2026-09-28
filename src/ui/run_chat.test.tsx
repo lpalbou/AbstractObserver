@@ -59,6 +59,28 @@ describe("run Ask chat history (ADR-0026: no caps; the gateway applies the 50k-t
     expect(history_replay_note({ replayed_messages: 1, dropped_messages: 2, oversize_turn_kept: true })).toContain("sent whole");
   });
 
+  it("the chat's own error cards are not sent back to the model as history", () => {
+    const chat = [
+      { role: "user", content: "why did it stop?" },
+      { role: "assistant", content: "(error: Gateway request timed out)", local_error: true },
+      { role: "user", content: "why did it stop?" },
+      { role: "assistant", content: "It hit the tool budget." },
+    ];
+    const sent = run_chat_history(chat, { role: "user", content: "and then?" });
+    expect(sent).toEqual([
+      { role: "user", content: "why did it stop?" },
+      { role: "user", content: "why did it stop?" },
+      { role: "assistant", content: "It hit the tool budget." },
+      { role: "user", content: "and then?" },
+    ]);
+    expect(JSON.stringify(sent)).not.toContain("(error:");
+  });
+
+  it("the Ask chat marks its error card local_error (so the history leaves it out)", () => {
+    const src = readFileSync(resolve(__dirname, "app.tsx"), "utf8");
+    expect(src).toMatch(/content: `\(error: \$\{reason\}\)`, ts: now_iso\(\), local_error: true \}/);
+  });
+
   it("renders the note as a panel-chat notice card", () => {
     const html = renderToStaticMarkup(<RunChatReplayNote history={{ replayed_messages: 12, dropped_messages: 49, max_tokens: 50000 }} />);
     expect(html).toContain("Earlier messages not replayed: 49");

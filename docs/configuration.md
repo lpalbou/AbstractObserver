@@ -32,7 +32,8 @@ Launch flags (`abstractobserver --help`):
   pointer to the entity app.
 - `--gateway-dir <dir>` — directory used to resolve relative run workspace
   paths for the run workspace folder button (`POST api/local/reveal`, browsers
-  on this machine only). Defaults to the parent of the package directory.
+  on this machine only, signed in through this server's session: the request
+  carries the session's CSRF header). Defaults to the parent of the package directory.
 
 Environment variables are legacy aliases, below the flags: `PORT`, `HOST`,
 `ABSTRACTOBSERVER_GATEWAY_URL` / `ABSTRACTGATEWAY_URL`,
