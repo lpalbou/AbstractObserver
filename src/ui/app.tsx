@@ -30,6 +30,7 @@ import {
   type ProviderOption,
 } from "@abstractframework/ui-kit";
 import { AppAssistantDrawer } from "./app_assistant";
+import { REVEAL_PATH, run_id_from_location } from "../lib/app_paths";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import {
@@ -452,27 +453,8 @@ function RuntimeMetadataChips(props: { metadata?: RuntimeMetadata | null }): Rea
 
 /* short_run_id, extract_workflow_label: removed — info is now in the run picker. */
 
-function is_uuid(s: string): boolean {
-  const v = String(s || "").trim();
-  if (!v) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-}
-
 function parse_run_id_from_url(): string {
-  try {
-    const hash = String(window.location.hash || "").replace(/^#/, "");
-    const hash_parts = hash.split("/").filter(Boolean);
-    const hash_last = hash_parts.length ? String(hash_parts[hash_parts.length - 1] || "").trim() : "";
-    if (is_uuid(hash_last)) return hash_last;
-
-    const path = String(window.location.pathname || "");
-    const parts = path.split("/").filter(Boolean);
-    const last = parts.length ? String(parts[parts.length - 1] || "").trim() : "";
-    if (is_uuid(last)) return last;
-  } catch {
-    // ignore
-  }
-  return "";
+  return typeof window === "undefined" ? "" : run_id_from_location(window.location);
 }
 
 function getOrCreateStableSessionId(): string {
@@ -2014,7 +1996,7 @@ export function App(): React.ReactElement {
       return;
     }
     try {
-      const r = await fetch("/api/local/reveal", {
+      const r = await fetch(REVEAL_PATH, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: ws }),

@@ -18,7 +18,7 @@ The **entity app** (memory graph + visits UI) is its own package,
 *watches* entities — the Board's entities strip reads
 `GET /api/gateway/entities` + `/entities/{name}/card` — and its
 "Entities ↗" links point at the entity app deployment
-(`ABSTRACTOBSERVER_ENTITY_APP_URL`, default `http://127.0.0.1:3007`).
+(`--entity-app-url`, default `http://127.0.0.1:3007`).
 
 ## Where it fits (AbstractFramework ecosystem)
 AbstractObserver is one of the browser UIs in the **AbstractFramework** ecosystem:
@@ -79,10 +79,24 @@ npx --yes --package @abstractframework/observer@0.1.14 -- abstractobserver
 The CLI (`bin/cli.js`) serves the built UI and mounts the app-origin Gateway
 session proxy from `@abstractframework/app-server` (a runtime dependency of
 this package, installed automatically).
-- `PORT` (default `3001`)
-- `HOST` (default `0.0.0.0`)
-- `ABSTRACTOBSERVER_GATEWAY_URL` (or `ABSTRACTGATEWAY_URL`) — the Gateway this server signs in to and proxies `/api` to (default `http://127.0.0.1:8080`)
-- `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=on` (enables the optional GPU widget)
+- `--gateway-url <url>` (aliases `--gateway`, `--url`) — the Gateway this server
+  signs in to and proxies `/api` to. Default: the gateway installed on this
+  computer (`~/.abstractframework/gateway.json`, followed when it moves port),
+  else `http://127.0.0.1:8080`.
+- `--port <n>` (default `3001`) and `--host <addr>` (default `127.0.0.1`)
+- `--monitor-gpu` — the optional GPU widget
+- `--entity-app-url <url>` — where the entity app lives (the "Entities ↗" links)
+- `--gateway-dir <dir>` — base for relative run workspace paths (local folder reveal)
+
+Environment variables are legacy aliases below the flags: `PORT`, `HOST`,
+`ABSTRACTOBSERVER_GATEWAY_URL`, `ABSTRACTGATEWAY_URL`,
+`ABSTRACTOBSERVER_MONITOR_GPU`, `ABSTRACTOBSERVER_ENTITY_APP_URL`,
+`ABSTRACTOBSERVER_GATEWAY_DIR`.
+
+The gateway can also serve the Observer through itself at `/apps/observer/`
+(one port and one address for the console, the API and the apps, e.g. on a
+remote server): the gateway starts this server on `127.0.0.1` and relays to
+it. `abstractobserver --help` lists the flags.
 
 See `docs/configuration.md` for the full list.
 

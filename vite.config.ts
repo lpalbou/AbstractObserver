@@ -55,6 +55,9 @@ function packageVersion(): string {
 }
 
 export default defineConfig({
+  // Relative asset URLs: the same build serves at / and under the gateway's
+  // /apps/observer/ (the app server sets <base href>).
+  base: "./",
   plugins: [gatewaySessionDevProxy(), react()],
   define: {
     __APP_VERSION__: JSON.stringify(packageVersion()),

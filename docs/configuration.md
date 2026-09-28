@@ -12,32 +12,57 @@ the shared `@abstractframework/app-server` package, a runtime dependency.
 - The npm package is `@abstractframework/observer`; the installed CLI binary is `abstractobserver`.
 - If you don’t want a global install, you can run the CLI via `npx --yes --package @abstractframework/observer -- abstractobserver`.
 
-- `PORT` — HTTP port to listen on (default `3001`)
-- `HOST` — bind address (default `0.0.0.0`)
-- `ABSTRACTOBSERVER_GATEWAY_URL` (fallback `ABSTRACTGATEWAY_URL`) — the Gateway
-  this server proxies `/api` to and pre-fills in the sign-in dialog (default
-  `http://127.0.0.1:8080`). Injected as `__ABSTRACT_UI_CONFIG__.gateway_url`.
-- `ABSTRACTOBSERVER_GATEWAY_DIR` — directory used to resolve relative run
-  workspace paths for the run workspace folder button (`POST /api/local/reveal`,
-  loopback clients only). Defaults to the parent of the package directory.
-- `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
-- `ABSTRACTOBSERVER_ENTITY_APP_URL` — where the entity app lives (its own
-  package, `@abstractframework/entity`, default port `3007`). Injected as
+Launch flags (`abstractobserver --help`):
+
+- `--gateway-url <url>` (aliases `--gateway`, `--url`) — the Gateway this server
+  proxies `/api` to and pre-fills in the sign-in dialog. Default: the gateway
+  installed on this computer (the local pointer `~/.abstractframework/gateway.json`,
+  re-read when the gateway moves port), else `http://127.0.0.1:8080`. Injected
+  as `__ABSTRACT_UI_CONFIG__.gateway_url`.
+- `--port <n>` — HTTP port (default `3001`).
+- `--host <addr>` — bind address (default `127.0.0.1`). Use `--host 0.0.0.0`
+  only to reach this server directly from other machines; on a remote server,
+  let the gateway serve the Observer at `/apps/observer/` instead.
+- `--monitor-gpu` — injects `__ABSTRACT_UI_CONFIG__.monitor_gpu=true` (the GPU widget).
+- `--entity-app-url <url>` — where the entity app lives (its own package,
+  `@abstractframework/entity`, default port `3007`). Injected as
   `__ABSTRACT_UI_CONFIG__.entity_app_url`; drives the "Entities ↗" links and
-  makes `/entity.html` redirect to the entity app, so old `/entity.html`
-  bookmarks keep working. Unset: the UI links fall back to
-  `http://127.0.0.1:3007`, and `/entity.html` answers 404 with a pointer to
-  the entity app.
+  makes `/entity.html` redirect to the entity app. Unset: the UI links fall
+  back to `http://127.0.0.1:3007`, and `/entity.html` answers 404 with a
+  pointer to the entity app.
+- `--gateway-dir <dir>` — directory used to resolve relative run workspace
+  paths for the run workspace folder button (`POST api/local/reveal`, browsers
+  on this machine only). Defaults to the parent of the package directory.
+
+Environment variables are legacy aliases, below the flags: `PORT`, `HOST`,
+`ABSTRACTOBSERVER_GATEWAY_URL` / `ABSTRACTGATEWAY_URL`,
+`ABSTRACTOBSERVER_MONITOR_GPU`, `ABSTRACTOBSERVER_ENTITY_APP_URL`,
+`ABSTRACTOBSERVER_GATEWAY_DIR`.
 
 Examples:
 ```bash
-PORT=8080 abstractobserver
-HOST=127.0.0.1 PORT=3001 abstractobserver
-abstractobserver --monitor-gpu
+abstractobserver --port 8090
+abstractobserver --gateway-url http://127.0.0.1:8080 --monitor-gpu
 
 # no global install:
-HOST=127.0.0.1 PORT=3001 npx --yes --package @abstractframework/observer -- abstractobserver
+npx --yes --package @abstractframework/observer -- abstractobserver --port 3001
 ```
+
+## Served by the gateway at `/apps/observer/`
+The gateway can serve the Observer through itself: one port and one address
+for the console, the API and the apps, which is what you want on a remote
+server. The gateway starts this server on `127.0.0.1` and relays
+`/apps/observer/` to it. The server follows the app-server mount contract
+(`@abstractframework/app-server`):
+
+- every response carries `X-AbstractFramework-App: observer; mount=1`;
+- the page gets `<base href="/apps/observer/">` and `base_path` in
+  `__ABSTRACT_UI_CONFIG__`; every URL the app uses is relative (assets, the
+  gateway API through its own session proxy, the service worker, whose scope
+  is `/apps/observer/`), so the same build works at `/` and under the mount;
+- session cookies are set at `Path=/apps/observer/`;
+- "is this browser on this machine" (the folder reveal) is decided from the
+  browser's address the gateway forwards, never the relaying connection.
 
 ## Browser UI settings (per device/browser)
 Implemented in `src/ui/app.tsx` (see `load_settings()` / `save_settings()`).

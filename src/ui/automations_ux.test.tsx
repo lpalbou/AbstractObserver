@@ -97,7 +97,7 @@ describe("the automation's folder in a web app: browse, open, download through t
       return new Response("{}", { status: 200 });
     });
     const gw = new GatewayClient({ base_url: "http://vps:8080", auth_token: "tok" });
-    await gw.fetch_gateway("/api/gateway/runs/a1/workspace/files?path=x", { headers: { Accept: "application/json" } });
+    await gw.fetch_gateway("api/gateway/runs/a1/workspace/files?path=x", { headers: { Accept: "application/json" } });
     expect(seen).toEqual([{ url: "http://vps:8080/api/gateway/runs/a1/workspace/files?path=x", auth: "Bearer tok", accept: "application/json" }]);
   });
 

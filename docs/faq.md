@@ -45,17 +45,15 @@ Examples:
 - global install: `npm install -g @abstractframework/observer && abstractobserver`
 
 ## How do I change the port / host?
-The packaged CLI reads:
-- `PORT` (default `3001`)
-- `HOST` (default `0.0.0.0`)
-
-Evidence: `bin/cli.js`.
+With launch flags: `abstractobserver --port 3002 --host 127.0.0.1` (defaults
+`3001` and `127.0.0.1`; `PORT` / `HOST` still work as legacy aliases). See
+`configuration.md`.
 
 ## Does the CLI proxy `/api` to my gateway?
 Yes, once you are signed in. The CLI serves `dist/` and mounts the shared
 `@abstractframework/app-server` session proxy: after you sign in from the
 connection dialog, same-origin `/api/...` calls go to the configured gateway
-(`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`) with the
+(`--gateway-url`, default: the gateway installed on this computer) with the
 session attached server-side. Without a session the proxy answers
 `401 Gateway sign-in required`.
 

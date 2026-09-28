@@ -1,4 +1,4 @@
-import { createAutomationsClient, type AutomationsClient } from "@abstractframework/ui-kit";
+import { createAutomationsClient, gatewayApiPath, joinBaseUrl, type AutomationsClient } from "@abstractframework/ui-kit";
 
 import { LedgerStreamEvent } from "./types";
 import { SseParser } from "./sse_parser";
@@ -22,11 +22,11 @@ export type AuditLogTailResponse = {
   content: string;
 };
 
-function _join(base_url: string, path: string): string {
-  const base = (base_url || "").trim().replace(/\/+$/, "");
-  if (!base) return path;
-  return `${base}${path}`;
-}
+/** A gateway URL: relative to the document base on a same-origin connection
+ * (the app works at / and under the gateway's /apps/observer/), or under a
+ * direct gateway URL. ONE join for every client: the kit's `joinBaseUrl`
+ * (relative paths only; a rooted path throws). */
+const _join = joinBaseUrl;
 
 /** Default fetch deadline (30s), composable with a caller's abort signal.
  * Loops without deadlines wedge silently — the entity strip, discovery,
@@ -129,7 +129,7 @@ export class GatewayClient {
     if (fid) req_body.flow_id = fid;
     if (fid === "@default") req_body.interface = iface;
     if (session_id) req_body.session_id = session_id;
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/runs/start"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("runs/start")), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -149,7 +149,7 @@ export class GatewayClient {
    * v1 is a DECLARED registry (gateway c2243: probed:false by design —
    * no faked connect state; tool_count arrives with the probe lane). */
   async list_mcp_servers(): Promise<Array<{ name: string; url?: string; description?: string; auth_required?: boolean }> | null> {
-    for (const path of ["/api/gateway/mcp/servers", "/api/gateway/mcp", "/api/gateway/discovery/mcp"]) {
+    for (const path of [gatewayApiPath("mcp/servers"), gatewayApiPath("mcp"), gatewayApiPath("discovery/mcp")]) {
       try {
         const r = await fetch(_join(this._cfg.base_url, path), {
           headers: { ..._auth_headers(this._cfg.auth_token) },
@@ -191,7 +191,7 @@ export class GatewayClient {
     tree_hash?: string;
     reasons?: string[];
   }> | null> {
-    for (const path of ["/api/gateway/skills", "/api/gateway/skills/registry"]) {
+    for (const path of [gatewayApiPath("skills"), gatewayApiPath("skills/registry")]) {
       try {
         const r = await fetch(_join(this._cfg.base_url, path), {
           headers: { ..._auth_headers(this._cfg.auth_token) },
@@ -222,7 +222,7 @@ export class GatewayClient {
   }
 
   async get_run(run_id: string): Promise<any> {
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(run_id)}`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(run_id)}`)), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -249,7 +249,7 @@ export class GatewayClient {
     if (typeof opts?.session_turn_limit === "number" && Number.isFinite(opts.session_turn_limit)) qs.set("session_turn_limit", String(Math.max(1, Math.trunc(opts.session_turn_limit))));
     if (opts?.ledger_mode) qs.set("ledger_mode", String(opts.ledger_mode));
     if (typeof opts?.ledger_max_items === "number" && Number.isFinite(opts.ledger_max_items)) qs.set("ledger_max_items", String(Math.max(0, Math.trunc(opts.ledger_max_items))));
-    const url = _join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/history_bundle?${qs.toString()}`);
+    const url = _join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/history_bundle?${qs.toString()}`));
     const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) } });
     if (!r.ok) throw new Error(`get_run_history_bundle failed: ${await _read_error(r)}`);
     return await r.json();
@@ -279,7 +279,7 @@ export class GatewayClient {
     if (typeof opts?.include_ledger_len === "boolean") qs.set("include_ledger_len", String(opts.include_ledger_len));
     if (typeof opts?.include_metrics === "boolean") qs.set("include_metrics", String(opts.include_metrics));
     if (typeof opts?.include_drafts === "boolean") qs.set("include_drafts", String(opts.include_drafts));
-    const url = _join(this._cfg.base_url, `/api/gateway/runs?${qs.toString()}`);
+    const url = _join(this._cfg.base_url, gatewayApiPath(`runs?${qs.toString()}`));
     const r = await fetch(url, {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
@@ -304,7 +304,7 @@ export class GatewayClient {
 
   async audit_log_tail(opts?: { max_bytes?: number }): Promise<AuditLogTailResponse> {
     const max_bytes = typeof opts?.max_bytes === "number" ? Math.max(1024, Math.min(400000, Math.floor(opts.max_bytes))) : 80000;
-    const url = _join(this._cfg.base_url, `/api/gateway/audit/tail?max_bytes=${encodeURIComponent(String(max_bytes))}`);
+    const url = _join(this._cfg.base_url, gatewayApiPath(`audit/tail?max_bytes=${encodeURIComponent(String(max_bytes))}`));
     const r = await fetch(url, {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
@@ -317,7 +317,7 @@ export class GatewayClient {
   /** Throws `Error("HTTP <status>")` on a non-2xx answer (the About dialog
    * shows that text), or the fetch error (network, 10s deadline). */
   async gateway_about(): Promise<GatewayAbout> {
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/about"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("about")), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -330,7 +330,7 @@ export class GatewayClient {
   async get_run_input_data(run_id: string): Promise<any> {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("get_run_input_data: run_id is required");
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/input_data`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/input_data`)), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -346,7 +346,7 @@ export class GatewayClient {
     const offset = typeof opts?.offset === "number" ? Math.max(0, Math.floor(opts.offset)) : 0;
     const url = _join(
       this._cfg.base_url,
-      `/api/gateway/runs/${encodeURIComponent(rid)}/artifacts?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`
+      gatewayApiPath(`runs/${encodeURIComponent(rid)}/artifacts?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`)
     );
     const r = await fetch(url, {
       headers: {
@@ -364,7 +364,7 @@ export class GatewayClient {
     const offset = typeof opts?.offset === "number" ? Math.max(0, Math.floor(opts.offset)) : 0;
     const url = _join(
       this._cfg.base_url,
-      `/api/gateway/sessions/${encodeURIComponent(sid)}/artifacts?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`
+      gatewayApiPath(`sessions/${encodeURIComponent(sid)}/artifacts?limit=${encodeURIComponent(String(limit))}&offset=${encodeURIComponent(String(offset))}`)
     );
     const r = await fetch(url, {
       headers: {
@@ -437,7 +437,7 @@ export class GatewayClient {
     params.set("limit", String(limit));
     params.set("offset", String(offset));
 
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/artifacts/search?${params.toString()}`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`artifacts/search?${params.toString()}`)), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -467,7 +467,7 @@ export class GatewayClient {
       const value = String(opts?.[key] || "").trim();
       if (value) params.set(key, value);
     }
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/artifacts/stats?${params.toString()}`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`artifacts/stats?${params.toString()}`)), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -483,7 +483,7 @@ export class GatewayClient {
     if (!aid) throw new Error("download_run_artifact_content: artifact_id is required");
     const access = String(opts?.access || "").trim();
     const qs = access ? `?access=${encodeURIComponent(access)}` : "";
-    const url = _join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/artifacts/${encodeURIComponent(aid)}/content${qs}`);
+    const url = _join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/artifacts/${encodeURIComponent(aid)}/content${qs}`));
     const r = await fetch(url, {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
@@ -497,7 +497,7 @@ export class GatewayClient {
   // these two power the main app's fleet/board view: roster + the cheap
   // per-entity card — never whole-life replay folds from this client).
   async list_entities(): Promise<{ entities: any[] }> {
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/entities"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("entities")), {
       headers: { ..._auth_headers(this._cfg.auth_token) },
       signal: _deadline(),
     });
@@ -513,7 +513,7 @@ export class GatewayClient {
    * sync-by-vigilance. 404/401 on pre-wire gateways; callers keep their
    * labeled pre-wire fallback. */
   async get_entity_phases_spec(): Promise<any> {
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/entities/spec/phases`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`entities/spec/phases`)), {
       headers: { ..._auth_headers(this._cfg.auth_token) },
       signal: _deadline(),
     });
@@ -525,7 +525,7 @@ export class GatewayClient {
    * one entity — {working, loop, visit, spend:{lifetime,live_visit,source},
    * warnings[]}. 404 on pre-wire gateways; callers degrade to heuristics. */
   async get_entity_cognition(name: string): Promise<any> {
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/entities/${encodeURIComponent(name)}/cognition`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`entities/${encodeURIComponent(name)}/cognition`)), {
       headers: { ..._auth_headers(this._cfg.auth_token) },
       signal: _deadline(),
     });
@@ -536,7 +536,7 @@ export class GatewayClient {
   async get_entity_card(name: string): Promise<any> {
     const n = String(name || "").trim();
     if (!n) throw new Error("get_entity_card: name is required");
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/entities/${encodeURIComponent(n)}/card`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`entities/${encodeURIComponent(n)}/card`)), {
       headers: { ..._auth_headers(this._cfg.auth_token) },
       signal: _deadline(),
     });
@@ -555,7 +555,7 @@ export class GatewayClient {
     if (!n || !e) throw new Error("read_entity_diary_entry: name and entry_id are required");
     const url = _join(
       this._cfg.base_url,
-      `/api/gateway/entities/${encodeURIComponent(n)}/diary/${encodeURIComponent(e)}?reason=${encodeURIComponent("observer board hint chip")}`,
+      gatewayApiPath(`entities/${encodeURIComponent(n)}/diary/${encodeURIComponent(e)}?reason=${encodeURIComponent("observer board hint chip")}`),
     );
     const r = await fetch(url, { headers: { ..._auth_headers(this._cfg.auth_token) }, signal: _deadline() });
     if (!r.ok) throw new Error(`read_entity_diary_entry failed: ${await _read_error(r)}`);
@@ -570,9 +570,9 @@ export class GatewayClient {
     const limit = Number(opts?.limit || 0);
     const url = _join(
       this._cfg.base_url,
-      `/api/gateway/runs/${encodeURIComponent(run_id)}/ledger?after=${encodeURIComponent(String(after))}&limit=${encodeURIComponent(
+      gatewayApiPath(`runs/${encodeURIComponent(run_id)}/ledger?after=${encodeURIComponent(String(after))}&limit=${encodeURIComponent(
         String(limit)
-      )}`
+      )}`)
     );
     const r = await fetch(url, {
       headers: {
@@ -595,7 +595,7 @@ export class GatewayClient {
   }): Promise<{ runs: Record<string, { items: any[]; next_after: number }> }> {
     const runs = Array.isArray(opts?.runs) ? opts.runs : [];
     const limit = Number(opts?.limit || 0);
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/runs/ledger/batch"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("runs/ledger/batch")), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -622,7 +622,7 @@ export class GatewayClient {
     if (provider) body.provider = provider;
     const model = typeof opts?.model === "string" ? String(opts.model).trim() : "";
     if (model) body.model = model;
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/summary`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/summary`)), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -649,7 +649,7 @@ export class GatewayClient {
     if (provider) body.provider = provider;
     const model = typeof opts?.model === "string" ? String(opts.model).trim() : "";
     if (model) body.model = model;
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/chat`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/chat`)), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -682,7 +682,7 @@ export class GatewayClient {
     const req_id = String(req?.request_id || "").trim();
     if (req_id) body.request_id = req_id;
 
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/audio/transcribe`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/audio/transcribe`)), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -724,7 +724,7 @@ export class GatewayClient {
     const req_id = String(req?.request_id || "").trim();
     if (req_id) body.request_id = req_id;
 
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/voice/tts`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/voice/tts`)), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -774,7 +774,7 @@ export class GatewayClient {
     if (model) body.model = model;
     const title = typeof opts?.title === "string" ? String(opts.title).trim() : "";
     if (title) body.title = title;
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(rid)}/chat_threads`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/chat_threads`)), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -787,7 +787,7 @@ export class GatewayClient {
   }
 
   async list_bundles(): Promise<any> {
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/bundles"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("bundles")), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -800,7 +800,7 @@ export class GatewayClient {
   }
 
   async reload_bundles(): Promise<any> {
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/bundles/reload"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("bundles/reload")), {
       method: "POST",
       headers: {
         ..._auth_headers(this._cfg.auth_token),
@@ -817,7 +817,7 @@ export class GatewayClient {
     fd.set("overwrite", overwrite ? "true" : "false");
     fd.set("reload", reload ? "true" : "false");
     fd.set("file", file, file.name || "upload.flow");
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/bundles/upload"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("bundles/upload")), {
       method: "POST",
       headers: {
         ..._auth_headers(this._cfg.auth_token),
@@ -849,7 +849,7 @@ export class GatewayClient {
     if (filename) form.append("filename", filename);
     if (content_type) form.append("content_type", content_type);
 
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/attachments/upload"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("attachments/upload")), {
       method: "POST",
       headers: {
         ..._auth_headers(this._cfg.auth_token),
@@ -872,14 +872,14 @@ export class GatewayClient {
     const ver = String(opts?.bundle_version || "").trim();
     if (ver) qs.set("bundle_version", ver);
     qs.set("reload", opts?.reload === false ? "false" : "true");
-    const url = _join(this._cfg.base_url, `/api/gateway/bundles/${encodeURIComponent(bid)}?${qs.toString()}`);
+    const url = _join(this._cfg.base_url, gatewayApiPath(`bundles/${encodeURIComponent(bid)}?${qs.toString()}`));
     const r = await fetch(url, { method: "DELETE", headers: { ..._auth_headers(this._cfg.auth_token) } });
     if (!r.ok) throw new Error(`remove_bundle failed: ${await _read_error(r)}`);
     return await r.json();
   }
 
   async discovery_tools(): Promise<any> {
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/discovery/tools"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("discovery/tools")), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -890,7 +890,7 @@ export class GatewayClient {
 
   async discovery_providers(opts?: { include_models?: boolean }): Promise<any> {
     const include_models = opts?.include_models === true;
-    const url = _join(this._cfg.base_url, `/api/gateway/discovery/providers?include_models=${encodeURIComponent(String(include_models))}`);
+    const url = _join(this._cfg.base_url, gatewayApiPath(`discovery/providers?include_models=${encodeURIComponent(String(include_models))}`));
     const r = await fetch(url, {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
@@ -903,7 +903,7 @@ export class GatewayClient {
   async discovery_provider_models(provider_name: string): Promise<any> {
     const prov = String(provider_name || "").trim();
     if (!prov) throw new Error("discovery_provider_models: provider_name is required");
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/discovery/providers/${encodeURIComponent(prov)}/models`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`discovery/providers/${encodeURIComponent(prov)}/models`)), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -915,7 +915,7 @@ export class GatewayClient {
   async get_bundle(bundle_id: string): Promise<any> {
     const bid = String(bundle_id || "").trim();
     if (!bid) throw new Error("get_bundle: bundle_id is required");
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/bundles/${encodeURIComponent(bid)}`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`bundles/${encodeURIComponent(bid)}`)), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -929,7 +929,7 @@ export class GatewayClient {
     const fid = String(flow_id || "").trim();
     if (!bid) throw new Error("get_bundle_flow: bundle_id is required");
     if (!fid) throw new Error("get_bundle_flow: flow_id is required");
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/bundles/${encodeURIComponent(bid)}/flows/${encodeURIComponent(fid)}`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`bundles/${encodeURIComponent(bid)}/flows/${encodeURIComponent(fid)}`)), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -941,7 +941,7 @@ export class GatewayClient {
   async get_workflow_flow(workflow_id: string): Promise<any> {
     const wid = String(workflow_id || "").trim();
     if (!wid) throw new Error("get_workflow_flow: workflow_id is required");
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/workflows/${encodeURIComponent(wid)}/flow`), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`workflows/${encodeURIComponent(wid)}/flow`)), {
       headers: {
         ..._auth_headers(this._cfg.auth_token),
       },
@@ -953,7 +953,7 @@ export class GatewayClient {
   /** `GET /api/gateway/discovery/capabilities` (the capability descriptor,
    * incl. `capabilities.contracts.common.automations`). */
   async discovery_capabilities(): Promise<any> {
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/discovery/capabilities"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("discovery/capabilities")), {
       headers: { ..._auth_headers(this._cfg.auth_token) },
       signal: _deadline(),
     });
@@ -965,7 +965,7 @@ export class GatewayClient {
    * direct URL, the same bearer / session CSRF headers as every other call. */
   /** A gateway request with this connection's base URL and credentials
    * (bearer or session CSRF): the transport panel-chat components take
-   * (`fetchGateway`, e.g. `WorkspaceBrowser`). `path` starts with `/api/gateway`. */
+   * (`fetchGateway`, e.g. `WorkspaceBrowser`). `path` starts with `api/gateway`. */
   fetch_gateway = (path: string, init?: RequestInit): Promise<Response> =>
     fetch(_join(this._cfg.base_url, path), { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), ..._auth_headers(this._cfg.auth_token) } });
 
@@ -985,7 +985,7 @@ export class GatewayClient {
     payload: any;
     client_id?: string;
   }): Promise<any> {
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/commands"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("commands")), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1048,7 +1048,7 @@ export class GatewayClient {
     if (query_text) req_body.query_text = query_text;
     if (typeof opts?.min_score === "number" && Number.isFinite(opts.min_score)) req_body.min_score = Number(opts.min_score);
 
-    const r = await fetch(_join(this._cfg.base_url, "/api/gateway/kg/query"), {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("kg/query")), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1075,7 +1075,7 @@ export class GatewayClient {
     const signal = opts.signal;
     const url = _join(
       this._cfg.base_url,
-      `/api/gateway/runs/${encodeURIComponent(run_id)}/ledger/stream?after=${encodeURIComponent(String(after))}`
+      gatewayApiPath(`runs/${encodeURIComponent(run_id)}/ledger/stream?after=${encodeURIComponent(String(after))}`)
     );
     const r = await fetch(url, {
       headers: {

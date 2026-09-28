@@ -1,7 +1,12 @@
 // Minimal service worker (PWA shell cache).
 // Note: PWA on iOS requires HTTPS (except localhost) and has platform-specific limitations.
 
-const CACHE_NAME = "abstractobserver-pwa-v1";
+const CACHE_NAME = "abstractobserver-pwa-v2";
+// Everything is relative to this worker's scope: "/" standalone, or
+// "/apps/observer/" when the gateway serves the app.
+const SCOPE = self.registration.scope;
+const SHELL = new URL("./", SCOPE).href;
+const API = new URL("api/", SCOPE).href;
 
 function isHtmlRequest(req) {
   const accept = req.headers.get("accept") || "";
@@ -13,7 +18,7 @@ self.addEventListener("install", (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       // Cache only the root shell for offline fallback. Navigation requests are still network-first.
-      await cache.addAll(["/"]);
+      await cache.addAll([SHELL]);
       self.skipWaiting();
     })()
   );
@@ -34,7 +39,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
 
   // Never cache API calls.
-  if (url.pathname.startsWith("/api/")) {
+  if (url.href.startsWith(API)) {
     return;
   }
 
@@ -55,7 +60,7 @@ self.addEventListener("fetch", (event) => {
           if (resp && resp.status === 200) cache.put(req, resp.clone());
           return resp;
         } catch {
-          return cached || (await cache.match("/")) || new Response("Offline", { status: 503 });
+          return cached || (await cache.match(SHELL)) || new Response("Offline", { status: 503 });
         }
       }
 

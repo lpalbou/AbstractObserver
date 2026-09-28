@@ -29,7 +29,7 @@ The packaged CLI (`bin/cli.js`) proxies same-origin `/api/...` calls to its
 configured gateway only for a signed-in browser session; without one it
 answers `401 Gateway sign-in required`.
 - Sign in from the connection dialog (header badge), and
-- check that the server points at your gateway (`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`; see `configuration.md`).
+- check that the server points at your gateway (`--gateway-url`; see `configuration.md`).
 
 ## About shows "Gateway: unavailable (…)"
 The About dialog could not read `GET /api/gateway/about`; the reason in

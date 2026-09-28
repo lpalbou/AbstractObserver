@@ -20,7 +20,25 @@ Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owne
   row actions and facts carry icons, and runs read as chat cards (shared
   AbstractUIC components).
 
+- The gateway can serve the Observer through itself at `/apps/observer/`
+  (one port and one address for the console, the API and the apps): the
+  server announces `X-AbstractFramework-App: observer; mount=1`, puts
+  `<base href>` in the page, sets its session cookies at the mount's path and
+  decides "browser on this machine" from the address the gateway forwards.
+  The same build keeps working at `/`.
+- Launch flags: `--gateway-url` (aliases `--gateway`, `--url`), `--port`,
+  `--host`, `--monitor-gpu`, `--entity-app-url`, `--gateway-dir`, `--help`.
+  Without `--gateway-url` the server talks to the gateway installed on this
+  computer (`~/.abstractframework/gateway.json`) and follows it when it moves
+  port.
+
 ### Changed
+- The server binds `127.0.0.1` by default (was `0.0.0.0`); pass
+  `--host 0.0.0.0` to reach it directly from other machines, or open it
+  through the gateway at `/apps/observer/`. `PORT`, `HOST` and the
+  `ABSTRACTOBSERVER_*` variables are legacy aliases below the flags.
+- Every URL the app uses is relative to the page's base (assets, the gateway
+  API, the session endpoint, the service worker and its scope, the manifest).
 - The automation's **Context** choice is the one history control: Automate
   mode neither shows nor sends the workflow's **Use Context** input
   (gateway).
