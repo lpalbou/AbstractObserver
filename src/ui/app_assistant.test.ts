@@ -47,6 +47,8 @@ describe("observer docs assistant (ADR-0026: no client-side history copy; the ga
     expect(JSON.stringify(input)).not.toContain("TRUNCATION");
     expect(input.use_session_history).toBe(true);
     expect(input.use_context).toBe(true);
+    // No tools: a docs question can never write files or run commands.
+    expect(input.tools).toEqual([]);
     expect(String(input.system)).toContain("=== DOCUMENTATION INDEX (llms.txt) ===");
     expect(opts).toEqual({ bundle_id: "basic-agent", session_id: "observer-docs-assistant:abc" });
     expect(received).toEqual([{ replayed_messages: 4, dropped_messages: 0 }]);
@@ -61,7 +63,7 @@ describe("observer docs assistant (ADR-0026: no client-side history copy; the ga
   });
 
   it("the question input never embeds a transcript", () => {
-    expect(Object.keys(docs_question_input("q")).sort()).toEqual(["prompt", "system", "use_context", "use_session_history"]);
+    expect(Object.keys(docs_question_input("q")).sort()).toEqual(["prompt", "system", "tools", "use_context", "use_session_history"]);
     expect(docs_question_input("q").prompt).toBe("q");
   });
 

@@ -65,9 +65,16 @@ export function new_docs_session_id(): string {
   return `${SESSION_PREFIX}:${random_id()}`;
 }
 
-/** The run input for one question: the question alone, the docs in the system prompt, history from the session. */
+/**
+ * The run input for one question: the question alone, the docs in the system
+ * prompt, history from the session, and NO tools. basic-agent's default tool
+ * set includes write_file and execute_command; an explicit empty list means
+ * no tool is offered or run (the gateway test
+ * test_basic_agent_with_an_empty_tools_list_offers_and_runs_no_tool pins it),
+ * so a docs question can never write files or run commands.
+ */
 export function docs_question_input(question: string): Record<string, unknown> {
-  return { prompt: question, system: SYSTEM_PROMPT, use_session_history: true, use_context: true };
+  return { prompt: question, system: SYSTEM_PROMPT, tools: [], use_session_history: true, use_context: true };
 }
 
 /** Extract the final assistant text from a completed run's ledger. */

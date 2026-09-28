@@ -54,6 +54,9 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
   copied into the prompt as the last 6 turns cut to 1,200 characters each.
   **New conversation** in the drawer starts a fresh session; the drawer shows
   when earlier messages were not replayed (gateway).
+- The top-bar **Assistant** runs with no tools (an explicit empty list), so a
+  docs question can never write files or run commands; it ran with the basic
+  agent's defaults, which include both.
 
 ### Security
 - Requires `@abstractframework/app-server` 0.1.11 or later: a browser counts
