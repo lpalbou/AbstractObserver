@@ -39,7 +39,7 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `GET /api/gateway/automations?status=&cursor=&limit=` — every page, polled every 30 s while the page is visible (no `changed_since`)
 - `POST /api/gateway/automations` — create (`{request_id, title, target, trigger, context}`)
 - `GET /api/gateway/automations/{id}` and `GET /api/gateway/automations/{id}/occurrences?cursor=&limit=` — the panel
-- `PATCH /api/gateway/automations/{id}` — revise (`expected_revision`)
+- `PATCH /api/gateway/automations/{id}` — Edit: title, task (`changes.target`), interval, context, tool approval, with `expected_revision`
 - `POST /api/gateway/automations/{id}/commands` — `automation.pause|resume|run_now|stop_current|archive`
 - `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened as a chat on the Automations page); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
 - `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item

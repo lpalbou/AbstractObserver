@@ -70,7 +70,7 @@ Go to **Launch**:
   automation approves, or ask each time); **Create automation** sends
   `POST /api/gateway/automations` and opens it on the **Automations** page.
 
-On the **Automations** page you pause, resume, run now, revise or archive an
+On the **Automations** page you pause, resume, run now, edit or archive an
 automation, read its runs as a conversation, answer runs that wait for you,
 browse its files, and discuss a result in a chat with a fork of
 the automation, on the same page. Automations need a gateway that

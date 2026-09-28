@@ -19,6 +19,13 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
 - Automation states read as a word then its icon ("Active ▶", "Paused ⏸"),
   row actions and facts carry icons, and runs read as chat cards (shared
   AbstractUIC components).
+- **Edit** edits (operator report on 0.1.14: "when i click 'edit' … it does
+  NOTHING"): a row's Edit selects the automation and opens its Edit form at
+  once, prefilled and focused; the panel's Revise control is now **Edit** too.
+  The form changes the title, the **task**, the interval, the context and the
+  **tools** (ask / run without asking); Save sends one `PATCH` with
+  `expected_revision` and closes the form, Cancel or Escape closes it
+  (AbstractUIC ui-kit 0.1.15).
 
 - The gateway can serve the Observer through itself at `/apps/observer/`
   (one port and one address for the console, the API and the apps): the
@@ -33,6 +40,15 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
   port.
 
 ### Changed
+- Automations page, calmer and consistent: every action button is an icon
+  then its name, in the rows and the panel (the kit's names and icons);
+  **New automation** and **Refresh** are compact header buttons (was a
+  full-width bar); Archive is the icon at the end of a row; the result of an
+  action shows for a few seconds with a dismiss button instead of staying
+  under the buttons; a disabled control's reason is its tooltip (was a line
+  under the panel's buttons); the workspace is one control, folder icon and
+  the whole path wrapping at its separators; the Definition is a card right
+  under the panel's controls.
 - The server binds `127.0.0.1` by default (was `0.0.0.0`); pass
   `--host 0.0.0.0` to reach it directly from other machines, or open it
   through the gateway at `/apps/observer/`. `PORT`, `HOST` and the

@@ -612,8 +612,9 @@ describe("Launch modes and discoverability", () => {
     await ctl.refresh();
     let clicked = 0;
     const html = unescape(renderToStaticMarkup(<AutomationsListView state={ctl.state} available={{ available: true, reason: "" }} h={{ ...noop_handlers, on_new: () => (clicked += 1) }} />));
-    const btn = /<a [^>]*data-action="new"[^>]*>([^<]*)<\/a>/.exec(html);
-    expect(btn?.[1]).toBe("+ New automation");
+    const btn = /<a [^>]*data-action="new"[^>]*>[^]*?<\/a>/.exec(html);
+    expect(btn?.[0]).toMatch(/aria-label="New automation"/);
+    expect(btn?.[0]).toMatch(/><svg\b[^]*<span class="auto_new_label">New automation<\/span><\/a>$/);
     expect(btn?.[0]).toContain(`href="${LAUNCH_AUTOMATE_HASH}"`);
     expect(parse_app_hash(LAUNCH_AUTOMATE_HASH)).toEqual({ page: "launch", mode: "automate" });
     expect(parse_app_hash("#launch")).toEqual({ page: "launch", mode: "once" });

@@ -19,6 +19,8 @@ import {
 } from "@abstractframework/panel-chat";
 import {
   AutomationStateLabel as KitAutomationStateLabel,
+  CONTROL_ICONS,
+  CONTROL_LABELS,
   DISCUSS_LABEL,
   Icon,
   type IconName,
@@ -59,7 +61,13 @@ export type AutomationsHandlers = {
   on_refresh(): void;
   on_new(): void;
   on_show_archived(show: boolean): void;
+  /** Dismiss the list's feedback line / error (the page wires these to the controller). */
+  on_dismiss_notice?(): void;
+  on_dismiss_error?(): void;
 };
+
+/** How long the list's feedback line stays (it can also be dismissed). */
+export const LIST_NOTICE_MS = 5000;
 
 const STATUS_FILTERS: Array<[AutomationStatus | "", string]> = [
   ["", "All"],
@@ -70,23 +78,31 @@ const STATUS_FILTERS: Array<[AutomationStatus | "", string]> = [
   ["archived", "Archived"],
 ];
 
+/** One name and one icon per action: the kit's (the panel uses the same). */
 const ROW_LABELS: Record<RowAction, string> = {
-  pause: "Pause",
-  resume: "Resume",
-  run_now: "Run now",
-  edit: "Edit",
-  archive: "Archive…",
-  discuss: "Discuss",
+  pause: CONTROL_LABELS.pause,
+  resume: CONTROL_LABELS.resume,
+  run_now: CONTROL_LABELS.run_now,
+  edit: CONTROL_LABELS.revise,
+  archive: `${CONTROL_LABELS.archive}…`,
+  discuss: CONTROL_LABELS.discuss,
 };
 
-/** Kit icons for the row actions. */
-const ROW_ICONS: Record<RowAction, IconName> = {
-  pause: "pause",
-  resume: "play",
-  run_now: "send",
-  edit: "edit",
-  archive: "archive",
-  discuss: "chat",
+export const ROW_ICONS: Record<RowAction, IconName> = {
+  pause: CONTROL_ICONS.pause,
+  resume: CONTROL_ICONS.resume,
+  run_now: CONTROL_ICONS.run_now,
+  edit: CONTROL_ICONS.revise,
+  archive: CONTROL_ICONS.archive,
+  discuss: CONTROL_ICONS.discuss,
+};
+
+const LEGACY_ICONS: Record<LegacyAction, IconName> = {
+  legacy_pause: "pause",
+  legacy_resume: "play",
+  legacy_run_now: "playCircle",
+  open_run: "list",
+  recreate: "refresh",
 };
 
 /** The state as WORD then ICON: the kit's one rendering, in a row field. */
@@ -120,21 +136,34 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
   const v = automation_row_view(s);
   const selected = props.state.selected_id === s.automation_id;
   const busy = props.state.busy;
-  const btn = (key: string, label: string, ctl: { enabled: boolean; reason?: string }, onClick: () => void, extra?: string, icon?: IconName) => (
-    <button key={key} type="button" className={`btn btn_sm auto_action${extra ? ` ${extra}` : ""}`} data-action={key} disabled={!ctl.enabled} title={ctl.reason} onClick={onClick}>
+  // `iconOnly`: the label becomes the button's accessible name and tooltip.
+  const btn = (key: string, label: string, ctl: { enabled: boolean; reason?: string }, onClick: () => void, extra?: string, icon?: IconName, iconOnly?: boolean) => (
+    <button
+      key={key}
+      type="button"
+      className={`btn btn_sm auto_action${iconOnly ? " auto_action_icon" : ""}${extra ? ` ${extra}` : ""}`}
+      data-action={key}
+      disabled={!ctl.enabled}
+      title={iconOnly ? (ctl.enabled ? label : `${label} ${ctl.reason ?? ""}`.trim()) : ctl.reason}
+      aria-label={iconOnly ? label : undefined}
+      onClick={onClick}
+    >
       {icon ? <Icon name={icon} size={13} /> : null}
-      <span>{label}</span>
+      {iconOnly ? null : <span>{label}</span>}
     </button>
   );
   let actions: React.ReactNode;
   if (v.legacy) {
     const c = legacy_row_controls(s, busy);
     const order: LegacyAction[] = [s.status === "paused" ? "legacy_resume" : "legacy_pause", "legacy_run_now", "open_run", "recreate"];
-    actions = order.map((a) => btn(a, LEGACY_LABELS[a], c[a], () => props.h.on_legacy_action(s, a)));
+    actions = order.map((a) => btn(a, LEGACY_LABELS[a], c[a], () => props.h.on_legacy_action(s, a), undefined, LEGACY_ICONS[a]));
   } else {
     const c = automation_row_controls(s, busy);
-    const order: RowAction[] = [s.status === "paused" ? "resume" : "pause", "run_now", "edit", "archive", "discuss"];
-    actions = order.map((a) => btn(a, ROW_LABELS[a], c[a], () => props.h.on_row_action(s, a), a === "archive" ? "danger" : undefined, ROW_ICONS[a]));
+    // Archive (destructive, rare) is the icon at the end of the row.
+    const order: RowAction[] = [s.status === "paused" ? "resume" : "pause", "run_now", "edit", "discuss", "archive"];
+    actions = order.map((a) =>
+      btn(a, ROW_LABELS[a], c[a], () => props.h.on_row_action(s, a), a === "archive" ? "danger auto_action_end" : undefined, ROW_ICONS[a], a === "archive"),
+    );
   }
   const confirming = props.state.confirm_archive_id === s.automation_id;
   return (
@@ -178,11 +207,13 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
       {confirming ? (
         <div className="auto_row_confirm" role="group" aria-label="Confirm archive">
           <span>Archive “{v.title}”? Its history stays readable; it will not run again.</span>
-          <button type="button" className="btn btn_sm danger" data-action="archive-confirm" disabled={busy} onClick={() => props.h.on_confirm_archive(s)}>
-            Archive
+          <button type="button" className="btn btn_sm danger auto_action" data-action="archive-confirm" disabled={busy} onClick={() => props.h.on_confirm_archive(s)}>
+            <Icon name="archive" size={13} />
+            <span>Archive</span>
           </button>
-          <button type="button" className="btn btn_sm" data-action="archive-cancel" onClick={props.h.on_cancel_archive}>
-            Keep it
+          <button type="button" className="btn btn_sm auto_action" data-action="archive-cancel" onClick={props.h.on_cancel_archive}>
+            <Icon name="x" size={13} />
+            <span>Keep it</span>
           </button>
         </div>
       ) : null}
@@ -208,39 +239,65 @@ export function AutomationsListView(props: { state: AutomationsState; available:
             </option>
           ))}
         </select>
-        <button type="button" className="btn btn_sm" onClick={props.h.on_refresh} disabled={st.loading || !props.available.available}>
-          {st.loading ? "…" : "Refresh"}
+        <button
+          type="button"
+          className="btn btn_sm auto_icon_btn"
+          data-action="refresh"
+          onClick={props.h.on_refresh}
+          disabled={st.loading || !props.available.available}
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          <Icon name={st.loading ? "loader" : "refresh"} size={14} />
         </button>
-      </div>
-      <div className="pane_body scroll">
         <a
-          className={`btn primary auto_new${props.available.available ? "" : " disabled"}`}
+          className={`btn btn_sm auto_new${props.available.available ? "" : " disabled"}`}
           data-action="new"
           href={LAUNCH_AUTOMATE_HASH}
           aria-disabled={!props.available.available}
-          title="Open Launch in Automate mode"
+          title="New automation: opens Launch in Automate mode"
+          aria-label="New automation"
           onClick={(e) => {
             e.preventDefault();
             if (props.available.available) props.h.on_new();
           }}
         >
-          + New automation
+          <Icon name="plus" size={14} />
+          <span className="auto_new_label">New automation</span>
         </a>
+      </div>
+      <div className="pane_body scroll">
         {!props.available.available ? (
           <div className="warn_callout" role="note" data-unavailable="true">
             {props.available.reason}
           </div>
         ) : null}
         {err ? (
-          <div className="observe_context_card error" role="alert" data-code={shown?.code}>
-            <strong>{err.title}</strong> <span>{err.detail}</span>
+          <div className="observe_context_card error auto_list_error" role="alert" data-code={shown?.code}>
+            <Icon name="error" size={14} />
+            <span className="auto_list_msg">
+              <strong>{err.title}</strong> <span>{err.detail}</span>
+            </span>
+            {st.error && props.h.on_dismiss_error ? (
+              <button type="button" className="auto_dismiss" data-action="dismiss-error" aria-label="Dismiss" title="Dismiss" onClick={props.h.on_dismiss_error}>
+                <Icon name="x" size={12} />
+              </button>
+            ) : null}
           </div>
         ) : null}
-        {st.notice ? (
-          <div className="help_text muted" role="status">
-            {st.notice}
-          </div>
-        ) : null}
+        <div className={`auto_notice${st.notice ? " on" : ""}`} role="status">
+          {st.notice ? (
+            <>
+              <Icon name="check" size={13} />
+              <span className="auto_list_msg">{st.notice}</span>
+              {props.h.on_dismiss_notice ? (
+                <button type="button" className="auto_dismiss" data-action="dismiss-notice" aria-label="Dismiss" title="Dismiss" onClick={props.h.on_dismiss_notice}>
+                  <Icon name="x" size={12} />
+                </button>
+              ) : null}
+            </>
+          ) : null}
+        </div>
         {props.available.available && st.loaded && !st.items.length ? (
           <div className="help_text muted">No automations yet. Create one from Launch → Automate.</div>
         ) : null}
@@ -274,7 +331,10 @@ export type PanelHostHandlers = {
  * The kit panel's props for the selected automation, wired to the controller
  * (and through it to the gateway). Null when nothing (non-legacy) is open.
  */
-export function automation_panel_props(ctl: AutomationsController, host: PanelHostHandlers): AutomationPanelWithMarkdownProps | null {
+/** The panel's Edit form, driven by the page (a row's Edit opens it at once). */
+export type PanelEdit = { open: boolean; on_change(open: boolean): void };
+
+export function automation_panel_props(ctl: AutomationsController, host: PanelHostHandlers, edit?: PanelEdit): AutomationPanelWithMarkdownProps | null {
   const st = ctl.state;
   const d = st.detail;
   if (!d || is_legacy_summary(d.summary)) return null;
@@ -301,6 +361,7 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     ...(host.on_open_workspace ? { onOpenWorkspace: host.on_open_workspace } : {}),
     ...(host.fetch_gateway ? { fetchGateway: host.fetch_gateway } : {}),
     onAnswerWait: (run_id, wait_key, payload) => ctl.answer_wait(id, run_id, wait_key, payload as Record<string, any>),
+    ...(edit ? { editOpen: edit.open, onEditOpenChange: edit.on_change } : {}),
   };
 }
 
@@ -312,6 +373,7 @@ export function AutomationDetailView(props: {
   host: PanelHostHandlers;
   h: AutomationsHandlers;
   browser?: React.ReactNode;
+  edit?: PanelEdit;
 }): React.ReactElement {
   const d = props.ctl.state.detail;
   if (!d && props.ctl.state.selected_id) {
@@ -354,7 +416,7 @@ export function AutomationDetailView(props: {
       </section>
     );
   }
-  const p = automation_panel_props(props.ctl, props.host);
+  const p = automation_panel_props(props.ctl, props.host, props.edit);
   // Occurrence turns render as the shared chat cards (panel-chat), text
   // through the shared renderer (markdown, tables, code, JSON).
   return (
@@ -366,8 +428,13 @@ export function AutomationDetailView(props: {
 }
 
 /** Where a row action goes: Discuss opens a chat with a fork at the latest
- * finished occurrence ON THIS PAGE; everything else goes to the app handlers. */
-export function route_row_action(summary: AutomationSummary, action: RowAction): { kind: "discuss"; index: number } | { kind: "forward" } | { kind: "none" } {
+ * finished occurrence ON THIS PAGE; Edit selects the automation and opens
+ * its Edit form at once, on this page; everything else goes to the app handlers. */
+export function route_row_action(
+  summary: AutomationSummary,
+  action: RowAction,
+): { kind: "discuss"; index: number } | { kind: "edit" } | { kind: "forward" } | { kind: "none" } {
+  if (action === "edit") return { kind: "edit" };
   if (action !== "discuss") return { kind: "forward" };
   const index = discuss_index(summary);
   return index === null ? { kind: "none" } : { kind: "discuss", index };
@@ -389,6 +456,8 @@ export function AutomationsPage(props: {
   const open_discussion = (d: OpenDiscussion) => set_discussion((prev) => ({ ...d, opened: (prev?.opened || 0) + 1 }));
   /** The run whose folder is open (the automation's own id = its folder), or "". */
   const [files_run, set_files_run] = useState("");
+  /** The automation whose Edit form is open, or "". */
+  const [edit_id, set_edit_id] = useState("");
   useSyncExternalStore(
     (fn) => ctl.subscribe(fn),
     () => ctl.state,
@@ -407,6 +476,13 @@ export function AutomationsPage(props: {
     return () => window.clearInterval(t);
   }, [ctl, props.active, visible, props.available.available]);
   const detail = ctl.state.detail;
+  // The list's feedback line is brief.
+  const notice = ctl.state.notice;
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => ctl.dismiss_notice(), LIST_NOTICE_MS);
+    return () => window.clearTimeout(t);
+  }, [ctl, notice]);
   // The kit panel's per-occurrence Discuss has already forked when this runs:
   // the chat opens on that session, here.
   const host: PanelHostHandlers = {
@@ -424,12 +500,20 @@ export function AutomationsPage(props: {
     on_select: (id) => {
       set_discussion(null);
       set_files_run("");
+      if (id !== edit_id) set_edit_id("");
       props.h.on_select(id);
     },
+    on_dismiss_notice: () => ctl.dismiss_notice(),
+    on_dismiss_error: () => ctl.dismiss_error(),
     on_row_action: (summary, action) => {
       const route = route_row_action(summary, action);
       if (route.kind === "forward") props.h.on_row_action(summary, action);
-      else if (route.kind === "discuss") {
+      else if (route.kind === "edit") {
+        set_discussion(null);
+        set_files_run("");
+        set_edit_id(summary.automation_id);
+        props.h.on_select(summary.automation_id);
+      } else if (route.kind === "discuss") {
         props.h.on_select(summary.automation_id);
         open_discussion({ automation_id: summary.automation_id, automation_title: summary.title, occurrence_index: route.index });
       }
@@ -457,6 +541,10 @@ export function AutomationsPage(props: {
           ctl={ctl}
           host={host}
           h={h}
+          edit={{
+            open: !!detail && edit_id === detail.automation_id,
+            on_change: (open) => set_edit_id(open && detail ? detail.automation_id : ""),
+          }}
           browser={
             files_run ? (
               <WorkspaceBrowser

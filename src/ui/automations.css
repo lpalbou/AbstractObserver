@@ -166,11 +166,84 @@
 }
 
 .auto_new {
-  display: block;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   text-decoration: none;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .auto_new_label {
+    display: none;
+  }
+}
+
+.auto_icon_btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 7px;
+}
+
+/* The list's feedback: brief (cleared after a few seconds) and dismissible. */
+.auto_notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-small);
+  color: var(--text-primary);
+}
+
+.auto_notice.on {
   margin: 0 0 10px;
+  padding: 5px 6px 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--success-border);
+  background: var(--success-subtle);
+  animation: auto_notice_in 160ms ease-out;
+}
+
+@keyframes auto_notice_in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auto_notice.on { animation: none; }
+}
+
+.auto_list_error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.auto_list_msg {
+  flex: 1;
+  min-width: 0;
+}
+
+.auto_dismiss {
+  all: unset;
+  flex: none;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.auto_dismiss:hover {
+  color: var(--text-primary);
+  background: var(--ui-overlay-bg-hover);
+}
+
+.auto_dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .auto_new.disabled {
@@ -215,6 +288,14 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+.auto_action_icon {
+  padding-inline: 7px;
+}
+
+.auto_action_end {
+  margin-left: auto;
 }
 
 .auto_action.active {

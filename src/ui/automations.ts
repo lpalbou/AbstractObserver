@@ -932,7 +932,7 @@ export class AutomationsController {
         notice:
           action === "run_now" && summary.status === "paused"
             ? `Run now sent to “${summary.title}”; it stays paused.`
-            : `${action.replace("_", " ")} sent to “${summary.title}”.`,
+            : `${ROW_ACTION_SENT[action]} sent to “${summary.title}”.`,
         confirm_archive_id: "",
       });
     } catch (e) {
@@ -971,4 +971,20 @@ export class AutomationsController {
   clear_notice(): void {
     this.set({ notice: "", error: null });
   }
+
+  /** The list's feedback line is brief: the page clears it after a few seconds or on dismiss. */
+  dismiss_notice(): void {
+    if (this.state.notice) this.set({ notice: "" });
+  }
+
+  dismiss_error(): void {
+    if (this.state.error) this.set({ error: null });
+  }
 }
+
+const ROW_ACTION_SENT: Record<"pause" | "resume" | "run_now" | "archive", string> = {
+  pause: "Pause",
+  resume: "Resume",
+  run_now: "Run now",
+  archive: "Archive",
+};

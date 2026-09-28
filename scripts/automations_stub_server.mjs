@@ -183,7 +183,7 @@ export function createAutomationsStub(options = {}) {
       target: a.target ?? { workflow_id: "basic-agent@1.0.0:main", bundle_ref: "basic-agent@1.0.0", flow_id: "main", input_data: { prompt: a.prompt } },
       trigger: s.trigger,
       context: { mode: s.context_mode, growing: {} },
-      policy: { serial: true, misfire: "coalesce", failure: "continue", retry: { max_attempts: 3, backoff: { initial: "30s", factor: 2, max: "10m" } } },
+      policy: { serial: true, misfire: "coalesce", failure: "continue", retry: { max_attempts: 3, backoff: { initial: "30s", factor: 2, max: "10m" } }, tool_approval: a.tool_approval ?? "auto" },
       session_id: `automation-session:${s.automation_id}`,
       workspace_root: s.workspace_root ?? `/tmp/automations/${s.automation_id}`,
       created_at: s.trigger.config.start_at ?? "2026-09-27T00:00:00Z",
@@ -403,6 +403,21 @@ export function createAutomationsStub(options = {}) {
     if (body.expected_revision !== undefined && body.expected_revision !== s.revision)
       throw new ApiFailure(409, "revision_conflict", `Automation is at revision ${s.revision}, not ${body.expected_revision}.`, { field: "expected_revision", command_id: body.command_id });
     const c = body.changes || {};
+    // The gateway's revisable fields (runtime REVISABLE_FIELDS).
+    for (const k of Object.keys(c)) if (!["title", "target", "trigger", "context", "policy"].includes(k)) throw new ApiFailure(422, "invalid_definition", `unknown changes field(s) ['${k}']`, { field: `changes.${k}`, command_id: body.command_id });
+    if (c.target) {
+      // The gateway resolves {bundle_ref, flow_id, input_data} to a concrete target.
+      const t = c.target;
+      if (!t.bundle_ref || !t.flow_id || (t.input_data !== undefined && (typeof t.input_data !== "object" || Array.isArray(t.input_data))))
+        throw new ApiFailure(422, "invalid_definition", "changes.target needs bundle_ref, flow_id and an input_data object.", { field: "changes.target", command_id: body.command_id });
+      a.target = { workflow_id: `${t.bundle_ref}:${t.flow_id}`, bundle_ref: t.bundle_ref, flow_id: t.flow_id, input_data: { ...(t.input_data || {}) } };
+      if (typeof a.target.input_data.prompt === "string") a.prompt = a.target.input_data.prompt;
+    }
+    if (c.policy) {
+      if (c.policy.tool_approval !== undefined && !["auto", "ask"].includes(c.policy.tool_approval))
+        throw new ApiFailure(422, "invalid_definition", "policy.tool_approval must be one of ['auto', 'ask']", { field: "changes.policy.tool_approval", command_id: body.command_id });
+      if (c.policy.tool_approval) a.tool_approval = c.policy.tool_approval;
+    }
     if (c.trigger) {
       validateTrigger(c.trigger, "changes.trigger");
       s.trigger = { binding_id: mint("binding"), source_id: c.trigger.source_id, source_version: c.trigger.source_version, config: { ...c.trigger.config } };

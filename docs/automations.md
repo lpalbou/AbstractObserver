@@ -142,15 +142,18 @@ Each row shows:
   attempts", or "no runs yet");
 - an excerpt of the last answer.
 
-Row controls (a disabled control explains why when you hover it):
+Row controls, each an icon then its name (a disabled control explains why
+when you hover it). **Refresh** (↻) and **New automation** (+) sit in the
+list's header; the result of a row action shows at the top of the list for a
+few seconds, with a dismiss button:
 
 | Control | What it does |
 | --- | --- |
 | **Pause** / **Resume** | Pause skips scheduled runs. Resume re-arms the schedule; the ticks that passed while paused are not run. |
 | **Run now** | Runs one occurrence immediately. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). |
-| **Edit** | Opens the automation's panel, where you revise it. |
+| **Edit** | Opens the automation with its Edit form already open, prefilled and focused (see [Edit](#edit)). |
 | **Discuss** | Opens a chat with a fork of the automation at its latest finished run, on this page (see [Discuss a result](#discuss-a-result)). |
-| **Archive…** | Asks first ("Its history stays readable; it will not run again."), then stops the automation for good. |
+| **Archive…** (the icon at the end of the row) | Asks first ("Its history stays readable; it will not run again."), then stops the automation for good. |
 
 Commands are accepted by the gateway and applied moments later. The page
 reads the list again right away and twice more over the next few seconds, so
@@ -164,7 +167,7 @@ are most likely to meet are conflicts (HTTP 409):
 | Code | What the Observer says | What to do |
 | --- | --- | --- |
 | `automation_busy` | "An occurrence is already running or queued. Wait for it to finish." | Wait, or use **Stop current** in the panel. |
-| `revision_conflict` | "The automation changed since this view loaded. Reload it, then try again." | Reopen the automation and revise again. |
+| `revision_conflict` | "The automation changed since this view loaded. Reload it, then try again." | Reopen the automation and edit it again. |
 | `invalid_state` | "The automation's current state does not allow this." | For example resuming an archived automation. |
 | `identity_conflict` | "This request id was already used for a different request." | Submit again; the form mints a new id for changed fields. |
 
@@ -180,8 +183,8 @@ selected automation arrives).
 
 ### The automation's files
 
-The folder button next to **Workspace** in the panel browses the automation's
-folder on the gateway host, from any browser, above the panel: open a
+**Workspace** in the panel shows the folder's whole path (it wraps at its
+`/` and `-`); clicking it browses the automation's folder on the gateway host, from any browser, above the panel: open a
 sub-folder, **Open** a file in a new tab, or download it. **Workspace** in a
 run's details does the same for that run's folder. HTML, SVG and other text
 files open as plain text (their source), never as a page. The folder is read through the gateway
@@ -193,17 +196,38 @@ never shown.
 ### Definition and controls
 
 The top of the panel shows **When**, **Context**, **Next run**, **Runs**,
-**Attention** and **Revision**, and the controls **Pause** / **Resume**,
-**Run now**, **Stop current**, **Revise…** and **Archive…**. While paused, the
-panel reminds you: "Paused: scheduled runs are skipped. Run now works and
-keeps it paused."
+**Workspace**, **Attention** and **Revision**, then the controls **Pause** /
+**Resume**, **Run now**, **Stop current**, **Edit** and **Archive…** (each an
+icon then its name; a disabled one says why in its tooltip), then the
+**Definition** card (one click opens it: workflow, task, trigger, context,
+tools, retries). While paused, the panel reminds you: "Paused: scheduled runs
+are skipped. Run now works and keeps it paused." What a control did ("Pause
+sent.", "Run requested.") shows next to the controls for a few seconds, with
+a dismiss button.
 
 - **Stop current** cancels the occurrence in progress (or its pending
   retry); it ends as `cancelled`, quietly, and the schedule continues.
-- **Revise…** changes the title, the interval and the context. Changes apply
-  from the next run; a new interval never fires ticks that already passed.
-  The revision you edited is sent along, so a concurrent change is refused
-  with `revision_conflict` instead of being overwritten.
+
+### Edit
+
+**Edit** — on the row or in the panel — opens the Edit form in place of the
+Definition card, prefilled with the automation as it is now and with the
+title field focused:
+
+| Field | What it changes |
+| --- | --- |
+| **Title** | The automation's name. |
+| **Task** | The instruction every run receives (the workflow's `prompt` input). |
+| **Repeat every (UTC)** | The interval, in minutes, hours or days (interval schedules only). |
+| **Context** | Independent (each run starts fresh) or growing (each run sees the previous runs). |
+| **Tools** | Run without asking, or ask before each tool call. |
+
+**Save changes** sends only what changed, once (`PATCH
+/api/gateway/automations/{id}` with `expected_revision`), closes the form and
+says "Saved; applies from the next run."; a new interval never fires ticks
+that already passed. **Cancel** or Escape closes the form. A concurrent change
+is refused with `revision_conflict` instead of being overwritten. The
+automation's folder is the gateway's and is not editable.
 
 ### Runs as a conversation
 

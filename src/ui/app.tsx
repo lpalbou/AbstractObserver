@@ -4755,13 +4755,9 @@ export function App(): React.ReactElement {
   const automations_handlers: AutomationsHandlers = {
     on_select: (id) => void automations_ctl.select(id),
     on_row_action: (summary, action) => {
-      // Discuss never reaches here: AutomationsPage opens it as a chat in place.
-      if (action === "discuss") throw new Error("Discuss is routed by AutomationsPage (route_row_action), not the app handlers.");
-      // Edit needs the panel's form.
-      if (action === "edit") {
-        void automations_ctl.select(summary.automation_id);
-        return;
-      }
+      // Discuss and Edit never reach here: AutomationsPage opens the chat /
+      // the panel's Edit form in place (route_row_action).
+      if (action === "discuss" || action === "edit") throw new Error(`${action} is routed by AutomationsPage (route_row_action), not the app handlers.`);
       if (action === "archive") {
         automations_ctl.ask_archive(summary.automation_id);
         return;

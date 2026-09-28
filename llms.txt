@@ -28,7 +28,7 @@ Notes:
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): launch flags, serving under the gateway at /apps/observer/, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
-- [Automations](docs/automations.md): Launch → Automate (what, when in UTC intervals, independent/growing context, tool approval), the Automations page (controls, 409 conflicts), runs as a conversation, answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
+- [Automations](docs/automations.md): Launch → Automate (what, when in UTC intervals, independent/growing context, tool approval), the Automations page (icon controls, Edit: the row's Edit opens the form — title, task, interval, context, tools —, 409 conflicts), runs as a conversation, answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations)
