@@ -62,6 +62,16 @@ means the gateway reports it but disabled it; ask the gateway admin. Legacy
 schedules stay manageable from their run view in both cases. See
 `automations.md` → "Before you start".
 
+### Creating an automation says the workspace "is a folder the gateway made for another conversation, run or automation"
+The **Workspace Root** field (Advanced) holds a folder the gateway made for
+something else. Empty the field: the gateway creates a folder of its own for
+the new automation.
+
+### Ask or Summary shows an error instead of an answer
+The message is the gateway's own reason, for example an unknown provider or an
+endpoint profile that no longer exists. Choose another model in the Ask
+picker, or fix the gateway's default text model in its console.
+
 ### "An occurrence is already running or queued. Wait for it to finish."
 HTTP 409 `automation_busy`: **Run now** (or another command) was sent while an
 occurrence is in progress. Wait for it to finish, or use **Stop current** in

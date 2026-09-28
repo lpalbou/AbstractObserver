@@ -44,7 +44,7 @@ Notes:
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): CLI env vars, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
-- [Automations](docs/automations.md): Launch → Automate (what, when in UTC intervals, independent/growing context, tool approval), the Automations page (controls, 409 conflicts), runs as a conversation, answering waits by kind, Discuss, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
+- [Automations](docs/automations.md): Launch → Automate (what, when in UTC intervals, independent/growing context, tool approval), the Automations page (controls, 409 conflicts), runs as a conversation, answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations)
@@ -55,6 +55,7 @@ Notes:
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
 - [Automations rules + controller](src/ui/automations.ts): workflow choice (`@default`), create body, run tags, capability gate, legacy prefill, typed wait answers, page controller
 - [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring; the When/Context/Tools fields
+- [Discussion chat](src/ui/automation_discussion.tsx) and [folder browser](src/ui/workspace_browser.tsx): panel-chat `WorkflowChat` over the gateway client; `/runs/{id}/workspace*` browse
 - [Automations stub gateway](scripts/automations_stub_server.mjs): dev/test stub serving the ui-kit fixtures
 - [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy
 - [Package metadata](package.json): npm name/version, scripts, Node engine
@@ -178,7 +179,7 @@ All pages share the same gateway connection settings.
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
-- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), and Discuss (a fork at an occurrence with its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
+- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (**Files**: open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
@@ -682,6 +683,37 @@ export default defineConfig({
 # Changelog
 
 ## Unreleased
+
+Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owned
+`use_context`, `input_data` without gateway-made folders) for items marked (gateway).
+
+### Added
+- **Files** on an automation browses its folder on the gateway host and opens
+  or downloads each file in the browser, through the gateway's workspace
+  routes; a discussion's chat has **Its files** and **Automation files**.
+- **Discuss** opens a chat with a fork of the automation on the Automations
+  page (row: latest finished run; panel: the chosen occurrence). Follow-ups
+  are later turns of the same discussion session, with the same model. The
+  chat is the shared AbstractUIC chat: live replies, tool approvals and
+  questions answered in place, Stop.
+- Automation states read as a word then its icon ("Active ▶", "Paused ⏸"),
+  and row actions and facts carry icons.
+
+### Changed
+- The automation's **Context** choice is the one history control: Automate
+  mode neither shows nor sends the workflow's **Use Context** input
+  (gateway).
+- Growing context copy: the most recent 50,000 tokens of whole turns are
+  replayed.
+
+### Fixed
+- Ask and Summary show the gateway's reason when it cannot answer, instead of
+  "(error: failed to generate answer)".
+- Ask about an automation (or any run) answers on gateways whose default text
+  model is an endpoint profile (gateway).
+- A new automation or launch no longer inherits the workspace folder of a run
+  viewed in Observe (gateway), and a reused gateway folder is refused with a
+  message that says to leave the field empty.
 
 ## [0.1.14] - 2026-09-27
 
@@ -2928,7 +2960,8 @@ Go to **Launch**:
 
 On the **Automations** page you pause, resume, run now, revise or archive an
 automation, read its runs as a conversation, answer runs that wait for you,
-and discuss a result in a separate session. Automations need a gateway that
+browse its files (**Files**), and discuss a result in a chat with a fork of
+the automation, on the same page. Automations need a gateway that
 advertises the Automations API; otherwise the page says so.
 
 Details: `automations.md`; endpoints: `api.md`.
@@ -3072,8 +3105,9 @@ Guide: `automations.md`.
 **Independent** (default) when every run stands alone ("check the machine").
 **Growing** when each run should see the previous ones ("follow this market
 and tell me what changed"): runs are turns of one conversation, and the
-replayed history is bounded to the most recent 40 messages (at most 24,000
-characters). See `automations.md` → "Context".
+replayed history is bounded to the most recent 50,000 tokens of whole turns.
+The Context choice also sets the workflow's `use_context` input, so there is
+no second control for it. See `automations.md` → "Context".
 
 ## Why do the tools of my automation run without asking?
 Because an unattended run cannot stop at every tick, creating the automation
@@ -3091,10 +3125,16 @@ refused while an occurrence is in progress (`automation_busy`).
 
 ## Does discussing a result change the automation?
 No. **Discuss** forks the automation at that occurrence: a new session with
-the automation's history up to it (runs 1 to N), opened in Observe. It works
+the automation's history up to it (runs 1 to N), opened as a chat on the
+Automations page. It works
 in its own writable workspace, with the automation's folder mounted read-only
 for the file tools (shell commands are not sandboxed); nothing is written back
 into the automation's session or its next runs.
+
+## How do I get the files an automation wrote, when the gateway runs on another machine?
+Select the automation and press **Files**: the Observer lists its folder
+through the gateway and opens or downloads each file in your browser. See
+`automations.md` → "The automation's files".
 
 ## Why is my automation not on the Board?
 An automation between runs is not a run you can act on, so it lives on the
@@ -3244,7 +3284,7 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (Run once | Automate, bundle upload/reload): `src/ui/app.tsx`, `src/ui/automate_form.tsx` + `GatewayClient.start_run()` / the ui-kit automations client
-- **Automations** (list, the kit's `AutomationPanel`, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts` + `GatewayClient.automations_client()`
+- **Automations** (list, the kit's `AutomationPanel`, the folder browser, the discussion chat, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts`, `src/ui/workspace_browser.tsx`, `src/ui/automation_discussion.tsx` + `GatewayClient.automations_client()` / `run_workspace*()` / panel-chat's `WorkflowChat`
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
@@ -3253,7 +3293,9 @@ The Automations page and Launch → Automate are thin clients of the gateway's
 Automations API. The gateway owns the automation (definition, trigger,
 attention) and drives it in AbstractRuntime: each automation is a controller
 root run that waits between ticks, each tick starts an occurrence (a child
-run), and **Discuss** forks a separate discussion session. The Observer reads
+run), and **Discuss** forks a separate discussion session, which the page
+shows as a chat (later turns: `POST /runs/start` with its `session_id`). The
+automation's folder is read through `/runs/{automation_id}/workspace*`. The Observer reads
 these runs back through `/runs` and tags them from the gateway's attribution
 (`role`, `session_kind`), never from workflow names.
 
@@ -3263,12 +3305,16 @@ flowchart LR
     L["Launch → Automate<br/><code>automate_form.tsx</code>"]
     AP["Automations page + kit AutomationPanel<br/><code>automations_page.tsx</code>, <code>automations.ts</code>"]
     BV["Board / Observe navigator / System<br/>tags from role + session_kind"]
+    DC["Discussion chat (panel-chat WorkflowChat)<br/><code>automation_discussion.tsx</code>"]
+    WB["Folder browser<br/><code>workspace_browser.tsx</code>"]
   end
   subgraph GW["AbstractGateway /api/gateway"]
     CAP["GET /discovery/capabilities<br/>contracts.common.automations"]
     AUTO["/automations: list, create, get,<br/>occurrences, PATCH revise,<br/>commands, discuss, seen<br/>+ /trigger-sources"]
     CMD["POST /commands<br/>resume with wait_key + payload<br/>legacy pause / resume"]
     RUNS["GET /runs, /runs/{id}/ledger"]
+    START["POST /runs/start<br/>session_id = the discussion"]
+    WS["GET /runs/{id}/workspace,<br/>/workspace/files, /workspace/content"]
   end
   subgraph RT[AbstractRuntime]
     CTRL["Controller root run<br/>role controller, waits for next tick"]
@@ -3290,6 +3336,13 @@ flowchart LR
   RUNS --> CTRL
   RUNS --> OCC
   RUNS --> DISC
+  AP --> DC
+  AP --> WB
+  DC -->|first message: discuss| AUTO
+  DC -->|later turns| START
+  DC -->|history, ledger stream| RUNS
+  START --> DISC
+  WB --> WS
   RUNS --> LEG
 ```
 
@@ -3410,8 +3463,10 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `GET /api/gateway/automations/{id}` and `GET /api/gateway/automations/{id}/occurrences?cursor=&limit=` — the panel
 - `PATCH /api/gateway/automations/{id}` — revise (`expected_revision`)
 - `POST /api/gateway/automations/{id}/commands` — `automation.pause|resume|run_now|stop_current|archive`
-- `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened in Observe); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
+- `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened as a chat on the Automations page); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
 - `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item
+- `POST /api/gateway/runs/start` with the discussion's `session_id` — a later turn of a discussion (the gateway re-stamps its workspace, mount and history); the chat reads it with `GET /api/gateway/runs/{run_id}`, `/history_bundle?include_session=true`, `/ledger` and `/ledger/stream`
+- `GET /api/gateway/runs/{run_id}/workspace`, `/workspace/files?path=`, `/workspace/content?path=` — browse a run's folder and open or download its files (an automation's id is its controller run, so the automation's folder is `runs/{automation_id}/workspace`)
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
 - `POST /api/gateway/commands` — answer an occurrence's wait with `type: "resume"` and `{wait_key, payload}` on the waiting run; the payload follows the wait's kind: `ask_user` → `{response}`, `tool_approval` → `{approved, tool_ids?}`, `event` → `{payload}`. Legacy schedule rows use `pause` / `resume` (run now = `resume` with `{payload: {mode: "run_now", requested_at}}`).
 - `GET /api/gateway/runs/{run_id}` + `GET /api/gateway/runs/{run_id}/input_data` — read a legacy schedule for **Recreate as automation**
@@ -3575,8 +3630,12 @@ first run now." or "Runs every minute (UTC), first run now."; it reads
 - **Independent** (default): each run starts fresh in its own session. Runs
   never see each other.
 - **Growing**: each run is a new turn of one conversation and sees the
-  previous runs. The history is bounded: the most recent 40 messages (at most
-  24,000 characters) are replayed; older runs drop out.
+  previous runs. The history is bounded: the most recent 50,000 tokens of
+  whole turns are replayed; older runs drop out.
+
+The Context choice is the one history control of an automation. The gateway
+sets the workflow's `use_context` input from it, so Automate mode does not
+show the workflow's **Use Context** input (Run once still does).
 
 ### Tools
 
@@ -3597,6 +3656,10 @@ option you choose.
   after this many runs**, **Stop at (UTC)**;
 - the skills picker (the gateway resolves the selected skills through its
   trust gate), the workspace, and bundle upload / reload.
+
+Leave **Workspace Root** empty: the gateway then creates a folder of its own
+for the automation. A folder the gateway made for another conversation, run or
+automation is refused, and the Observer never copies one into a new form.
 
 ### Create
 
@@ -3624,8 +3687,9 @@ readable.
 
 Each row shows:
 
-- the title, the state (active, paused, completed, failed, archived) and,
-  when something needs you, a badge such as "2 unseen · 1 waiting for you";
+- the title, the state as a word followed by its icon ("Active ▶",
+  "Paused ⏸", "Completed", "Failed", "Archived") and, when something needs
+  you, a badge such as "2 unseen · 1 waiting for you";
 - the run in progress, when there is one ("Run #7 running", "Run #7
   starting", "Run #7 waiting to retry (attempt 2)"), from the gateway's
   current occurrence;
@@ -3642,7 +3706,8 @@ Row controls (a disabled control explains why when you hover it):
 | --- | --- |
 | **Pause** / **Resume** | Pause skips scheduled runs. Resume re-arms the schedule; the ticks that passed while paused are not run. |
 | **Run now** | Runs one occurrence immediately. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). |
-| **Edit**, **Discuss** | Open the automation's panel, where you revise it or pick the result to discuss. |
+| **Edit** | Opens the automation's panel, where you revise it. |
+| **Discuss** | Opens a chat with a fork of the automation at its latest finished run, on this page (see [Discuss a result](#discuss-a-result)). |
 | **Archive…** | Asks first ("Its history stays readable; it will not run again."), then stops the automation for good. |
 
 Commands are accepted by the gateway and applied moments later. The page
@@ -3670,6 +3735,16 @@ not exist (or is not yours)."), `occurrence_not_found`, `invalid_request`,
 
 Select a row to open its panel (the panel area reads "Loading…" until the
 selected automation arrives).
+
+### The automation's files
+
+**Files** at the top of the panel browses the automation's folder on the
+gateway host, from any browser: open a sub-folder, **Open** a file in a new
+tab, or download it. The folder is read through the gateway
+(`GET /api/gateway/runs/{automation_id}/workspace`, `/workspace/files`,
+`/workspace/content`), with your gateway credentials and the gateway's
+workspace policy: entries its deny rules keep out are counted under the list,
+never shown.
 
 ### Definition and controls
 
@@ -3746,11 +3821,15 @@ attempts, with:
 
 ### Discuss a result
 
-**Discuss — fork at this occurrence (own workspace, automation files
-read-only)** on a finished occurrence asks for your message, then **Start
-discussion** creates a new session that forks the automation at that
-occurrence #N with its full history (runs 1 to N) in context, and opens it in
-**Observe**, where you continue the chat.
+**Discuss** on a row, or **Discuss — fork at this occurrence (own workspace,
+automation files read-only)** on a finished occurrence, opens a chat in place
+of the panel. Your first message creates a new session that forks the
+automation at occurrence #N with its history (runs 1 to N) in context; every
+later message is the next turn of that session, answered with the same model.
+The chat is the shared AbstractUIC chat (the one AbstractCode uses): replies
+stream in, tool approvals and questions are answered in the chat, and
+**Stop** ends the turn in progress. The button with the automation's title
+returns to its panel.
 
 - The discussion works in its **own writable workspace**.
 - The automation's folder is **mounted read-only** in it for the file tools,
@@ -3759,9 +3838,10 @@ occurrence #N with its full history (runs 1 to N) in context, and opens it in
 - Nothing is written back into the automation's session: the automation and
   its next runs never see the discussion.
 
-After **Start discussion** the Observer shows both folders from the gateway's
-answer: the discussion's own workspace (`workspace_root`) and the automation's
-folder mounted read-only (`mounted_workspace`).
+**Its files** and **Automation files** in the chat's header browse the
+discussion's own workspace (`workspace_root`) and the automation's folder
+mounted read-only (`mounted_workspace`), as described in
+[The automation's files](#the-automations-files).
 
 The read-only mount is enforced for file tools: they refuse to write into the
 automation's folder. Shell commands are **not** sandboxed, so a command the
@@ -3827,6 +3907,10 @@ See [development.md](development.md).
   create body, row controls, run tags, the capability gate, the legacy
   prefill, typed wait answers) and the page controller;
 - `src/ui/automations_page.tsx`: the page, its rows and the panel wiring;
+- `src/ui/automation_discussion.tsx`: the discussion chat (panel-chat's
+  `WorkflowChat` and `WorkflowSessionController` over the Observer's gateway
+  client);
+- `src/ui/workspace_browser.tsx`: the folder browser;
 - the panel itself is the ui-kit's `AutomationPanel`
   (`@abstractframework/ui-kit`), shared with AbstractAssistant;
 - `src/ui/run_tree.ts`: navigator grouping.
@@ -4145,6 +4229,16 @@ version with automations. "This gateway has the Automations API turned off"
 means the gateway reports it but disabled it; ask the gateway admin. Legacy
 schedules stay manageable from their run view in both cases. See
 `automations.md` → "Before you start".
+
+### Creating an automation says the workspace "is a folder the gateway made for another conversation, run or automation"
+The **Workspace Root** field (Advanced) holds a folder the gateway made for
+something else. Empty the field: the gateway creates a folder of its own for
+the new automation.
+
+### Ask or Summary shows an error instead of an answer
+The message is the gateway's own reason, for example an unknown provider or an
+endpoint profile that no longer exists. Choose another model in the Ask
+picker, or fix the gateway's default text model in its console.
 
 ### "An occurrence is already running or queued. Wait for it to finish."
 HTTP 409 `automation_busy`: **Run now** (or another command) was sent while an

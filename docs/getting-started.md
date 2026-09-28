@@ -69,7 +69,8 @@ Go to **Launch**:
 
 On the **Automations** page you pause, resume, run now, revise or archive an
 automation, read its runs as a conversation, answer runs that wait for you,
-and discuss a result in a separate session. Automations need a gateway that
+browse its files (**Files**), and discuss a result in a chat with a fork of
+the automation, on the same page. Automations need a gateway that
 advertises the Automations API; otherwise the page says so.
 
 Details: `automations.md`; endpoints: `api.md`.

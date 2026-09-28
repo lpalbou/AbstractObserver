@@ -123,8 +123,9 @@ Guide: `automations.md`.
 **Independent** (default) when every run stands alone ("check the machine").
 **Growing** when each run should see the previous ones ("follow this market
 and tell me what changed"): runs are turns of one conversation, and the
-replayed history is bounded to the most recent 40 messages (at most 24,000
-characters). See `automations.md` → "Context".
+replayed history is bounded to the most recent 50,000 tokens of whole turns.
+The Context choice also sets the workflow's `use_context` input, so there is
+no second control for it. See `automations.md` → "Context".
 
 ## Why do the tools of my automation run without asking?
 Because an unattended run cannot stop at every tick, creating the automation
@@ -142,10 +143,16 @@ refused while an occurrence is in progress (`automation_busy`).
 
 ## Does discussing a result change the automation?
 No. **Discuss** forks the automation at that occurrence: a new session with
-the automation's history up to it (runs 1 to N), opened in Observe. It works
+the automation's history up to it (runs 1 to N), opened as a chat on the
+Automations page. It works
 in its own writable workspace, with the automation's folder mounted read-only
 for the file tools (shell commands are not sandboxed); nothing is written back
 into the automation's session or its next runs.
+
+## How do I get the files an automation wrote, when the gateway runs on another machine?
+Select the automation and press **Files**: the Observer lists its folder
+through the gateway and opens or downloads each file in your browser. See
+`automations.md` → "The automation's files".
 
 ## Why is my automation not on the Board?
 An automation between runs is not a run you can act on, so it lives on the

@@ -65,7 +65,7 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (Run once | Automate, bundle upload/reload): `src/ui/app.tsx`, `src/ui/automate_form.tsx` + `GatewayClient.start_run()` / the ui-kit automations client
-- **Automations** (list, the kit's `AutomationPanel`, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts` + `GatewayClient.automations_client()`
+- **Automations** (list, the kit's `AutomationPanel`, the folder browser, the discussion chat, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts`, `src/ui/workspace_browser.tsx`, `src/ui/automation_discussion.tsx` + `GatewayClient.automations_client()` / `run_workspace*()` / panel-chat's `WorkflowChat`
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
@@ -74,7 +74,9 @@ The Automations page and Launch → Automate are thin clients of the gateway's
 Automations API. The gateway owns the automation (definition, trigger,
 attention) and drives it in AbstractRuntime: each automation is a controller
 root run that waits between ticks, each tick starts an occurrence (a child
-run), and **Discuss** forks a separate discussion session. The Observer reads
+run), and **Discuss** forks a separate discussion session, which the page
+shows as a chat (later turns: `POST /runs/start` with its `session_id`). The
+automation's folder is read through `/runs/{automation_id}/workspace*`. The Observer reads
 these runs back through `/runs` and tags them from the gateway's attribution
 (`role`, `session_kind`), never from workflow names.
 
@@ -84,12 +86,16 @@ flowchart LR
     L["Launch → Automate<br/><code>automate_form.tsx</code>"]
     AP["Automations page + kit AutomationPanel<br/><code>automations_page.tsx</code>, <code>automations.ts</code>"]
     BV["Board / Observe navigator / System<br/>tags from role + session_kind"]
+    DC["Discussion chat (panel-chat WorkflowChat)<br/><code>automation_discussion.tsx</code>"]
+    WB["Folder browser<br/><code>workspace_browser.tsx</code>"]
   end
   subgraph GW["AbstractGateway /api/gateway"]
     CAP["GET /discovery/capabilities<br/>contracts.common.automations"]
     AUTO["/automations: list, create, get,<br/>occurrences, PATCH revise,<br/>commands, discuss, seen<br/>+ /trigger-sources"]
     CMD["POST /commands<br/>resume with wait_key + payload<br/>legacy pause / resume"]
     RUNS["GET /runs, /runs/{id}/ledger"]
+    START["POST /runs/start<br/>session_id = the discussion"]
+    WS["GET /runs/{id}/workspace,<br/>/workspace/files, /workspace/content"]
   end
   subgraph RT[AbstractRuntime]
     CTRL["Controller root run<br/>role controller, waits for next tick"]
@@ -111,6 +117,13 @@ flowchart LR
   RUNS --> CTRL
   RUNS --> OCC
   RUNS --> DISC
+  AP --> DC
+  AP --> WB
+  DC -->|first message: discuss| AUTO
+  DC -->|later turns| START
+  DC -->|history, ledger stream| RUNS
+  START --> DISC
+  WB --> WS
   RUNS --> LEG
 ```
 

@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owned
+`use_context`, `input_data` without gateway-made folders) for items marked (gateway).
+
+### Added
+- **Files** on an automation browses its folder on the gateway host and opens
+  or downloads each file in the browser, through the gateway's workspace
+  routes; a discussion's chat has **Its files** and **Automation files**.
+- **Discuss** opens a chat with a fork of the automation on the Automations
+  page (row: latest finished run; panel: the chosen occurrence). Follow-ups
+  are later turns of the same discussion session, with the same model. The
+  chat is the shared AbstractUIC chat: live replies, tool approvals and
+  questions answered in place, Stop.
+- Automation states read as a word then its icon ("Active ▶", "Paused ⏸"),
+  and row actions and facts carry icons.
+
+### Changed
+- The automation's **Context** choice is the one history control: Automate
+  mode neither shows nor sends the workflow's **Use Context** input
+  (gateway).
+- Growing context copy: the most recent 50,000 tokens of whole turns are
+  replayed.
+
+### Fixed
+- Ask and Summary show the gateway's reason when it cannot answer, instead of
+  "(error: failed to generate answer)".
+- Ask about an automation (or any run) answers on gateways whose default text
+  model is an endpoint profile (gateway).
+- A new automation or launch no longer inherits the workspace folder of a run
+  viewed in Observe (gateway), and a reused gateway folder is refused with a
+  message that says to leave the field empty.
+
 ## [0.1.14] - 2026-09-27
 
 Automations need a gateway that advertises the Automations API
