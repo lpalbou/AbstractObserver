@@ -75,41 +75,39 @@ afterEach(() => {
   child = undefined;
 });
 
-describe("hosted Gateway URL guard (socket-peer authority)", () => {
-  // SSRF fix (uic, 2026-07-14): the local-operator gate reads the SOCKET
-  // PEER (req.socket.remoteAddress — unforgeable), never the Host header
-  // (client-controlled). Consequences pinned here from the loopback side:
-  // a genuine loopback peer may attempt reconfiguration REGARDLESS of the
-  // Host/X-Forwarded-Host strings it sends (spoofed headers neither grant
-  // nor deny), so the request proceeds past the transport gate and fails
-  // downstream on AUTH (the fake gateway/token) — never with the old
-  // Host-derived 403. The remote-peer→403 half needs a second interface
-  // and is live-verified instead (commons c1799: LAN peer + spoofed
-  // `Host: localhost` → 403).
-  it("loopback peers pass the transport gate even with a spoofed non-local Host header", async () => {
-    const port = await free_port();
-    child = spawn(process.execPath, ["bin/cli.js"], {
-      cwd: new URL("../..", import.meta.url),
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        ABSTRACTOBSERVER_GATEWAY_URL: "http://127.0.0.1:65534",
-      },
-    });
-    await wait_ready(port);
+async function start_observer(): Promise<number> {
+  const port = await free_port();
+  child = spawn(process.execPath, ["bin/cli.js"], {
+    cwd: new URL("../..", import.meta.url),
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      ABSTRACTOBSERVER_GATEWAY_URL: "http://127.0.0.1:65534",
+    },
+  });
+  await wait_ready(port);
+  return port;
+}
 
-    const response = await request_json(
-      port,
-      "POST",
-      "/api/connection/gateway",
-      { gateway_url: "http://127.0.0.1:65533", gateway_user_id: "alice", gateway_token: "secret" },
-      "observer.abstractframework.ai",
-      { "X-Forwarded-Host": "127.0.0.1" },
-    );
+const RECONFIGURE = { gateway_url: "http://127.0.0.1:65533", gateway_user_id: "alice", gateway_token: "secret" };
 
-    // Past the gate (no Host-based 403), failing on the unreachable
-    // gateway/credentials instead.
+describe("hosted Gateway URL guard (a browser on this machine = loopback peer AND loopback Host)", () => {
+  // The kit's gate (@abstractframework/app-server >= 0.1.11, requestContext
+  // clientIsLoopback): the socket peer must be loopback AND the Host must name
+  // loopback. A loopback peer that sends a non-local Host is a DNS-rebinding
+  // page and is refused. The remote-peer half needs a second interface and is
+  // covered by the kit's own tests.
+  it("a loopback peer with a non-local Host (DNS rebinding) is refused at the gate", async () => {
+    const port = await start_observer();
+    const response = await request_json(port, "POST", "/api/connection/gateway", RECONFIGURE, "observer.abstractframework.ai");
+    expect(response.status).toBe(403);
+    expect(String(response.body.detail || "")).toContain("Browser-supplied Gateway URL changes are disabled");
+  });
+
+  it("a loopback peer with a loopback Host passes the gate and fails downstream on the unreachable gateway", async () => {
+    const port = await start_observer();
+    const response = await request_json(port, "POST", "/api/connection/gateway", RECONFIGURE, "127.0.0.1:" + String(port));
     expect(response.status).not.toBe(403);
     expect(String(response.body.detail || "")).not.toContain("Browser-supplied Gateway URL changes are disabled");
     expect(response.status).toBeGreaterThanOrEqual(400);

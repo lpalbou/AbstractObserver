@@ -72,12 +72,16 @@ describe("mounted at /apps/observer/ (through the gateway)", () => {
     expect(html).toContain('"base_path":""');
   });
 
-  it("the folder reveal answers only a browser on this machine (the forwarded address, not the socket peer)", async () => {
+  it("the folder reveal answers only a browser on this machine (the forwarded address and a loopback Host, not the socket peer)", async () => {
     const body = JSON.stringify({ path: "run-folder" });
     const remote = await fetch(base + "/api/local/reveal", { method: "POST", body, headers: { ...MOUNT, "X-Forwarded-For": "203.0.113.7" } });
     expect(remote.status).toBe(403);
+    // A loopback address that names a non-loopback host (a DNS-rebinding page) is not "this machine".
+    const rebound = await fetch(base + "/api/local/reveal", { method: "POST", body, headers: { ...MOUNT, "X-Forwarded-For": "127.0.0.1" } });
+    expect(rebound.status).toBe(403);
     expect(spawned).toEqual([]);
-    const local = await fetch(base + "/api/local/reveal", { method: "POST", body, headers: { ...MOUNT, "X-Forwarded-For": "127.0.0.1" } });
+    const LOCAL_MOUNT = { ...MOUNT, "X-Forwarded-Host": "127.0.0.1:8080" };
+    const local = await fetch(base + "/api/local/reveal", { method: "POST", body, headers: { ...LOCAL_MOUNT, "X-Forwarded-For": "127.0.0.1" } });
     expect(local.status).toBe(200);
     expect(spawned.map((s) => s.args[0])).toEqual([join(dir, "ws", "run-folder")]);
   });
