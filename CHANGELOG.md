@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.1] - 2026-09-28
+
+Built with AbstractUIC ui-kit 0.1.16.
 
 ### Added
 - Every automation row control has a tooltip and `aria-description` saying

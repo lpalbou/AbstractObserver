@@ -158,7 +158,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.2.0 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.2.1 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -234,7 +234,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -490,7 +490,9 @@ export default defineConfig({
 
 # Changelog
 
-## [Unreleased]
+## [0.2.1] - 2026-09-28
+
+Built with AbstractUIC ui-kit 0.1.16.
 
 ### Added
 - Every automation row control has a tooltip and `aria-description` saying
