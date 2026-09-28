@@ -10,7 +10,13 @@
  */
 import React, { useEffect, useState, useSyncExternalStore } from "react";
 
-import { AutomationPanelWithMarkdown, WorkspaceBrowser, renderAutomationText, type AutomationPanelWithMarkdownProps } from "@abstractframework/panel-chat";
+import {
+  AutomationPanelWithMarkdown,
+  WorkspaceBrowser,
+  renderAutomationText,
+  type AutomationPanelWithMarkdownProps,
+  type GatewayFetch,
+} from "@abstractframework/panel-chat";
 import {
   AutomationStateLabel as KitAutomationStateLabel,
   DISCUSS_LABEL,
@@ -257,6 +263,9 @@ export type PanelHostHandlers = {
   on_open_run(run_id: string): void;
   /** Browse a run's folder (the automation id = its controller run). Absent: no folder controls. */
   on_open_workspace?(run_id: string): void;
+  /** Credentialed gateway request (`GatewayClient.fetch_gateway`): the panel opens a run's ledger and
+   * artifacts through it (panel-chat `openGatewayResource`, safe tab-open), never as raw links. */
+  fetch_gateway?: GatewayFetch;
   /** A discussion was forked at occurrence `index` (the full gateway answer, both workspace paths included). */
   on_open_session(session: DiscussResponse, notice: string, index: number): void;
 };
@@ -290,6 +299,7 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     onLoadMore: () => void ctl.load_more(),
     onOpenRun: (run_id) => host.on_open_run(run_id),
     ...(host.on_open_workspace ? { onOpenWorkspace: host.on_open_workspace } : {}),
+    ...(host.fetch_gateway ? { fetchGateway: host.fetch_gateway } : {}),
     onAnswerWait: (run_id, wait_key, payload) => ctl.answer_wait(id, run_id, wait_key, payload as Record<string, any>),
   };
 }
@@ -382,6 +392,7 @@ export function AutomationsPage(props: {
   useSyncExternalStore(
     (fn) => ctl.subscribe(fn),
     () => ctl.state,
+    () => ctl.state,
   );
   const [visible, set_visible] = useState(() => typeof document === "undefined" || document.visibilityState !== "hidden");
   useEffect(() => {
@@ -401,6 +412,7 @@ export function AutomationsPage(props: {
   const host: PanelHostHandlers = {
     ...props.host,
     on_open_workspace: (run_id) => set_files_run((cur) => (cur === run_id ? "" : run_id)),
+    fetch_gateway: props.gateway.fetch_gateway,
     on_open_session: (session, notice, index) => {
       props.host.on_open_session(session, notice, index);
       if (!detail) return;

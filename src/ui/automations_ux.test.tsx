@@ -12,8 +12,8 @@ import { tabOpenPlan } from "@abstractframework/panel-chat";
 
 import { GatewayClient } from "../lib/gateway_client";
 import { discussion_turn_target, observer_workflow_transport } from "./automation_discussion";
-import { AutomationDetailView, AutomationStateLabel, automation_panel_props, route_row_action, type AutomationsHandlers } from "./automations_page";
-import { discuss_index } from "./automations";
+import { AutomationDetailView, AutomationStateLabel, AutomationsPage, automation_panel_props, route_row_action, type AutomationsHandlers } from "./automations_page";
+import { INITIAL_AUTOMATIONS_STATE, discuss_index } from "./automations";
 
 function summary(over: Partial<AutomationSummary> = {}): AutomationSummary {
   return {
@@ -128,5 +128,70 @@ describe("the automation's folder in a web app: browse, open, download through t
     expect(transcript).toMatch(/pc-chat-item[^]*Three stories today\./);
     const bare = { on_open_run: () => {}, on_open_session: () => {} };
     expect(automation_panel_props(ctl, bare)!.onOpenWorkspace).toBeUndefined();
+  });
+});
+
+describe("gateway-supplied links (ledger, artifacts) open through the Observer's credentials", () => {
+  const occ = {
+    run_id: "r3", index: 3, attempts: 1, fired_at: "2026-09-28T00:00:00Z", finished_at: "2026-09-28T00:01:00Z", status: "completed",
+    trigger: { source_id: "schedule", summary: "every 1 day" }, user_turn: "Summarize", answer: "Done.", notify: null,
+    artifacts: [{ artifact_id: "a9", name: "digest.html", mime_type: "text/html", url: "/api/gateway/runs/r3/artifacts/a9/content" }],
+    waits: [], ledger_url: "/api/gateway/runs/r3/ledger",
+  };
+  const ctl_with = () =>
+    ({ state: { selected_id: "a1", busy: false, trigger_sources: [], detail: { automation_id: "a1", summary: summary(), occurrences: [occ], next_cursor: null } } }) as any;
+
+  async function opened_urls(base_url: string): Promise<{ urls: string[]; auth: Array<string | null>; tabs: string[] }> {
+    const urls: string[] = [];
+    const auth: Array<string | null> = [];
+    const tabs: string[] = [];
+    vi.stubGlobal("fetch", async (u: string, init: any) => {
+      urls.push(String(u));
+      auth.push(init?.headers?.Authorization ?? null);
+      return new Response("<script>alert(1)</script>", { status: 200, headers: { "Content-Type": "text/html" } });
+    });
+    vi.stubGlobal("window", { open: (u: string) => tabs.push(u), setTimeout: () => 0 });
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: (b: Blob) => `blob:${b.type}`, revokeObjectURL: () => {} }));
+    const gw = new GatewayClient({ base_url, auth_token: base_url ? "tok" : "" });
+    const p = automation_panel_props(ctl_with(), { on_open_run: () => {}, on_open_session: () => {}, fetch_gateway: gw.fetch_gateway })!;
+    const { AutomationPanelWithMarkdown } = await import("@abstractframework/panel-chat");
+    // The panel renders buttons (never raw hrefs) for the ledger and the artifact.
+    const html = renderToStaticMarkup(<AutomationPanelWithMarkdown {...p} />);
+    expect(html).toContain('data-action="open-ledger-json"');
+    expect(html).toContain('data-action="open-artifact"');
+    expect(html).not.toContain('href="/api/gateway/');
+    // What those buttons call: the kit's open through our fetch.
+    const { openGatewayResource } = await import("@abstractframework/panel-chat");
+    await openGatewayResource(gw.fetch_gateway, occ.ledger_url, { name: "ledger.json" });
+    await openGatewayResource(gw.fetch_gateway, occ.artifacts[0].url, { name: "digest.html" });
+    return { urls, auth, tabs };
+  }
+
+  it("mounted (same origin): relative to the base, through the app's session", async () => {
+    const r = await opened_urls("");
+    expect(r.urls).toEqual(["api/gateway/runs/r3/ledger", "api/gateway/runs/r3/artifacts/a9/content"]);
+    expect(r.tabs.every((t) => t === "blob:text/plain;charset=utf-8")).toBe(true); // HTML opens as text, never a page
+  });
+
+  it("direct gateway URL: <base>/api/gateway/… with this connection's bearer", async () => {
+    const r = await opened_urls("http://gw:8080");
+    expect(r.urls).toEqual(["http://gw:8080/api/gateway/runs/r3/ledger", "http://gw:8080/api/gateway/runs/r3/artifacts/a9/content"]);
+    expect(r.auth).toEqual(["Bearer tok", "Bearer tok"]);
+  });
+
+  it("the Automations page hands the panel the gateway client's fetch (ledger/artifact buttons present)", () => {
+    const base = ctl_with();
+    const ctl = { state: { ...INITIAL_AUTOMATIONS_STATE, ...base.state, items: [base.state.detail.summary] }, subscribe: () => () => {}, refresh: async () => {} } as any;
+    const gw = new GatewayClient({ base_url: "", auth_token: "" });
+    const html = renderToStaticMarkup(
+      <AutomationsPage ctl={ctl} gateway={gw} active={false} available={{ available: true, reason: "" }} host={{ on_open_run: () => {}, on_open_session: () => {} }} h={{} as AutomationsHandlers} />,
+    );
+    expect(html).toContain('data-action="open-ledger-json"');
+    expect(html).toContain('data-action="open-artifact"');
+  });
+
+  it("the panel is handed the Observer's credentialed fetch", () => {
+    const f = async () => new Response("");
+    expect(automation_panel_props(ctl_with(), { on_open_run: () => {}, on_open_session: () => {}, fetch_gateway: f })!.fetchGateway).toBe(f);
   });
 });

@@ -46,6 +46,9 @@ Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owne
   replayed.
 
 ### Fixed
+- A run's ledger and artifacts in the automation panel open through the
+  Observer's own credentials (session or bearer; mounted or direct), never
+  as raw gateway links; HTML and SVG open as text.
 - An HTML artifact preview shows its source instead of opening it as a page
   in the app's origin.
 - Ask and Summary show the gateway's reason when it cannot answer, instead of

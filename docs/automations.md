@@ -260,7 +260,9 @@ attempts, with:
 
 - **Open run ledger**: opens the run in **Observe** (timeline, ledger,
   provider calls, graph);
-- **Ledger (JSON)**: the gateway's raw ledger for that run;
+- **Ledger (JSON)**: the gateway's raw ledger for that run, opened in a new
+  tab through your connection (artifacts open the same way; HTML and SVG as
+  text);
 - **Workspace**: browse the run's folder (see [The automation's files](#the-automations-files)).
 
 ### Discuss a result
