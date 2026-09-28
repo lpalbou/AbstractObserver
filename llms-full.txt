@@ -38,8 +38,8 @@ Notes:
 
 ## Documentation (start here)
 - [README](README.md): Install and quickstart
-- [Getting started](docs/getting-started.md): Run the UI and connect to a gateway
-- [FAQ](docs/faq.md): Common questions (grounded in code), including the CLI `/api` session proxy and the About dialog
+- [Getting started](docs/getting-started.md): Run the UI and connect to a gateway; Ask about a run (whole conversation, History note when the 50k-token window drops older messages, error cards never sent back) vs the top-bar Assistant (one gateway session per conversation, New conversation, no tools)
+- [FAQ](docs/faq.md): Common questions (grounded in code), including the CLI `/api` session proxy, the About dialog, chat history windows and the tool-less Assistant
 - [Docs index](docs/README.md): What to read next
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): launch flags, serving under the gateway at /apps/observer/, UI settings, deployment patterns
@@ -190,7 +190,8 @@ See `docs/configuration.md` for the full list.
 All pages share the same gateway connection settings.
 
 - **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
-- **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
+- **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS)
+- **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
 - **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/edit (task, interval, context, tools — the row's Edit opens the form at once)/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
@@ -568,6 +569,11 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
   as on this machine only when its address is loopback and the page's host
   names loopback, so a DNS-rebinding page can neither reveal a folder nor
   change the Gateway URL.
+- The folder reveal (`POST api/local/reveal`) follows the rule of every
+  mutating route of the app's origin: it needs this browser session's CSRF
+  token in `X-AbstractObserver-CSRF` (or `X-Abstract-CSRF`), and a request
+  that names another site's `Origin` is refused. A cross-site POST could open
+  a file-manager window on any folder that exists on the machine.
 
 ### Fixed
 - A run's ledger and artifacts in the automation panel open through the
@@ -576,9 +582,13 @@ Ask, server-owned `use_context`, `input_data` without gateway-made folders).
 - An HTML artifact preview shows its source instead of opening it as a page
   in the app's origin.
 - Ask and Summary show the gateway's reason when it cannot answer, instead of
-  "(error: failed to generate answer)".
+  "(error: failed to generate answer)". The Ask chat's own "(error: …)" cards
+  are no longer sent back to the model as history with the next question.
 - Ask about an automation (or any run) answers on gateways whose default text
   model is an endpoint profile (gateway).
+- CI and release build against a pinned AbstractUIC release (`v0.1.15`)
+  instead of its default branch; the workflows no longer claim app-server is
+  a `file:` link.
 - A new automation or launch no longer inherits the workspace folder of a run
   viewed in Observe (gateway), and a reused gateway folder is refused with a
   message that says to leave the field empty.
@@ -2713,6 +2723,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Understand how automations map to gateway routes and runtime runs** → `architecture.md` → "Automations"
 - **Fix an automation problem (unavailable, 409 conflicts, a wait that cannot be answered)** → `troubleshooting.md` → "Automations"
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
+- **Ask about a run, or ask the Assistant about the Observer (history window, New conversation, no tools)** → `getting-started.md` → "Ask about a run, or ask the Assistant"
 - **See which version I run (About dialog)** → `faq.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
 - **Contribute changes** → `../CONTRIBUTING.md`
@@ -2814,9 +2825,31 @@ Go to **Observe** (or click a Board card):
   - **Ledger** (durable log; replay-first + streaming)
   - **Graph** (flow visualization from bundle/workflow flow data)
   - **Digest** (derived stats + summary)
-  - **Chat** (run-scoped chat; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
+  - **Ask** (ask about this run; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
 
 Architecture and data flow: `architecture.md`.
+
+## Ask about a run, or ask the Assistant
+Two chats, for two different questions:
+
+- **Ask** (a run's tab) answers questions about **that run**, grounded in its
+  ledger (subruns included). The model is the one in **Settings → Assistant**
+  (blank = the gateway's default). Every message of the conversation is sent,
+  whole; the gateway replays the newest whole messages up to 50,000 tokens.
+  When it had to leave older messages out, a **History** note under the
+  answer says so: "Earlier messages not replayed: 49 (~61,234 tokens). The
+  model read the newest 12 messages (history window: the most recent 50,000
+  tokens of whole messages)." When a request fails, the chat shows the
+  gateway's reason as an "(error: …)" card; that card is the Observer's, and
+  it is never sent back to the model with the next question.
+- **Assistant** (the top bar) answers questions about **the Observer
+  itself**, from its documentation index. Each conversation is one gateway
+  session: only your question is sent, and the gateway replays the earlier
+  turns of that conversation (newest whole turns up to 50,000 tokens); the
+  same **History** note shows when some were left out. **New conversation**
+  starts a new session and clears the thread, so nothing earlier is replayed.
+  The Assistant runs with **no tools**: it cannot read or write files or run
+  commands, whatever the gateway's default agent may do.
 
 ## Launch a run or create an automation
 Go to **Launch**:
@@ -2977,6 +3010,18 @@ and tell me what changed"): runs are turns of one conversation, and the
 replayed history is bounded to the most recent 50,000 tokens of whole turns.
 The Context choice also sets the workflow's `use_context` input, so there is
 no second control for it. See `automations.md` → "Context".
+
+## Does the Ask chat (or the Assistant) remember the whole conversation?
+It sends it (Ask) or the gateway keeps it in the conversation's session
+(Assistant); either way the model reads the newest whole messages up to
+50,000 tokens. When older ones were left out, a **History** note under the
+answer says how many. The Assistant's **New conversation** starts from
+nothing. Error cards ("(error: …)") are never sent to the model. See
+`getting-started.md` → "Ask about a run, or ask the Assistant".
+
+## Can the Assistant change files or run commands?
+No. The top-bar Assistant runs with no tools (an explicit empty tool list),
+so a documentation question can never write files or run commands.
 
 ## Why do the tools of my automation run without asking?
 Because an unattended run cannot stop at every tick, creating the automation
@@ -3852,7 +3897,8 @@ Launch flags (`abstractobserver --help`):
   pointer to the entity app.
 - `--gateway-dir <dir>` — directory used to resolve relative run workspace
   paths for the run workspace folder button (`POST api/local/reveal`, browsers
-  on this machine only). Defaults to the parent of the package directory.
+  on this machine only, signed in through this server's session: the request
+  carries the session's CSRF header). Defaults to the parent of the package directory.
 
 Environment variables are legacy aliases, below the flags: `PORT`, `HOST`,
 `ABSTRACTOBSERVER_GATEWAY_URL` / `ABSTRACTGATEWAY_URL`,
@@ -4015,6 +4061,10 @@ Guidance:
   A page from another site whose name resolves to `127.0.0.1` (DNS
   rebinding) is refused, for the folder reveal and for browser-supplied
   Gateway URL changes alike.
+- The folder reveal is a mutating route like the session proxy's: it needs
+  the browser session's CSRF token in the `X-AbstractObserver-CSRF` header
+  (a cross-site page can neither read the cookie nor send the header), and a
+  request whose `Origin` names another site is refused.
 - For shared deployments, put the gateway behind an authenticated reverse proxy and use HTTPS.
 
 ## Tokens and browser sessions

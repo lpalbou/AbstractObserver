@@ -18,6 +18,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Understand how automations map to gateway routes and runtime runs** → `architecture.md` → "Automations"
 - **Fix an automation problem (unavailable, 409 conflicts, a wait that cannot be answered)** → `troubleshooting.md` → "Automations"
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
+- **Ask about a run, or ask the Assistant about the Observer (history window, New conversation, no tools)** → `getting-started.md` → "Ask about a run, or ask the Assistant"
 - **See which version I run (About dialog)** → `faq.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
 - **Contribute changes** → `../CONTRIBUTING.md`

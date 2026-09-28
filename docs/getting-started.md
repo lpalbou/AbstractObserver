@@ -55,9 +55,31 @@ Go to **Observe** (or click a Board card):
   - **Ledger** (durable log; replay-first + streaming)
   - **Graph** (flow visualization from bundle/workflow flow data)
   - **Digest** (derived stats + summary)
-  - **Chat** (run-scoped chat; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
+  - **Ask** (ask about this run; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
 
 Architecture and data flow: `architecture.md`.
+
+## Ask about a run, or ask the Assistant
+Two chats, for two different questions:
+
+- **Ask** (a run's tab) answers questions about **that run**, grounded in its
+  ledger (subruns included). The model is the one in **Settings → Assistant**
+  (blank = the gateway's default). Every message of the conversation is sent,
+  whole; the gateway replays the newest whole messages up to 50,000 tokens.
+  When it had to leave older messages out, a **History** note under the
+  answer says so: "Earlier messages not replayed: 49 (~61,234 tokens). The
+  model read the newest 12 messages (history window: the most recent 50,000
+  tokens of whole messages)." When a request fails, the chat shows the
+  gateway's reason as an "(error: …)" card; that card is the Observer's, and
+  it is never sent back to the model with the next question.
+- **Assistant** (the top bar) answers questions about **the Observer
+  itself**, from its documentation index. Each conversation is one gateway
+  session: only your question is sent, and the gateway replays the earlier
+  turns of that conversation (newest whole turns up to 50,000 tokens); the
+  same **History** note shows when some were left out. **New conversation**
+  starts a new session and clears the thread, so nothing earlier is replayed.
+  The Assistant runs with **no tools**: it cannot read or write files or run
+  commands, whatever the gateway's default agent may do.
 
 ## Launch a run or create an automation
 Go to **Launch**:

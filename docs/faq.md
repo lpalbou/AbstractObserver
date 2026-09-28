@@ -125,6 +125,18 @@ replayed history is bounded to the most recent 50,000 tokens of whole turns.
 The Context choice also sets the workflow's `use_context` input, so there is
 no second control for it. See `automations.md` → "Context".
 
+## Does the Ask chat (or the Assistant) remember the whole conversation?
+It sends it (Ask) or the gateway keeps it in the conversation's session
+(Assistant); either way the model reads the newest whole messages up to
+50,000 tokens. When older ones were left out, a **History** note under the
+answer says how many. The Assistant's **New conversation** starts from
+nothing. Error cards ("(error: …)") are never sent to the model. See
+`getting-started.md` → "Ask about a run, or ask the Assistant".
+
+## Can the Assistant change files or run commands?
+No. The top-bar Assistant runs with no tools (an explicit empty tool list),
+so a documentation question can never write files or run commands.
+
 ## Why do the tools of my automation run without asking?
 Because an unattended run cannot stop at every tick, creating the automation
 approves its tool calls. Choose **Ask each time** in Launch → Automate to make

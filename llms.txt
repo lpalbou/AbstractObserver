@@ -22,8 +22,8 @@ Notes:
 
 ## Documentation (start here)
 - [README](README.md): Install and quickstart
-- [Getting started](docs/getting-started.md): Run the UI and connect to a gateway
-- [FAQ](docs/faq.md): Common questions (grounded in code), including the CLI `/api` session proxy and the About dialog
+- [Getting started](docs/getting-started.md): Run the UI and connect to a gateway; Ask about a run (whole conversation, History note when the 50k-token window drops older messages, error cards never sent back) vs the top-bar Assistant (one gateway session per conversation, New conversation, no tools)
+- [FAQ](docs/faq.md): Common questions (grounded in code), including the CLI `/api` session proxy, the About dialog, chat history windows and the tool-less Assistant
 - [Docs index](docs/README.md): What to read next
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): launch flags, serving under the gateway at /apps/observer/, UI settings, deployment patterns
