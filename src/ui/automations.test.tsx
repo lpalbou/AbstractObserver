@@ -77,7 +77,7 @@ let ids: string[];
 let client: AutomationsClient;
 let gateway: GatewayClient;
 let ctl: AutomationsController;
-let opened: { runs: string[]; sessions: Array<{ session_id: string; run_id: string; workspace_root: string; mounted_workspace: string }>; notices: string[] };
+let opened: { runs: string[]; sessions: Array<{ session_id: string; run_id: string; workspace_root: string; mounted_workspace: string }>; notices: string[]; indexes: number[] };
 
 function next_id(): string {
   const v = ids.shift();
@@ -90,9 +90,10 @@ const bundle_ref_for = (bid: string) => bundle_refs[bid] || "";
 
 const host_handlers: PanelHostHandlers = {
   on_open_run: (rid) => opened.runs.push(rid),
-  on_open_session: (d, notice) => {
+  on_open_session: (d, notice, index) => {
     opened.sessions.push(d);
     opened.notices.push(notice);
+    opened.indexes.push(index);
   },
 };
 
@@ -136,6 +137,12 @@ function summary_of(id: string): AutomationSummary {
   return s;
 }
 
+/** The text of a row field, icons aside (fields render as icon + text). */
+function field_text(html: string, field: string): string | null {
+  const m = new RegExp(`data-field="${field}"[^>]*>(?:<svg[^]*?</svg>)?\\s*(?:<span[^>]*>)?([^<]*)`).exec(html);
+  return m ? m[1].trim() : null;
+}
+
 async function automate(form: Partial<AutomateForm>, choice: WorkflowChoice, input_data: Record<string, any>, request_id: string) {
   const built = build_automate_request_memo({ ...DEFAULT_AUTOMATE_FORM, ...form }, { choice, bundle_ref_for, input_data }, new RequestIdMemo(() => request_id));
   if (!built.ok) throw new Error(built.errors.join("; "));
@@ -145,7 +152,7 @@ async function automate(form: Partial<AutomateForm>, choice: WorkflowChoice, inp
 beforeEach(async () => {
   stub = await startAutomationsStub({ now: () => NOW, pageSize: 2 });
   ids = [];
-  opened = { runs: [], sessions: [], notices: [] };
+  opened = { runs: [], sessions: [], notices: [], indexes: [] };
   client = createAutomationsClient({ fetch: (u, i) => fetch(u, i), baseUrl: stub.url, newId: next_id });
   gateway = new GatewayClient({ base_url: stub.url, auth_token: "" });
   ctl = new AutomationsController(client, observer_automations_host(gateway, () => "cmd-host", () => "2026-09-27T07:10:00Z"), []);
@@ -242,6 +249,15 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(bad({}, { kind: "bundle", bundle_id: "unpublished", flow_id: "main" }, { prompt: "x" })).toMatchObject({ ok: false, errors: [expect.stringMatching(/bundle_ref/)] });
   });
 
+  it("the Context choice is the one history control: a Launch-mode Use Context never rides into an automation", () => {
+    const built = build_automate_request_memo({ ...DEFAULT_AUTOMATE_FORM, context: "growing" }, { choice: news, bundle_ref_for, input_data: { prompt: "p", use_context: false, temperature: 0.2 } }, new RequestIdMemo(() => "ctx"));
+    expect(built.ok).toBe(true);
+    if (built.ok) {
+      expect(built.body.context).toEqual({ mode: "growing" });
+      expect(built.body.target.input_data).toEqual({ prompt: "p", temperature: 0.2 });
+    }
+  });
+
   it("a retry of the same body reuses its request id; a changed body mints a new one", () => {
     let n = 0;
     const memo = new RequestIdMemo(() => `req-${++n}`);
@@ -261,7 +277,9 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(html).toContain("When (UTC)");
     for (const p of SCHEDULE_PRESETS) expect(html).toContain(`data-preset="${p.label}"`);
     expect(html).toContain("Runs every 24 hours (UTC), first run now.");
-    expect(html).toContain("most recent 40 messages");
+    expect(html).toContain("the most recent 50,000 tokens of whole turns are replayed");
+    // One history control: the Context choice says it owns the flow's Use Context input.
+    expect(html).toContain('data-context-owns="use_context"');
     expect(html).not.toMatch(/daily at|local time|weekly on/i);
     const adv = unescape(renderToStaticMarkup(<AutomateAdvancedSchedule form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />));
     expect(adv).toContain("Title");
@@ -298,7 +316,7 @@ describe("Automations page", () => {
     expect(html).toContain(`next: ${formatUtc(NEWS.next_fire_at)}`);
     expect(html).toContain("next: none while paused");
     const inboxRow = html.slice(html.indexOf(`data-automation-id="${INBOX_ID}"`));
-    expect(inboxRow.slice(0, inboxRow.indexOf("</li>"))).toContain(`data-field="attention">${attentionLabel(INBOX)}`);
+    expect(field_text(inboxRow.slice(0, inboxRow.indexOf("</li>")), "attention")).toBe(attentionLabel(INBOX));
     const newsRow = html.slice(html.indexOf(`data-automation-id="${NEWS_ID}"`));
     expect(newsRow.slice(0, newsRow.indexOf("</li>"))).not.toContain('data-field="attention"'); // quiet stays quiet
   });
@@ -321,7 +339,7 @@ describe("Automations page", () => {
     await ctl.refresh();
     const html = list_html();
     const row = (id: string) => { const h = html.slice(html.indexOf(`data-automation-id="${id}"`)); return h.slice(0, h.indexOf("</li>")); };
-    expect(row(INBOX_ID)).toContain(`data-field="current">${currentOccurrenceLabel(INBOX)}`);
+    expect(field_text(row(INBOX_ID), "current")).toBe(currentOccurrenceLabel(INBOX));
     expect(row(NEWS_ID)).not.toContain('data-field="current"');
     expect(row(JOURNAL_ID)).toContain("next: none while paused");
   });
@@ -542,6 +560,7 @@ describe("Automations page", () => {
     expect(last_request("POST", `/api/gateway/automations/${INBOX_ID}/discuss`).body).toEqual({ request_id: "req-discuss-1", occurrence_index: 6, prompt: "Why was nothing urgent?" });
     expect(r.session_id).toBe("discussion-session:req-discuss-1");
     expect(opened.sessions).toEqual([r]);
+    expect(opened.indexes).toEqual([6]); // the page opens the chat on the fork at #6, in place
     // The answer carries the discussion's OWN workspace and the automation's folder mounted read-only
     // (the same keys as the gateway's recorded discuss response).
     const recorded = COMMANDS.items.find((c: any) => c.request.path.endsWith("/discuss")).response;

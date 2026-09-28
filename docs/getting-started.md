@@ -16,10 +16,13 @@ Run the packaged UI server (no build step):
 npx --yes --package @abstractframework/observer -- abstractobserver
 ```
 
-By default the server listens on `0.0.0.0:3001` (see `bin/cli.js`). To bind to localhost only:
+By default the server listens on `127.0.0.1:3001` and talks to the gateway
+installed on this computer. Choose another port or gateway with flags:
 ```bash
-HOST=127.0.0.1 PORT=3001 npx --yes --package @abstractframework/observer -- abstractobserver
+npx --yes --package @abstractframework/observer -- abstractobserver --port 3002 --gateway-url http://127.0.0.1:8080
 ```
+On a remote server, open the Observer through the gateway instead:
+`<gateway>/apps/observer/` (see `configuration.md`).
 
 Open `http://localhost:3001`.
 
@@ -28,7 +31,7 @@ Sign-in uses the shared AbstractFramework connection dialog. It opens
 automatically when this browser has no Gateway session, and is always one
 click away on the header connection badge (**Settings → Manage connection…**
 opens it too):
-- **Gateway URL**: pre-filled from the server's `ABSTRACTOBSERVER_GATEWAY_URL` (default `http://127.0.0.1:8080`).
+- **Gateway URL**: pre-filled from the server's `--gateway-url` (default: the gateway installed on this computer, else `http://127.0.0.1:8080`).
   - Leave it **blank** only if you deploy the UI and gateway **same-origin** (a reverse proxy routes `/api` to the gateway), or when using `npm run dev` (Vite dev proxy; see `vite.config.ts`).
 - **Gateway user** and **Gateway token**: use the user id and token assigned by
   the Gateway admin. The token is exchanged for an app-scoped browser session
@@ -69,7 +72,8 @@ Go to **Launch**:
 
 On the **Automations** page you pause, resume, run now, revise or archive an
 automation, read its runs as a conversation, answer runs that wait for you,
-and discuss a result in a separate session. Automations need a gateway that
+browse its files, and discuss a result in a chat with a fork of
+the automation, on the same page. Automations need a gateway that
 advertises the Automations API; otherwise the page says so.
 
 Details: `automations.md`; endpoints: `api.md`.

@@ -10,7 +10,7 @@ import React from "react";
 
 import { SCHEDULE_PRESETS, TOOL_APPROVAL_CONSENT } from "@abstractframework/ui-kit";
 
-import { CONTEXT_HELP, LAUNCH_MODE_HELP, automate_preview, type AutomateForm, type IntervalUnit, type LaunchMode } from "./automations";
+import { CONTEXT_HELP, CONTEXT_OWNS_HISTORY, LAUNCH_MODE_HELP, automate_preview, type AutomateForm, type IntervalUnit, type LaunchMode } from "./automations";
 
 /** Launch's mode switch with one sentence saying what the selected mode does. */
 export function LaunchModeSwitch(p: {
@@ -120,6 +120,9 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
           <input type="radio" name="automate_context" value="growing" checked={f.context === "growing"} disabled={p.disabled} onChange={() => p.on_change({ context: "growing" })} />{" "}
           <strong>Growing</strong> — {CONTEXT_HELP.growing}
         </label>
+        <p className="help_text muted" data-context-owns="use_context">
+          {CONTEXT_OWNS_HISTORY}
+        </p>
       </fieldset>
       <fieldset data-section="tools">
         <legend>Tools</legend>

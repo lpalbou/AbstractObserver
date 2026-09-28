@@ -19,7 +19,7 @@ This file intentionally embeds docs and small, high-signal project files. For la
 > Gateway-only observability UI (Web/PWA) for AbstractFramework runs: a browser SPA + tiny Node.js CLI that connects to an AbstractGateway HTTP API (HTTP fetch + SSE ledger streaming) and submits durable commands.
 
 This repository is UI-only:
-- The packaged CLI (`bin/cli.js`) serves static assets from `dist/` (SPA fallback) and proxies `/api` to Gateway after hosted browser-session sign-in, using the shared session proxy from the `@abstractframework/app-server` runtime dependency.
+- The packaged CLI (`bin/cli.js` + `bin/server.js`) serves `dist/` (SPA fallback) at `/` or through the gateway at `/apps/observer/` (app-server mount contract: identity header, `<base href>`, cookie path, forwarded client address) and proxies `api/` to the Gateway after browser-session sign-in, using `@abstractframework/app-server`.
 - The browser talks to same-origin `/api` in hosted mode; direct Gateway URLs remain available for local development via `src/lib/gateway_client.ts` (treat this file as the source of truth for HTTP endpoints and request shapes).
 - Hosted sign-in uses Gateway URL + user + token only to create an app-scoped browser session. Settings persistence strips Gateway bearer tokens. With `@abstractframework/app-server` 0.1.10 or newer the proxy sends the browser's connection address as `X-Forwarded-For` and `X-AbstractFramework-App-Proxy: abstractobserver` to the Gateway.
 - On non-local hosted UI hostnames, the server-configured Gateway URL is authoritative; browser-supplied Gateway URL changes are rejected unless `ABSTRACTOBSERVER_ALLOW_REMOTE_BROWSER_GATEWAY_CONFIG=1` is enabled behind access control. Forwarded host headers are trusted only when `ABSTRACTOBSERVER_TRUST_PROXY_HEADERS=1` or `ABSTRACTGATEWAY_TRUST_PROXY_HEADERS=1`.
@@ -42,19 +42,20 @@ Notes:
 - [FAQ](docs/faq.md): Common questions (grounded in code), including the CLI `/api` session proxy and the About dialog
 - [Docs index](docs/README.md): What to read next
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
-- [Configuration](docs/configuration.md): CLI env vars, UI settings, deployment patterns
+- [Configuration](docs/configuration.md): launch flags, serving under the gateway at /apps/observer/, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
-- [Automations](docs/automations.md): Launch → Automate (what, when in UTC intervals, independent/growing context, tool approval), the Automations page (controls, 409 conflicts), runs as a conversation, answering waits by kind, Discuss, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
+- [Automations](docs/automations.md): Launch → Automate (what, when in UTC intervals, independent/growing context, tool approval), the Automations page (controls, 409 conflicts), runs as a conversation, answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations)
 
 ## Key entrypoints (code)
-- [CLI server](bin/cli.js): static server (`PORT`, `HOST`, `ABSTRACTOBSERVER_GATEWAY_URL`), SPA fallback, `@abstractframework/app-server` session proxy, optional GPU widget config injection
+- [CLI](bin/cli.js) and [app server](bin/server.js): launch flags (`--gateway-url`, `--port`, `--host`, `--monitor-gpu`, `--entity-app-url`, `--gateway-dir`), mount-capable handler, session proxy, folder reveal (browsers on this machine only)
 - [App shell + pages](src/ui/app.tsx): settings, page routing, observe/launch flows, durable commands
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
 - [Automations rules + controller](src/ui/automations.ts): workflow choice (`@default`), create body, run tags, capability gate, legacy prefill, typed wait answers, page controller
 - [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring; the When/Context/Tools fields
+- [Discussion chat](src/ui/automation_discussion.tsx): panel-chat `WorkflowChat` + `presentInteraction` over the gateway client; folders through panel-chat `WorkspaceBrowser` (`/runs/{id}/workspace*`)
 - [Automations stub gateway](scripts/automations_stub_server.mjs): dev/test stub serving the ui-kit fixtures
 - [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy
 - [Package metadata](package.json): npm name/version, scripts, Node engine
@@ -67,7 +68,7 @@ Notes:
 
 ## Common tasks
 - Add/change a gateway capability: update `src/lib/gateway_client.ts` (source of truth) → update `docs/api.md` → run `npm test` + `npm run build`.
-- Change CLI behavior/config: update `bin/cli.js` → update `docs/configuration.md` → run `npm run build`.
+- Change CLI behavior/config: update `bin/cli.js` / `bin/server.js` → update `docs/configuration.md` → run `npm run build`.
 - Update docs for agents: edit docs → regenerate `llms-full.txt` with `npm run llms:full`.
 
 ## Optional (project meta)
@@ -103,7 +104,7 @@ The **entity app** (memory graph + visits UI) is its own package,
 *watches* entities — the Board's entities strip reads
 `GET /api/gateway/entities` + `/entities/{name}/card` — and its
 "Entities ↗" links point at the entity app deployment
-(`ABSTRACTOBSERVER_ENTITY_APP_URL`, default `http://127.0.0.1:3007`).
+(`--entity-app-url`, default `http://127.0.0.1:3007`).
 
 ## Where it fits (AbstractFramework ecosystem)
 AbstractObserver is one of the browser UIs in the **AbstractFramework** ecosystem:
@@ -164,10 +165,24 @@ npx --yes --package @abstractframework/observer@0.1.14 -- abstractobserver
 The CLI (`bin/cli.js`) serves the built UI and mounts the app-origin Gateway
 session proxy from `@abstractframework/app-server` (a runtime dependency of
 this package, installed automatically).
-- `PORT` (default `3001`)
-- `HOST` (default `0.0.0.0`)
-- `ABSTRACTOBSERVER_GATEWAY_URL` (or `ABSTRACTGATEWAY_URL`) — the Gateway this server signs in to and proxies `/api` to (default `http://127.0.0.1:8080`)
-- `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=on` (enables the optional GPU widget)
+- `--gateway-url <url>` (aliases `--gateway`, `--url`) — the Gateway this server
+  signs in to and proxies `/api` to. Default: the gateway installed on this
+  computer (`~/.abstractframework/gateway.json`, followed when it moves port),
+  else `http://127.0.0.1:8080`.
+- `--port <n>` (default `3001`) and `--host <addr>` (default `127.0.0.1`)
+- `--monitor-gpu` — the optional GPU widget
+- `--entity-app-url <url>` — where the entity app lives (the "Entities ↗" links)
+- `--gateway-dir <dir>` — base for relative run workspace paths (local folder reveal)
+
+Environment variables are legacy aliases below the flags: `PORT`, `HOST`,
+`ABSTRACTOBSERVER_GATEWAY_URL`, `ABSTRACTGATEWAY_URL`,
+`ABSTRACTOBSERVER_MONITOR_GPU`, `ABSTRACTOBSERVER_ENTITY_APP_URL`,
+`ABSTRACTOBSERVER_GATEWAY_DIR`.
+
+The gateway can also serve the Observer through itself at `/apps/observer/`
+(one port and one address for the console, the API and the apps, e.g. on a
+remote server): the gateway starts this server on `127.0.0.1` and relays to
+it. `abstractobserver --help` lists the flags.
 
 See `docs/configuration.md` for the full list.
 
@@ -178,7 +193,7 @@ All pages share the same gateway connection settings.
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
-- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), and Discuss (a fork at an occurrence with its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
+- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
@@ -288,278 +303,68 @@ See `docs/development.md` for details.
 #!/usr/bin/env node
 
 /**
- * CLI entry point for AbstractObserver
- * Serves the built web application on a configurable port
+ * AbstractObserver: serves the built app. Standalone at http://<host>:<port>/,
+ * or through the gateway at /apps/observer/ (the gateway relays to this
+ * server on 127.0.0.1; see bin/server.js).
+ *
+ *   abstractobserver [--gateway-url <url>] [--port <n>] [--host <addr>]
+ *                    [--monitor-gpu] [--entity-app-url <url>] [--gateway-dir <dir>]
+ *
+ * Environment variables are legacy aliases below the flags (PORT, HOST,
+ * ABSTRACTOBSERVER_GATEWAY_URL, ABSTRACTGATEWAY_URL, ABSTRACTOBSERVER_MONITOR_GPU,
+ * ABSTRACTOBSERVER_ENTITY_APP_URL, ABSTRACTOBSERVER_GATEWAY_DIR).
  */
 
-import * as http from 'http';
-import { readFileSync, existsSync, statSync } from 'fs';
-import { join, extname, dirname, resolve, isAbsolute } from 'path';
-import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
-import { createGatewaySessionProxy } from '@abstractframework/app-server';
+import * as http from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIST_DIR = join(__dirname, '..', 'dist');
-const PORT = process.env.PORT || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
-// ONE app since the 2026-07-12 split: the entity view moved to its own
-// package (abstractentity, :3007). The ABSTRACTOBSERVER_LANDING knob died
-// with it — this server always lands on index.html.
-const DEFAULT_GATEWAY_URL = String(process.env.ABSTRACTOBSERVER_GATEWAY_URL || process.env.ABSTRACTGATEWAY_URL || 'http://127.0.0.1:8080').trim().replace(/\/+$/, '') || 'http://127.0.0.1:8080';
-// Where the ENTITY app lives — drives the "Entities ↗" links in the UI.
-// Normalized to origin+path (query/hash dropped): both consumers append
-// their own query (`/entity.html` redirect here, deep links in the UI),
-// so a configured value carrying `?` would produce malformed URLs.
-const ENTITY_APP_URL = (() => {
-  const raw = String(process.env.ABSTRACTOBSERVER_ENTITY_APP_URL || '').trim();
-  if (!raw) return '';
-  try {
-    const u = new URL(raw);
-    return `${u.origin}${u.pathname}`.replace(/\/+$/, '');
-  } catch {
-    return raw.split(/[?#]/)[0].replace(/\/+$/, '');
-  }
-})();
-const ARGV = process.argv.slice(2);
-const MONITOR_GPU =
-  ARGV.includes("--monitor-gpu") ||
-  ["1", "true", "yes", "on"].includes(String(process.env.ABSTRACTOBSERVER_MONITOR_GPU || "").trim().toLowerCase());
+import { createGatewayUrlResolver, parseAppFlagsOrExit } from "@abstractframework/app-server";
 
-// MIME types for common file extensions
-const MIME_TYPES = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.webmanifest': 'application/manifest+json',
-};
+import { createObserverHandler } from "./server.js";
 
-function getMimeType(filePath) {
-  const ext = extname(filePath).toLowerCase();
-  return MIME_TYPES[ext] || 'application/octet-stream';
-}
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TRUE = ["1", "true", "yes", "on"];
 
-function inject_config_html(html) {
-  const ui_config = {};
-  if (MONITOR_GPU) ui_config.monitor_gpu = true;
-  // THIS deployment's gateway (maintainer incident 2026-07-09: the sign-in
-  // card showed a retired gateway's URL) — the UI's connect/sign-in surfaces
-  // default to it instead of any hardcoded historical port.
-  if (DEFAULT_GATEWAY_URL) ui_config.gateway_url = DEFAULT_GATEWAY_URL;
-  if (ENTITY_APP_URL) ui_config.entity_app_url = ENTITY_APP_URL;
-  if (!Object.keys(ui_config).length) return html;
-  const marker = "window.__ABSTRACT_UI_CONFIG__";
-  if (html.includes(marker)) return html;
-  const snippet = `<script>${marker}=Object.assign(${marker}||{}, ${JSON.stringify(ui_config)});</script>`;
-  if (html.includes("</head>")) return html.replace("</head>", `${snippet}\n</head>`);
-  if (html.includes("</body>")) return html.replace("</body>", `${snippet}\n</body>`);
-  return `${html}\n${snippet}\n`;
-}
-
-function serveFile(res, filePath) {
-  try {
-    if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-      return false;
-    }
-    const mimeType = getMimeType(filePath);
-
-    if (mimeType === "text/html") {
-      const html = readFileSync(filePath, "utf8");
-      const content = inject_config_html(html);
-      res.writeHead(200, {
-        "Content-Type": `${mimeType}; charset=utf-8`,
-        "Cache-Control": "no-cache",
-      });
-      res.end(content);
-      return true;
-    }
-
-    const content = readFileSync(filePath);
-    res.writeHead(200, {
-      'Content-Type': mimeType,
-      'Cache-Control': 'no-cache',
-    });
-    res.end(content);
-    return true;
-  } catch (err) {
-    return false;
-  }
-}
-
-// APP-ORIGIN GATEWAY SESSION PROXY - the shared @abstractframework/app-server
-// module (extracted from this file's hardened copy; one source across
-// observer/flow/abstractcode per the 2026-07-12 consolidation). Cookie names
-// (abstractobserver_gateway_*), the x-abstractobserver-csrf header, and the
-// ABSTRACTOBSERVER_* / ABSTRACTGATEWAY_* env gates are all derived from appId,
-// so existing sessions and deployment security posture survive the swap.
-const gatewaySessionProxy = createGatewaySessionProxy({
-  appId: 'abstractobserver',
-  defaultGatewayUrl: DEFAULT_GATEWAY_URL,
+const flags = parseAppFlagsOrExit(process.argv.slice(2), {
+  appName: "AbstractObserver",
+  command: "abstractobserver",
+  envPrefix: "ABSTRACTOBSERVER",
+  defaultPort: 3001,
+  extra: {
+    "monitor-gpu": { type: "boolean", help: "Show the gateway host's GPU monitor in the header." },
+    "entity-app-url": { type: "string", metavar: "url", help: "Where the entity app lives (the Entities ↗ links)." },
+    "gateway-dir": {
+      type: "string",
+      metavar: "dir",
+      help: "Folder that relative workspace roots are resolved against for the local folder reveal (default: this package's parent folder).",
+    },
+  },
 });
 
-// ── LOCAL FOLDER REVEAL (operator 2026-07-15: a folder button on the run
-// opens its workspace). Only meaningful when this server runs on the SAME
-// machine as the gateway (the local-first posture). Gateway workspace roots
-// are often RELATIVE to the gateway process cwd — resolve against
-// ABSTRACTOBSERVER_GATEWAY_DIR (default: the workspace parent this repo
-// lives in, matching the launcher layout).
-const GATEWAY_DIR = String(process.env.ABSTRACTOBSERVER_GATEWAY_DIR || join(__dirname, '..', '..')).trim();
+// The gateway URL follows the local gateway pointer (a gateway that moves
+// port is followed) unless a flag or a legacy variable chose it.
+const gatewayUrl =
+  flags.gatewayUrlSource === "flag" || flags.gatewayUrlSource.startsWith("env:")
+    ? flags.gatewayUrl
+    : createGatewayUrlResolver({});
 
-function resolveWorkspacePath(raw) {
-  const p = String(raw || '').trim();
-  if (!p || p.includes('\0')) return null;
-  const abs = isAbsolute(p) ? p : resolve(GATEWAY_DIR, p);
-  try {
-    if (existsSync(abs) && statSync(abs).isDirectory()) return abs;
-  } catch {}
-  return null;
-}
-
-function handleRevealRequest(req, res, pathname) {
-  if (pathname !== '/api/local/reveal' || req.method !== 'POST') return false;
-  // Loopback only: revealing Finder windows on a remotely-served observer
-  // is someone else's desktop. The socket peer is the truth (Host spoofable).
-  const peer = String(req.socket?.remoteAddress || '');
-  const loopback = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
-  if (!loopback) {
-    res.writeHead(403, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: false, error: 'Folder reveal is only available on the machine running the observer.' }));
-    return true;
-  }
-  let body = '';
-  req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
-  req.on('end', () => {
-    let path = '';
-    try { path = String(JSON.parse(body || '{}').path || ''); } catch {}
-    const abs = resolveWorkspacePath(path);
-    if (!abs) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: `Workspace folder not found on this machine: ${path || '(empty)'}` }));
-      return;
-    }
-    const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
-    try {
-      // `open <dir>` reveals a folder; never a shell, never arbitrary exec.
-      spawn(cmd, [abs], { stdio: 'ignore', detached: true }).unref();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, path: abs }));
-    } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: String(e && e.message || e) }));
-    }
-  });
-  return true;
-}
-
-const server = http.createServer((req, res) => {
-  // Remove query strings and normalize path
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  let pathname = url.pathname;
-
-  // Local-machine folder reveal (before the proxy: /api/local/* is OURS,
-  // never forwarded to the gateway).
-  if (handleRevealRequest(req, res, pathname)) {
-    return;
-  }
-
-  // Connection endpoint + everything under /api/ (proxied to the gateway
-  // with session cookies swapped for gateway headers).
-  if (gatewaySessionProxy.handle(req, res, pathname)) {
-    return;
-  }
-  
-  // Security: prevent directory traversal
-  if (pathname.includes('..')) {
-    res.writeHead(400);
-    res.end('Bad Request');
-    return;
-  }
-
-  if (pathname === '/' || pathname === '') {
-    pathname = '/index.html';
-  }
-
-  // Try to serve the requested file
-  let filePath = join(DIST_DIR, pathname);
-  
-  if (serveFile(res, filePath)) {
-    return;
-  }
-
-  // An EXPLICIT .html request that misses must fail loudly, never fall
-  // through to the SPA fallback (maintainer incident 2026-07-09: the wrong
-  // app wearing the right URL is worse than a 404). /entity.html was real
-  // here before the 2026-07-12 split — send old bookmarks to the entity
-  // app's own deployment when we know it, otherwise say where it went.
-  if (pathname.endsWith('.html')) {
-    if (pathname === '/entity.html' && ENTITY_APP_URL) {
-      res.writeHead(302, { Location: `${ENTITY_APP_URL}/${url.search || ''}` });
-      res.end();
-      return;
-    }
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end(
-      pathname === '/entity.html'
-        ? 'The entity app moved to its own package (abstractentity, default http://127.0.0.1:3007). '
-          + 'Set ABSTRACTOBSERVER_ENTITY_APP_URL to make this a redirect.'
-        : `${pathname} is not in this build (dist/). This server hosts the AbstractObserver app only.`
-    );
-    return;
-  }
-
-  // Try with .html extension
-  if (serveFile(res, filePath + '.html')) {
-    return;
-  }
-
-  // Try index.html in directory
-  if (serveFile(res, join(filePath, 'index.html'))) {
-    return;
-  }
-
-  // SPA fallback
-  const indexPath = join(DIST_DIR, 'index.html');
-  if (serveFile(res, indexPath)) {
-    return;
-  }
-
-  // If nothing works, return 404
-  res.writeHead(404);
-  res.end('Not Found');
+const handler = createObserverHandler({
+  distDir: join(HERE, "..", "dist"),
+  gatewayUrl,
+  monitorGpu: Boolean(flags.extra["monitor-gpu"]) || TRUE.includes(String(process.env.ABSTRACTOBSERVER_MONITOR_GPU || "").trim().toLowerCase()),
+  entityAppUrl: String(flags.extra["entity-app-url"] || process.env.ABSTRACTOBSERVER_ENTITY_APP_URL || ""),
+  gatewayDir: String(flags.extra["gateway-dir"] || process.env.ABSTRACTOBSERVER_GATEWAY_DIR || join(HERE, "..", "..")),
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`
-╔════════════════════════════════════════════════════╗
-║         AbstractObserver is running!               ║
-╚════════════════════════════════════════════════════╝
-
-  🌐 Local:   http://localhost:${PORT}
-  🌐 Network: http://${HOST}:${PORT}
-
-  📡 Connect to your AbstractGateway instance
-  🚀 Start observing your workflows
-
-  Press Ctrl+C to stop
-`);
+const server = http.createServer(handler);
+server.listen(flags.port, flags.host, () => {
+  const gw = typeof gatewayUrl === "string" ? gatewayUrl : gatewayUrl.current();
+  console.log(`AbstractObserver on http://${flags.host}:${flags.port}/ (gateway ${gw}, ${flags.gatewayUrlSource})`);
+  console.log("Through the gateway: <gateway>/apps/observer/");
 });
 
-process.on('SIGINT', () => {
-  console.log('\n\n👋 Shutting down AbstractObserver...\n');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('\n\n👋 Shutting down AbstractObserver...\n');
-  process.exit(0);
-});
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(0));
 
 ---
 
@@ -623,6 +428,9 @@ function packageVersion(): string {
 }
 
 export default defineConfig({
+  // Relative asset URLs: the same build serves at / and under the gateway's
+  // /apps/observer/ (the app server sets <base href>).
+  base: "./",
   plugins: [gatewaySessionDevProxy(), react()],
   define: {
     __APP_VERSION__: JSON.stringify(packageVersion()),
@@ -682,6 +490,63 @@ export default defineConfig({
 # Changelog
 
 ## Unreleased
+
+Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owned
+`use_context`, `input_data` without gateway-made folders) for items marked (gateway).
+
+### Added
+- The folder button next to an automation's **Workspace** (and **Workspace**
+  in a run's details) browses that folder on the gateway host and opens or
+  downloads each file in the browser, through the gateway's workspace routes;
+  a discussion's chat has **Its files** and **Automation files**. HTML, SVG and
+  other text files open as plain text.
+- **Discuss** opens a chat with a fork of the automation on the Automations
+  page (row: latest finished run; panel: the chosen occurrence). Follow-ups
+  are later turns of the same discussion session, with the same model. The
+  chat is the shared AbstractUIC chat: live replies, tool approvals and
+  questions answered in place, Stop.
+- Automation states read as a word then its icon ("Active ▶", "Paused ⏸"),
+  row actions and facts carry icons, and runs read as chat cards (shared
+  AbstractUIC components).
+
+- The gateway can serve the Observer through itself at `/apps/observer/`
+  (one port and one address for the console, the API and the apps): the
+  server announces `X-AbstractFramework-App: observer; mount=1`, puts
+  `<base href>` in the page, sets its session cookies at the mount's path and
+  decides "browser on this machine" from the address the gateway forwards.
+  The same build keeps working at `/`.
+- Launch flags: `--gateway-url` (aliases `--gateway`, `--url`), `--port`,
+  `--host`, `--monitor-gpu`, `--entity-app-url`, `--gateway-dir`, `--help`.
+  Without `--gateway-url` the server talks to the gateway installed on this
+  computer (`~/.abstractframework/gateway.json`) and follows it when it moves
+  port.
+
+### Changed
+- The server binds `127.0.0.1` by default (was `0.0.0.0`); pass
+  `--host 0.0.0.0` to reach it directly from other machines, or open it
+  through the gateway at `/apps/observer/`. `PORT`, `HOST` and the
+  `ABSTRACTOBSERVER_*` variables are legacy aliases below the flags.
+- Every URL the app uses is relative to the page's base (assets, the gateway
+  API, the session endpoint, the service worker and its scope, the manifest).
+- The automation's **Context** choice is the one history control: Automate
+  mode neither shows nor sends the workflow's **Use Context** input
+  (gateway).
+- Growing context copy: the most recent 50,000 tokens of whole turns are
+  replayed.
+
+### Fixed
+- A run's ledger and artifacts in the automation panel open through the
+  Observer's own credentials (session or bearer; mounted or direct), never
+  as raw gateway links; HTML and SVG open as text.
+- An HTML artifact preview shows its source instead of opening it as a page
+  in the app's origin.
+- Ask and Summary show the gateway's reason when it cannot answer, instead of
+  "(error: failed to generate answer)".
+- Ask about an automation (or any run) answers on gateways whose default text
+  model is an endpoint profile (gateway).
+- A new automation or launch no longer inherits the workspace folder of a run
+  viewed in Observe (gateway), and a reused gateway folder is refused with a
+  message that says to leave the field empty.
 
 ## [0.1.14] - 2026-09-27
 
@@ -2875,10 +2740,13 @@ Run the packaged UI server (no build step):
 npx --yes --package @abstractframework/observer -- abstractobserver
 ```
 
-By default the server listens on `0.0.0.0:3001` (see `bin/cli.js`). To bind to localhost only:
+By default the server listens on `127.0.0.1:3001` and talks to the gateway
+installed on this computer. Choose another port or gateway with flags:
 ```bash
-HOST=127.0.0.1 PORT=3001 npx --yes --package @abstractframework/observer -- abstractobserver
+npx --yes --package @abstractframework/observer -- abstractobserver --port 3002 --gateway-url http://127.0.0.1:8080
 ```
+On a remote server, open the Observer through the gateway instead:
+`<gateway>/apps/observer/` (see `configuration.md`).
 
 Open `http://localhost:3001`.
 
@@ -2887,7 +2755,7 @@ Sign-in uses the shared AbstractFramework connection dialog. It opens
 automatically when this browser has no Gateway session, and is always one
 click away on the header connection badge (**Settings → Manage connection…**
 opens it too):
-- **Gateway URL**: pre-filled from the server's `ABSTRACTOBSERVER_GATEWAY_URL` (default `http://127.0.0.1:8080`).
+- **Gateway URL**: pre-filled from the server's `--gateway-url` (default: the gateway installed on this computer, else `http://127.0.0.1:8080`).
   - Leave it **blank** only if you deploy the UI and gateway **same-origin** (a reverse proxy routes `/api` to the gateway), or when using `npm run dev` (Vite dev proxy; see `vite.config.ts`).
 - **Gateway user** and **Gateway token**: use the user id and token assigned by
   the Gateway admin. The token is exchanged for an app-scoped browser session
@@ -2928,7 +2796,8 @@ Go to **Launch**:
 
 On the **Automations** page you pause, resume, run now, revise or archive an
 automation, read its runs as a conversation, answer runs that wait for you,
-and discuss a result in a separate session. Automations need a gateway that
+browse its files, and discuss a result in a chat with a fork of
+the automation, on the same page. Automations need a gateway that
 advertises the Automations API; otherwise the page says so.
 
 Details: `automations.md`; endpoints: `api.md`.
@@ -2994,17 +2863,15 @@ Examples:
 - global install: `npm install -g @abstractframework/observer && abstractobserver`
 
 ## How do I change the port / host?
-The packaged CLI reads:
-- `PORT` (default `3001`)
-- `HOST` (default `0.0.0.0`)
-
-Evidence: `bin/cli.js`.
+With launch flags: `abstractobserver --port 3002 --host 127.0.0.1` (defaults
+`3001` and `127.0.0.1`; `PORT` / `HOST` still work as legacy aliases). See
+`configuration.md`.
 
 ## Does the CLI proxy `/api` to my gateway?
 Yes, once you are signed in. The CLI serves `dist/` and mounts the shared
 `@abstractframework/app-server` session proxy: after you sign in from the
 connection dialog, same-origin `/api/...` calls go to the configured gateway
-(`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`) with the
+(`--gateway-url`, default: the gateway installed on this computer) with the
 session attached server-side. Without a session the proxy answers
 `401 Gateway sign-in required`.
 
@@ -3072,8 +2939,9 @@ Guide: `automations.md`.
 **Independent** (default) when every run stands alone ("check the machine").
 **Growing** when each run should see the previous ones ("follow this market
 and tell me what changed"): runs are turns of one conversation, and the
-replayed history is bounded to the most recent 40 messages (at most 24,000
-characters). See `automations.md` → "Context".
+replayed history is bounded to the most recent 50,000 tokens of whole turns.
+The Context choice also sets the workflow's `use_context` input, so there is
+no second control for it. See `automations.md` → "Context".
 
 ## Why do the tools of my automation run without asking?
 Because an unattended run cannot stop at every tick, creating the automation
@@ -3091,10 +2959,16 @@ refused while an occurrence is in progress (`automation_busy`).
 
 ## Does discussing a result change the automation?
 No. **Discuss** forks the automation at that occurrence: a new session with
-the automation's history up to it (runs 1 to N), opened in Observe. It works
+the automation's history up to it (runs 1 to N), opened as a chat on the
+Automations page. It works
 in its own writable workspace, with the automation's folder mounted read-only
 for the file tools (shell commands are not sandboxed); nothing is written back
 into the automation's session or its next runs.
+
+## How do I get the files an automation wrote, when the gateway runs on another machine?
+Select the automation and press the folder button next to **Workspace**: the Observer lists its folder
+through the gateway and opens or downloads each file in your browser. See
+`automations.md` → "The automation's files".
 
 ## Why is my automation not on the Board?
 An automation between runs is not a run you can act on, so it lives on the
@@ -3244,7 +3118,7 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (Run once | Automate, bundle upload/reload): `src/ui/app.tsx`, `src/ui/automate_form.tsx` + `GatewayClient.start_run()` / the ui-kit automations client
-- **Automations** (list, the kit's `AutomationPanel`, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts` + `GatewayClient.automations_client()`
+- **Automations** (list, the kit's `AutomationPanel`, the folder browser, the discussion chat, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts`, `src/ui/automation_discussion.tsx` + `GatewayClient.automations_client()` / `fetch_gateway()` / panel-chat's `WorkflowChat` and `WorkspaceBrowser`
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
@@ -3253,7 +3127,9 @@ The Automations page and Launch → Automate are thin clients of the gateway's
 Automations API. The gateway owns the automation (definition, trigger,
 attention) and drives it in AbstractRuntime: each automation is a controller
 root run that waits between ticks, each tick starts an occurrence (a child
-run), and **Discuss** forks a separate discussion session. The Observer reads
+run), and **Discuss** forks a separate discussion session, which the page
+shows as a chat (later turns: `POST /runs/start` with its `session_id`). The
+automation's folder is read through `/runs/{automation_id}/workspace*`. The Observer reads
 these runs back through `/runs` and tags them from the gateway's attribution
 (`role`, `session_kind`), never from workflow names.
 
@@ -3263,12 +3139,16 @@ flowchart LR
     L["Launch → Automate<br/><code>automate_form.tsx</code>"]
     AP["Automations page + kit AutomationPanel<br/><code>automations_page.tsx</code>, <code>automations.ts</code>"]
     BV["Board / Observe navigator / System<br/>tags from role + session_kind"]
+    DC["Discussion chat (panel-chat WorkflowChat)<br/><code>automation_discussion.tsx</code>"]
+    WB["Folder browser<br/>panel-chat <code>WorkspaceBrowser</code>"]
   end
   subgraph GW["AbstractGateway /api/gateway"]
     CAP["GET /discovery/capabilities<br/>contracts.common.automations"]
     AUTO["/automations: list, create, get,<br/>occurrences, PATCH revise,<br/>commands, discuss, seen<br/>+ /trigger-sources"]
     CMD["POST /commands<br/>resume with wait_key + payload<br/>legacy pause / resume"]
     RUNS["GET /runs, /runs/{id}/ledger"]
+    START["POST /runs/start<br/>session_id = the discussion"]
+    WS["GET /runs/{id}/workspace,<br/>/workspace/files, /workspace/content"]
   end
   subgraph RT[AbstractRuntime]
     CTRL["Controller root run<br/>role controller, waits for next tick"]
@@ -3290,6 +3170,13 @@ flowchart LR
   RUNS --> CTRL
   RUNS --> OCC
   RUNS --> DISC
+  AP --> DC
+  AP --> WB
+  DC -->|first message: discuss| AUTO
+  DC -->|later turns| START
+  DC -->|history, ledger stream| RUNS
+  START --> DISC
+  WB --> WS
   RUNS --> LEG
 ```
 
@@ -3410,8 +3297,10 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `GET /api/gateway/automations/{id}` and `GET /api/gateway/automations/{id}/occurrences?cursor=&limit=` — the panel
 - `PATCH /api/gateway/automations/{id}` — revise (`expected_revision`)
 - `POST /api/gateway/automations/{id}/commands` — `automation.pause|resume|run_now|stop_current|archive`
-- `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened in Observe); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
+- `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened as a chat on the Automations page); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
 - `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item
+- `POST /api/gateway/runs/start` with the discussion's `session_id` — a later turn of a discussion (the gateway re-stamps its workspace, mount and history); the chat reads it with `GET /api/gateway/runs/{run_id}`, `/history_bundle?include_session=true`, `/ledger` and `/ledger/stream`
+- `GET /api/gateway/runs/{run_id}/workspace`, `/workspace/files?path=`, `/workspace/content?path=` — browse a run's folder and open or download its files (an automation's id is its controller run, so the automation's folder is `runs/{automation_id}/workspace`)
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
 - `POST /api/gateway/commands` — answer an occurrence's wait with `type: "resume"` and `{wait_key, payload}` on the waiting run; the payload follows the wait's kind: `ask_user` → `{response}`, `tool_approval` → `{approved, tool_ids?}`, `event` → `{payload}`. Legacy schedule rows use `pause` / `resume` (run now = `resume` with `{payload: {mode: "run_now", requested_at}}`).
 - `GET /api/gateway/runs/{run_id}` + `GET /api/gateway/runs/{run_id}/input_data` — read a legacy schedule for **Recreate as automation**
@@ -3575,8 +3464,12 @@ first run now." or "Runs every minute (UTC), first run now."; it reads
 - **Independent** (default): each run starts fresh in its own session. Runs
   never see each other.
 - **Growing**: each run is a new turn of one conversation and sees the
-  previous runs. The history is bounded: the most recent 40 messages (at most
-  24,000 characters) are replayed; older runs drop out.
+  previous runs. The history is bounded: the most recent 50,000 tokens of
+  whole turns are replayed; older runs drop out.
+
+The Context choice is the one history control of an automation. The gateway
+sets the workflow's `use_context` input from it, so Automate mode does not
+show the workflow's **Use Context** input (Run once still does).
 
 ### Tools
 
@@ -3597,6 +3490,10 @@ option you choose.
   after this many runs**, **Stop at (UTC)**;
 - the skills picker (the gateway resolves the selected skills through its
   trust gate), the workspace, and bundle upload / reload.
+
+Leave **Workspace Root** empty: the gateway then creates a folder of its own
+for the automation. A folder the gateway made for another conversation, run or
+automation is refused, and the Observer never copies one into a new form.
 
 ### Create
 
@@ -3624,8 +3521,9 @@ readable.
 
 Each row shows:
 
-- the title, the state (active, paused, completed, failed, archived) and,
-  when something needs you, a badge such as "2 unseen · 1 waiting for you";
+- the title, the state as a word followed by its icon ("Active ▶",
+  "Paused ⏸", "Completed", "Failed", "Archived") and, when something needs
+  you, a badge such as "2 unseen · 1 waiting for you";
 - the run in progress, when there is one ("Run #7 running", "Run #7
   starting", "Run #7 waiting to retry (attempt 2)"), from the gateway's
   current occurrence;
@@ -3642,7 +3540,8 @@ Row controls (a disabled control explains why when you hover it):
 | --- | --- |
 | **Pause** / **Resume** | Pause skips scheduled runs. Resume re-arms the schedule; the ticks that passed while paused are not run. |
 | **Run now** | Runs one occurrence immediately. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). |
-| **Edit**, **Discuss** | Open the automation's panel, where you revise it or pick the result to discuss. |
+| **Edit** | Opens the automation's panel, where you revise it. |
+| **Discuss** | Opens a chat with a fork of the automation at its latest finished run, on this page (see [Discuss a result](#discuss-a-result)). |
 | **Archive…** | Asks first ("Its history stays readable; it will not run again."), then stops the automation for good. |
 
 Commands are accepted by the gateway and applied moments later. The page
@@ -3670,6 +3569,18 @@ not exist (or is not yours)."), `occurrence_not_found`, `invalid_request`,
 
 Select a row to open its panel (the panel area reads "Loading…" until the
 selected automation arrives).
+
+### The automation's files
+
+The folder button next to **Workspace** in the panel browses the automation's
+folder on the gateway host, from any browser, above the panel: open a
+sub-folder, **Open** a file in a new tab, or download it. **Workspace** in a
+run's details does the same for that run's folder. HTML, SVG and other text
+files open as plain text (their source), never as a page. The folder is read through the gateway
+(`GET /api/gateway/runs/{automation_id}/workspace`, `/workspace/files`,
+`/workspace/content`), with your gateway credentials and the gateway's
+workspace policy: entries its deny rules keep out are counted under the list,
+never shown.
 
 ### Definition and controls
 
@@ -3741,16 +3652,22 @@ attempts, with:
 
 - **Open run ledger**: opens the run in **Observe** (timeline, ledger,
   provider calls, graph);
-- **Ledger (JSON)**: the gateway's raw ledger for that run;
-- **Workspace**: the run's workspace, when it has one.
+- **Ledger (JSON)**: the gateway's raw ledger for that run, opened in a new
+  tab through your connection (artifacts open the same way; HTML and SVG as
+  text);
+- **Workspace**: browse the run's folder (see [The automation's files](#the-automations-files)).
 
 ### Discuss a result
 
-**Discuss — fork at this occurrence (own workspace, automation files
-read-only)** on a finished occurrence asks for your message, then **Start
-discussion** creates a new session that forks the automation at that
-occurrence #N with its full history (runs 1 to N) in context, and opens it in
-**Observe**, where you continue the chat.
+**Discuss** on a row, or **Discuss — fork at this occurrence (own workspace,
+automation files read-only)** on a finished occurrence, opens a chat in place
+of the panel. Your first message creates a new session that forks the
+automation at occurrence #N with its history (runs 1 to N) in context; every
+later message is the next turn of that session, answered with the same model.
+The chat is the shared AbstractUIC chat (the one AbstractCode uses): replies
+stream in, tool approvals and questions are answered in the chat, and
+**Stop** ends the turn in progress. The button with the automation's title
+returns to its panel.
 
 - The discussion works in its **own writable workspace**.
 - The automation's folder is **mounted read-only** in it for the file tools,
@@ -3759,9 +3676,10 @@ occurrence #N with its full history (runs 1 to N) in context, and opens it in
 - Nothing is written back into the automation's session: the automation and
   its next runs never see the discussion.
 
-After **Start discussion** the Observer shows both folders from the gateway's
-answer: the discussion's own workspace (`workspace_root`) and the automation's
-folder mounted read-only (`mounted_workspace`).
+**Its files** and **Automation files** in the chat's header browse the
+discussion's own workspace (`workspace_root`) and the automation's folder
+mounted read-only (`mounted_workspace`), as described in
+[The automation's files](#the-automations-files).
 
 The read-only mount is enforced for file tools: they refuse to write into the
 automation's folder. Shell commands are **not** sandboxed, so a command the
@@ -3827,6 +3745,11 @@ See [development.md](development.md).
   create body, row controls, run tags, the capability gate, the legacy
   prefill, typed wait answers) and the page controller;
 - `src/ui/automations_page.tsx`: the page, its rows and the panel wiring;
+- `src/ui/automation_discussion.tsx`: the discussion chat (panel-chat's
+  `WorkflowChat`, `WorkflowSessionController` and `presentInteraction` over
+  the Observer's gateway client);
+- the folder browser is panel-chat's `WorkspaceBrowser`, fed by
+  `GatewayClient.fetch_gateway`;
 - the panel itself is the ui-kit's `AutomationPanel`
   (`@abstractframework/ui-kit`), shared with AbstractAssistant;
 - `src/ui/run_tree.ts`: navigator grouping.
@@ -3850,32 +3773,57 @@ the shared `@abstractframework/app-server` package, a runtime dependency.
 - The npm package is `@abstractframework/observer`; the installed CLI binary is `abstractobserver`.
 - If you don’t want a global install, you can run the CLI via `npx --yes --package @abstractframework/observer -- abstractobserver`.
 
-- `PORT` — HTTP port to listen on (default `3001`)
-- `HOST` — bind address (default `0.0.0.0`)
-- `ABSTRACTOBSERVER_GATEWAY_URL` (fallback `ABSTRACTGATEWAY_URL`) — the Gateway
-  this server proxies `/api` to and pre-fills in the sign-in dialog (default
-  `http://127.0.0.1:8080`). Injected as `__ABSTRACT_UI_CONFIG__.gateway_url`.
-- `ABSTRACTOBSERVER_GATEWAY_DIR` — directory used to resolve relative run
-  workspace paths for the run workspace folder button (`POST /api/local/reveal`,
-  loopback clients only). Defaults to the parent of the package directory.
-- `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=1|true|yes|on` — injects `window.__ABSTRACT_UI_CONFIG__.monitor_gpu=true` to enable the GPU widget in the UI (`src/ui/app.tsx`)
-- `ABSTRACTOBSERVER_ENTITY_APP_URL` — where the entity app lives (its own
-  package, `@abstractframework/entity`, default port `3007`). Injected as
+Launch flags (`abstractobserver --help`):
+
+- `--gateway-url <url>` (aliases `--gateway`, `--url`) — the Gateway this server
+  proxies `/api` to and pre-fills in the sign-in dialog. Default: the gateway
+  installed on this computer (the local pointer `~/.abstractframework/gateway.json`,
+  re-read when the gateway moves port), else `http://127.0.0.1:8080`. Injected
+  as `__ABSTRACT_UI_CONFIG__.gateway_url`.
+- `--port <n>` — HTTP port (default `3001`).
+- `--host <addr>` — bind address (default `127.0.0.1`). Use `--host 0.0.0.0`
+  only to reach this server directly from other machines; on a remote server,
+  let the gateway serve the Observer at `/apps/observer/` instead.
+- `--monitor-gpu` — injects `__ABSTRACT_UI_CONFIG__.monitor_gpu=true` (the GPU widget).
+- `--entity-app-url <url>` — where the entity app lives (its own package,
+  `@abstractframework/entity`, default port `3007`). Injected as
   `__ABSTRACT_UI_CONFIG__.entity_app_url`; drives the "Entities ↗" links and
-  makes `/entity.html` redirect to the entity app, so old `/entity.html`
-  bookmarks keep working. Unset: the UI links fall back to
-  `http://127.0.0.1:3007`, and `/entity.html` answers 404 with a pointer to
-  the entity app.
+  makes `/entity.html` redirect to the entity app. Unset: the UI links fall
+  back to `http://127.0.0.1:3007`, and `/entity.html` answers 404 with a
+  pointer to the entity app.
+- `--gateway-dir <dir>` — directory used to resolve relative run workspace
+  paths for the run workspace folder button (`POST api/local/reveal`, browsers
+  on this machine only). Defaults to the parent of the package directory.
+
+Environment variables are legacy aliases, below the flags: `PORT`, `HOST`,
+`ABSTRACTOBSERVER_GATEWAY_URL` / `ABSTRACTGATEWAY_URL`,
+`ABSTRACTOBSERVER_MONITOR_GPU`, `ABSTRACTOBSERVER_ENTITY_APP_URL`,
+`ABSTRACTOBSERVER_GATEWAY_DIR`.
 
 Examples:
 ```bash
-PORT=8080 abstractobserver
-HOST=127.0.0.1 PORT=3001 abstractobserver
-abstractobserver --monitor-gpu
+abstractobserver --port 8090
+abstractobserver --gateway-url http://127.0.0.1:8080 --monitor-gpu
 
 # no global install:
-HOST=127.0.0.1 PORT=3001 npx --yes --package @abstractframework/observer -- abstractobserver
+npx --yes --package @abstractframework/observer -- abstractobserver --port 3001
 ```
+
+## Served by the gateway at `/apps/observer/`
+The gateway can serve the Observer through itself: one port and one address
+for the console, the API and the apps, which is what you want on a remote
+server. The gateway starts this server on `127.0.0.1` and relays
+`/apps/observer/` to it. The server follows the app-server mount contract
+(`@abstractframework/app-server`):
+
+- every response carries `X-AbstractFramework-App: observer; mount=1`;
+- the page gets `<base href="/apps/observer/">` and `base_path` in
+  `__ABSTRACT_UI_CONFIG__`; every URL the app uses is relative (assets, the
+  gateway API through its own session proxy, the service worker, whose scope
+  is `/apps/observer/`), so the same build works at `/` and under the mount;
+- session cookies are set at `Path=/apps/observer/`;
+- "is this browser on this machine" (the folder reveal) is decided from the
+  browser's address the gateway forwards, never the relaying connection.
 
 ## Browser UI settings (per device/browser)
 Implemented in `src/ui/app.tsx` (see `load_settings()` / `save_settings()`).
@@ -3995,11 +3943,15 @@ npm run build
 AbstractObserver is “just a UI”, but it can become **high-trust** depending on what your gateway exposes and which optional features you enable.
 
 ## Network exposure (CLI default bind)
-The packaged CLI binds to `0.0.0.0` by default (`HOST` in `bin/cli.js`), which can expose the UI on your LAN.
+The packaged CLI binds to `127.0.0.1` by default. `--host 0.0.0.0` exposes it
+on your network.
 
 Guidance:
-- Prefer `HOST=127.0.0.1` for local development.
-- For shared deployments, put the UI behind an authenticated reverse proxy and use HTTPS.
+- On a remote server, open the Observer through the gateway at
+  `/apps/observer/`: the gateway relays to this server on `127.0.0.1` and
+  forwards the browser's address, which the server uses to decide whether a
+  browser is on this machine (the folder reveal is refused otherwise).
+- For shared deployments, put the gateway behind an authenticated reverse proxy and use HTTPS.
 
 ## Tokens and browser sessions
 Sign-in is the shared AbstractFramework connection dialog
@@ -4113,7 +4065,7 @@ The packaged CLI (`bin/cli.js`) proxies same-origin `/api/...` calls to its
 configured gateway only for a signed-in browser session; without one it
 answers `401 Gateway sign-in required`.
 - Sign in from the connection dialog (header badge), and
-- check that the server points at your gateway (`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`; see `configuration.md`).
+- check that the server points at your gateway (`--gateway-url`; see `configuration.md`).
 
 ## About shows "Gateway: unavailable (…)"
 The About dialog could not read `GET /api/gateway/about`; the reason in
@@ -4145,6 +4097,16 @@ version with automations. "This gateway has the Automations API turned off"
 means the gateway reports it but disabled it; ask the gateway admin. Legacy
 schedules stay manageable from their run view in both cases. See
 `automations.md` → "Before you start".
+
+### Creating an automation says the workspace "is a folder the gateway made for another conversation, run or automation"
+The **Workspace Root** field (Advanced) holds a folder the gateway made for
+something else. Empty the field: the gateway creates a folder of its own for
+the new automation.
+
+### Ask or Summary shows an error instead of an answer
+The message is the gateway's own reason, for example an unknown provider or an
+endpoint profile that no longer exists. Choose another model in the Ask
+picker, or fix the gateway's default text model in its console.
 
 ### "An occurrence is already running or queued. Wait for it to finish."
 HTTP 409 `automation_busy`: **Run now** (or another command) was sent while an

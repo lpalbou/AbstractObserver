@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owned
+`use_context`, `input_data` without gateway-made folders) for items marked (gateway).
+
+### Added
+- The folder button next to an automation's **Workspace** (and **Workspace**
+  in a run's details) browses that folder on the gateway host and opens or
+  downloads each file in the browser, through the gateway's workspace routes;
+  a discussion's chat has **Its files** and **Automation files**. HTML, SVG and
+  other text files open as plain text.
+- **Discuss** opens a chat with a fork of the automation on the Automations
+  page (row: latest finished run; panel: the chosen occurrence). Follow-ups
+  are later turns of the same discussion session, with the same model. The
+  chat is the shared AbstractUIC chat: live replies, tool approvals and
+  questions answered in place, Stop.
+- Automation states read as a word then its icon ("Active ▶", "Paused ⏸"),
+  row actions and facts carry icons, and runs read as chat cards (shared
+  AbstractUIC components).
+
+- The gateway can serve the Observer through itself at `/apps/observer/`
+  (one port and one address for the console, the API and the apps): the
+  server announces `X-AbstractFramework-App: observer; mount=1`, puts
+  `<base href>` in the page, sets its session cookies at the mount's path and
+  decides "browser on this machine" from the address the gateway forwards.
+  The same build keeps working at `/`.
+- Launch flags: `--gateway-url` (aliases `--gateway`, `--url`), `--port`,
+  `--host`, `--monitor-gpu`, `--entity-app-url`, `--gateway-dir`, `--help`.
+  Without `--gateway-url` the server talks to the gateway installed on this
+  computer (`~/.abstractframework/gateway.json`) and follows it when it moves
+  port.
+
+### Changed
+- The server binds `127.0.0.1` by default (was `0.0.0.0`); pass
+  `--host 0.0.0.0` to reach it directly from other machines, or open it
+  through the gateway at `/apps/observer/`. `PORT`, `HOST` and the
+  `ABSTRACTOBSERVER_*` variables are legacy aliases below the flags.
+- Every URL the app uses is relative to the page's base (assets, the gateway
+  API, the session endpoint, the service worker and its scope, the manifest).
+- The automation's **Context** choice is the one history control: Automate
+  mode neither shows nor sends the workflow's **Use Context** input
+  (gateway).
+- Growing context copy: the most recent 50,000 tokens of whole turns are
+  replayed.
+
+### Fixed
+- A run's ledger and artifacts in the automation panel open through the
+  Observer's own credentials (session or bearer; mounted or direct), never
+  as raw gateway links; HTML and SVG open as text.
+- An HTML artifact preview shows its source instead of opening it as a page
+  in the app's origin.
+- Ask and Summary show the gateway's reason when it cannot answer, instead of
+  "(error: failed to generate answer)".
+- Ask about an automation (or any run) answers on gateways whose default text
+  model is an endpoint profile (gateway).
+- A new automation or launch no longer inherits the workspace folder of a run
+  viewed in Observe (gateway), and a reused gateway folder is refused with a
+  message that says to leave the field empty.
+
 ## [0.1.14] - 2026-09-27
 
 Automations need a gateway that advertises the Automations API

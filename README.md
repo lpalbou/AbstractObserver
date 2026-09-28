@@ -18,7 +18,7 @@ The **entity app** (memory graph + visits UI) is its own package,
 *watches* entities — the Board's entities strip reads
 `GET /api/gateway/entities` + `/entities/{name}/card` — and its
 "Entities ↗" links point at the entity app deployment
-(`ABSTRACTOBSERVER_ENTITY_APP_URL`, default `http://127.0.0.1:3007`).
+(`--entity-app-url`, default `http://127.0.0.1:3007`).
 
 ## Where it fits (AbstractFramework ecosystem)
 AbstractObserver is one of the browser UIs in the **AbstractFramework** ecosystem:
@@ -79,10 +79,24 @@ npx --yes --package @abstractframework/observer@0.1.14 -- abstractobserver
 The CLI (`bin/cli.js`) serves the built UI and mounts the app-origin Gateway
 session proxy from `@abstractframework/app-server` (a runtime dependency of
 this package, installed automatically).
-- `PORT` (default `3001`)
-- `HOST` (default `0.0.0.0`)
-- `ABSTRACTOBSERVER_GATEWAY_URL` (or `ABSTRACTGATEWAY_URL`) — the Gateway this server signs in to and proxies `/api` to (default `http://127.0.0.1:8080`)
-- `--monitor-gpu` or `ABSTRACTOBSERVER_MONITOR_GPU=on` (enables the optional GPU widget)
+- `--gateway-url <url>` (aliases `--gateway`, `--url`) — the Gateway this server
+  signs in to and proxies `/api` to. Default: the gateway installed on this
+  computer (`~/.abstractframework/gateway.json`, followed when it moves port),
+  else `http://127.0.0.1:8080`.
+- `--port <n>` (default `3001`) and `--host <addr>` (default `127.0.0.1`)
+- `--monitor-gpu` — the optional GPU widget
+- `--entity-app-url <url>` — where the entity app lives (the "Entities ↗" links)
+- `--gateway-dir <dir>` — base for relative run workspace paths (local folder reveal)
+
+Environment variables are legacy aliases below the flags: `PORT`, `HOST`,
+`ABSTRACTOBSERVER_GATEWAY_URL`, `ABSTRACTGATEWAY_URL`,
+`ABSTRACTOBSERVER_MONITOR_GPU`, `ABSTRACTOBSERVER_ENTITY_APP_URL`,
+`ABSTRACTOBSERVER_GATEWAY_DIR`.
+
+The gateway can also serve the Observer through itself at `/apps/observer/`
+(one port and one address for the console, the API and the apps, e.g. on a
+remote server): the gateway starts this server on `127.0.0.1` and relays to
+it. `abstractobserver --help` lists the flags.
 
 See `docs/configuration.md` for the full list.
 
@@ -93,7 +107,7 @@ All pages share the same gateway connection settings.
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
-- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), and Discuss (a fork at an occurrence with its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
+- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports

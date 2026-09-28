@@ -30,9 +30,11 @@ import {
   type ProviderOption,
 } from "@abstractframework/ui-kit";
 import { AppAssistantDrawer } from "./app_assistant";
+import { REVEAL_PATH, run_id_from_location } from "../lib/app_paths";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import {
+  AUTOMATION_OWNED_INPUTS,
   AutomationsController,
   DEFAULT_AUTOMATE_FORM,
   RequestIdMemo,
@@ -57,6 +59,7 @@ import "./observe.css";
 
 import {
   active_run_status,
+  ask_error_text,
   clamp_preview,
   format_time_ago,
   format_time_until_from_ms,
@@ -450,27 +453,8 @@ function RuntimeMetadataChips(props: { metadata?: RuntimeMetadata | null }): Rea
 
 /* short_run_id, extract_workflow_label: removed — info is now in the run picker. */
 
-function is_uuid(s: string): boolean {
-  const v = String(s || "").trim();
-  if (!v) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-}
-
 function parse_run_id_from_url(): string {
-  try {
-    const hash = String(window.location.hash || "").replace(/^#/, "");
-    const hash_parts = hash.split("/").filter(Boolean);
-    const hash_last = hash_parts.length ? String(hash_parts[hash_parts.length - 1] || "").trim() : "";
-    if (is_uuid(hash_last)) return hash_last;
-
-    const path = String(window.location.pathname || "");
-    const parts = path.split("/").filter(Boolean);
-    const last = parts.length ? String(parts[parts.length - 1] || "").trim() : "";
-    if (is_uuid(last)) return last;
-  } catch {
-    // ignore
-  }
-  return "";
+  return typeof window === "undefined" ? "" : run_id_from_location(window.location);
 }
 
 function getOrCreateStableSessionId(): string {
@@ -2012,7 +1996,7 @@ export function App(): React.ReactElement {
       return;
     }
     try {
-      const r = await fetch("/api/local/reveal", {
+      const r = await fetch(REVEAL_PATH, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: ws }),
@@ -2127,12 +2111,6 @@ export function App(): React.ReactElement {
     const label = artifact_label(item);
     const content_type = String(item?.content_type || "").trim().toLowerCase();
     const kind = artifact_preview_kind(item);
-    const likely_html = kind === "text" && artifact_text_render_kind(item, "") === "html";
-    const html_preview_window = likely_html ? window.open("about:blank", "_blank") : null;
-    if (html_preview_window) {
-      html_preview_window.document.write("<!doctype html><title>Loading artifact preview...</title><body style=\"font:14px system-ui;padding:24px\">Loading artifact preview...</body>");
-      html_preview_window.document.close();
-    }
 
     set_runtime_preview_title(label || artifact_id);
     set_runtime_preview_text("");
@@ -2159,26 +2137,10 @@ export function App(): React.ReactElement {
       const blob = await gateway.download_run_artifact_content(rid, artifact_id, { access: "preview" });
       if (kind === "text") {
         const raw = await blob.text();
+        // HTML (and SVG/XML) artifacts show as highlighted SOURCE here, never
+        // as a page: a blob URL runs with this app's origin, so model-written
+        // markup must not execute there.
         const render_kind = artifact_text_render_kind(item, raw);
-        if (render_kind === "html") {
-          const html_blob = new Blob([raw], { type: content_type.includes("html") ? String(item.content_type || "text/html") : "text/html;charset=utf-8" });
-          const html_url = URL.createObjectURL(html_blob);
-          const target_window = html_preview_window || window.open("about:blank", "_blank");
-          if (target_window) {
-            target_window.location.href = html_url;
-            set_runtime_preview_open(false);
-            set_runtime_preview_artifact(null);
-            set_runtime_preview_text("");
-            set_runtime_preview_loading(false);
-            setTimeout(() => URL.revokeObjectURL(html_url), 5 * 60 * 1000);
-            set_status("Opened HTML preview", 2);
-            return;
-          }
-          URL.revokeObjectURL(html_url);
-          set_runtime_preview_error("Browser blocked opening the HTML page. Showing highlighted source instead.");
-        } else if (html_preview_window) {
-          html_preview_window.close();
-        }
         const max_chars = render_kind === "json" ? 1_500_000 : render_kind === "markdown" ? 250_000 : render_kind === "html" ? 300_000 : 22000;
         set_runtime_preview_text(
           raw.length > max_chars && render_kind !== "text"
@@ -2188,11 +2150,9 @@ export function App(): React.ReactElement {
               : raw
         );
       } else {
-        if (html_preview_window) html_preview_window.close();
         set_runtime_preview_url(URL.createObjectURL(blob));
       }
     } catch (e: any) {
-      if (html_preview_window) html_preview_window.close();
       set_runtime_preview_error(String(e?.message || e || "Preview failed"));
     } finally {
       set_runtime_preview_loading(false);
@@ -3435,11 +3395,10 @@ export function App(): React.ReactElement {
         return [...prev, { id: `local:${random_id()}`, role: "assistant" as const, content: answer, ts }];
       });
     } catch (e: any) {
-      set_chat_error(String(e?.message || e || "Chat failed"));
-      set_chat_messages((prev) => [
-        ...prev,
-        { id: `local:${random_id()}`, role: "assistant" as const, content: "(error: failed to generate answer)", ts: now_iso() },
-      ]);
+      // The gateway's own reason, in the thread and under the composer.
+      const reason = ask_error_text(e);
+      set_chat_error(reason);
+      set_chat_messages((prev) => [...prev, { id: `local:${random_id()}`, role: "assistant" as const, content: `(error: ${reason})`, ts: now_iso() }]);
     } finally {
       set_chat_sending(false);
     }
@@ -4788,8 +4747,10 @@ export function App(): React.ReactElement {
   const automations_handlers: AutomationsHandlers = {
     on_select: (id) => void automations_ctl.select(id),
     on_row_action: (summary, action) => {
-      // Edit and Discuss need a form or an occurrence: they open the panel.
-      if (action === "edit" || action === "discuss") {
+      // Discuss never reaches here: AutomationsPage opens it as a chat in place.
+      if (action === "discuss") throw new Error("Discuss is routed by AutomationsPage (route_row_action), not the app handlers.");
+      // Edit needs the panel's form.
+      if (action === "edit") {
         void automations_ctl.select(summary.automation_id);
         return;
       }
@@ -5294,6 +5255,8 @@ export function App(): React.ReactElement {
                           if (!p || typeof p !== "object") continue;
                           const pid = String((p as any).id || "").trim();
                           if (!pid) continue;
+                          // The automation's Context choice owns these (one control, not two).
+                          if (launch_mode === "automate" && AUTOMATION_OWNED_INPUTS.includes(pid)) continue;
                           const ptype = String((p as any).type || "").trim().toLowerCase();
                           const is_wide =
                             ptype === "tools" || ptype === "skills" || ptype === "mcp" || ptype === "mcp_servers" ||
@@ -5512,18 +5475,17 @@ export function App(): React.ReactElement {
         {page === "automations" ? (
           <AutomationsPage
             ctl={automations_ctl}
+            gateway={gateway}
             active={page === "automations" && gateway_connected}
             available={automations_cap}
             h={automations_handlers}
             host={{
               on_open_run: (rid) => open_run_in_observe(rid),
-              // Discuss opens the NEW discussion session's root run in Observe
-              // and says where it works: its own workspace, the automation's
-              // files mounted read-only (both paths from the gateway's answer).
+              // The discussion opens as a chat on this page (AutomationsPage);
+              // the log keeps where it works (own workspace, the automation's
+              // files mounted read-only; both paths from the gateway's answer).
               on_open_session: (d, notice) => {
                 push_log({ ts: now_iso(), kind: "info", title: "Discussion started", preview: clamp_preview(notice), data: d });
-                set_status(notice, 12);
-                open_run_in_observe(d.run_id);
               },
             }}
           />

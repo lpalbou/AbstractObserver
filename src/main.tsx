@@ -13,6 +13,7 @@ import "@abstractframework/panel-chat/panel_chat.css";
 // skin (operator's "still the old look" — this line was the root cause).
 import "./ui/styles.css";
 import { App } from "./ui/app";
+import { SERVICE_WORKER_PATH } from "./lib/app_paths";
 
 // Register service worker (PWA shell cache).
 if ("serviceWorker" in navigator) {
@@ -30,7 +31,8 @@ if ("serviceWorker" in navigator) {
     }
 
     navigator.serviceWorker
-      .register("/sw.js")
+      // Relative: the worker and its scope follow the app's base (/ or /apps/observer/).
+      .register(SERVICE_WORKER_PATH)
       .then((registration) => registration.update())
       .catch(() => {
         // Best-effort. On iOS/Safari this can fail in some contexts.

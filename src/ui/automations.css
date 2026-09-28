@@ -190,3 +190,84 @@
   height: auto;
   margin: 0;
 }
+
+/* State as word then icon ("Active ▶", "Paused ⏸"). */
+.auto_state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Row facts and actions: kit icon + text. */
+.auto_fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.auto_fact svg,
+.auto_row_attention svg {
+  flex: none;
+  opacity: 0.8;
+}
+
+.auto_action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.auto_action.active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.flip_x {
+  transform: scaleX(-1);
+}
+
+/* A discussion with a fork: the shared panel-chat WorkflowChat, in place. */
+.auto_discussion {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.auto_detail > .pc-ws,
+.auto_discussion > .pc-ws {
+  margin: 0 0 12px;
+}
+
+.auto_discussion > .af-workflow-chat,
+.auto_discussion > section:last-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.discussion_head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 8px;
+}
+
+.discussion_title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.discussion_intro {
+  max-width: 60ch;
+  margin: 16px auto;
+  text-align: center;
+}
+
+.discussion_tool_args {
+  max-height: 200px;
+  overflow: auto;
+  font-size: var(--t-micro);
+}

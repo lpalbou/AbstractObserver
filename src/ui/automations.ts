@@ -189,8 +189,20 @@ export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
 export const CONTEXT_HELP: Record<ContextMode, string> = {
   independent: "Each run starts fresh in its own session. Runs never see each other.",
   growing:
-    "Each run is a new turn of one conversation and sees the previous runs. The history is bounded: the most recent 40 messages (at most 24,000 characters) are replayed; older runs drop out.",
+    "Each run is a new turn of one conversation and sees the previous runs. The history is bounded: the most recent 50,000 tokens of whole turns are replayed; older runs drop out.",
 };
+
+/**
+ * Workflow inputs an automation owns (operator 2026-09-28: "Use Context" on
+ * top AND Context independent/growing were one control shown twice, and they
+ * could contradict: Growing + Use Context = No silently dropped the history).
+ * The Context choice is the one control; the gateway sets `use_context` on the
+ * automation's target from it, so Automate mode neither shows nor sends it.
+ */
+export const AUTOMATION_OWNED_INPUTS: readonly string[] = ["use_context"];
+
+/** Said under the Context choice, where the hidden input went. */
+export const CONTEXT_OWNS_HISTORY = "This choice also sets the workflow's Use Context input: the workflow always reads the history the automation gives it.";
 
 /** The kit's schedule form for this Observer form and prompt. */
 export function schedule_form(form: AutomateForm, prompt: string): ScheduleForm {
@@ -225,6 +237,7 @@ export function build_automate_request(
   const cleaned = clean_input_data(opts.input_data);
   const prompt = typeof cleaned.prompt === "string" ? cleaned.prompt : "";
   delete cleaned.prompt;
+  for (const key of AUTOMATION_OWNED_INPUTS) delete cleaned[key];
   let target: AutomationTarget | null;
   try {
     target = automation_target(opts.choice, opts.bundle_ref_for, cleaned);
@@ -413,6 +426,19 @@ export function automation_row_view(s: AutomationSummary, now_ms: number = Date.
   };
 }
 
+/**
+ * The occurrence a row-level Discuss forks at: the latest FINISHED one (the
+ * kit panel offers Discuss per finished occurrence; a running latest one is
+ * not discussable yet). Null when none has finished.
+ */
+export function discuss_index(s: AutomationSummary): number | null {
+  const last = s.last_occurrence;
+  if (!last) return null;
+  const finished = ["completed", "failed", "cancelled"].includes(String(last.status));
+  const index = finished ? last.index : last.index - 1;
+  return index >= 1 ? index : null;
+}
+
 export type RowAction = "pause" | "resume" | "run_now" | "edit" | "archive" | "discuss";
 export type LegacyAction = "legacy_pause" | "legacy_resume" | "legacy_run_now" | "open_run" | "recreate";
 
@@ -420,9 +446,8 @@ export type LegacyAction = "legacy_pause" | "legacy_resume" | "legacy_run_now" |
  * Discuss open the panel (they need a form / an occurrence). */
 export function automation_row_controls(s: AutomationSummary, busy: boolean): Record<RowAction, { enabled: boolean; reason?: string }> {
   const c = automationControls(s, [], busy);
-  // Discuss opens the panel; the panel offers it per FINISHED occurrence, so
-  // the row only needs an occurrence to exist (nothing inferred from its status).
-  const last = s.last_occurrence;
+  // Discuss opens a chat with a fork at the latest FINISHED occurrence.
+  const at = discuss_index(s);
   const discuss =
     busy
       ? { enabled: false, reason: "Working…" }
@@ -430,9 +455,9 @@ export function automation_row_controls(s: AutomationSummary, busy: boolean): Re
         ? { enabled: false, reason: "Legacy schedule: managed with its existing controls." }
         : !s.capabilities.includes("discuss")
           ? { enabled: false, reason: "Not permitted for this automation." }
-          : !last
-            ? { enabled: false, reason: "No occurrence to discuss yet." }
-            : { enabled: true };
+          : at === null
+            ? { enabled: false, reason: s.last_occurrence ? "Available once the first run finishes." : "No occurrence to discuss yet." }
+            : { enabled: true, reason: `Discuss run #${at} in a new chat (a fork of this automation).` };
   return { pause: c.pause, resume: c.resume, run_now: c.run_now, edit: c.revise, archive: c.archive, discuss };
 }
 

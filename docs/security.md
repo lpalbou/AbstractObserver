@@ -3,11 +3,15 @@
 AbstractObserver is “just a UI”, but it can become **high-trust** depending on what your gateway exposes and which optional features you enable.
 
 ## Network exposure (CLI default bind)
-The packaged CLI binds to `0.0.0.0` by default (`HOST` in `bin/cli.js`), which can expose the UI on your LAN.
+The packaged CLI binds to `127.0.0.1` by default. `--host 0.0.0.0` exposes it
+on your network.
 
 Guidance:
-- Prefer `HOST=127.0.0.1` for local development.
-- For shared deployments, put the UI behind an authenticated reverse proxy and use HTTPS.
+- On a remote server, open the Observer through the gateway at
+  `/apps/observer/`: the gateway relays to this server on `127.0.0.1` and
+  forwards the browser's address, which the server uses to decide whether a
+  browser is on this machine (the folder reveal is refused otherwise).
+- For shared deployments, put the gateway behind an authenticated reverse proxy and use HTTPS.
 
 ## Tokens and browser sessions
 Sign-in is the shared AbstractFramework connection dialog

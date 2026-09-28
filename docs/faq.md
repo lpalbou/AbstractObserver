@@ -45,17 +45,15 @@ Examples:
 - global install: `npm install -g @abstractframework/observer && abstractobserver`
 
 ## How do I change the port / host?
-The packaged CLI reads:
-- `PORT` (default `3001`)
-- `HOST` (default `0.0.0.0`)
-
-Evidence: `bin/cli.js`.
+With launch flags: `abstractobserver --port 3002 --host 127.0.0.1` (defaults
+`3001` and `127.0.0.1`; `PORT` / `HOST` still work as legacy aliases). See
+`configuration.md`.
 
 ## Does the CLI proxy `/api` to my gateway?
 Yes, once you are signed in. The CLI serves `dist/` and mounts the shared
 `@abstractframework/app-server` session proxy: after you sign in from the
 connection dialog, same-origin `/api/...` calls go to the configured gateway
-(`ABSTRACTOBSERVER_GATEWAY_URL`, default `http://127.0.0.1:8080`) with the
+(`--gateway-url`, default: the gateway installed on this computer) with the
 session attached server-side. Without a session the proxy answers
 `401 Gateway sign-in required`.
 
@@ -123,8 +121,9 @@ Guide: `automations.md`.
 **Independent** (default) when every run stands alone ("check the machine").
 **Growing** when each run should see the previous ones ("follow this market
 and tell me what changed"): runs are turns of one conversation, and the
-replayed history is bounded to the most recent 40 messages (at most 24,000
-characters). See `automations.md` → "Context".
+replayed history is bounded to the most recent 50,000 tokens of whole turns.
+The Context choice also sets the workflow's `use_context` input, so there is
+no second control for it. See `automations.md` → "Context".
 
 ## Why do the tools of my automation run without asking?
 Because an unattended run cannot stop at every tick, creating the automation
@@ -142,10 +141,16 @@ refused while an occurrence is in progress (`automation_busy`).
 
 ## Does discussing a result change the automation?
 No. **Discuss** forks the automation at that occurrence: a new session with
-the automation's history up to it (runs 1 to N), opened in Observe. It works
+the automation's history up to it (runs 1 to N), opened as a chat on the
+Automations page. It works
 in its own writable workspace, with the automation's folder mounted read-only
 for the file tools (shell commands are not sandboxed); nothing is written back
 into the automation's session or its next runs.
+
+## How do I get the files an automation wrote, when the gateway runs on another machine?
+Select the automation and press the folder button next to **Workspace**: the Observer lists its folder
+through the gateway and opens or downloads each file in your browser. See
+`automations.md` → "The automation's files".
 
 ## Why is my automation not on the Board?
 An automation between runs is not a run you can act on, so it lives on the

@@ -72,8 +72,12 @@ first run now." or "Runs every minute (UTC), first run now."; it reads
 - **Independent** (default): each run starts fresh in its own session. Runs
   never see each other.
 - **Growing**: each run is a new turn of one conversation and sees the
-  previous runs. The history is bounded: the most recent 40 messages (at most
-  24,000 characters) are replayed; older runs drop out.
+  previous runs. The history is bounded: the most recent 50,000 tokens of
+  whole turns are replayed; older runs drop out.
+
+The Context choice is the one history control of an automation. The gateway
+sets the workflow's `use_context` input from it, so Automate mode does not
+show the workflow's **Use Context** input (Run once still does).
 
 ### Tools
 
@@ -94,6 +98,10 @@ option you choose.
   after this many runs**, **Stop at (UTC)**;
 - the skills picker (the gateway resolves the selected skills through its
   trust gate), the workspace, and bundle upload / reload.
+
+Leave **Workspace Root** empty: the gateway then creates a folder of its own
+for the automation. A folder the gateway made for another conversation, run or
+automation is refused, and the Observer never copies one into a new form.
 
 ### Create
 
@@ -121,8 +129,9 @@ readable.
 
 Each row shows:
 
-- the title, the state (active, paused, completed, failed, archived) and,
-  when something needs you, a badge such as "2 unseen · 1 waiting for you";
+- the title, the state as a word followed by its icon ("Active ▶",
+  "Paused ⏸", "Completed", "Failed", "Archived") and, when something needs
+  you, a badge such as "2 unseen · 1 waiting for you";
 - the run in progress, when there is one ("Run #7 running", "Run #7
   starting", "Run #7 waiting to retry (attempt 2)"), from the gateway's
   current occurrence;
@@ -139,7 +148,8 @@ Row controls (a disabled control explains why when you hover it):
 | --- | --- |
 | **Pause** / **Resume** | Pause skips scheduled runs. Resume re-arms the schedule; the ticks that passed while paused are not run. |
 | **Run now** | Runs one occurrence immediately. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). |
-| **Edit**, **Discuss** | Open the automation's panel, where you revise it or pick the result to discuss. |
+| **Edit** | Opens the automation's panel, where you revise it. |
+| **Discuss** | Opens a chat with a fork of the automation at its latest finished run, on this page (see [Discuss a result](#discuss-a-result)). |
 | **Archive…** | Asks first ("Its history stays readable; it will not run again."), then stops the automation for good. |
 
 Commands are accepted by the gateway and applied moments later. The page
@@ -167,6 +177,18 @@ not exist (or is not yours)."), `occurrence_not_found`, `invalid_request`,
 
 Select a row to open its panel (the panel area reads "Loading…" until the
 selected automation arrives).
+
+### The automation's files
+
+The folder button next to **Workspace** in the panel browses the automation's
+folder on the gateway host, from any browser, above the panel: open a
+sub-folder, **Open** a file in a new tab, or download it. **Workspace** in a
+run's details does the same for that run's folder. HTML, SVG and other text
+files open as plain text (their source), never as a page. The folder is read through the gateway
+(`GET /api/gateway/runs/{automation_id}/workspace`, `/workspace/files`,
+`/workspace/content`), with your gateway credentials and the gateway's
+workspace policy: entries its deny rules keep out are counted under the list,
+never shown.
 
 ### Definition and controls
 
@@ -238,16 +260,22 @@ attempts, with:
 
 - **Open run ledger**: opens the run in **Observe** (timeline, ledger,
   provider calls, graph);
-- **Ledger (JSON)**: the gateway's raw ledger for that run;
-- **Workspace**: the run's workspace, when it has one.
+- **Ledger (JSON)**: the gateway's raw ledger for that run, opened in a new
+  tab through your connection (artifacts open the same way; HTML and SVG as
+  text);
+- **Workspace**: browse the run's folder (see [The automation's files](#the-automations-files)).
 
 ### Discuss a result
 
-**Discuss — fork at this occurrence (own workspace, automation files
-read-only)** on a finished occurrence asks for your message, then **Start
-discussion** creates a new session that forks the automation at that
-occurrence #N with its full history (runs 1 to N) in context, and opens it in
-**Observe**, where you continue the chat.
+**Discuss** on a row, or **Discuss — fork at this occurrence (own workspace,
+automation files read-only)** on a finished occurrence, opens a chat in place
+of the panel. Your first message creates a new session that forks the
+automation at occurrence #N with its history (runs 1 to N) in context; every
+later message is the next turn of that session, answered with the same model.
+The chat is the shared AbstractUIC chat (the one AbstractCode uses): replies
+stream in, tool approvals and questions are answered in the chat, and
+**Stop** ends the turn in progress. The button with the automation's title
+returns to its panel.
 
 - The discussion works in its **own writable workspace**.
 - The automation's folder is **mounted read-only** in it for the file tools,
@@ -256,9 +284,10 @@ occurrence #N with its full history (runs 1 to N) in context, and opens it in
 - Nothing is written back into the automation's session: the automation and
   its next runs never see the discussion.
 
-After **Start discussion** the Observer shows both folders from the gateway's
-answer: the discussion's own workspace (`workspace_root`) and the automation's
-folder mounted read-only (`mounted_workspace`).
+**Its files** and **Automation files** in the chat's header browse the
+discussion's own workspace (`workspace_root`) and the automation's folder
+mounted read-only (`mounted_workspace`), as described in
+[The automation's files](#the-automations-files).
 
 The read-only mount is enforced for file tools: they refuse to write into the
 automation's folder. Shell commands are **not** sandboxed, so a command the
@@ -324,6 +353,11 @@ See [development.md](development.md).
   create body, row controls, run tags, the capability gate, the legacy
   prefill, typed wait answers) and the page controller;
 - `src/ui/automations_page.tsx`: the page, its rows and the panel wiring;
+- `src/ui/automation_discussion.tsx`: the discussion chat (panel-chat's
+  `WorkflowChat`, `WorkflowSessionController` and `presentInteraction` over
+  the Observer's gateway client);
+- the folder browser is panel-chat's `WorkspaceBrowser`, fed by
+  `GatewayClient.fetch_gateway`;
 - the panel itself is the ui-kit's `AutomationPanel`
   (`@abstractframework/ui-kit`), shared with AbstractAssistant;
 - `src/ui/run_tree.ts`: navigator grouping.
