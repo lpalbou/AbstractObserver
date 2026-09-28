@@ -98,27 +98,6 @@ export async function gateway_error(resp: Response, what: string): Promise<Gatew
   return new GatewayRequestError(resp.status, `${what} (HTTP ${resp.status}): ${reason || resp.statusText || "no reason given"}`);
 }
 
-/** `GET /runs/{id}/workspace` (CONTRACTS §W). */
-export type RunWorkspace = {
-  run_id: string;
-  workspace_root: string;
-  kind: string;
-  session_id?: string | null;
-  exists: boolean;
-  host?: { hostname?: string; caller_is_this_machine?: boolean };
-  open_supported?: boolean;
-};
-
-export type WorkspaceEntry = { name: string; path: string; type: "file" | "dir"; size_bytes?: number; mtime?: string | number };
-
-/** `GET /runs/{id}/workspace/files`. `hidden` counts what the deny rules kept out. */
-export type WorkspaceListing = {
-  path: string;
-  entries: WorkspaceEntry[];
-  truncated: boolean;
-  hidden?: { outside_links?: number; blocked?: number; other?: number };
-};
-
 /** Public `GET /api/gateway/about`: the versions the gateway host runs.
  * `abstractframework` is null when the meta-package is not installed there. */
 export type GatewayAbout = {
@@ -984,37 +963,11 @@ export class GatewayClient {
 
   /** The Automations v1 client (ui-kit) over this connection: same origin or
    * direct URL, the same bearer / session CSRF headers as every other call. */
-  /** `GET /runs/{id}/workspace`: where the run's files are (CONTRACTS §W). */
-  async run_workspace(run_id: string): Promise<RunWorkspace> {
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(run_id)}/workspace`), {
-      headers: { ..._auth_headers(this._cfg.auth_token) },
-      signal: _deadline(),
-    });
-    if (!r.ok) throw await gateway_error(r, "The workspace is not available");
-    return await r.json();
-  }
-
-  /** `GET /runs/{id}/workspace/files?path=`: one folder of the run's workspace. */
-  async run_workspace_files(run_id: string, path: string): Promise<WorkspaceListing> {
-    const qs = new URLSearchParams({ path, recursive: "false" });
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(run_id)}/workspace/files?${qs}`), {
-      headers: { ..._auth_headers(this._cfg.auth_token) },
-      signal: _deadline(),
-    });
-    if (!r.ok) throw await gateway_error(r, "The folder could not be listed");
-    return await r.json();
-  }
-
-  /** `GET /runs/{id}/workspace/content?path=`: one file's bytes, fetched with
-   * this connection's credentials (a bare link carries no bearer token). */
-  async run_workspace_file(run_id: string, path: string): Promise<Blob> {
-    const qs = new URLSearchParams({ path });
-    const r = await fetch(_join(this._cfg.base_url, `/api/gateway/runs/${encodeURIComponent(run_id)}/workspace/content?${qs}`), {
-      headers: { ..._auth_headers(this._cfg.auth_token) },
-    });
-    if (!r.ok) throw await gateway_error(r, "The file could not be read");
-    return await r.blob();
-  }
+  /** A gateway request with this connection's base URL and credentials
+   * (bearer or session CSRF): the transport panel-chat components take
+   * (`fetchGateway`, e.g. `WorkspaceBrowser`). `path` starts with `/api/gateway`. */
+  fetch_gateway = (path: string, init?: RequestInit): Promise<Response> =>
+    fetch(_join(this._cfg.base_url, path), { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), ..._auth_headers(this._cfg.auth_token) } });
 
   automations_client(): AutomationsClient {
     const token = this._cfg.auth_token;

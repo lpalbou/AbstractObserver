@@ -427,20 +427,6 @@ export function automation_row_view(s: AutomationSummary, now_ms: number = Date.
 }
 
 /**
- * An automation's state as WORD then ICON ("Active ▶", "Paused ⏸"; operator
- * 2026-09-28), everywhere the state shows. Words = the kit panel's
- * `STATUS_LABELS` (not exported by ui-kit 0.1.13: kit addition requested so
- * every client renders one label); icons = the kit's icon set.
- */
-export const AUTOMATION_STATE_VIEW: Record<AutomationStatus, { label: string; icon: "playCircle" | "pause" | "check" | "error" | "inbox"; tone: string }> = {
-  active: { label: "Active", icon: "playCircle", tone: "info" },
-  paused: { label: "Paused", icon: "pause", tone: "warn" },
-  completed: { label: "Completed", icon: "check", tone: "muted" },
-  failed: { label: "Failed", icon: "error", tone: "danger" },
-  archived: { label: "Archived", icon: "inbox", tone: "muted" },
-};
-
-/**
  * The occurrence a row-level Discuss forks at: the latest FINISHED one (the
  * kit panel offers Discuss per finished occurrence; a running latest one is
  * not discussable yet). Null when none has finished.

@@ -150,7 +150,7 @@ for the file tools (shell commands are not sandboxed); nothing is written back
 into the automation's session or its next runs.
 
 ## How do I get the files an automation wrote, when the gateway runs on another machine?
-Select the automation and press **Files**: the Observer lists its folder
+Select the automation and press the folder button next to **Workspace**: the Observer lists its folder
 through the gateway and opens or downloads each file in your browser. See
 `automations.md` → "The automation's files".
 

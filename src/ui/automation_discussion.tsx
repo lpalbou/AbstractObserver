@@ -17,17 +17,15 @@ import React, { useMemo, useState } from "react";
 
 import {
   WorkflowChat,
+  WorkspaceBrowser,
+  presentInteraction,
   useWorkflowSession,
   workflowPendingInteraction,
-  type WorkflowInteraction,
-  type WorkflowSessionController,
   type WorkflowTransport,
-  type WorkflowWaitInteraction,
 } from "@abstractframework/panel-chat";
 import { Icon, type DiscussResponse } from "@abstractframework/ui-kit";
 
 import type { GatewayClient } from "../lib/gateway_client";
-import { WorkspaceBrowser } from "./workspace_browser";
 
 export const OBSERVER_CLIENT_ID = "abstractobserver";
 
@@ -50,41 +48,6 @@ export function discussion_turn_target(workflow_id: string): { bundle_id: string
   const i = wid.indexOf(":");
   if (i <= 0 || i === wid.length - 1) throw new Error(`The discussion's workflow id ${JSON.stringify(wid)} is not bundle@version:flow; its next turn cannot be started.`);
   return { bundle_id: wid.slice(0, i), flow_id: wid.slice(i + 1) };
-}
-
-/** Runtime waits a discussion can meet (tools ask as in any chat; questions). */
-export function discussion_interaction(raw: WorkflowWaitInteraction | null, controller: WorkflowSessionController): WorkflowInteraction | null {
-  if (!raw) return null;
-  const wait = raw.wait as Record<string, any>;
-  const details = (wait.details || {}) as Record<string, any>;
-  const id = `${raw.runId}:${String(wait.wait_key || "")}:${raw.stepId || ""}`;
-  if (details.mode === "approval_required" || details.kind === "tool_approval") {
-    const calls: any[] = Array.isArray(details.tool_calls) ? details.tool_calls : [];
-    const target = { runId: raw.runId, waitKey: String(wait.wait_key || ""), stepId: raw.stepId };
-    return {
-      id,
-      kind: "tool-approval",
-      title: `${calls.length || "Requested"} ${calls.length === 1 ? "action needs" : "actions need"} permission`,
-      toolName: [...new Set(calls.map((c) => String(c?.name || "tool")))].join(", ") || "the requested tools",
-      detail: <pre className="mono discussion_tool_args">{JSON.stringify(calls.map((c) => ({ name: c?.name, arguments: c?.arguments })), null, 2)}</pre>,
-      approveLabel: "Allow once",
-      denyLabel: "Deny",
-      onApprove: () => controller.approve(true, target),
-      onDeny: () => controller.approve(false, target),
-    };
-  }
-  if (wait.reason === "user" || wait.reason === "ask_user") {
-    return {
-      id,
-      kind: "ask-user",
-      title: "A question for you",
-      prompt: String(wait.prompt || details.prompt || "How would you like to continue?"),
-      allowFreeText: wait.allow_free_text !== false,
-      choices: (Array.isArray(wait.choices) ? wait.choices : []).map((c: any) => ({ id: String(c?.value ?? c?.id ?? c), label: String(c?.label ?? c?.text ?? c) })),
-      onSubmit: (answer) => controller.resume(answer),
-    };
-  }
-  return null;
 }
 
 export type OpenDiscussion = {
@@ -148,10 +111,10 @@ export function AutomationDiscussion(props: {
       {session ? (
         <>
           <button type="button" className={`btn btn_sm${files === "own" ? " active" : ""}`} data-action="discussion-files" onClick={() => set_files(files === "own" ? "" : "own")} title={session.workspace_root}>
-            <Icon name="list" size={14} /> Its files
+            <Icon name="folder" size={14} /> Its files
           </button>
           <button type="button" className={`btn btn_sm${files === "mounted" ? " active" : ""}`} data-action="automation-files" onClick={() => set_files(files === "mounted" ? "" : "mounted")} title={session.mounted_workspace}>
-            <Icon name="list" size={14} /> Automation files
+            <Icon name="folder" size={14} /> Automation files
           </button>
         </>
       ) : null}
@@ -162,11 +125,12 @@ export function AutomationDiscussion(props: {
     <section className="pane auto_detail auto_discussion" data-discussion-session={session?.session_id || undefined}>
       {files && session ? (
         <WorkspaceBrowser
-          gateway={gateway}
-          run_id={files === "own" ? session.run_id : discussion.automation_id}
+          fetchGateway={gateway.fetch_gateway}
+          runId={files === "own" ? session.run_id : discussion.automation_id}
           title={files === "own" ? "Discussion files" : "Automation files"}
           note={files === "own" ? "The discussion's own writable folder." : "Mounted read-only for the discussion's file tools; nothing is written back."}
-          on_close={() => set_files("")}
+          onClose={() => set_files("")}
+          refreshKey={snapshot.status}
         />
       ) : null}
       <WorkflowChat
@@ -180,7 +144,7 @@ export function AutomationDiscussion(props: {
         onCancel={running ? () => controller.cancel() : undefined}
         stopState={snapshot.stop ?? null}
         disabled={!props.connected}
-        interaction={discussion_interaction(pending, controller)}
+        interaction={presentInteraction(pending, controller, { records: snapshot.records, currentRun: snapshot.run })}
         placeholder={session ? "Ask a follow-up…" : `Ask about run #${discussion.occurrence_index}…`}
         emptyState={
           <div className="help_text muted discussion_intro">

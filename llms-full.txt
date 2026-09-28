@@ -55,7 +55,7 @@ Notes:
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
 - [Automations rules + controller](src/ui/automations.ts): workflow choice (`@default`), create body, run tags, capability gate, legacy prefill, typed wait answers, page controller
 - [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring; the When/Context/Tools fields
-- [Discussion chat](src/ui/automation_discussion.tsx) and [folder browser](src/ui/workspace_browser.tsx): panel-chat `WorkflowChat` over the gateway client; `/runs/{id}/workspace*` browse
+- [Discussion chat](src/ui/automation_discussion.tsx): panel-chat `WorkflowChat` + `presentInteraction` over the gateway client; folders through panel-chat `WorkspaceBrowser` (`/runs/{id}/workspace*`)
 - [Automations stub gateway](scripts/automations_stub_server.mjs): dev/test stub serving the ui-kit fixtures
 - [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy
 - [Package metadata](package.json): npm name/version, scripts, Node engine
@@ -179,7 +179,7 @@ All pages share the same gateway connection settings.
 - **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat (optional voice: PTT + TTS)
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
-- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (**Files**: open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
+- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/revise/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
@@ -688,16 +688,19 @@ Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owne
 `use_context`, `input_data` without gateway-made folders) for items marked (gateway).
 
 ### Added
-- **Files** on an automation browses its folder on the gateway host and opens
-  or downloads each file in the browser, through the gateway's workspace
-  routes; a discussion's chat has **Its files** and **Automation files**.
+- The folder button next to an automation's **Workspace** (and **Workspace**
+  in a run's details) browses that folder on the gateway host and opens or
+  downloads each file in the browser, through the gateway's workspace routes;
+  a discussion's chat has **Its files** and **Automation files**. HTML, SVG and
+  other text files open as plain text.
 - **Discuss** opens a chat with a fork of the automation on the Automations
   page (row: latest finished run; panel: the chosen occurrence). Follow-ups
   are later turns of the same discussion session, with the same model. The
   chat is the shared AbstractUIC chat: live replies, tool approvals and
   questions answered in place, Stop.
 - Automation states read as a word then its icon ("Active ▶", "Paused ⏸"),
-  and row actions and facts carry icons.
+  row actions and facts carry icons, and runs read as chat cards (shared
+  AbstractUIC components).
 
 ### Changed
 - The automation's **Context** choice is the one history control: Automate
@@ -707,6 +710,8 @@ Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owne
   replayed.
 
 ### Fixed
+- An HTML artifact preview shows its source instead of opening it as a page
+  in the app's origin.
 - Ask and Summary show the gateway's reason when it cannot answer, instead of
   "(error: failed to generate answer)".
 - Ask about an automation (or any run) answers on gateways whose default text
@@ -2960,7 +2965,7 @@ Go to **Launch**:
 
 On the **Automations** page you pause, resume, run now, revise or archive an
 automation, read its runs as a conversation, answer runs that wait for you,
-browse its files (**Files**), and discuss a result in a chat with a fork of
+browse its files, and discuss a result in a chat with a fork of
 the automation, on the same page. Automations need a gateway that
 advertises the Automations API; otherwise the page says so.
 
@@ -3132,7 +3137,7 @@ for the file tools (shell commands are not sandboxed); nothing is written back
 into the automation's session or its next runs.
 
 ## How do I get the files an automation wrote, when the gateway runs on another machine?
-Select the automation and press **Files**: the Observer lists its folder
+Select the automation and press the folder button next to **Workspace**: the Observer lists its folder
 through the gateway and opens or downloads each file in your browser. See
 `automations.md` → "The automation's files".
 
@@ -3284,7 +3289,7 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (Run once | Automate, bundle upload/reload): `src/ui/app.tsx`, `src/ui/automate_form.tsx` + `GatewayClient.start_run()` / the ui-kit automations client
-- **Automations** (list, the kit's `AutomationPanel`, the folder browser, the discussion chat, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts`, `src/ui/workspace_browser.tsx`, `src/ui/automation_discussion.tsx` + `GatewayClient.automations_client()` / `run_workspace*()` / panel-chat's `WorkflowChat`
+- **Automations** (list, the kit's `AutomationPanel`, the folder browser, the discussion chat, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts`, `src/ui/automation_discussion.tsx` + `GatewayClient.automations_client()` / `fetch_gateway()` / panel-chat's `WorkflowChat` and `WorkspaceBrowser`
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
@@ -3306,7 +3311,7 @@ flowchart LR
     AP["Automations page + kit AutomationPanel<br/><code>automations_page.tsx</code>, <code>automations.ts</code>"]
     BV["Board / Observe navigator / System<br/>tags from role + session_kind"]
     DC["Discussion chat (panel-chat WorkflowChat)<br/><code>automation_discussion.tsx</code>"]
-    WB["Folder browser<br/><code>workspace_browser.tsx</code>"]
+    WB["Folder browser<br/>panel-chat <code>WorkspaceBrowser</code>"]
   end
   subgraph GW["AbstractGateway /api/gateway"]
     CAP["GET /discovery/capabilities<br/>contracts.common.automations"]
@@ -3738,9 +3743,11 @@ selected automation arrives).
 
 ### The automation's files
 
-**Files** at the top of the panel browses the automation's folder on the
-gateway host, from any browser: open a sub-folder, **Open** a file in a new
-tab, or download it. The folder is read through the gateway
+The folder button next to **Workspace** in the panel browses the automation's
+folder on the gateway host, from any browser, above the panel: open a
+sub-folder, **Open** a file in a new tab, or download it. **Workspace** in a
+run's details does the same for that run's folder. HTML, SVG and other text
+files open as plain text (their source), never as a page. The folder is read through the gateway
 (`GET /api/gateway/runs/{automation_id}/workspace`, `/workspace/files`,
 `/workspace/content`), with your gateway credentials and the gateway's
 workspace policy: entries its deny rules keep out are counted under the list,
@@ -3817,7 +3824,7 @@ attempts, with:
 - **Open run ledger**: opens the run in **Observe** (timeline, ledger,
   provider calls, graph);
 - **Ledger (JSON)**: the gateway's raw ledger for that run;
-- **Workspace**: the run's workspace, when it has one.
+- **Workspace**: browse the run's folder (see [The automation's files](#the-automations-files)).
 
 ### Discuss a result
 
@@ -3908,9 +3915,10 @@ See [development.md](development.md).
   prefill, typed wait answers) and the page controller;
 - `src/ui/automations_page.tsx`: the page, its rows and the panel wiring;
 - `src/ui/automation_discussion.tsx`: the discussion chat (panel-chat's
-  `WorkflowChat` and `WorkflowSessionController` over the Observer's gateway
-  client);
-- `src/ui/workspace_browser.tsx`: the folder browser;
+  `WorkflowChat`, `WorkflowSessionController` and `presentInteraction` over
+  the Observer's gateway client);
+- the folder browser is panel-chat's `WorkspaceBrowser`, fed by
+  `GatewayClient.fetch_gateway`;
 - the panel itself is the ui-kit's `AutomationPanel`
   (`@abstractframework/ui-kit`), shared with AbstractAssistant;
 - `src/ui/run_tree.ts`: navigator grouping.

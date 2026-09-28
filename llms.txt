@@ -39,7 +39,7 @@ Notes:
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
 - [Automations rules + controller](src/ui/automations.ts): workflow choice (`@default`), create body, run tags, capability gate, legacy prefill, typed wait answers, page controller
 - [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring; the When/Context/Tools fields
-- [Discussion chat](src/ui/automation_discussion.tsx) and [folder browser](src/ui/workspace_browser.tsx): panel-chat `WorkflowChat` over the gateway client; `/runs/{id}/workspace*` browse
+- [Discussion chat](src/ui/automation_discussion.tsx): panel-chat `WorkflowChat` + `presentInteraction` over the gateway client; folders through panel-chat `WorkspaceBrowser` (`/runs/{id}/workspace*`)
 - [Automations stub gateway](scripts/automations_stub_server.mjs): dev/test stub serving the ui-kit fixtures
 - [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy
 - [Package metadata](package.json): npm name/version, scripts, Node engine

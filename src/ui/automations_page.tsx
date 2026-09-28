@@ -10,8 +10,9 @@
  */
 import React, { useEffect, useState, useSyncExternalStore } from "react";
 
-import { AutomationPanelWithMarkdown, renderAutomationText, type AutomationPanelWithMarkdownProps } from "@abstractframework/panel-chat";
+import { AutomationPanelWithMarkdown, WorkspaceBrowser, renderAutomationText, type AutomationPanelWithMarkdownProps } from "@abstractframework/panel-chat";
 import {
+  AutomationStateLabel as KitAutomationStateLabel,
   DISCUSS_LABEL,
   Icon,
   type IconName,
@@ -24,10 +25,8 @@ import {
 
 import type { GatewayClient } from "../lib/gateway_client";
 import { AutomationDiscussion, type OpenDiscussion } from "./automation_discussion";
-import { WorkspaceBrowser } from "./workspace_browser";
 import {
   AUTOMATIONS_POLL_MS,
-  AUTOMATION_STATE_VIEW,
   discuss_index,
   automation_row_controls,
   LAUNCH_AUTOMATE_HASH,
@@ -74,23 +73,21 @@ const ROW_LABELS: Record<RowAction, string> = {
   discuss: "Discuss",
 };
 
-/** Kit icons for the row actions (the ui-kit set; kit additions requested: play, stop, archive, folder). */
+/** Kit icons for the row actions. */
 const ROW_ICONS: Record<RowAction, IconName> = {
   pause: "pause",
-  resume: "playCircle",
+  resume: "play",
   run_now: "send",
   edit: "edit",
-  archive: "inbox",
+  archive: "archive",
   discuss: "chat",
 };
 
-/** The state as WORD then ICON ("Active ▶", "Paused ⏸"). */
+/** The state as WORD then ICON: the kit's one rendering, in a row field. */
 export function AutomationStateLabel(props: { status: AutomationStatus }): React.ReactElement {
-  const v = AUTOMATION_STATE_VIEW[props.status] ?? { label: props.status, icon: "info" as const, tone: "muted" };
   return (
-    <span className={`chip auto_state ${v.tone}`} data-field="state" data-state={props.status}>
-      <span className="auto_state_word">{v.label}</span>
-      <Icon name={v.icon} size={12} />
+    <span className="auto_state" data-field="state">
+      <KitAutomationStateLabel status={props.status} />
     </span>
   );
 }
@@ -156,7 +153,7 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
               {v.current}
             </Fact>
           ) : null}
-          <Fact icon="history" field="next" label="Next run">
+          <Fact icon="clock" field="next" label="Next run">
             next: {v.next_run}
           </Fact>
           <Fact icon="info" field="last-status" label="Last run">
@@ -258,6 +255,8 @@ export function AutomationsListView(props: { state: AutomationsState; available:
 
 export type PanelHostHandlers = {
   on_open_run(run_id: string): void;
+  /** Browse a run's folder (the automation id = its controller run). Absent: no folder controls. */
+  on_open_workspace?(run_id: string): void;
   /** A discussion was forked at occurrence `index` (the full gateway answer, both workspace paths included). */
   on_open_session(session: DiscussResponse, notice: string, index: number): void;
 };
@@ -290,18 +289,19 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     onSeen: (cursor) => ctl.seen(id, cursor),
     onLoadMore: () => void ctl.load_more(),
     onOpenRun: (run_id) => host.on_open_run(run_id),
+    ...(host.on_open_workspace ? { onOpenWorkspace: host.on_open_workspace } : {}),
     onAnswerWait: (run_id, wait_key, payload) => ctl.answer_wait(id, run_id, wait_key, payload as Record<string, any>),
   };
 }
 
 /** The detail half: the kit panel, or the legacy explanation. Hook-free.
- * `files` (when given) is the automation's folder browser: shown above the
- * panel while open, toggled by the Files button (fed by `workspace_root`). */
+ * `browser` (a folder browser the host opened through the panel's
+ * `onOpenWorkspace`) shows above the panel. */
 export function AutomationDetailView(props: {
   ctl: AutomationsController;
   host: PanelHostHandlers;
   h: AutomationsHandlers;
-  files?: { open: boolean; on_toggle(): void; render(automation_id: string): React.ReactNode };
+  browser?: React.ReactNode;
 }): React.ReactElement {
   const d = props.ctl.state.detail;
   if (!d && props.ctl.state.selected_id) {
@@ -345,27 +345,11 @@ export function AutomationDetailView(props: {
     );
   }
   const p = automation_panel_props(props.ctl, props.host);
-  const ws = d.summary.workspace_root;
-  // Occurrence turns, prompts and bodies render through the shared chat
-  // renderer (markdown, tables, code, JSON), like every Observer chat view.
+  // Occurrence turns render as the shared chat cards (panel-chat), text
+  // through the shared renderer (markdown, tables, code, JSON).
   return (
     <section className="pane auto_detail">
-      {ws && props.files ? (
-        <div className="auto_detail_bar" role="toolbar" aria-label="Automation workspace">
-          <button
-            type="button"
-            className={`btn btn_sm auto_action${props.files.open ? " active" : ""}`}
-            data-action="files"
-            aria-pressed={props.files.open}
-            onClick={props.files.on_toggle}
-            title={`Browse the automation's folder on the gateway host: ${ws}`}
-          >
-            <Icon name="list" size={13} />
-            <span>Files</span>
-          </button>
-        </div>
-      ) : null}
-      {ws && props.files?.open ? props.files.render(d.automation_id) : null}
+      {props.browser ?? null}
       {p ? <AutomationPanelWithMarkdown {...p} /> : null}
     </section>
   );
@@ -393,7 +377,8 @@ export function AutomationsPage(props: {
   const ctl = props.ctl;
   const [discussion, set_discussion] = useState<(OpenDiscussion & { opened: number }) | null>(null);
   const open_discussion = (d: OpenDiscussion) => set_discussion((prev) => ({ ...d, opened: (prev?.opened || 0) + 1 }));
-  const [files_open, set_files_open] = useState(false);
+  /** The run whose folder is open (the automation's own id = its folder), or "". */
+  const [files_run, set_files_run] = useState("");
   useSyncExternalStore(
     (fn) => ctl.subscribe(fn),
     () => ctl.state,
@@ -415,6 +400,7 @@ export function AutomationsPage(props: {
   // the chat opens on that session, here.
   const host: PanelHostHandlers = {
     ...props.host,
+    on_open_workspace: (run_id) => set_files_run((cur) => (cur === run_id ? "" : run_id)),
     on_open_session: (session, notice, index) => {
       props.host.on_open_session(session, notice, index);
       if (!detail) return;
@@ -425,6 +411,7 @@ export function AutomationsPage(props: {
     ...props.h,
     on_select: (id) => {
       set_discussion(null);
+      set_files_run("");
       props.h.on_select(id);
     },
     on_row_action: (summary, action) => {
@@ -458,13 +445,16 @@ export function AutomationsPage(props: {
           ctl={ctl}
           host={host}
           h={h}
-          files={{
-            open: files_open,
-            on_toggle: () => set_files_open((v) => !v),
-            render: (automation_id) => (
-              <WorkspaceBrowser gateway={props.gateway} run_id={automation_id} title="Automation files" on_close={() => set_files_open(false)} />
-            ),
-          }}
+          browser={
+            files_run ? (
+              <WorkspaceBrowser
+                fetchGateway={props.gateway.fetch_gateway}
+                runId={files_run}
+                title={files_run === detail?.automation_id ? "Automation files" : "Run files"}
+                onClose={() => set_files_run("")}
+              />
+            ) : undefined
+          }
         />
       )}
     </div>

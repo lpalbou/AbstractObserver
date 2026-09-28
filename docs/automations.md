@@ -180,9 +180,11 @@ selected automation arrives).
 
 ### The automation's files
 
-**Files** at the top of the panel browses the automation's folder on the
-gateway host, from any browser: open a sub-folder, **Open** a file in a new
-tab, or download it. The folder is read through the gateway
+The folder button next to **Workspace** in the panel browses the automation's
+folder on the gateway host, from any browser, above the panel: open a
+sub-folder, **Open** a file in a new tab, or download it. **Workspace** in a
+run's details does the same for that run's folder. HTML, SVG and other text
+files open as plain text (their source), never as a page. The folder is read through the gateway
 (`GET /api/gateway/runs/{automation_id}/workspace`, `/workspace/files`,
 `/workspace/content`), with your gateway credentials and the gateway's
 workspace policy: entries its deny rules keep out are counted under the list,
@@ -259,7 +261,7 @@ attempts, with:
 - **Open run ledger**: opens the run in **Observe** (timeline, ledger,
   provider calls, graph);
 - **Ledger (JSON)**: the gateway's raw ledger for that run;
-- **Workspace**: the run's workspace, when it has one.
+- **Workspace**: browse the run's folder (see [The automation's files](#the-automations-files)).
 
 ### Discuss a result
 
@@ -350,9 +352,10 @@ See [development.md](development.md).
   prefill, typed wait answers) and the page controller;
 - `src/ui/automations_page.tsx`: the page, its rows and the panel wiring;
 - `src/ui/automation_discussion.tsx`: the discussion chat (panel-chat's
-  `WorkflowChat` and `WorkflowSessionController` over the Observer's gateway
-  client);
-- `src/ui/workspace_browser.tsx`: the folder browser;
+  `WorkflowChat`, `WorkflowSessionController` and `presentInteraction` over
+  the Observer's gateway client);
+- the folder browser is panel-chat's `WorkspaceBrowser`, fed by
+  `GatewayClient.fetch_gateway`;
 - the panel itself is the ui-kit's `AutomationPanel`
   (`@abstractframework/ui-kit`), shared with AbstractAssistant;
 - `src/ui/run_tree.ts`: navigator grouping.

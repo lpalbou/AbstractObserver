@@ -2129,12 +2129,6 @@ export function App(): React.ReactElement {
     const label = artifact_label(item);
     const content_type = String(item?.content_type || "").trim().toLowerCase();
     const kind = artifact_preview_kind(item);
-    const likely_html = kind === "text" && artifact_text_render_kind(item, "") === "html";
-    const html_preview_window = likely_html ? window.open("about:blank", "_blank") : null;
-    if (html_preview_window) {
-      html_preview_window.document.write("<!doctype html><title>Loading artifact preview...</title><body style=\"font:14px system-ui;padding:24px\">Loading artifact preview...</body>");
-      html_preview_window.document.close();
-    }
 
     set_runtime_preview_title(label || artifact_id);
     set_runtime_preview_text("");
@@ -2161,26 +2155,10 @@ export function App(): React.ReactElement {
       const blob = await gateway.download_run_artifact_content(rid, artifact_id, { access: "preview" });
       if (kind === "text") {
         const raw = await blob.text();
+        // HTML (and SVG/XML) artifacts show as highlighted SOURCE here, never
+        // as a page: a blob URL runs with this app's origin, so model-written
+        // markup must not execute there.
         const render_kind = artifact_text_render_kind(item, raw);
-        if (render_kind === "html") {
-          const html_blob = new Blob([raw], { type: content_type.includes("html") ? String(item.content_type || "text/html") : "text/html;charset=utf-8" });
-          const html_url = URL.createObjectURL(html_blob);
-          const target_window = html_preview_window || window.open("about:blank", "_blank");
-          if (target_window) {
-            target_window.location.href = html_url;
-            set_runtime_preview_open(false);
-            set_runtime_preview_artifact(null);
-            set_runtime_preview_text("");
-            set_runtime_preview_loading(false);
-            setTimeout(() => URL.revokeObjectURL(html_url), 5 * 60 * 1000);
-            set_status("Opened HTML preview", 2);
-            return;
-          }
-          URL.revokeObjectURL(html_url);
-          set_runtime_preview_error("Browser blocked opening the HTML page. Showing highlighted source instead.");
-        } else if (html_preview_window) {
-          html_preview_window.close();
-        }
         const max_chars = render_kind === "json" ? 1_500_000 : render_kind === "markdown" ? 250_000 : render_kind === "html" ? 300_000 : 22000;
         set_runtime_preview_text(
           raw.length > max_chars && render_kind !== "text"
@@ -2190,11 +2168,9 @@ export function App(): React.ReactElement {
               : raw
         );
       } else {
-        if (html_preview_window) html_preview_window.close();
         set_runtime_preview_url(URL.createObjectURL(blob));
       }
     } catch (e: any) {
-      if (html_preview_window) html_preview_window.close();
       set_runtime_preview_error(String(e?.message || e || "Preview failed"));
     } finally {
       set_runtime_preview_loading(false);

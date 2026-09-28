@@ -65,7 +65,7 @@ AbstractObserver is a single SPA that stores settings locally and talks to the g
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (Run once | Automate, bundle upload/reload): `src/ui/app.tsx`, `src/ui/automate_form.tsx` + `GatewayClient.start_run()` / the ui-kit automations client
-- **Automations** (list, the kit's `AutomationPanel`, the folder browser, the discussion chat, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts`, `src/ui/workspace_browser.tsx`, `src/ui/automation_discussion.tsx` + `GatewayClient.automations_client()` / `run_workspace*()` / panel-chat's `WorkflowChat`
+- **Automations** (list, the kit's `AutomationPanel`, the folder browser, the discussion chat, legacy schedule rows): `src/ui/automations_page.tsx`, `src/ui/automations.ts`, `src/ui/automation_discussion.tsx` + `GatewayClient.automations_client()` / `fetch_gateway()` / panel-chat's `WorkflowChat` and `WorkspaceBrowser`
 - **Runtime → Memory** (KG query UI): `src/ui/mindmap_panel.tsx` + `GatewayClient.kg_query()`
 - **Backlog / Inbox / Processes**: These live in AbstractContinuum (`@abstractframework/continuum`): AbstractObserver observes and discusses runs; AbstractContinuum develops and deploys.
 
@@ -87,7 +87,7 @@ flowchart LR
     AP["Automations page + kit AutomationPanel<br/><code>automations_page.tsx</code>, <code>automations.ts</code>"]
     BV["Board / Observe navigator / System<br/>tags from role + session_kind"]
     DC["Discussion chat (panel-chat WorkflowChat)<br/><code>automation_discussion.tsx</code>"]
-    WB["Folder browser<br/><code>workspace_browser.tsx</code>"]
+    WB["Folder browser<br/>panel-chat <code>WorkspaceBrowser</code>"]
   end
   subgraph GW["AbstractGateway /api/gateway"]
     CAP["GET /discovery/capabilities<br/>contracts.common.automations"]

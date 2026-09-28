@@ -7,11 +7,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AutomationSummary } from "@abstractframework/ui-kit";
 
-import { GatewayClient, type WorkspaceListing } from "../lib/gateway_client";
-import { discussion_interaction, discussion_turn_target, observer_workflow_transport } from "./automation_discussion";
-import { AutomationDetailView, AutomationStateLabel, route_row_action, type AutomationsHandlers } from "./automations_page";
-import { AUTOMATION_STATE_VIEW, discuss_index } from "./automations";
-import { WorkspaceBrowserView, hidden_note, sorted_entries, workspace_crumbs } from "./workspace_browser";
+import { STATUS_ICONS, STATUS_LABELS } from "@abstractframework/ui-kit";
+import { tabOpenPlan } from "@abstractframework/panel-chat";
+
+import { GatewayClient } from "../lib/gateway_client";
+import { discussion_turn_target, observer_workflow_transport } from "./automation_discussion";
+import { AutomationDetailView, AutomationStateLabel, automation_panel_props, route_row_action, type AutomationsHandlers } from "./automations_page";
+import { discuss_index } from "./automations";
 
 function summary(over: Partial<AutomationSummary> = {}): AutomationSummary {
   return {
@@ -36,14 +38,15 @@ function summary(over: Partial<AutomationSummary> = {}): AutomationSummary {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("state as word then icon", () => {
-  it("renders 'Active' then the play icon, 'Paused' then the pause icon", () => {
+describe("state as word then icon (the kit's one rendering)", () => {
+  it("renders 'Active' then the play icon, 'Paused' then the pause icon, in the row's state field", () => {
     for (const status of ["active", "paused"] as const) {
       const html = renderToStaticMarkup(<AutomationStateLabel status={status} />);
-      expect(html).toMatch(new RegExp(`data-state="${status}"><span class="auto_state_word">${AUTOMATION_STATE_VIEW[status].label}</span><svg`));
+      expect(html).toContain('data-field="state"');
+      expect(html).toMatch(new RegExp(`data-state="${status}"><span class="af-auto__status-word">${STATUS_LABELS[status]}</span><svg`));
     }
-    expect(AUTOMATION_STATE_VIEW.active.icon).toBe("playCircle");
-    expect(AUTOMATION_STATE_VIEW.paused.icon).toBe("pause");
+    expect(STATUS_ICONS.active).toBe("play");
+    expect(STATUS_ICONS.paused).toBe("pause");
   });
 });
 
@@ -84,100 +87,46 @@ describe("Discuss opens a chat in place", () => {
     expect(opened).toBe(true);
   });
 
-  it("a discussion's tool approval and question are answerable in the chat", async () => {
-    const approve = vi.fn(async () => ({}));
-    const resume = vi.fn(async () => ({}));
-    const ctl = { approve, resume } as any;
-    const tool = discussion_interaction(
-      { runId: "r9", stepId: "s", wait: { wait_key: "k1", reason: "user", details: { mode: "approval_required", tool_calls: [{ name: "write_file", arguments: { file_path: "x" } }] } } },
-      ctl,
-    );
-    expect(tool?.kind).toBe("tool-approval");
-    await (tool as any).onApprove();
-    expect(approve).toHaveBeenCalledWith(true, { runId: "r9", waitKey: "k1", stepId: "s" });
-    const ask = discussion_interaction({ runId: "r9", wait: { wait_key: "k2", reason: "ask_user", prompt: "Which one?", choices: ["a", "b"] } }, ctl);
-    expect(ask).toMatchObject({ kind: "ask-user", prompt: "Which one?" });
-    await (ask as any).onSubmit("a");
-    expect(resume).toHaveBeenCalledWith("a");
-    expect(discussion_interaction(null, ctl)).toBeNull();
-  });
 });
 
 describe("the automation's folder in a web app: browse, open, download through the gateway", () => {
-  const listing: WorkspaceListing = {
-    path: "",
-    truncated: false,
-    hidden: { blocked: 2, outside_links: 0, other: 0 },
-    entries: [
-      { name: "digest.md", path: "digest.md", type: "file", size_bytes: 2048 },
-      { name: "archive", path: "archive", type: "dir" },
-    ],
-  };
-
-  it("lists folders first, offers Open and Download per file, and says what the gateway hid", () => {
-    const html = renderToStaticMarkup(
-      <WorkspaceBrowserView
-        title="Automation files"
-        where={{ run_id: "a1", workspace_root: "/srv/ws/a1", kind: "session", exists: true }}
-        path=""
-        listing={listing}
-        error=""
-        loading={false}
-        file_busy=""
-        on_navigate={() => {}}
-        on_refresh={() => {}}
-        on_file={() => {}}
-      />,
-    );
-    expect(html).toContain('data-workspace-root="/srv/ws/a1"');
-    expect(html.indexOf('data-path="archive"')).toBeLessThan(html.indexOf('data-path="digest.md"'));
-    expect(html).toContain('data-action="open-file"');
-    expect(html).toContain('data-action="download-file"');
-    expect(html).toContain("2.0 KB");
-    expect(html).toContain("2 entries hidden by the gateway&#x27;s workspace rules");
-    expect(sorted_entries(listing.entries).map((e) => e.type)).toEqual(["dir", "file"]);
-    expect(workspace_crumbs("a/b")).toEqual([{ label: "Workspace", path: "" }, { label: "a", path: "a" }, { label: "b", path: "a/b" }]);
-    expect(hidden_note({ truncated: false, hidden: {} })).toBe("");
-  });
-
-  it("the gateway client reads the three workspace routes with this connection's bearer", async () => {
-    const seen: Array<{ url: string; auth: string | null }> = [];
+  it("fetch_gateway joins the base URL and carries this connection's bearer (the kit browser's transport)", async () => {
+    const seen: Array<{ url: string; auth: string | null; accept: string | null }> = [];
     vi.stubGlobal("fetch", async (url: string, init: any) => {
-      seen.push({ url, auth: init?.headers?.Authorization ?? null });
-      if (url.includes("/content")) return new Response("hello", { status: 200 });
-      if (url.includes("/files")) return new Response(JSON.stringify(listing), { status: 200 });
-      return new Response(JSON.stringify({ run_id: "a1", workspace_root: "/srv/ws/a1", kind: "session", exists: true }), { status: 200 });
+      seen.push({ url, auth: init?.headers?.Authorization ?? null, accept: init?.headers?.Accept ?? null });
+      return new Response("{}", { status: 200 });
     });
     const gw = new GatewayClient({ base_url: "http://vps:8080", auth_token: "tok" });
-    expect((await gw.run_workspace("a1")).workspace_root).toBe("/srv/ws/a1");
-    expect((await gw.run_workspace_files("a1", "archive")).entries).toHaveLength(2);
-    expect(await (await gw.run_workspace_file("a1", "archive/x y.md")).text()).toBe("hello");
-    expect(seen.map((s) => s.url)).toEqual([
-      "http://vps:8080/api/gateway/runs/a1/workspace",
-      "http://vps:8080/api/gateway/runs/a1/workspace/files?path=archive&recursive=false",
-      "http://vps:8080/api/gateway/runs/a1/workspace/content?path=archive%2Fx+y.md",
-    ]);
-    expect(seen.every((s) => s.auth === "Bearer tok")).toBe(true);
+    await gw.fetch_gateway("/api/gateway/runs/a1/workspace/files?path=x", { headers: { Accept: "application/json" } });
+    expect(seen).toEqual([{ url: "http://vps:8080/api/gateway/runs/a1/workspace/files?path=x", auth: "Bearer tok", accept: "application/json" }]);
   });
 
-  it("a refused read shows the gateway's reason", async () => {
-    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ detail: "the workspace folder '/x' is blocked" }), { status: 403 }));
-    const gw = new GatewayClient({ base_url: "", auth_token: "" });
-    await expect(gw.run_workspace_files("a1", "")).rejects.toThrow("The folder could not be listed (HTTP 403): the workspace folder '/x' is blocked");
+  it("a model-written HTML or SVG file never opens as a page in the app's origin", () => {
+    expect(tabOpenPlan("text/html; charset=utf-8")).toEqual({ mode: "open", type: "text/plain;charset=utf-8" });
+    expect(tabOpenPlan("image/svg+xml")).toEqual({ mode: "open", type: "text/plain;charset=utf-8" });
   });
 
-  it("the automation detail offers the folder as a Files button fed by workspace_root, and shows the browser when open", () => {
+  it("the panel's folder controls open the kit browser for that run, above the panel", () => {
     const s = summary();
     const ctl = { state: { selected_id: "a1", busy: false, trigger_sources: [], detail: { automation_id: "a1", summary: s, occurrences: [], next_cursor: null } } } as any;
-    const host = { on_open_run: () => {}, on_open_session: () => {} };
-    const h = {} as AutomationsHandlers;
-    const closed = renderToStaticMarkup(<AutomationDetailView ctl={ctl} host={host} h={h} files={{ open: false, on_toggle: () => {}, render: () => <div data-probe="browser" /> }} />);
-    expect(closed).toMatch(/data-action="files"[^>]*aria-pressed="false"/);
-    expect(closed).toContain(s.workspace_root!);
-    expect(closed).not.toContain('data-probe="browser"');
-    const open = renderToStaticMarkup(<AutomationDetailView ctl={ctl} host={host} h={h} files={{ open: true, on_toggle: () => {}, render: (id) => <div data-probe="browser" data-id={id} /> }} />);
-    expect(open).toContain('data-probe="browser" data-id="a1"');
-    const none = { ...ctl, state: { ...ctl.state, detail: { ...ctl.state.detail, summary: { ...s, workspace_root: undefined } } } };
-    expect(renderToStaticMarkup(<AutomationDetailView ctl={none} host={host} h={h} files={{ open: true, on_toggle: () => {}, render: () => <div data-probe="browser" /> }} />)).not.toContain('data-action="files"');
+    const opened: string[] = [];
+    const host = { on_open_run: () => {}, on_open_session: () => {}, on_open_workspace: (id: string) => opened.push(id) };
+    const p = automation_panel_props(ctl, host)!;
+    p.onOpenWorkspace!("a1");
+    expect(opened).toEqual(["a1"]);
+    const html = renderToStaticMarkup(<AutomationDetailView ctl={ctl} host={host} h={{} as AutomationsHandlers} browser={<div data-probe="browser" />} />);
+    expect(html.indexOf('data-probe="browser"')).toBeGreaterThan(-1);
+    expect(html.indexOf('data-probe="browser"')).toBeLessThan(html.indexOf("af-auto"));
+    // The kit panel shows its folder control only when the host can open it.
+    expect(renderToStaticMarkup(<AutomationDetailView ctl={ctl} host={host} h={{} as AutomationsHandlers} />)).toContain('data-action="open-workspace"');
+    // The runs read as the shared chat cards (panel-chat ChatMessageCard).
+    const occ = { run_id: "r3", index: 3, attempts: 1, fired_at: "2026-09-28T00:00:00Z", finished_at: "2026-09-28T00:01:00Z", status: "completed",
+      trigger: { source_id: "schedule", summary: "every 1 day" }, user_turn: "Summarize the news", answer: "Three stories today.", notify: null, artifacts: [], waits: [], ledger_url: "/l" };
+    const withRun = { ...ctl, state: { ...ctl.state, detail: { ...ctl.state.detail, occurrences: [occ] } } };
+    const transcript = renderToStaticMarkup(<AutomationDetailView ctl={withRun} host={host} h={{} as AutomationsHandlers} />);
+    expect(transcript).toMatch(/pc-chat-item pc-chat-item--[a-z]+[^>]*>[^]*Summarize the news/);
+    expect(transcript).toMatch(/pc-chat-item[^]*Three stories today\./);
+    const bare = { on_open_run: () => {}, on_open_session: () => {} };
+    expect(automation_panel_props(ctl, bare)!.onOpenWorkspace).toBeUndefined();
   });
 });

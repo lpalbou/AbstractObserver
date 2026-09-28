@@ -6,16 +6,19 @@ Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owne
 `use_context`, `input_data` without gateway-made folders) for items marked (gateway).
 
 ### Added
-- **Files** on an automation browses its folder on the gateway host and opens
-  or downloads each file in the browser, through the gateway's workspace
-  routes; a discussion's chat has **Its files** and **Automation files**.
+- The folder button next to an automation's **Workspace** (and **Workspace**
+  in a run's details) browses that folder on the gateway host and opens or
+  downloads each file in the browser, through the gateway's workspace routes;
+  a discussion's chat has **Its files** and **Automation files**. HTML, SVG and
+  other text files open as plain text.
 - **Discuss** opens a chat with a fork of the automation on the Automations
   page (row: latest finished run; panel: the chosen occurrence). Follow-ups
   are later turns of the same discussion session, with the same model. The
   chat is the shared AbstractUIC chat: live replies, tool approvals and
   questions answered in place, Stop.
 - Automation states read as a word then its icon ("Active ▶", "Paused ⏸"),
-  and row actions and facts carry icons.
+  row actions and facts carry icons, and runs read as chat cards (shared
+  AbstractUIC components).
 
 ### Changed
 - The automation's **Context** choice is the one history control: Automate
@@ -25,6 +28,8 @@ Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owne
   replayed.
 
 ### Fixed
+- An HTML artifact preview shows its source instead of opening it as a page
+  in the app's origin.
 - Ask and Summary show the gateway's reason when it cannot answer, instead of
   "(error: failed to generate answer)".
 - Ask about an automation (or any run) answers on gateways whose default text
