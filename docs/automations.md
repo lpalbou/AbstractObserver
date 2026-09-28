@@ -142,15 +142,16 @@ Each row shows:
   attempts", or "no runs yet");
 - an excerpt of the last answer.
 
-Row controls, each an icon then its name (a disabled control explains why
-when you hover it). **Refresh** (↻) and **New automation** (+) sit in the
+Row controls, each an icon then its name. Hovering a control shows what it
+does (the shared AbstractUIC hint, the same text in every AbstractFramework
+client); a disabled control first says why. **Refresh** (↻) and **New automation** (+) sit in the
 list's header; the result of a row action shows at the top of the list for a
 few seconds, with a dismiss button:
 
 | Control | What it does |
 | --- | --- |
 | **Pause** / **Resume** | Pause skips scheduled runs. Resume re-arms the schedule; the ticks that passed while paused are not run. |
-| **Run now** | Runs one occurrence immediately. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). |
+| **Run now** (the play-in-a-circle icon) | Runs one occurrence immediately instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. A manual run does not count toward a run limit. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). In a Growing automation, later runs see it in their history. It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). Its tooltip says all this, with the next scheduled time. |
 | **Edit** | Opens the automation with its Edit form already open, prefilled and focused (see [Edit](#edit)). |
 | **Discuss** | Opens a chat with a fork of the automation at its latest finished run, on this page (see [Discuss a result](#discuss-a-result)). |
 | **Archive…** (the icon at the end of the row) | Asks first ("Its history stays readable; it will not run again."), then stops the automation for good. |
@@ -198,7 +199,7 @@ never shown.
 The top of the panel shows **When**, **Context**, **Next run**, **Runs**,
 **Workspace**, **Attention** and **Revision**, then the controls **Pause** /
 **Resume**, **Run now**, **Stop current**, **Edit** and **Archive…** (each an
-icon then its name; a disabled one says why in its tooltip), then the
+icon then its name; the tooltip says what it does, and a disabled one first says why), then the
 **Definition** card (one click opens it: workflow, task, trigger, context,
 tools, retries). While paused, the panel reminds you: "Paused: scheduled runs
 are skipped. Run now works and keeps it paused." What a control did ("Pause

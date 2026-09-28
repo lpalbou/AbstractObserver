@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Every automation row control has a tooltip and `aria-description` saying
+  what it does: the shared AbstractUIC hint (`controlHint`, ui-kit 0.1.16),
+  the same text as the panel and the other clients. **Run now**'s says it runs
+  once now instead of waiting, that the next scheduled run keeps its time (or
+  starts right after this run if its time comes first), that it does not
+  count toward a run limit and works while paused, with the next scheduled
+  time. A disabled control's tooltip first says why. Legacy rows use the
+  kit's icons.
+
 ## [0.2.0] - 2026-09-28
 
 Items marked (gateway) need AbstractGateway 0.7.0 or later (endpoint-profile

@@ -151,6 +151,11 @@ previous tick. Set **First run at (UTC)** under Advanced to choose the anchor.
 No. Run now starts one occurrence and the automation stays paused. It is
 refused while an occurrence is in progress (`automation_busy`).
 
+## Does "Run now" change the next scheduled run?
+No. The next scheduled run keeps its time. If that time comes while the manual
+run is still going, the scheduled run starts as soon as the manual run ends.
+A manual run does not count toward a schedule's run limit.
+
 ## Does discussing a result change the automation?
 No. **Discuss** forks the automation at that occurrence: a new session with
 the automation's history up to it (runs 1 to N), opened as a chat on the

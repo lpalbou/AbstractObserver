@@ -22,6 +22,8 @@ import {
   CONTROL_ICONS,
   CONTROL_LABELS,
   DISCUSS_LABEL,
+  controlHint,
+  type ControlId,
   Icon,
   type IconName,
   apiErrorText,
@@ -97,10 +99,20 @@ export const ROW_ICONS: Record<RowAction, IconName> = {
   discuss: CONTROL_ICONS.discuss,
 };
 
+/** Row action → the kit control whose hint (tooltip + aria-description) it carries. */
+const ROW_CONTROL: Record<RowAction, ControlId> = {
+  pause: "pause",
+  resume: "resume",
+  run_now: "run_now",
+  edit: "revise",
+  archive: "archive",
+  discuss: "discuss",
+};
+
 const LEGACY_ICONS: Record<LegacyAction, IconName> = {
-  legacy_pause: "pause",
-  legacy_resume: "play",
-  legacy_run_now: "playCircle",
+  legacy_pause: CONTROL_ICONS.pause,
+  legacy_resume: CONTROL_ICONS.resume,
+  legacy_run_now: CONTROL_ICONS.run_now,
   open_run: "list",
   recreate: "refresh",
 };
@@ -136,16 +148,19 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
   const v = automation_row_view(s);
   const selected = props.state.selected_id === s.automation_id;
   const busy = props.state.busy;
-  // `iconOnly`: the label becomes the button's accessible name and tooltip.
-  const btn = (key: string, label: string, ctl: { enabled: boolean; reason?: string }, onClick: () => void, extra?: string, icon?: IconName, iconOnly?: boolean) => (
+  // `iconOnly`: the label becomes the button's accessible name and leads its tooltip.
+  // `hint`: what the control does (the kit's `controlHint`), the tooltip after the
+  // label/reason and the button's aria-description.
+  const btn = (key: string, label: string, ctl: { enabled: boolean; reason?: string }, onClick: () => void, extra?: string, icon?: IconName, iconOnly?: boolean, hint?: string) => (
     <button
       key={key}
       type="button"
       className={`btn btn_sm auto_action${iconOnly ? " auto_action_icon" : ""}${extra ? ` ${extra}` : ""}`}
       data-action={key}
       disabled={!ctl.enabled}
-      title={iconOnly ? (ctl.enabled ? label : `${label} ${ctl.reason ?? ""}`.trim()) : ctl.reason}
+      title={[iconOnly ? label : null, ctl.enabled ? null : ctl.reason, hint].filter(Boolean).join("\n") || undefined}
       aria-label={iconOnly ? label : undefined}
+      aria-description={hint}
       onClick={onClick}
     >
       {icon ? <Icon name={icon} size={13} /> : null}
@@ -162,7 +177,7 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
     // Archive (destructive, rare) is the icon at the end of the row.
     const order: RowAction[] = [s.status === "paused" ? "resume" : "pause", "run_now", "edit", "discuss", "archive"];
     actions = order.map((a) =>
-      btn(a, ROW_LABELS[a], c[a], () => props.h.on_row_action(s, a), a === "archive" ? "danger auto_action_end" : undefined, ROW_ICONS[a], a === "archive"),
+      btn(a, ROW_LABELS[a], c[a], () => props.h.on_row_action(s, a), a === "archive" ? "danger auto_action_end" : undefined, ROW_ICONS[a], a === "archive", controlHint(ROW_CONTROL[a], s)),
     );
   }
   const confirming = props.state.confirm_archive_id === s.automation_id;
