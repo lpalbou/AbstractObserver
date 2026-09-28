@@ -158,7 +158,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.1.14 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.2.0 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -233,7 +233,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.1.14",
+  "version": "0.2.0",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -276,7 +276,7 @@ See `docs/development.md` for details.
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@abstractframework/app-server": "^0.1.10",
+    "@abstractframework/app-server": "^0.1.11",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -489,10 +489,10 @@ export default defineConfig({
 
 # Changelog
 
-## Unreleased
+## [0.2.0] - 2026-09-28
 
-Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owned
-`use_context`, `input_data` without gateway-made folders) for items marked (gateway).
+Items marked (gateway) need AbstractGateway 0.7.0 or later (endpoint-profile
+Ask, server-owned `use_context`, `input_data` without gateway-made folders).
 
 ### Added
 - The folder button next to an automation's **Workspace** (and **Workspace**
@@ -533,6 +533,12 @@ Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owne
   (gateway).
 - Growing context copy: the most recent 50,000 tokens of whole turns are
   replayed.
+
+### Security
+- Requires `@abstractframework/app-server` 0.1.11 or later: a browser counts
+  as on this machine only when its address is loopback and the page's host
+  names loopback, so a DNS-rebinding page can neither reveal a folder nor
+  change the Gateway URL.
 
 ### Fixed
 - A run's ledger and artifacts in the automation panel open through the
@@ -3951,6 +3957,11 @@ Guidance:
   `/apps/observer/`: the gateway relays to this server on `127.0.0.1` and
   forwards the browser's address, which the server uses to decide whether a
   browser is on this machine (the folder reveal is refused otherwise).
+- A browser counts as "on this machine" only when its address is loopback
+  **and** the page's host names loopback (`localhost`, `127.0.0.1`, `::1`).
+  A page from another site whose name resolves to `127.0.0.1` (DNS
+  rebinding) is refused, for the folder reveal and for browser-supplied
+  Gateway URL changes alike.
 - For shared deployments, put the gateway behind an authenticated reverse proxy and use HTTPS.
 
 ## Tokens and browser sessions

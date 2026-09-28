@@ -1,9 +1,9 @@
 # Changelog
 
-## Unreleased
+## [0.2.0] - 2026-09-28
 
-Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owned
-`use_context`, `input_data` without gateway-made folders) for items marked (gateway).
+Items marked (gateway) need AbstractGateway 0.7.0 or later (endpoint-profile
+Ask, server-owned `use_context`, `input_data` without gateway-made folders).
 
 ### Added
 - The folder button next to an automation's **Workspace** (and **Workspace**
@@ -44,6 +44,12 @@ Needs AbstractGateway with the matching fixes (endpoint-profile Ask, server-owne
   (gateway).
 - Growing context copy: the most recent 50,000 tokens of whole turns are
   replayed.
+
+### Security
+- Requires `@abstractframework/app-server` 0.1.11 or later: a browser counts
+  as on this machine only when its address is loopback and the page's host
+  names loopback, so a DNS-rebinding page can neither reveal a folder nor
+  change the Gateway URL.
 
 ### Fixed
 - A run's ledger and artifacts in the automation panel open through the

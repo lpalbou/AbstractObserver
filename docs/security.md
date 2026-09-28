@@ -11,6 +11,11 @@ Guidance:
   `/apps/observer/`: the gateway relays to this server on `127.0.0.1` and
   forwards the browser's address, which the server uses to decide whether a
   browser is on this machine (the folder reveal is refused otherwise).
+- A browser counts as "on this machine" only when its address is loopback
+  **and** the page's host names loopback (`localhost`, `127.0.0.1`, `::1`).
+  A page from another site whose name resolves to `127.0.0.1` (DNS
+  rebinding) is refused, for the folder reveal and for browser-supplied
+  Gateway URL changes alike.
 - For shared deployments, put the gateway behind an authenticated reverse proxy and use HTTPS.
 
 ## Tokens and browser sessions
