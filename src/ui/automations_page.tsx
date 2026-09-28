@@ -363,9 +363,6 @@ export function AutomationDetailView(props: {
             <Icon name="list" size={13} />
             <span>Files</span>
           </button>
-          <span className="auto_detail_ws mono muted" data-fact="workspace-root">
-            {ws}
-          </span>
         </div>
       ) : null}
       {ws && props.files?.open ? props.files.render(d.automation_id) : null}

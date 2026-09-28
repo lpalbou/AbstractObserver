@@ -235,14 +235,6 @@
   min-width: 0;
 }
 
-.auto_detail_ws {
-  font-size: var(--t-micro);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
 /* Workspace browser (gateway workspace routes). */
 .ws_browser {
   border: 1px solid var(--pane-border);
