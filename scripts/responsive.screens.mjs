@@ -130,6 +130,14 @@ export default {
       settle: 1200,
     },
     {
+      name: "system-memory",
+      async run(page) {
+        // System → Memory (the monitor-active-memory explorer).
+        await page.locator(".runtime_mode_tab", { hasText: "Memory" }).click();
+      },
+      settle: 1500,
+    },
+    {
       name: "settings",
       async run(page) {
         await closeDialogs(page);

@@ -365,6 +365,13 @@ body {
     scroll-margin-top: 6px;
   }
 
+  .observe_page .tab_bar_controls {
+    flex-wrap: wrap;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .observe_back_btn {
     display: inline-flex;
     align-items: center;
@@ -500,6 +507,21 @@ body {
     align-items: center;
   }
 
+  /* WebKit keeps a native <select> at its intrinsic ~22 px whatever the
+   * min-height; a fixed height is honoured by both engines. */
+  select:not([multiple]):not([size]) {
+    height: var(--tap-min, 44px);
+  }
+
+  /* Automate's When / Context / Tools choice rows and the Memory bar toggles. */
+  fieldset[data-section] > label,
+  .mindmap_bar > .field_inline {
+    min-height: var(--tap-min, 44px);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .automate_row > label {
     display: inline-flex;
     align-items: center;
@@ -514,6 +536,13 @@ body {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   select,
   textarea {
+    font-size: var(--font-size-input, 16px);
+  }
+
+  /* The run-list group-by select is styled at page specificity. */
+  .observe_page .run_nav_filter_row .seg_select,
+  .observe_page .tab_bar_controls .seg_select,
+  .seg_select {
     font-size: var(--font-size-input, 16px);
   }
 
