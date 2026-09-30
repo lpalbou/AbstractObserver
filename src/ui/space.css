@@ -485,6 +485,11 @@
     font-size: var(--t-small);
   }
 
+  /* The workspace path is read in full: a body-size monospace line. */
+  .auto_detail .af-auto__path-text {
+    font-size: var(--font-size-body, 14px);
+  }
+
   /* The wait context (what the run waits for) is read, not scanned. */
   .observe_page .observe_context_body,
   .observe_page .observe_context_body .mono {
