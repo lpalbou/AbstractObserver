@@ -8,7 +8,17 @@
  */
 import React from "react";
 
-import { SCHEDULE_PRESETS, TOOL_APPROVAL_CONSENT } from "@abstractframework/ui-kit";
+import {
+  AfEmailOptionsFields,
+  AfEmailSetupNotice,
+  AfEmailTriggerFields,
+  DEFAULT_EMAIL_RECIPIENTS,
+  EMAIL_TEXT,
+  SCHEDULE_PRESETS,
+  TOOL_APPROVAL_CONSENT,
+  emailUsable,
+  type MyEmailStatus,
+} from "@abstractframework/ui-kit";
 
 import { CONTEXT_HELP, CONTEXT_OWNS_HISTORY, LAUNCH_MODE_HELP, automate_preview, type AutomateForm, type IntervalUnit, type LaunchMode } from "./automations";
 
@@ -51,24 +61,37 @@ export type AutomateFieldsProps = {
   tools?: string[];
   disabled?: boolean;
   on_change(patch: Partial<AutomateForm>): void;
+  /** GET /me/email (framework backlog 0992): the email options are offered only when usable; null/absent = not set up. */
+  email_status?: MyEmailStatus | null;
+  /** Opens the gateway console's My email; absent = "open My email" is plain text. */
+  on_open_my_email?: () => void;
 };
 
 export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement {
   const f = p.form;
-  const preview = automate_preview(f);
+  const usable = emailUsable(p.email_status);
+  // An email choice made while the account was usable reads as Repeat once it is not.
+  const when = f.when === "email" && !usable ? "every" : f.when;
+  const preview = automate_preview(f, usable);
   return (
     <div className="automate_fields">
       <fieldset data-section="when">
         <legend>When (UTC)</legend>
         <div className="automate_row" role="radiogroup" aria-label="Schedule kind">
           <label>
-            <input type="radio" name="automate_when" value="every" checked={f.when === "every"} disabled={p.disabled} onChange={() => p.on_change({ when: "every" })} /> Repeat
+            <input type="radio" name="automate_when" value="every" checked={when === "every"} disabled={p.disabled} onChange={() => p.on_change({ when: "every" })} /> Repeat
           </label>
           <label>
-            <input type="radio" name="automate_when" value="once" checked={f.when === "once"} disabled={p.disabled} onChange={() => p.on_change({ when: "once" })} /> Once at…
+            <input type="radio" name="automate_when" value="once" checked={when === "once"} disabled={p.disabled} onChange={() => p.on_change({ when: "once" })} /> Once at…
+          </label>
+          <label>
+            <input type="radio" name="automate_when" value="email" checked={when === "email"} disabled={p.disabled || !usable} onChange={() => p.on_change({ when: "email" })} /> {EMAIL_TEXT.trigger_label}
           </label>
         </div>
-        {f.when === "every" ? (
+        {!usable ? <AfEmailSetupNotice status={p.email_status} onOpenMyEmail={p.on_open_my_email} /> : null}
+        {when === "email" ? (
+          <AfEmailTriggerFields value={f.email} onChange={(email) => p.on_change({ email })} disabled={p.disabled} idBase="automate" />
+        ) : when === "every" ? (
           <>
             <div className="automate_row" role="group" aria-label="Presets">
               {SCHEDULE_PRESETS.map((preset) =>
@@ -107,7 +130,7 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
           </label>
         )}
         <div className="automate_preview" aria-live="polite" data-preview="true">
-          {preview || "Incomplete schedule."}
+          {preview || (when === "email" ? "Incomplete email trigger." : "Incomplete schedule.")}
         </div>
       </fieldset>
       <fieldset data-section="context">
@@ -126,6 +149,11 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
       </fieldset>
       <fieldset data-section="tools">
         <legend>Tools</legend>
+        {when === "email" ? (
+          <p className="help_text muted" data-email-rule="untrusted">
+            {EMAIL_TEXT.untrusted_hint}
+          </p>
+        ) : null}
         <label>
           <input type="radio" name="automate_tools" value="auto" checked={f.tool_approval === "auto"} disabled={p.disabled} onChange={() => p.on_change({ tool_approval: "auto" })} />{" "}
           {TOOL_APPROVAL_CONSENT}
@@ -135,6 +163,18 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
           <input type="radio" name="automate_tools" value="ask" checked={f.tool_approval === "ask"} disabled={p.disabled} onChange={() => p.on_change({ tool_approval: "ask" })} /> Ask each time — every tool call
           waits for your approval on the Automations page
         </label>
+      </fieldset>
+      <fieldset data-section="email">
+        <legend>Email</legend>
+        {!usable ? <AfEmailSetupNotice status={p.email_status} onOpenMyEmail={p.on_open_my_email} /> : null}
+        <AfEmailOptionsFields
+          notifyEmail={usable && f.notify_email}
+          onNotifyEmailChange={(notify_email) => p.on_change({ notify_email })}
+          recipients={usable ? f.email_recipients : DEFAULT_EMAIL_RECIPIENTS}
+          onRecipientsChange={(email_recipients) => p.on_change({ email_recipients })}
+          disabled={p.disabled || !usable}
+          idBase="automate"
+        />
       </fieldset>
     </div>
   );

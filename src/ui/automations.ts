@@ -25,11 +25,19 @@ import {
   currentOccurrenceLabel,
   relativeIn,
   buildCreateRequest,
+  DEFAULT_EMAIL_RECIPIENTS,
+  DEFAULT_EMAIL_TRIGGER_FORM,
+  EMAIL_TEXT,
+  emailTriggerLabel,
+  emailUsable,
   formatUtc,
   isApiError,
   scheduleLabel,
   triggerSummary,
   type ApiError,
+  type EmailRecipientsForm,
+  type EmailTriggerForm,
+  type MyEmailStatus,
   type AutomationChanges,
   type AutomationCommandType,
   type AutomationDefinition,
@@ -137,8 +145,25 @@ export type LaunchMode = "once" | "automate";
 export const LAUNCH_MODE_HELP: Record<LaunchMode, string> = {
   once: "Run once: start this workflow now, a single run you can watch in Observe.",
   automate:
-    "Automate: create an automation that runs this workflow on a schedule (every N minutes, hours or days) or when you ask; manage it on the Automations page.",
+    "Automate: create an automation that runs this workflow on a schedule (every N minutes, hours or days), when an email arrives, or when you ask; manage it on the Automations page.",
 };
+
+/**
+ * The gateway console's My email (its Users tab), where a user connects their
+ * mailbox (framework backlog 0992). Null when the gateway URL is unknown or not
+ * http(s): "open My email" is then plain text.
+ */
+export function my_email_console_url(gateway_url: string | null | undefined): string | null {
+  const raw = String(gateway_url || "").trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return `${u.origin}${u.pathname.replace(/\/+$/, "")}/console#users`;
+  } catch {
+    return null;
+  }
+}
 
 /** Deep link to Launch in Automate mode (the Automations page's "+ New automation"). */
 export const LAUNCH_AUTOMATE_HASH = "#launch/automate";
@@ -157,7 +182,14 @@ export type IntervalUnit = "m" | "h" | "d";
 
 /** The Automate-mode form (raw input values; the kit validates them). */
 export type AutomateForm = {
-  when: "every" | "once";
+  /** "email": `email.received@1` from `email` (offered only with a usable account, GET /me/email). */
+  when: "every" | "once" | "email";
+  /** The "When an email arrives" fields (the kit's `EmailTriggerForm`). */
+  email: EmailTriggerForm;
+  /** "Email me the result" → `notify.channels: ["console", "email"]`. */
+  notify_email: boolean;
+  /** "May send email without asking to": only me (default) / me and these addresses. */
+  email_recipients: EmailRecipientsForm;
   amount: string;
   unit: IntervalUnit;
   /** `YYYY-MM-DDTHH:MM`, read as UTC. */
@@ -175,6 +207,9 @@ export type AutomateForm = {
 
 export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
   when: "every",
+  email: DEFAULT_EMAIL_TRIGGER_FORM,
+  notify_email: false,
+  email_recipients: DEFAULT_EMAIL_RECIPIENTS,
   amount: "24",
   unit: "h",
   once_at: "",
@@ -204,12 +239,20 @@ export const AUTOMATION_OWNED_INPUTS: readonly string[] = ["use_context"];
 /** Said under the Context choice, where the hidden input went. */
 export const CONTEXT_OWNS_HISTORY = "This choice also sets the workflow's Use Context input: the workflow always reads the history the automation gives it.";
 
-/** The kit's schedule form for this Observer form and prompt. */
-export function schedule_form(form: AutomateForm, prompt: string): ScheduleForm {
+/**
+ * The kit's schedule form for this Observer form and prompt. Email options
+ * (the trigger, "Email me the result", allowed recipients) are carried only
+ * when `email_usable` (GET /me/email → effective_enabled): without a usable
+ * account nothing email-shaped is sent.
+ */
+export function schedule_form(form: AutomateForm, prompt: string, email_usable = false): ScheduleForm {
   const every = form.when === "every";
   return {
     prompt,
-    when: every ? { kind: "every", amount: Number(form.amount), unit: form.unit } : { kind: "once", at: form.once_at },
+    when: form.when === "once" ? { kind: "once", at: form.once_at } : { kind: "every", amount: Number(form.amount), unit: form.unit },
+    ...(email_usable && form.when === "email" ? { trigger: "email" as const, email: form.email } : {}),
+    ...(email_usable && form.notify_email ? { notifyEmail: true } : {}),
+    ...(email_usable && form.email_recipients.mode === "list" ? { emailRecipients: form.email_recipients } : {}),
     context: form.context,
     toolApproval: form.tool_approval,
     title: form.title,
@@ -231,9 +274,12 @@ export function build_automate_request(
     bundle_ref_for: (bundle_id: string) => string;
     input_data: Record<string, any> | null;
     request_id: string;
+    /** GET /me/email → effective_enabled (see `schedule_form`). */
+    email_usable?: boolean;
   },
 ): { ok: true; body: CreateAutomationRequest } | { ok: false; errors: string[] } {
   if (opts.input_data === null) return { ok: false, errors: ["The inputs are not valid JSON."] };
+  if (form.when === "email" && !opts.email_usable) return { ok: false, errors: [EMAIL_TEXT.not_set_up] };
   const cleaned = clean_input_data(opts.input_data);
   const prompt = typeof cleaned.prompt === "string" ? cleaned.prompt : "";
   delete cleaned.prompt;
@@ -244,11 +290,16 @@ export function build_automate_request(
   } catch (e: any) {
     return { ok: false, errors: [String(e?.message || e)] };
   }
-  return buildCreateRequest(schedule_form(form, prompt), { target, requestId: opts.request_id });
+  return buildCreateRequest(schedule_form(form, prompt, opts.email_usable === true), { target, requestId: opts.request_id });
 }
 
 /** "Runs every 24 hours (UTC), first run now." — or "" while incomplete. */
-export function automate_preview(form: AutomateForm): string {
+export function automate_preview(form: AutomateForm, email_usable = false): string {
+  if (form.when === "email") {
+    if (!email_usable) return "";
+    const built = buildCreateRequest(schedule_form(form, "preview", true), { target: { flow_id: "@default", interface: CODE_AGENT_INTERFACE }, requestId: "preview" });
+    return built.ok ? `Runs ${emailTriggerLabel(built.body.trigger.config)}.` : "";
+  }
   const built = buildCreateRequest(schedule_form(form, "preview"), {
     target: { flow_id: "@default", interface: CODE_AGENT_INTERFACE },
     requestId: "preview",
@@ -285,7 +336,7 @@ export class RequestIdMemo {
 /** Build with a memoized request id (the id is excluded from the memo key). */
 export function build_automate_request_memo(
   form: AutomateForm,
-  opts: { choice: WorkflowChoice | null; bundle_ref_for: (bundle_id: string) => string; input_data: Record<string, any> | null },
+  opts: { choice: WorkflowChoice | null; bundle_ref_for: (bundle_id: string) => string; input_data: Record<string, any> | null; email_usable?: boolean },
   memo: RequestIdMemo,
 ): { ok: true; body: CreateAutomationRequest } | { ok: false; errors: string[] } {
   const probe = build_automate_request(form, { ...opts, request_id: "" });
@@ -580,6 +631,12 @@ export type AutomationsState = {
   busy: boolean;
   notice: string;
   confirm_archive_id: string;
+  /**
+   * GET /me/email, re-read with every list refresh (and when Launch → Automate
+   * opens). null = unknown (not read yet, refused or failed): the email options
+   * then say "Email isn't set up — open My email".
+   */
+  email_status: MyEmailStatus | null;
 };
 
 export const INITIAL_AUTOMATIONS_STATE: AutomationsState = {
@@ -597,6 +654,7 @@ export const INITIAL_AUTOMATIONS_STATE: AutomationsState = {
   busy: false,
   notice: "",
   confirm_archive_id: "",
+  email_status: null,
 };
 
 /** What the page needs from the Observer host (existing gateway paths). */
@@ -744,11 +802,27 @@ export class AutomationsController {
     throw new Error("GET /api/gateway/automations kept returning next_cursor after 200 pages.");
   }
 
+  /** GET /me/email → `state.email_status` (null when it cannot be read; never an automations error). */
+  async load_email_status(): Promise<void> {
+    try {
+      const status = await this.client.getMyEmail();
+      this.set({ email_status: status && typeof status === "object" ? status : null });
+    } catch {
+      this.set({ email_status: null });
+    }
+  }
+
+  /** Is the user's email account usable now (the kit's rule)? */
+  get email_usable(): boolean {
+    return emailUsable(this.state.email_status);
+  }
+
   async refresh(): Promise<void> {
     const seq = ++this.list_seq;
     this.set({ loading: true });
     try {
       const items = await this.list_all();
+      void this.load_email_status();
       if (seq !== this.list_seq) return;
       const detail = this.state.detail;
       const fresh = detail ? items.find((s) => s.automation_id === detail.automation_id) : undefined;

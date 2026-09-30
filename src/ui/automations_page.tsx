@@ -335,6 +335,8 @@ export type PanelHostHandlers = {
   on_open_run(run_id: string): void;
   /** Browse a run's folder (the automation id = its controller run). Absent: no folder controls. */
   on_open_workspace?(run_id: string): void;
+  /** Opens the gateway console's My email ("Email isn't set up — open My email" in the Edit form). */
+  on_open_my_email?(): void;
   /** Credentialed gateway request (`GatewayClient.fetch_gateway`): the panel opens a run's ledger and
    * artifacts through it (panel-chat `openGatewayResource`, safe tab-open), never as raw links. */
   fetch_gateway?: GatewayFetch;
@@ -377,6 +379,9 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     ...(host.fetch_gateway ? { fetchGateway: host.fetch_gateway } : {}),
     onAnswerWait: (run_id, wait_key, payload) => ctl.answer_wait(id, run_id, wait_key, payload as Record<string, any>),
     ...(edit ? { editOpen: edit.open, onEditOpenChange: edit.on_change } : {}),
+    // The Edit form offers the email options only with a usable account.
+    emailStatus: st.email_status,
+    ...(host.on_open_my_email ? { onOpenMyEmail: () => host.on_open_my_email?.() } : {}),
   };
 }
 

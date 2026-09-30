@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.0] - Unreleased
+
+Built with AbstractUIC ui-kit 0.2.0 (CI and release must check out the AbstractUIC tag that ships it).
+Needs an AbstractGateway with per-user email (`/api/gateway/me/email`, the `email.received@1` trigger;
+framework backlog 0992).
+
+### Added
+- **Email automations in Launch → Automate.** **When an email arrives** (a When choice: from these
+  addresses / domains, sent to these addresses, subject contains, attachments; **Check for new mail every**,
+  1 hour by default for a model and never under 60 s, with the rule shown; **At most this many emails per
+  run**), **Email me the result** (`notify.channels: ["console", "email"]`) and **May send email without
+  asking to: Only me / Me and these addresses** (`policy.email_allowed_recipients`) — the kit's
+  `AfEmailTriggerFields` / `AfEmailOptionsFields`. The Observer reads `GET /api/gateway/me/email` with every
+  Automations refresh and when Launch → Automate opens; without a usable account the options are off, the
+  form says "Email isn't set up — open My email" (opens `<gateway>/console#users` in a new tab) and nothing
+  email-shaped is sent (an email trigger is refused with that sentence).
+- The automation panel's Edit form and Definition card get the email status (the kit's email fields there).
+- Tests: `src/ui/automations_email.test.tsx` (red before).
+
+### Known gap
+- AbstractGateway's `POST /api/gateway/automations` does not accept `notify` yet (422 "Extra inputs are not
+  permitted"), so creating with **Email me the result** ticked is refused until the gateway adds it; editing
+  an automation already accepts it.
+
 ## [0.2.1] - 2026-09-28
 
 Built with AbstractUIC ui-kit 0.1.16.

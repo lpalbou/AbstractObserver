@@ -41,6 +41,7 @@ import {
   RequestIdMemo,
   automations_capability,
   build_automate_request_memo,
+  my_email_console_url,
   default_agent_choices,
   legacy_recreate_prefill,
   normalize_run_summary,
@@ -844,6 +845,17 @@ export function App(): React.ReactElement {
     (fn) => automations_ctl.subscribe(fn),
     () => automations_ctl.state,
   );
+  // "Email isn't set up — open My email": the gateway console's Users tab, in a new tab.
+  const my_email_url = my_email_console_url(settings.gateway_url);
+  const open_my_email = my_email_url
+    ? () => {
+        window.open(my_email_url, "_blank", "noopener,noreferrer");
+      }
+    : undefined;
+  // Fresh email status whenever Launch → Automate is shown (the user may have just connected their mailbox).
+  useEffect(() => {
+    if (page === "launch" && launch_mode === "automate" && gateway_connected) void automations_ctl.load_email_status();
+  }, [page, launch_mode, gateway_connected, automations_ctl]);
   // Deep links: #launch/automate, #launch/once, #launch, #automations.
   useEffect(() => {
     const apply = () => {
@@ -2921,7 +2933,12 @@ export function App(): React.ReactElement {
     }
     const built = build_automate_request_memo(
       automate_form,
-      { choice: launch_choice, bundle_ref_for: (bid) => workflow_options.find((w) => w.bundle_id === bid)?.bundle_ref || "", input_data: input_data_obj },
+      {
+        choice: launch_choice,
+        bundle_ref_for: (bid) => workflow_options.find((w) => w.bundle_id === bid)?.bundle_ref || "",
+        input_data: input_data_obj,
+        email_usable: automations_ctl.email_usable,
+      },
       automate_request_ids.current,
     );
     if (!built.ok) {
@@ -5401,6 +5418,8 @@ export function App(): React.ReactElement {
                   <>
                     <AutomateWhenContext
                       form={automate_form}
+                      email_status={automations_state.email_status}
+                      on_open_my_email={open_my_email}
                       tools={Array.isArray((input_data_obj as any)?.tools) ? ((input_data_obj as any).tools as any[]).map((t) => String(t)) : undefined}
                       disabled={automate_submitting}
                       on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))}
@@ -5487,6 +5506,7 @@ export function App(): React.ReactElement {
             h={automations_handlers}
             host={{
               on_open_run: (rid) => open_run_in_observe(rid),
+              ...(open_my_email ? { on_open_my_email: open_my_email } : {}),
               // The discussion opens as a chat on this page (AutomationsPage);
               // the log keeps where it works (own workspace, the automation's
               // files mounted read-only; both paths from the gateway's answer).

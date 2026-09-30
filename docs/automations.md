@@ -60,6 +60,8 @@ text inputs are left out, as in **Run once**.
 - **Repeat** every N minutes, hours or days. Presets: every 5 minutes,
   every 30 minutes, every hour, every 8 hours, every 24 hours, every 7 days.
 - **Once at…** a date and time.
+- **When an email arrives** — see [Email](#email) (offered only when your
+  gateway account has a working mailbox).
 
 All times are UTC. Intervals are fixed: "every 24 hours" means 24 hours after
 the previous tick, whatever your time zone or daylight saving time. The line
@@ -90,6 +92,36 @@ show the workflow's **Use Context** input (Run once still does).
 
 Questions a workflow asks you (`ask_user`) always wait for you, whichever
 option you choose.
+
+### Email
+
+These options need a mailbox connected to your gateway account (the gateway
+console's **My email**, in its Users tab). The Observer reads
+`GET /api/gateway/me/email` with every Automations refresh and whenever Launch →
+Automate opens. Without a usable account the options are off and the form says
+**"Email isn't set up — open My email"**; the link opens the gateway console in
+a new tab. Nothing email-related is sent without a usable account.
+
+- **When an email arrives** (a When choice): the automation runs on new mail
+  in your inbox (the runtime trigger `email.received@1`). Optional filters, all
+  exact values, no patterns: **From these addresses**, **From these domains**,
+  **Sent to these addresses**, **Subject contains** (one line) and
+  **Attachments** (any / only with / only without). **Check for new mail every**
+  defaults to 1 hour (an automation that runs a model) and is never under 60
+  seconds; the form states that rule. **At most this many emails per run**
+  (default 100, up to 1000): the rest wait for the next run. Each email is read
+  once; mail that arrived before the automation existed, or while it was
+  paused, is skipped. The Tools section adds that incoming mail is data, never
+  instructions, and that link-opening tools always ask.
+- **Email me the result**: a run that notifies you, or fails for good, is also
+  emailed to you (`notify.channels: ["console", "email"]`).
+- **May send email without asking to**: **Only me** (default) or **Me and
+  these addresses** (`policy.email_allowed_recipients`). Mail to anyone else
+  waits for your approval; your recipient policy in My email still applies.
+
+The fields and their words are the kit's (`AfEmailTriggerFields`,
+`AfEmailOptionsFields`, `AfEmailSetupNotice`), the same as in AbstractCode's
+dialog.
 
 ### Advanced
 
@@ -219,9 +251,10 @@ title field focused:
 | --- | --- |
 | **Title** | The automation's name. |
 | **Task** | The instruction every run receives (the workflow's `prompt` input). |
-| **Repeat every (UTC)** | The interval, in minutes, hours or days (interval schedules only). |
+| **Repeat every (UTC)** | The interval, in minutes, hours or days (interval schedules only). For an email trigger: **Check for new mail every** (never under 60 seconds). |
 | **Context** | Independent (each run starts fresh) or growing (each run sees the previous runs). |
 | **Tools** | Run without asking, or ask before each tool call. |
+| **Email** | **Email me the result** and **May send email without asking to** (with a usable account; an option already on can always be turned off). |
 
 **Save changes** sends only what changed, once (`PATCH
 /api/gateway/automations/{id}` with `expected_revision`), closes the form and
