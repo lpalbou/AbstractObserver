@@ -532,4 +532,38 @@
     background: none;
     overflow-wrap: anywhere;
   }
+
+  /* The fade marks a clipped preview's last line only (it used to cover the
+   * box's padding; without the box it would dim a one-line preview). */
+  .observe_page .lc_preview::after {
+    top: 5em;
+    bottom: auto;
+    height: 1.5em;
+    border-radius: 0;
+  }
+
+  /* Board: the health strip is a flat row (its stat tiles are the one card level). */
+  .mc_page .mc_health {
+    padding-inline: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  /* System queues: flat rows with hairlines; the selected queue keeps its tint. */
+  .page.runtime_page .runtime_ops_filter {
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .page.runtime_page .runtime_ops_filter + .runtime_ops_filter {
+    border-top: 1px solid var(--pane-border);
+  }
+
+  .page.runtime_page .runtime_ops_filter.selected {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    box-shadow: inset 2.5px 0 0 var(--accent);
+  }
 }

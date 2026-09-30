@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased]
+
+Screens that show a list next to a detail use the space they have on phones and tablets. Everyone who opens
+Automations, Observe, the Board or System on a phone or a tablet is affected; desktop windows keep their layout,
+except that each list can now be collapsed and the Automations detail reads at 14 px.
+
+### Changed
+- **Collapsible lists.** The Automations list, Observe's run list, System → Activity's Queues and Runs, and each
+  Board column have a header button with a chevron that hides or shows the list. Lists are open by default, and the
+  Observer remembers your choice in this browser. A hidden list leaves its header in place and gives the detail the
+  whole width (on a phone, the whole screen).
+- **Full width on phones and single-column tablets.** Below 1024 px (Automations, System) and below 768 px (Observe,
+  Board), panes and list items are flat sections separated by thin lines instead of cards inside cards, and the page
+  is the only thing that scrolls: lists, the automation detail, the Observe run list and ledger, and the Board columns
+  no longer scroll inside it. Text starts 12-16 px from the screen edge, and the automation transcript uses the full
+  width.
+- **Observe on phones** shows the run list above the selected run instead of one or the other; picking a run scrolls
+  to it. The **Runs** back button is gone: collapse the list to read the run alone.
+- **Automation details:** labels and values share a line ("When  every 24 hours (UTC)"); the workspace path, the
+  trigger and the task take the full width; paths and JSON are plain monospace text without a box on phones; the
+  control buttons fill the row.
+- **Text size:** the automation panel and its transcripts use 14 px at every width. On phones and touch tablets, list
+  titles, queue names, hints, ledger buttons and the wait details also use 14 px (chips, ids and times stay smaller).
+- **Tablets:** Observe keeps the run list beside the run only when both get about 360 px or more.
+- For contributors: `src/ui/space.css` (loaded after `responsive.css`) and `src/ui/list_disclosure.tsx`, guarded by
+  `src/ui/list_disclosure.test.tsx`; `scripts/space.screens.mjs` drives the list + detail screens through the shared
+  capture harness (space metrics: text column, scroll containers, padding stack).
+
 ## [0.4.0] - 2026-09-30
 
 Responsive layout: AbstractObserver adapts to phones, tablets and resized desktop windows. Everyone who opens the
