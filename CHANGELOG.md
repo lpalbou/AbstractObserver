@@ -2,7 +2,7 @@
 
 ## [0.4.0] - unreleased (responsive workstream, branch feat/responsive)
 
-Built with the vendored AbstractUIC packs ui-kit 0.3.1 + panel-chat 0.2.1 (`vendor/*.tgz`, `file:` deps; the
+Built with the vendored AbstractUIC packs ui-kit 0.3.2 + panel-chat 0.2.1 (`vendor/*.tgz`, `file:` deps; the
 coordinator relocks them to the registry after the kit publishes). The monitor-* packages still come from the
 sibling AbstractUIC checkout (monitor-active-memory 0.2.0: container-based stacking, no 420 px minimum).
 

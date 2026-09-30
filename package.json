@@ -45,7 +45,7 @@
   "dependencies": {
     "@abstractframework/app-server": "^0.1.11",
     "@abstractframework/panel-chat": "file:vendor/abstractframework-panel-chat-0.2.1.tgz",
-    "@abstractframework/ui-kit": "file:vendor/abstractframework-ui-kit-0.3.1.tgz",
+    "@abstractframework/ui-kit": "file:vendor/abstractframework-ui-kit-0.3.2.tgz",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
