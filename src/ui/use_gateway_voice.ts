@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AttachmentRef, GatewayClient } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
+import { MEDIA_NEEDS_HTTPS, mediaAvailable } from "../lib/secure-context";
 
 export type TtsPlaybackStatus = "idle" | "loading" | "playing" | "paused";
 
@@ -352,7 +353,7 @@ export function useGatewayVoice(opts: {
   async function start_voice_ptt_recording(): Promise<void> {
     set_error?.("");
     if (!voice_ptt_supported) {
-      set_error?.("Voice recording is not supported in this browser (MediaRecorder/getUserMedia unavailable).");
+      set_error?.(mediaAvailable() ? "Voice recording is not supported in this browser (MediaRecorder unavailable)." : MEDIA_NEEDS_HTTPS);
       return;
     }
     if (voice_ptt_busy) return;

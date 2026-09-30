@@ -126,6 +126,7 @@ import {
 } from "./run_panels";
 import { GatewayClient, csrf_headers } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
+import { clipboardWrite, COPY_FAILED, MEDIA_NEEDS_HTTPS, mediaAvailable, sha256Hex } from "../lib/secure-context";
 import { McpWorkerClient } from "../lib/mcp_worker_client";
 import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
@@ -320,16 +321,11 @@ function _is_safe_run_id(value: string): boolean {
 
 async function _sha256_hex(text: string): Promise<string> {
   const payload = String(text || "");
-  const enc = new TextEncoder().encode(payload);
-  const c: any = (globalThis as any).crypto;
-  if (!c || !c.subtle || typeof c.subtle.digest !== "function") throw new Error("crypto.subtle.digest not available");
-  const digest = await c.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  // crypto.subtle exists only on https/localhost; sha256Hex falls back to a plain SHA-256 over http.
+  return sha256Hex(payload);
 }
 
-async function session_memory_run_id(session_id: string): Promise<string> {
+export async function session_memory_run_id(session_id: string): Promise<string> {
   const sid = String(session_id || "").trim();
   if (!sid) throw new Error("session_id is required");
   if (_is_safe_run_id(sid)) {
@@ -473,12 +469,7 @@ function getOrCreateStableSessionId(): string {
     const existing = window.sessionStorage.getItem(key);
     if (existing && existing.trim()) return existing.trim();
 
-    const c: any = (globalThis as any).crypto;
-    const uuid =
-      c && typeof c.randomUUID === "function"
-        ? c.randomUUID()
-        : `${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
-    const next = `obs_${uuid}`;
+    const next = `obs_${random_id()}`;
     window.sessionStorage.setItem(key, next);
     return next;
   } catch {
@@ -1620,29 +1611,8 @@ export function App(): React.ReactElement {
   async function copy_to_clipboard(text: string): Promise<void> {
     const payload = String(text ?? "");
     if (!payload) return;
-    try {
-      await navigator.clipboard.writeText(payload);
-      set_status("Copied to clipboard", 2);
-      return;
-    } catch {
-      // fall back
-    }
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = payload;
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      ta.style.top = "0";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      set_status("Copied to clipboard", 2);
-    } catch {
-      set_status("Copy failed", 2);
-    }
+    // navigator.clipboard is https/localhost only; clipboardWrite falls back to execCommand and reports the outcome.
+    set_status((await clipboardWrite(payload)) ? "Copied to clipboard" : COPY_FAILED, 2);
   }
 
   // Best-effort run state polling (pause/cancel are run-level changes that are not currently ledgered).
@@ -6363,7 +6333,9 @@ export function App(): React.ReactElement {
                             }
                             title={
                               !chat_voice.voice_ptt_supported
-                                ? "Voice recording is not supported in this browser"
+                                ? mediaAvailable()
+                                  ? "Voice recording is not supported in this browser"
+                                  : MEDIA_NEEDS_HTTPS
                                 : chat_voice.voice_ptt_busy
                                   ? "Transcribing…"
                                   : chat_voice.voice_ptt_recording
@@ -6403,6 +6375,11 @@ export function App(): React.ReactElement {
                           </button>
                         }
                       />
+                      {!mediaAvailable() ? (
+                        <div className="mono muted" data-testid="voice-https-hint" style={{ fontSize: "var(--font-size-sm)", marginTop: "6px" }}>
+                          {MEDIA_NEEDS_HTTPS}
+                        </div>
+                      ) : null}
                     </div>
 
                   </div>
