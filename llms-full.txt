@@ -556,6 +556,8 @@ except that each list can now be collapsed and the Automations detail reads at 1
 - An unavailable switch always says why: the automation row's and the Observe toolbar's "Active" switches show
   their reason ("The automation has ended.", "Archived: history is kept, nothing runs.") as text next to the
   switch on touch screens; with a mouse it is the tooltip. docs/automations.md describes the Active switch.
+- Launch → Automate and the Edit form say "Connect a mailbox first — open My email" when no mailbox is usable,
+  and the email section is titled "Mailbox" (ui-kit 0.3.3 wording).
 
 ## [0.4.0] - 2026-09-30
 
@@ -1979,7 +1981,7 @@ These options need a mailbox connected to your gateway account (the gateway
 console's **My email**, in its Users tab). The Observer reads
 `GET /api/gateway/me/email` with every Automations refresh and whenever Launch →
 Automate opens. Without a usable account the options are off and the form says
-**"Email isn't set up — open My email"**; the link opens the gateway console in
+**"Connect a mailbox first — open My email"** (the form's email section is titled **Mailbox**); the link opens the gateway console in
 a new tab. Nothing email-related is sent without a usable account.
 
 - **When an email arrives** (a When choice): the automation runs on new mail

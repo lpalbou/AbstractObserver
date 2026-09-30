@@ -99,7 +99,7 @@ These options need a mailbox connected to your gateway account (the gateway
 console's **My email**, in its Users tab). The Observer reads
 `GET /api/gateway/me/email` with every Automations refresh and whenever Launch →
 Automate opens. Without a usable account the options are off and the form says
-**"Email isn't set up — open My email"**; the link opens the gateway console in
+**"Connect a mailbox first — open My email"** (the form's email section is titled **Mailbox**); the link opens the gateway console in
 a new tab. Nothing email-related is sent without a usable account.
 
 - **When an email arrives** (a When choice): the automation runs on new mail

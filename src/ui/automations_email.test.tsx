@@ -45,7 +45,7 @@ describe("Launch → Automate: email", () => {
   it("refuses the email trigger without a usable account, and never sends email options then", () => {
     const r = build({ ...DEFAULT_AUTOMATE_FORM, when: "email" }, false);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors).toContain("Email isn't set up — open My email");
+    if (!r.ok) expect(r.errors).toContain("Connect a mailbox first — open My email");
     const s = build({ ...DEFAULT_AUTOMATE_FORM, notify_email: true, email_recipients: { mode: "list", addresses: "boss@example.test" } }, false);
     expect(s.ok).toBe(true);
     if (!s.ok) return;
@@ -65,7 +65,7 @@ describe("Launch → Automate: email", () => {
     for (const status of [null, NOT_SET_UP]) {
       const html = render(status);
       expect(html).toMatch(/disabled="" value="email"\/> When an email arrives/);
-      expect(html).toContain("Email isn&#x27;t set up — ");
+      expect(html).toContain("Connect a mailbox first — ");
       expect(html).toContain('data-action="open-my-email"');
       // "Email me the result" is the kit switch (ui-kit 0.3.3): unavailable with the reason, not a disabled checkbox.
       expect(html).toMatch(/role="switch"[^>]*data-action="notify-email" aria-checked="false" aria-disabled="true"/);
