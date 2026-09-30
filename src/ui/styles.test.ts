@@ -78,7 +78,7 @@ describe("AbstractObserver styles", () => {
     // declared design silently vanished from the pixels. An undefined
     // token must fail the suite, not the render.
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-    const kit = readFileSync(new URL("../../../abstractuic/ui-kit/src/theme.css", import.meta.url), "utf8");
+    const kit = readFileSync(new URL("../../node_modules/@abstractframework/ui-kit/src/theme.css", import.meta.url), "utf8");
     const defined = new Set<string>();
     for (const m of (css + "\n" + kit).matchAll(/--([\w-]+)\s*:/g)) defined.add(m[1]);
     const missing = new Set<string>();
