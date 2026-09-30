@@ -127,3 +127,10 @@ describe("touch legibility", () => {
     expect(touch).toMatch(/\.observe_viewer_full,\s*\.modal_body\s*\{[^}]*--t-small:\s*var\(--font-size-body, 14px\);/);
   });
 });
+
+describe("touch selects keep the kit chevron", () => {
+  it("Memory explorer selects get the kit chevron back (monitor-active-memory uses the background shorthand)", () => {
+    const touch = media_block(RCSS, "(pointer: coarse)");
+    expect(touch).toMatch(/\.runtime_memory_panel \.amx-toolbar-grid select,\s*\.runtime_memory_panel \.amx-graphbar select\s*\{\s*background-image:\s*var\(--af-select-chevron\);/);
+  });
+});

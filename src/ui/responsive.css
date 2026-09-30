@@ -545,6 +545,20 @@ body {
     padding-right: 32px;
   }
 
+  /* STOPGAP (remove once abstractuic monitor-active-memory switches its
+   * `.amx-toolbar-grid select` / `.amx-graphbar select` rules from the
+   * `background` shorthand to background-color): that shorthand, loaded after
+   * the kit theme at equal specificity, erases the kit's chevron — the Memory
+   * selects had appearance none and no arrow. Re-apply the kit's chevron. */
+  .runtime_memory_panel .amx-toolbar-grid select,
+  .runtime_memory_panel .amx-graphbar select {
+    background-image: var(--af-select-chevron);
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 12px 8px;
+    padding-right: 32px;
+  }
+
   .btn,
   .tab,
   .seg_btn,
