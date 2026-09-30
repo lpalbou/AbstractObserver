@@ -144,6 +144,19 @@
   font-size: var(--font-size-body, 14px);
 }
 
+/* Desktop floor (DESIGN §12.1): dense tables and ledgers at least 12 px,
+ * prose, labels and helper text at least 13 px. The dense desktop scale was
+ * 11 / 12 / 13 px (app) and 10 / 11 / 12 px (kit xxs / xs / sm): the 11 px
+ * run meta and ledger chips were the dominant size of Observe, Board and
+ * System. One step up; touch keeps its own (larger) scale from responsive.css. */
+:root {
+  --t-micro: calc(12px * var(--font-scale, 1));
+  --t-small: calc(13px * var(--font-scale, 1));
+  --font-size-xxs: calc(11px * var(--font-scale, 1));
+  --font-size-xs: calc(12px * var(--font-scale, 1));
+  --font-size-sm: calc(13px * var(--font-scale, 1));
+}
+
 /* ───────────────────────── Tablets: two columns only when both get ~360 px ───────────────────────── */
 
 @media (min-width: 768px) and (max-width: 1023.98px) {
@@ -471,7 +484,8 @@
 
   .observe_page .run_tree_label,
   .runtime_mode_tab,
-  .runtime_memory_panel label {
+  .runtime_memory_panel label,
+  .runtime_memory_panel .amx-small {
     font-size: var(--font-size-body, 14px);
   }
 

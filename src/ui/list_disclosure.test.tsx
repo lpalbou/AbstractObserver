@@ -213,6 +213,11 @@ describe("phone space CSS (space.css)", () => {
     expect(sm).toMatch(/\.mc_page \.mc_column_cards\s*\{\s*max-height:\s*none;\s*overflow:\s*visible;/);
   });
 
+  it("desktop floor (DESIGN §12.1): dense text 12 px, prose/labels 13 px; touch tablets raise the memory explorer's help text", () => {
+    expect(CSS).toMatch(/:root\s*\{\s*--t-micro:\s*calc\(12px \* var\(--font-scale, 1\)\);\s*--t-small:\s*calc\(13px \* var\(--font-scale, 1\)\);\s*--font-size-xxs:\s*calc\(11px[^;]*;\s*--font-size-xs:\s*calc\(12px[^;]*;\s*--font-size-sm:\s*calc\(13px/);
+    expect(media_block("(max-width: 767.98px), (pointer: coarse)")).toMatch(/\.runtime_memory_panel \.amx-small\s*\{\s*font-size:\s*var\(--font-size-body, 14px\);/);
+  });
+
   it("tablets: Observe keeps two columns only with ~360 px each", () => {
     expect(media_block("(min-width: 768px) and (max-width: 1023.98px)")).toMatch(/grid-template-columns:\s*minmax\(340px, 42%\) minmax\(360px, 1fr\);/);
   });

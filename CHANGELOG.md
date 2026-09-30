@@ -51,6 +51,8 @@ except that each list can now be collapsed and the Automations detail reads at 1
 - **Text size:** the automation panel and its transcripts use 14 px at every width. On phones and touch tablets, list
   titles, queue names, hints, ledger buttons and the wait details also use 14 px (chips, ids and times stay smaller).
 - **Tablets:** Observe keeps the run list beside the run only when both get about 360 px or more.
+- **Desktop text floor:** dense text (run meta, ledger chips, board cards, System rows) is 12 px instead of 11 px, and
+  secondary text 13 px instead of 12 px. On touch tablets the System → Memory explorer's help text is 14 px.
 - For contributors: `src/ui/space.css` (loaded after `responsive.css`) and `src/ui/list_disclosure.tsx`, guarded by
   `src/ui/list_disclosure.test.tsx`; `scripts/space.screens.mjs` drives the list + detail screens through the shared
   capture harness (space metrics: text column, scroll containers, padding stack).
