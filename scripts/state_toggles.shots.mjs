@@ -5,7 +5,7 @@
 // automation list: active, paused, completed (ended), archived and a legacy schedule.
 //
 //   OBSERVER_E2E_GATEWAY_URL=http://127.0.0.1:18140 node scripts/state_toggles.shots.mjs \
-//     --url http://127.0.0.1:18141 --stub http://127.0.0.1:18143 --out <dir> [--pw <node_modules with playwright-core>]
+//     --url http://127.0.0.1:18141 --stub http://127.0.0.1:18143 --out <dir> [--only a,b] [--pw <node_modules with playwright-core>]
 //
 // Output: <dir>/<screen>.<viewport>.<light|dark>.png (viewport) and .full.png, plus
 // type-scale.json: the largest font size / weight of every label, switch label and field
@@ -71,7 +71,7 @@ async function routeAutomations(ctx) {
 
 const row = (page, title) => page.locator(".auto_row", { hasText: title }).first();
 
-const SCREENS = [
+const ALL_SCREENS = [
   {
     name: "automations",
     async run(page, info) {
@@ -114,6 +114,16 @@ const SCREENS = [
     },
   },
   {
+    // Launch → Automate, Email section: "Email me the result" (kit switch; unavailable while email is not set up).
+    name: "automate-email",
+    async run(page, info) {
+      await escapeAll(page);
+      await by("launch").run(page, info); // signs in when needed
+      await by("automate").run(page, info);
+      await page.locator('fieldset[data-section="email"]').scrollIntoViewIfNeeded();
+    },
+  },
+  {
     name: "settings",
     async run(page) {
       await escapeAll(page);
@@ -130,6 +140,9 @@ const SCREENS = [
     },
   },
 ];
+
+// --only a,b: capture just these screens (the automations screens need --stub).
+const SCREENS = args.only ? ALL_SCREENS.filter((x) => args.only.split(",").includes(x.name)) : ALL_SCREENS;
 
 // DESIGN §3 type scale: labels inside dialogs and settings panels.
 async function typeScale(page) {
@@ -168,10 +181,10 @@ try {
           localStorage.setItem(key, JSON.stringify({ ...cur, theme: t }));
         } catch {}
       }, theme);
-      await routeAutomations(ctx);
+      if (STUB) await routeAutomations(ctx);
       // The stub keeps state: every context starts with "Inbox triage" active again.
-      const inbox = (await (await fetch(`${STUB}/api/gateway/automations?limit=50`)).json()).items.find((x) => x.title === "Inbox triage");
-      await fetch(`${STUB}/api/gateway/automations/${inbox.automation_id}/commands`, {
+      const inbox = !STUB ? null : (await (await fetch(`${STUB}/api/gateway/automations?limit=50`)).json()).items.find((x) => x.title === "Inbox triage");
+      if (inbox) await fetch(`${STUB}/api/gateway/automations/${inbox.automation_id}/commands`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command_id: `shots-reset-${scheme}-${vp.name}-${Date.now()}`, type: "automation.resume" }),
@@ -199,5 +212,8 @@ try {
   }
 } finally {
   await browser.close();
-  fs.writeFileSync(path.join(OUT, "type-scale.json"), JSON.stringify(scale, null, 2));
+  const file = path.join(OUT, "type-scale.json");
+  let prev = {};
+  try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
+  fs.writeFileSync(file, JSON.stringify({ ...prev, ...scale }, null, 2));
 }

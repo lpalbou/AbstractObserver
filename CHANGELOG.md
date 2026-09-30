@@ -21,6 +21,8 @@ AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
 - **Settings:** "Auto-connect on load" is a switch (was an On/Off select); each assistant skill is a switch named by
   the skill (was a checkbox).
 - **System → Memory map:** "Live" is a switch.
+- **Launch → Automate, Email:** "Email me the result" is a switch (from the kit); while email is not set up it is
+  unavailable, with the reason.
 - The ledger's view toggle is always labelled "Condensed" (highlighted when on) instead of swapping to "All"; it and
   the Flow graph's Subflows / Path toggles announce their state (`aria-pressed`); artifact type filter chips name the filter rather than an Add / Remove verb.
 - **Type scale:** settings row titles and skill names are no heavier than weight 600; a skill name is regular when its
