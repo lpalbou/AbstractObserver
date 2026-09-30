@@ -171,3 +171,19 @@ describe("responsive breakpoints (DESIGN.md: 480 / 768 / 1024 / 1440 + max-heigh
     expect(html).not.toMatch(/maximum-scale|user-scalable/);
   });
 });
+
+describe("touch selects (one rule set: the kit's appearance-none select with its chevron)", () => {
+  it("no app select rule uses the background shorthand, and the app never pins a select height", () => {
+    const bad: string[] = [];
+    for (const f of ["styles.css", "board.css", "observe.css", "system.css", "forms.css", "automations.css", "usability.css", "responsive.css"]) {
+      const css = readFileSync(new URL(`./${f}`, import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const sel = m[1];
+        if (!/(^|[\s,>(])select\b|seg_select|mc_window_select/.test(sel) || /multi_select/.test(sel)) continue;
+        if (/(^|;)\s*background\s*:/.test(m[2])) bad.push(`${f}: ${sel.trim()} uses background shorthand`);
+        if (f === "responsive.css" && /(^|;)\s*height\s*:/.test(m[2])) bad.push(`${f}: ${sel.trim()} pins a height`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

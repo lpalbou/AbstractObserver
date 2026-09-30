@@ -490,28 +490,70 @@ body {
     --font-size-sm: calc(13px * var(--font-scale, 1));
   }
 
+  /* Selects: ONE rule set on touch — the kit's (ui-kit >= 0.3.2:
+   * `select:not([multiple]):where(:not([size]), [size="1"])` = appearance none,
+   * min-height --tap-min, --font-size-input, 0 32px 0 10px padding, its chevron as
+   * background-image). No app select rule uses the `background` shorthand (it would
+   * erase the chevron); the rules below only undo app rules that pin a smaller
+   * font-size or a padding the chevron would overlap, at their own specificity. */
+  .form_stack select,
+  .settings_body select,
+  .settings_body .settings_row_actions select,
+  .settings_col .settings_row_actions select,
+  .field select,
+  .sched_cell select,
+  .seg_select,
+  .mc_window_select,
+  .runtime_ops_list_header .seg_select,
+  .observe_page .run_nav_filter_row .seg_select,
+  .observe_page .tab_bar_controls .seg_select {
+    font-size: var(--font-size-input, 16px);
+  }
+
+  .sched_cell select,
+  .seg_select,
+  .mc_window_select,
+  .runtime_ops_list_header .seg_select,
+  .observe_page .run_nav_filter_row .seg_select,
+  .observe_page .tab_bar_controls .seg_select {
+    padding-right: 32px;
+  }
+
   .btn,
   .tab,
   .seg_btn,
-  .seg_select,
   .runtime_mode_tab,
   .shell_nav_item,
   .launch_mode_switch button,
   .launch_mode_switch [role="radio"],
   .observe_page .run_tree_item,
-  select,
+  .runtime_ops_filter,
+  .seg_action,
+  .lc_btn,
+  .launch_submit_btn,
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
     min-height: var(--tap-min, 44px);
   }
 
-  /* App-owned rows and small buttons (harness offenders at 375-1180 touch). */
-  .settings_choice,
-  .launch_skill_row,
-  .automate_row > label,
-  .runtime_ops_filter,
-  .seg_action,
-  .lc_btn,
-  .launch_submit_btn {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  .form_stack textarea,
+  .settings_body textarea,
+  .field textarea {
+    font-size: var(--font-size-input, 16px);
+  }
+
+  /* Checkbox / radio labels are the 44 px row (WebKit keeps the inputs
+   * native-sized). Zero-specificity display so app rows that are grids or
+   * flex rows (settings_choice, launch_skill_row, mindmap bar) keep theirs. */
+  :where(label:has(> input[type="checkbox"]), label:has(> input[type="radio"])) {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]) {
     min-height: var(--tap-min, 44px);
   }
 
@@ -520,46 +562,10 @@ body {
     align-items: center;
   }
 
-  /* WebKit keeps a native <select> at its intrinsic ~22 px whatever the
-   * min-height; a fixed height is honoured by both engines. */
-  select:not([multiple]):not([size]) {
-    height: var(--tap-min, 44px);
-  }
-
-  /* Automate's When / Context / Tools choice rows and the Memory bar toggles. */
-  fieldset[data-section] > label,
-  .mindmap_bar > .field_inline {
-    min-height: var(--tap-min, 44px);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .automate_row > label {
-    display: inline-flex;
-    align-items: center;
-  }
-
   .shell_nav_toggle,
   .shell_nav_close {
     width: var(--tap-min, 44px);
     height: var(--tap-min, 44px);
-  }
-
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-  select,
-  textarea {
-    font-size: var(--font-size-input, 16px);
-  }
-
-  /* Selects the page sheets size at class specificity (run list, Done window, Settings). */
-  .observe_page .run_nav_filter_row .seg_select,
-  .observe_page .tab_bar_controls .seg_select,
-  .seg_select,
-  .mc_window_select,
-  .settings_body .settings_row_actions select,
-  .settings_row_actions select {
-    font-size: var(--font-size-input, 16px);
   }
 
   details > summary {

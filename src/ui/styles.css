@@ -92,7 +92,7 @@ select {
   font-family: inherit;
   font-size: inherit;
   color: var(--text-primary);
-  background: var(--ui-surface-3, var(--bg-primary));
+  background-color: var(--ui-surface-3, var(--bg-primary));
   border: 1px solid var(--ui-border-1, var(--bg-tertiary));
   border-radius: var(--radius-lg, 10px);
   padding: 9px 10px;
@@ -1312,7 +1312,7 @@ button.primary:hover:not(:disabled) {
   appearance: none;
   border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.14));
   border-radius: var(--radius-sm, 4px);
-  background: transparent;
+  background-color: transparent;
   color: var(--text-secondary);
   padding: 3px 8px;
   font-size: var(--font-size-xs);

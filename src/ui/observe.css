@@ -136,7 +136,7 @@
   color: var(--text-secondary);
   border: 1px solid var(--pane-border);
   border-radius: 8px;
-  background: var(--canvas);
+  background-color: var(--canvas);
 }
 
 .observe_page .run_tree {
@@ -488,7 +488,7 @@
   border: 1px solid var(--pane-border-strong);
   border-radius: 7px;
   color: var(--text-secondary);
-  background: transparent;
+  background-color: transparent;
 }
 
 /* ================= 5. STORY =================

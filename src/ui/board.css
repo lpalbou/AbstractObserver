@@ -630,7 +630,7 @@
   font-family: var(--font-sans);
   font-size: var(--t-micro);
   color: var(--text-secondary);
-  background: transparent;
+  background-color: transparent;
   border: 1px solid var(--pane-border);
   border-radius: 6px;
   padding: 2px 4px;
