@@ -2,9 +2,9 @@
 
 ## [0.4.0] - unreleased (responsive workstream, branch feat/responsive)
 
-Built with the vendored AbstractUIC packs ui-kit 0.3.0 + panel-chat 0.2.0 (`vendor/*.tgz`, `file:` deps; the
+Built with the vendored AbstractUIC packs ui-kit 0.3.1 + panel-chat 0.2.1 (`vendor/*.tgz`, `file:` deps; the
 coordinator relocks them to the registry after the kit publishes). The monitor-* packages still come from the
-sibling AbstractUIC checkout.
+sibling AbstractUIC checkout (monitor-active-memory 0.2.0: container-based stacking, no 420 px minimum).
 
 ### Changed
 - **Usable on phones, tablets and resized windows.** Measured cause of "only a few lines on a phone": every page
@@ -28,6 +28,8 @@ sibling AbstractUIC checkout.
 - Touch: 44 px targets for the app's buttons, tabs, rows and fields, 16 px inputs, one step larger text
   (12 / 13 / 14 px instead of 11 / 12 / 13). Desktop (fine pointer, >= 1440 px) keeps its look.
 - 2560 px windows: Settings in two columns; a wider Observe run list.
+- System → Memory below 1024 px: a full-screen scrolling panel (the graph had 0 px once the explorer stacked); the
+  explorer's detail column scrolls instead of being cut.
 - Desktop fix: the System section tabs (Activity / Artifacts / Memory / Logs) were crushed to ~6 px under the panes
   in the fixed-height page; they keep their height. Otherwise 1512x982 is pixel-identical for sign-in, Launch,
   Automate, Settings and About.

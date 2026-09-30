@@ -552,10 +552,13 @@ body {
     font-size: var(--font-size-input, 16px);
   }
 
-  /* The run-list group-by select is styled at page specificity. */
+  /* Selects the page sheets size at class specificity (run list, Done window, Settings). */
   .observe_page .run_nav_filter_row .seg_select,
   .observe_page .tab_bar_controls .seg_select,
-  .seg_select {
+  .seg_select,
+  .mc_window_select,
+  .settings_body .settings_row_actions select,
+  .settings_row_actions select {
     font-size: var(--font-size-input, 16px);
   }
 
