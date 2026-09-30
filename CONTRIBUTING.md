@@ -21,11 +21,7 @@ npm run build
 ```
 
 ## Workspace dependencies (important)
-This repo’s dev/build configuration aliases several `@abstractuic/*` imports to sibling workspace paths under `../abstractuic/*/src` (see `vite.config.ts`).
-
-If you only cloned this repo, you can either:
-1) check out the expected sibling repos under `../abstractuic`, or
-2) replace the Vite aliases and add proper package dependencies (if/when those packages are published).
+`@abstractframework/ui-kit` and `@abstractframework/panel-chat` are npm dependencies (`npm install`). The monitor packages (`@abstractframework/monitor-active-memory`, `monitor-flow`, `monitor-gpu`) are aliased to the sibling AbstractUIC checkout under `../abstractuic/*/src` (see `vite.config.ts`), so check out AbstractUIC next to this repository.
 
 Details: `docs/development.md`.
 

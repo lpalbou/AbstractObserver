@@ -230,8 +230,8 @@ Production builds use a service worker; clear site data/unregister the SW if nee
 
 See `troubleshooting.md`.
 
-## I want to build from source but imports like `@abstractuic/*` fail
-Dev/build uses Vite aliases to sibling workspace packages under `../abstractuic/*/src`.
+## I want to build from source but imports like `@abstractframework/monitor-*` fail
+Dev/build aliases the monitor packages to the sibling AbstractUIC checkout under `../abstractuic/*/src`; clone AbstractUIC next to this repository. `@abstractframework/ui-kit` and `@abstractframework/panel-chat` come from `npm install`.
 
 Evidence: `vite.config.ts`. See `development.md`.
 

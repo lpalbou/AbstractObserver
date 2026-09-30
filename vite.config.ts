@@ -63,9 +63,9 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(packageVersion()),
   },
   resolve: {
-    // The kit and panel-chat come from the vendored packs in node_modules (responsive
-    // workstream, ui-kit 0.3.0 / panel-chat 0.2.0); the monitor-* sources still come from the
-    // sibling AbstractUIC checkout and must share this app's single kit + React copy.
+    // @abstractframework/ui-kit and panel-chat resolve from node_modules (npm dependencies);
+    // the monitor-* sources come from the sibling AbstractUIC checkout and must share this
+    // app's single kit + React copy.
     dedupe: ["@abstractframework/ui-kit", "@abstractframework/panel-chat", "react", "react-dom"],
     alias: [
       // Workspace imports (AbstractUIC packages) originate outside this project's

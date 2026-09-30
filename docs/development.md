@@ -11,7 +11,7 @@ npm run dev
 ```
 
 ### Shared UI dependencies
-The UI imports the public `@abstractframework/*` UI package names, and Vite aliases them to sibling `../abstractuic/*/src` packages for source builds, so clone [AbstractUIC](https://github.com/lpalbou/AbstractUIC) next to this repository:
+`@abstractframework/ui-kit` and `@abstractframework/panel-chat` are regular dependencies declared in `package.json`; `npm install` resolves them. The monitor packages (`@abstractframework/monitor-active-memory`, `monitor-flow`, `monitor-gpu`) are imported by their public names and Vite aliases them to the sibling `../abstractuic/*/src` packages, so clone [AbstractUIC](https://github.com/lpalbou/AbstractUIC) next to this repository:
 
 ```text
 <workspace>/
@@ -31,6 +31,15 @@ The automations tests (`src/ui/automations.test.tsx`) start `scripts/automations
 in-process: a stub gateway for the Automations routes that serves the ui-kit's canonical fixtures
 (`../abstractuic/ui-kit/scripts/fixtures/automations/`). It can also run on its own:
 `node scripts/automations_stub_server.mjs --port 18951`.
+
+## Responsive layout rules
+Layout rules for screen sizes live in `src/ui/responsive.css` (loaded last, after the page stylesheets). Use only
+these breakpoints: `max-width: 479.98px`, `767.98px`, `1023.98px`, `1439.98px`, `min-width: 1440px` (and
+`1800px` for very wide windows), plus `max-height: 500px` for phone landscape; `src/ui/styles.test.ts` fails on any
+other value. The navigation drawer's state, attributes and focus trap are in `src/ui/nav_drawer.ts`, covered by
+`src/ui/responsive_layer.test.tsx`. `scripts/responsive.screens.mjs` drives the app through its main screens
+(sign-in, Launch, Automate, approval, Observe, Board, System, Memory, Settings, About) for layout checks at each
+screen size.
 
 ## Build
 ```bash

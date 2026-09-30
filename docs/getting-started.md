@@ -100,6 +100,24 @@ advertises the Automations API; otherwise the page says so.
 
 Details: `automations.md`; endpoints: `api.md`.
 
+## Responsive layout
+AbstractObserver works on phones, tablets and desktop windows of any size:
+
+- **Below 1024 px wide** (tablets, narrow windows) the sidebar becomes a drawer: open it with the menu
+  button at the left of the header; it closes when you pick a page, press Escape, tap outside it or use its
+  close button. Pages that show several panes stack them and scroll.
+- **Below 768 px wide, or in landscape under 500 px tall** (phones), pages scroll as a whole and Observe shows
+  one pane at a time: the run list, or the selected run with a **Runs** button to go back. The run's Story /
+  Ledger / Flow / Ask panel fills the screen; **Open ledger** and the tabs bring it into view. Dialogs open as
+  bottom sheets with their buttons always visible, above the on-screen keyboard.
+- **On touch screens** buttons, tabs, rows and fields are at least 44 px tall, text fields use 16 px text (iOS
+  Safari does not zoom when you focus them), and reading text (ledger payloads, Story entries, dialog text)
+  is 14 px.
+- **On wide windows** (1800 px and more) Settings uses two columns and the Observe run list is wider.
+
+You can still pinch to zoom on phones. The text size and theme follow the **Appearance** settings (the
+half-filled circle in the top bar) on every screen size.
+
 ## Next
 - Docs index: `README.md`
 - FAQ: `faq.md`

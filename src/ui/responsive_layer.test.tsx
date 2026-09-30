@@ -129,8 +129,9 @@ describe("touch legibility", () => {
 });
 
 describe("touch selects keep the kit chevron", () => {
-  it("Memory explorer selects get the kit chevron back (monitor-active-memory uses the background shorthand)", () => {
+  it("the app never paints select chevrons itself (the kit owns them, monitor-active-memory included)", () => {
     const touch = media_block(RCSS, "(pointer: coarse)");
-    expect(touch).toMatch(/\.runtime_memory_panel \.amx-toolbar-grid select,\s*\.runtime_memory_panel \.amx-graphbar select\s*\{\s*background-image:\s*var\(--af-select-chevron\);/);
+    expect(touch).not.toMatch(/--af-select-chevron/);
+    expect(RCSS).not.toMatch(/\.amx-[\w-]+ select/);
   });
 });

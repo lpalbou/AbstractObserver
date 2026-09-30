@@ -19,6 +19,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Fix an automation problem (unavailable, 409 conflicts, a wait that cannot be answered)** → `troubleshooting.md` → "Automations"
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
 - **Ask about a run, or ask the Assistant about the Observer (history window, New conversation, no tools)** → `getting-started.md` → "Ask about a run, or ask the Assistant"
+- **Use the Observer on a phone, a tablet or a small window** → `getting-started.md` → "Responsive layout"
 - **See which version I run (About dialog)** → `faq.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
 - **Contribute changes** → `../CONTRIBUTING.md`
