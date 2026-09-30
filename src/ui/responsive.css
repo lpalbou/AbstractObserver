@@ -423,6 +423,12 @@ body {
     flex: 1 1 auto;
   }
 
+  /* Pane headers wrap: a status chip never squeezes the title to "Gate…". */
+  .pane_header {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
   .metric_grid.compact.runtime_header_metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

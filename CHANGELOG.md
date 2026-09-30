@@ -28,6 +28,9 @@ sibling AbstractUIC checkout.
 - Touch: 44 px targets for the app's buttons, tabs, rows and fields, 16 px inputs, one step larger text
   (12 / 13 / 14 px instead of 11 / 12 / 13). Desktop (fine pointer, >= 1440 px) keeps its look.
 - 2560 px windows: Settings in two columns; a wider Observe run list.
+- Desktop fix: the System section tabs (Activity / Artifacts / Memory / Logs) were crushed to ~6 px under the panes
+  in the fixed-height page; they keep their height. Otherwise 1512x982 is pixel-identical for sign-in, Launch,
+  Automate, Settings and About.
 - Breakpoints unified on 480 / 768 / 1024 / 1440 (+ max-height 500) — 1250/1240/1180/1100/1080/900/800/760/
   700/660/640/600/520/500 are gone; `src/ui/styles.test.ts` guards it.
 - `scripts/responsive.screens.mjs`: the screens module for the shared responsive capture harness.
