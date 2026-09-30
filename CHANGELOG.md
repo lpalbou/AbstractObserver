@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Plain http from another machine** (LAN, Tailscale). Browsers withhold
+  `crypto.randomUUID`, `crypto.subtle`, the clipboard API and the microphone
+  outside https and localhost. Ids now come from the kit's `randomId()`, the
+  session memory run id falls back to a plain SHA-256 (same id), **Copy**
+  says "Copied to clipboard" only when the copy worked (else "Copy failed —
+  select and copy"), and the chat's voice control says "Voice and camera need
+  an https address (Network → HTTPS in the gateway console)." The manifest
+  link sends the app's session cookie (`crossorigin="use-credentials"`), so
+  the gateway no longer answers it with 401. Needs `@abstractframework/ui-kit`
+  0.3.3.
+
 ## [0.4.0] - 2026-09-30
 
 Responsive layout: AbstractObserver adapts to phones, tablets and resized desktop windows. Everyone who opens the
