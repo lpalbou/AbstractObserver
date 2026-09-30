@@ -35,6 +35,7 @@ import {
 
 import type { GatewayClient } from "../lib/gateway_client";
 import { AutomationDiscussion, type OpenDiscussion } from "./automation_discussion";
+import { ListDisclosure, useListOpen } from "./list_disclosure";
 import {
   AUTOMATIONS_POLL_MS,
   discuss_index,
@@ -237,15 +238,28 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
 }
 
 /** The list half of the page (hook-free). */
-export function AutomationsListView(props: { state: AutomationsState; available: { available: boolean; reason: string }; h: AutomationsHandlers }): React.ReactElement {
+export function AutomationsListView(props: {
+  state: AutomationsState;
+  available: { available: boolean; reason: string };
+  h: AutomationsHandlers;
+  /** The list disclosure (DESIGN §12); absent = open, no toggle. */
+  list?: { open: boolean; on_toggle: () => void };
+}): React.ReactElement {
   const st = props.state;
+  const open = props.list ? props.list.open : true;
   const shown = st.error ?? st.list_error;
   const err = shown ? apiErrorText(shown) : null;
   return (
-    <section className="pane auto_list" aria-label="Automations">
+    <section className={`pane auto_list${open ? "" : " list_collapsed"}`} aria-label="Automations">
       <div className="pane_header">
-        <span className="pane_title">Automations</span>
-        <span className="pane_count">{visible_automations(st).length}</span>
+        {props.list ? (
+          <ListDisclosure open={open} on_toggle={props.list.on_toggle} controls="auto_list_body" title="Automations" count={visible_automations(st).length} />
+        ) : (
+          <>
+            <span className="pane_title">Automations</span>
+            <span className="pane_count">{visible_automations(st).length}</span>
+          </>
+        )}
         <span className="pane_spacer" />
         <select className="seg_select" value={st.status_filter} onChange={(e) => props.h.on_status_filter(e.target.value as AutomationStatus | "")} aria-label="Filter by status">
           {STATUS_FILTERS.map(([v, l]) => (
@@ -281,7 +295,7 @@ export function AutomationsListView(props: { state: AutomationsState; available:
           <span className="auto_new_label">New automation</span>
         </a>
       </div>
-      <div className="pane_body scroll">
+      <div className="pane_body scroll" id="auto_list_body" hidden={!open}>
         {!props.available.available ? (
           <div className="warn_callout" role="note" data-unavailable="true">
             {props.available.reason}
@@ -472,6 +486,7 @@ export function AutomationsPage(props: {
   h: AutomationsHandlers;
 }): React.ReactElement {
   const ctl = props.ctl;
+  const [list_open, toggle_list] = useListOpen("automations");
   const [discussion, set_discussion] = useState<(OpenDiscussion & { opened: number }) | null>(null);
   const open_discussion = (d: OpenDiscussion) => set_discussion((prev) => ({ ...d, opened: (prev?.opened || 0) + 1 }));
   /** The run whose folder is open (the automation's own id = its folder), or "". */
@@ -540,8 +555,8 @@ export function AutomationsPage(props: {
     },
   };
   return (
-    <div className="page auto_page">
-      <AutomationsListView state={ctl.state} available={props.available} h={h} />
+    <div className={`page auto_page${list_open ? "" : " list_collapsed"}`}>
+      <AutomationsListView state={ctl.state} available={props.available} h={h} list={{ open: list_open, on_toggle: toggle_list }} />
       {discussion ? (
         <AutomationDiscussion
           key={discussion.opened}

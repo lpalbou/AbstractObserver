@@ -70,6 +70,7 @@ import {
   wait_request_text,
 } from "./run_labels";
 import { run_status_class, type RunSummary } from "./run_status";
+import { ListDisclosure, useListOpen } from "./list_disclosure";
 import {
   build_runtime_activity_views,
   count_runtime_activity_queues,
@@ -99,6 +100,9 @@ export function RuntimeActivityConsole(props: {
   on_reconnect: () => void;
 }): React.ReactElement {
   const [filter, set_filter] = useState<RuntimeActivityQueue>("attention");
+  // Queues and Runs are collapsible list panels (DESIGN §12), remembered per viewer.
+  const [queues_open, toggle_queues] = useListOpen("system_queues");
+  const [runs_open, toggle_runs] = useListOpen("system_runs");
   const [query, set_query] = useState("");
   const [sort, set_sort] = useState<RuntimeActivitySort>("attention");
   const [selected_id, set_selected_id] = useState("");
@@ -164,17 +168,17 @@ export function RuntimeActivityConsole(props: {
   ];
 
   return (
-    <div className="runtime_ops_layout">
-      <aside className="pane runtime_ops_filters">
+    <div className={`runtime_ops_layout${queues_open ? "" : " queues_collapsed"}${runs_open ? "" : " runs_collapsed"}`}>
+      <aside className={`pane runtime_ops_filters${queues_open ? "" : " list_collapsed"}`}>
         <div className="pane_header runtime_ops_filter_header">
-          <span className="pane_title">Queues</span>
+          <ListDisclosure open={queues_open} on_toggle={toggle_queues} controls="runtime_ops_queues" title="Queues" />
           <div className="pane_spacer" />
           <button className="btn btn_icon" onClick={props.gateway_connected ? props.on_refresh_runs : props.on_reconnect}>
             <Icon name="refresh" size={14} />
             {props.gateway_connected ? "Refresh" : "Reconnect"}
           </button>
         </div>
-        <div className="pane_body scroll runtime_ops_queue_list">
+        <div className="pane_body scroll runtime_ops_queue_list" id="runtime_ops_queues" hidden={!queues_open}>
           {filters.map((f) => (
             <button key={f.key} className={`runtime_ops_filter ${filter === f.key ? "selected" : ""}`} aria-pressed={filter === f.key} onClick={() => set_filter(f.key)}>
               <span>{f.label}</span>
@@ -187,10 +191,9 @@ export function RuntimeActivityConsole(props: {
         </div>
       </aside>
 
-      <section className="pane runtime_ops_table_panel">
+      <section className={`pane runtime_ops_table_panel${runs_open ? "" : " list_collapsed"}`}>
         <div className="pane_header runtime_ops_list_header">
-          <span className="pane_title">Runs</span>
-          <span className="pane_count">{rows.length.toLocaleString()}</span>
+          <ListDisclosure open={runs_open} on_toggle={toggle_runs} controls="runtime_ops_runs" title="Runs" count={rows.length.toLocaleString()} />
           <div className="pane_spacer" />
           <input value={query} onChange={(e) => set_query(e.target.value)} placeholder="Search workflow, run, node, status, error" />
           <select className="seg_select" value={sort} onChange={(e) => set_sort(e.target.value as any)}>
@@ -202,7 +205,7 @@ export function RuntimeActivityConsole(props: {
             <option value="workflow">Workflow</option>
           </select>
         </div>
-        <div className="pane_body scroll runtime_ops_rows">
+        <div className="pane_body scroll runtime_ops_rows" id="runtime_ops_runs" hidden={!runs_open}>
           {!rows.length ? (
             <div className="runtime_ops_empty">
               {props.gateway_connected ? "No runs match this queue." : "Gateway offline. Runtime activity cannot be loaded until the connection is restored."}

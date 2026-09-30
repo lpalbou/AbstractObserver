@@ -17,6 +17,8 @@ import { App } from "./ui/app";
 // Responsive layer: loads after App (whose page sheets it overrides) — the
 // per-breakpoint rules (drawer nav, page scrolling, single-pane Observe, sheets).
 import "./ui/responsive.css";
+// List + detail space (DESIGN §12): flat sections, one scroll, collapsible lists.
+import "./ui/space.css";
 import { SERVICE_WORKER_PATH } from "./lib/app_paths";
 
 // Register service worker (PWA shell cache).

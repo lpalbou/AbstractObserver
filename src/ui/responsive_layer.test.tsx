@@ -85,16 +85,18 @@ describe("navigation drawer (< 1024 px)", () => {
   });
 });
 
-describe("single-pane Observe (< 768 px or < 500 px tall)", () => {
-  it("hides the run list when a run is shown and the run when the list is shown", () => {
+describe("stacked Observe (< 768 px or < 500 px tall)", () => {
+  it("the run list (a collapsible panel, DESIGN §12) sits above the run: neither pane is hidden by the layout", () => {
     const sm = media_block(RCSS, "(max-width: 767.98px), (max-height: 500px)");
-    expect(sm).toMatch(/\.observatory_layout\.observe_pane_run \.observatory_sidebar,\s*\.observatory_layout\.observe_pane_runs \.observatory_main\s*\{\s*display:\s*none;/);
+    expect(sm).not.toMatch(/\.observatory_main\s*\{\s*display:\s*none;/);
+    expect(sm).not.toMatch(/observe_pane_run/);
+    expect(APP).not.toMatch(/observe_back_btn/);
   });
 
-  it("the layout class follows the phone query and the Runs back button exists only there", () => {
+  it("the layout class follows the list disclosure; selecting a run on a phone scrolls to it", () => {
     expect(APP).toMatch(/const single_pane = useAfMedia\(`\$\{AF_MEDIA\.sm\}, \$\{AF_MEDIA\.short\}`\)/);
-    expect(APP).toMatch(/observatory_layout observe_pane_\$\{single_pane \? observe_pane : "both"\}/);
-    expect(APP).toMatch(/\{single_pane \? \(\s*<button type="button" className="btn observe_back_btn" onClick=\{\(\) => set_observe_pane\("runs"\)\}/);
+    expect(APP).toMatch(/observatory_layout\$\{observe_list_open \? "" : " list_collapsed"\}/);
+    expect(APP).toMatch(/void attach_to_run\(rid, \{ root_run_id: root \|\| rid \}\);\s*reveal_observe_viewer\(\);/);
   });
 });
 

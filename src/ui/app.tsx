@@ -143,6 +143,7 @@ import { MultiSelect } from "./multi_select";
 import { type RuntimeMetadata } from "./runtime_metadata";
 import { run_status_class, run_status_word, stop_reason_of, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
 import { useGatewayVoice } from "./use_gateway_voice";
+import { useListOpen } from "./list_disclosure";
 import "./system.css";
 // Usability layer LAST: it corrects actionable-information presentation and
 // must win equal-specificity fights with every page sheet above.
@@ -730,14 +731,15 @@ export function App(): React.ReactElement {
   const [right_tab, set_right_tab] = useState<ObserveRightTab>("overview");
   /* RESPONSIVE (DESIGN.md §5.2/§5.3): below 1024 px the sidebar is a left
    * drawer opened from the header; below 768 px (or under 500 px tall) the
-   * Observe page shows ONE pane at a time — the run list, or the selected
-   * run with a "Runs" back button — and the page scrolls as a whole. */
+   * Observe page stacks the run list (a collapsible panel, DESIGN §12) above
+   * the selected run, and the page scrolls as a whole (one scroll). */
   const nav_is_drawer = useAfMedia(AF_MEDIA.md);
   const single_pane = useAfMedia(`${AF_MEDIA.sm}, ${AF_MEDIA.short}`);
   const nav = use_nav_drawer({ is_drawer: nav_is_drawer, page });
   const nav_open = nav.open;
   const set_nav_open = nav.set_open;
-  const [observe_pane, set_observe_pane] = useState<"runs" | "run">("runs");
+  /* Observe's run list is a collapsible panel (DESIGN §12), remembered per viewer. */
+  const [observe_list_open, toggle_observe_list] = useListOpen("observe_runs");
   const nav_toggle_ref = nav.toggle_ref;
   const sidebar_ref = nav.sidebar_ref;
   const observe_viewer_ref = useRef<HTMLDivElement | null>(null);
@@ -4640,11 +4642,6 @@ export function App(): React.ReactElement {
 
   // Navigation drawer (< 1024 px): state, focus trap, inert shell — nav_drawer.ts.
 
-  // Single-pane Observe: a selected run shows the run; no run shows the list.
-  useEffect(() => {
-    set_observe_pane(run_id.trim() ? "run" : "runs");
-  }, [run_id]);
-
   /** On a phone the run view is below its toolbar: bring the tab strip + content to the top. */
   function reveal_observe_viewer(): void {
     if (!single_pane) return;
@@ -5678,7 +5675,7 @@ export function App(): React.ReactElement {
 
         {page === "observe" ? (
           <div className="page observe_page">
-            <div className={`observatory_layout observe_pane_${single_pane ? observe_pane : "both"}`}>
+            <div className={`observatory_layout${observe_list_open ? "" : " list_collapsed"}`}>
               <WorkflowRunNavigator
                 sections={observe_sections}
                 selected_run_id={run_id}
@@ -5697,9 +5694,10 @@ export function App(): React.ReactElement {
                 on_group_by={set_observe_group_by}
                 on_refresh={() => void refresh_runs()}
                 on_select={(rid, root) => {
-                  set_observe_pane("run");
                   void attach_to_run(rid, { root_run_id: root || rid });
+                  reveal_observe_viewer();
                 }}
+                list={{ open: observe_list_open, on_toggle: toggle_observe_list }}
               />
               <div className="observatory_main">
             {/* ── Observe toolbar ──
@@ -5708,12 +5706,6 @@ export function App(): React.ReactElement {
               * duplicate RunPicker dropdown is gone. */}
             <div className="observe_toolbar">
               <div className="observe_toolbar_row">
-                {single_pane ? (
-                  <button type="button" className="btn observe_back_btn" onClick={() => set_observe_pane("runs")} aria-label="Back to the run list" title="Back to the run list">
-                    <Icon name="list" size={14} />
-                    <span>Runs</span>
-                  </button>
-                ) : null}
                 {run_id.trim() ? (
                   <div className="observe_run_identity" title={run_id.trim()}>
                     <span className="observe_run_name">
@@ -6732,7 +6724,6 @@ export function App(): React.ReactElement {
                   onClick={() => {
                     set_right_tab("ledger");
                     set_page("observe");
-                    set_observe_pane("run");
                     reveal_observe_viewer();
                     if (wait_key) set_dismissed_wait_key(wait_key);
                   }}
