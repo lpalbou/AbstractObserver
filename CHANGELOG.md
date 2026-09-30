@@ -59,7 +59,7 @@ except that each list can now be collapsed and the Automations detail reads at 1
 - For contributors: `src/ui/space.css` (loaded after `responsive.css`) and `src/ui/list_disclosure.tsx`, guarded by
   `src/ui/list_disclosure.test.tsx`; `scripts/space.screens.mjs` drives the list + detail screens through the shared
   capture harness (space metrics: text column, scroll containers, padding stack).
-- For contributors:  lays Automations, Observe, System → Activity, the Board and a
+- For contributors: `src/ui/space_dom.test.tsx` lays Automations, Observe, System → Activity, the Board and a
   Launch-shaped form out in Chromium at 390 px with the CSS a fresh build ships, and fails on any element that scrolls
   inside the page or a document that scrolls under it; CI and the release workflow install the Playwright Chromium
   before the tests.
