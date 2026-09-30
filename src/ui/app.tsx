@@ -4701,7 +4701,7 @@ export function App(): React.ReactElement {
                       <summary className="help_text muted" style={{ cursor: "pointer" }}>
                         Capabilities{launch_skills.length ? ` · ${launch_skills.length} skill${launch_skills.length === 1 ? "" : "s"}` : ""}
                       </summary>
-                      <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                      <div className="help_text muted" style={{ marginTop: "8px" }}>
                         Skills attach knowledge procedures to this run. The gateway resolves selections through the trust gate at start: validated skills activate, unverified ones are held for review, blocked ones never ride.
                       </div>
                       {assistant_skills === null ? (
@@ -4753,7 +4753,7 @@ export function App(): React.ReactElement {
                     <summary className="help_text muted" style={{ cursor: "pointer" }}>
                       Workspace
                     </summary>
-                    <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                    <div className="help_text muted" style={{ marginTop: "8px" }}>
                       Controls what the agent can access via filesystem tools.
                     </div>
 
@@ -5308,7 +5308,7 @@ export function App(): React.ReactElement {
                 <div className="section_title">Inputs</div>
 
                   {!launch_choice ? (
-                    <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "8px" }}>
+                    <div className="help_text muted" style={{ marginTop: "8px" }}>
                       Select a workflow above to configure inputs.
                     </div>
                   ) : input_data_obj === null ? (

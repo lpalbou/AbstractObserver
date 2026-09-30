@@ -507,7 +507,14 @@
   /* The wait context (what the run waits for) is read, not scanned. */
   .observe_page .observe_context_body,
   .observe_page .observe_context_body .mono {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-body, 14px);
+  }
+
+  /* Segmented controls (run filters, ledger view toggles) are touch controls. */
+  .observe_page .run_nav_segments .seg_btn,
+  .observe_page .tab_bar_controls .seg_btn,
+  .observe_page .tab_bar_controls .seg_action {
+    font-size: var(--t-small);
   }
 }
 
@@ -585,4 +592,56 @@
     background: color-mix(in srgb, var(--accent) 8%, transparent);
     box-shadow: inset 2.5px 0 0 var(--accent);
   }
+}
+
+/* Helper text is at least 13 px on desktops (DESIGN §12.1): the form help
+ * rule used --t-micro (12 px). Phones and touch raise it to body size below. */
+.page .help_text,
+.form_stack .help_text {
+  font-size: var(--font-size-sm);
+}
+
+/* The steer hint is a block line of the composer column (it was an inline
+ * span as wide as its words). */
+.af-steer__status > .af-steer__hint {
+  display: block;
+}
+
+/* Launch (Run once / Automate) on phones: the form card is a flat section
+ * (the page's gutter is the only inset); labels, skill descriptions and help
+ * are body size (§3: labels are body text). */
+@media (max-width: 767.98px) {
+  .automate_fields fieldset {
+    padding-inline: 0;
+    border: 0;
+    border-top: 1px solid var(--pane-border);
+    border-radius: 0;
+  }
+
+  .page.page_scroll > .page_inner > .card {
+    padding-inline: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 767.98px), (pointer: coarse) {
+  .page .launch_label,
+  .form_stack .launch_label,
+  .launch_skill_desc,
+  .page .help_text,
+  .form_stack .help_text {
+    font-size: var(--font-size-body, 14px);
+  }
+}
+
+/* The kit switch's visually hidden reason (`.af-switch__reason--hidden`,
+ * absolutely positioned, a sibling of the switch in `.af-switch-wrap`) had no
+ * positioned ancestor: it was placed against the document and made the whole
+ * document scrollable under the page (a second scroll container on Launch →
+ * Automate). Kit fix pending (COORD); contained here. */
+.af-switch-wrap {
+  position: relative;
 }
