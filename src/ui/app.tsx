@@ -32,6 +32,7 @@ import {
   type ProviderOption,
 } from "@abstractframework/ui-kit";
 import { AppAssistantDrawer } from "./app_assistant";
+import { use_nav_drawer } from "./nav_drawer";
 import { RunChatReplayNote, run_chat_history, type RunChatHistoryReport } from "./run_chat";
 import { REVEAL_PATH, run_id_from_location } from "../lib/app_paths";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
@@ -733,10 +734,12 @@ export function App(): React.ReactElement {
    * run with a "Runs" back button — and the page scrolls as a whole. */
   const nav_is_drawer = useAfMedia(AF_MEDIA.md);
   const single_pane = useAfMedia(`${AF_MEDIA.sm}, ${AF_MEDIA.short}`);
-  const [nav_open, set_nav_open] = useState(false);
+  const nav = use_nav_drawer({ is_drawer: nav_is_drawer, page });
+  const nav_open = nav.open;
+  const set_nav_open = nav.set_open;
   const [observe_pane, set_observe_pane] = useState<"runs" | "run">("runs");
-  const nav_toggle_ref = useRef<HTMLButtonElement | null>(null);
-  const sidebar_ref = useRef<HTMLElement | null>(null);
+  const nav_toggle_ref = nav.toggle_ref;
+  const sidebar_ref = nav.sidebar_ref;
   const observe_viewer_ref = useRef<HTMLDivElement | null>(null);
   const [ledger_condensed, set_ledger_condensed] = useState(true);
   const [ledger_view, set_ledger_view] = useState<"steps" | "cycles">("steps");
@@ -4635,31 +4638,7 @@ export function App(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, gateway_connected, assistant_skills_probed]);
 
-  // Navigation drawer (< 1024 px): closes on page change, Escape, backdrop
-  // tap, the close button, and when the window grows back past 1024 px.
-  // Focus moves into the drawer on open and back to the header toggle on close.
-  const nav_was_open = useRef(false);
-  useEffect(() => {
-    set_nav_open(false);
-  }, [page, nav_is_drawer]);
-  useEffect(() => {
-    if (nav_open) {
-      nav_was_open.current = true;
-      const root = sidebar_ref.current;
-      const first = root?.querySelector<HTMLElement>(".shell_nav_item.active") || root?.querySelector<HTMLElement>(".shell_nav_item");
-      first?.focus();
-      const on_key = (e: KeyboardEvent) => {
-        if (e.key === "Escape") set_nav_open(false);
-      };
-      window.addEventListener("keydown", on_key);
-      return () => window.removeEventListener("keydown", on_key);
-    }
-    if (nav_was_open.current) {
-      nav_was_open.current = false;
-      nav_toggle_ref.current?.focus();
-    }
-    return undefined;
-  }, [nav_open]);
+  // Navigation drawer (< 1024 px): state, focus trap, inert shell — nav_drawer.ts.
 
   // Single-pane Observe: a selected run shows the run; no run shows the list.
   useEffect(() => {
@@ -4869,9 +4848,7 @@ export function App(): React.ReactElement {
         className="shell_sidebar"
         id="shell_nav"
         ref={sidebar_ref}
-        aria-label="Navigation"
-        {...(nav_is_drawer && nav_open ? { role: "dialog", "aria-modal": true } : {})}
-        {...(nav_is_drawer && !nav_open ? { inert: "" } : {})}
+        {...nav.attrs.aside}
       >
         <div className="shell_brand" title="AbstractObserver (Web/PWA)">
           <span className="logo-icon shell_brand_mark" aria-hidden="true">
@@ -4951,7 +4928,7 @@ export function App(): React.ReactElement {
         </div>
       </aside>
 
-      <div className="shell_main">
+      <div className="shell_main" {...nav.attrs.main}>
         <header className="shell_header">
           <button
             ref={nav_toggle_ref}

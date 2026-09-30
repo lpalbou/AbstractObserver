@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useId } from "react";
 
 export type ModalProps = {
   open: boolean;
@@ -10,6 +10,7 @@ export type ModalProps = {
 };
 
 export function Modal({ open, title, children, actions, variant = "default", onClose }: ModalProps): React.ReactElement | null {
+  const title_id = useId();
   useEffect(() => {
     if (!open) return;
     const on_keydown = (e: KeyboardEvent) => {
@@ -29,9 +30,11 @@ export function Modal({ open, title, children, actions, variant = "default", onC
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={`modal_panel${is_fullscreen ? " fullscreen" : ""}`}>
+      <div className={`modal_panel${is_fullscreen ? " fullscreen" : ""}`} role="dialog" aria-modal="true" aria-labelledby={title_id}>
         <div className="modal_header">
-          <div className="modal_title">{title}</div>
+          <div className="modal_title" id={title_id}>
+            {title}
+          </div>
           <button className="btn" onClick={onClose}>
             Close
           </button>

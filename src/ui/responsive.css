@@ -94,6 +94,14 @@ body {
   flex-wrap: wrap;
 }
 
+/* Sticky header / footer are OPAQUE: the old 92 % bg-primary let the scrolled
+ * body text show between the decision buttons (phones, review A). Same tint,
+ * mixed over the panel colour instead of transparency. */
+.modal_header,
+.modal_footer {
+  background: color-mix(in srgb, var(--bg-primary) 92%, var(--pane-bg));
+}
+
 .runtime_logs_panel .audit_log_tail {
   height: calc(var(--vh-full, 100vh) - 330px);
 }
@@ -404,14 +412,16 @@ body {
   }
 
   /* App dialogs become bottom sheets (kit dialogs do the same in 0.3.0). */
+  /* The sheet sits on the on-screen keyboard (--keyboard-inset from the
+   * kit's installViewportVars), never under it. */
   .modal_backdrop:not(.fullscreen) {
     align-items: flex-end;
-    padding: var(--safe-top, 0px) 0 0;
+    padding: var(--safe-top, 0px) 0 var(--keyboard-inset, 0px);
   }
 
   .modal_panel:not(.fullscreen) {
     width: 100%;
-    max-height: calc(var(--vv-height, var(--vh-full, 100vh)) - var(--safe-top, 0px) - 8px);
+    max-height: calc(var(--vh-full, 100vh) - var(--keyboard-inset, 0px) - var(--safe-top, 0px) - 8px);
     border-radius: 14px 14px 0 0;
   }
 
@@ -442,6 +452,22 @@ body {
 
   .shell_header_title {
     font-size: var(--t-body);
+  }
+
+  /* Phone landscape (and a keyboard up): only the decision row stays pinned;
+   * the title scrolls away and the buttons keep one row (852 px fits all five). */
+  .modal_header {
+    position: static;
+  }
+
+  .modal_footer {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .modal_footer > .btn {
+    flex: 0 0 auto;
   }
 }
 
@@ -560,6 +586,25 @@ body {
   .settings_choice,
   .launch_skill_row {
     align-items: center;
+  }
+
+  /* Reading surfaces on touch: ledger payloads, Story prose and dialog bodies
+   * use body size (14 px); chips, ids and metric labels keep --t-micro / xxs. */
+  .observe_viewer_full,
+  .modal_body {
+    --t-small: var(--font-size-body, 14px);
+    --t-body: var(--font-size-body, 14px);
+    --font-size-sm: var(--font-size-body, 14px);
+    --font-size-code: var(--font-size-body, 14px);
+  }
+
+  /* The payload lines themselves are sized with --t-micro (shared with chips
+   * and ids), so they are raised by name: ledger previews / unfolded bodies and
+   * the Story chronology payloads. */
+  .observe_page .lc_preview,
+  .observe_page .lc_body,
+  .observe_page .timeline_payload_grid p {
+    font-size: var(--font-size-body, 14px);
   }
 
   .shell_nav_toggle,
