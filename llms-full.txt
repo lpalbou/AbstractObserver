@@ -158,7 +158,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.2.1 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.3.0 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -490,11 +490,10 @@ export default defineConfig({
 
 # Changelog
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-09-30
 
-Built with AbstractUIC ui-kit 0.2.0 (CI and release must check out the AbstractUIC tag that ships it).
-Needs an AbstractGateway with per-user email (`/api/gateway/me/email`, the `email.received@1` trigger;
-framework backlog 0992).
+Built with AbstractUIC ui-kit 0.2.0 (CI and release check out AbstractUIC v0.2.0). The email options need
+AbstractGateway 0.8.0 or later (per-user email: `/api/gateway/me/email`, the `email.received@1` trigger).
 
 ### Added
 - **Email automations in Launch → Automate.** **When an email arrives** (a When choice: from these
@@ -508,11 +507,6 @@ framework backlog 0992).
   email-shaped is sent (an email trigger is refused with that sentence).
 - The automation panel's Edit form and Definition card get the email status (the kit's email fields there).
 - Tests: `src/ui/automations_email.test.tsx` (red before).
-
-### Known gap
-- AbstractGateway's `POST /api/gateway/automations` does not accept `notify` yet (422 "Extra inputs are not
-  permitted"), so creating with **Email me the result** ticked is refused until the gateway adds it; editing
-  an automation already accepts it.
 
 ## [0.2.1] - 2026-09-28
 
@@ -3416,12 +3410,13 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
 Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.contracts.common.automations.available: true`; otherwise the UI says the gateway lacks the Automations API. Called through the ui-kit client (`GatewayClient.automations_client()`):
 
 - `GET /api/gateway/automations?status=&cursor=&limit=` — every page, polled every 30 s while the page is visible (no `changed_since`)
-- `POST /api/gateway/automations` — create (`{request_id, title, target, trigger, context}`)
+- `POST /api/gateway/automations` — create (`{request_id, title, target, trigger, context}`, plus `notify` and `policy.email_allowed_recipients` for the email options)
 - `GET /api/gateway/automations/{id}` and `GET /api/gateway/automations/{id}/occurrences?cursor=&limit=` — the panel
 - `PATCH /api/gateway/automations/{id}` — Edit: title, task (`changes.target`), interval, context, tool approval, with `expected_revision`
 - `POST /api/gateway/automations/{id}/commands` — `automation.pause|resume|run_now|stop_current|archive`
 - `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened as a chat on the Automations page); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
 - `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item
+- `GET /api/gateway/me/email` — whether your email account is usable; the email trigger, **Email me the result** and the allowed recipients are offered only when it is (AbstractGateway 0.8.0+)
 - `POST /api/gateway/runs/start` with the discussion's `session_id` — a later turn of a discussion (the gateway re-stamps its workspace, mount and history); the chat reads it with `GET /api/gateway/runs/{run_id}`, `/history_bundle?include_session=true`, `/ledger` and `/ledger/stream`
 - `GET /api/gateway/runs/{run_id}/workspace`, `/workspace/files?path=`, `/workspace/content?path=` — browse a run's folder and open or download its files (an automation's id is its controller run, so the automation's folder is `runs/{automation_id}/workspace`)
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
@@ -3472,7 +3467,7 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `GET /api/gateway/triage/decisions?status=…&limit=…`
   - `POST /api/gateway/triage/decisions/{decision_id}/apply`
   - `POST /api/gateway/bugs/report` / `POST /api/gateway/features/report`
-- **Email inbox (multi-account)**
+- **Email inbox** (administrators; on AbstractGateway 0.8.0+ these routes act on the calling administrator's own account and are deprecated in favour of `/api/gateway/me/email`)
   - `GET /api/gateway/email/accounts`
   - `GET /api/gateway/email/messages?account=…&mailbox=…&since=…&status=…&limit=…`
   - `GET /api/gateway/email/messages/{uid}?account=…&mailbox=…&max_body_chars=…`

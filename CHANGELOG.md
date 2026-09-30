@@ -1,10 +1,9 @@
 # Changelog
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-09-30
 
-Built with AbstractUIC ui-kit 0.2.0 (CI and release must check out the AbstractUIC tag that ships it).
-Needs an AbstractGateway with per-user email (`/api/gateway/me/email`, the `email.received@1` trigger;
-framework backlog 0992).
+Built with AbstractUIC ui-kit 0.2.0 (CI and release check out AbstractUIC v0.2.0). The email options need
+AbstractGateway 0.8.0 or later (per-user email: `/api/gateway/me/email`, the `email.received@1` trigger).
 
 ### Added
 - **Email automations in Launch → Automate.** **When an email arrives** (a When choice: from these
@@ -18,11 +17,6 @@ framework backlog 0992).
   email-shaped is sent (an email trigger is refused with that sentence).
 - The automation panel's Edit form and Definition card get the email status (the kit's email fields there).
 - Tests: `src/ui/automations_email.test.tsx` (red before).
-
-### Known gap
-- AbstractGateway's `POST /api/gateway/automations` does not accept `notify` yet (422 "Extra inputs are not
-  permitted"), so creating with **Email me the result** ticked is refused until the gateway adds it; editing
-  an automation already accepts it.
 
 ## [0.2.1] - 2026-09-28
 
