@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+On/off settings are switches. Every setting that is either on or off now shows as one switch labelled by the
+feature, highlighted when on, instead of a Pause/Resume button pair, an On/Off select or a checkbox. Built with
+AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
+
+### Changed
+- **Automations: an "Active" switch** on every automation row replaces the Pause / Resume buttons (on = runs on its
+  schedule, off = paused; it sends `automation.pause` / `automation.resume`). Legacy scheduled runs get the same
+  switch instead of Suspend / Resume. An automation that has ended, is archived or does not allow the change shows
+  the switch unavailable, with the reason on hover and for screen readers; while a command is in flight the switch is
+  busy. The feedback line states the new state ("“News” is paused: scheduled runs are skipped.").
+- **Automations list:** "Show archived (n)" is an "Archived (n)" switch.
+- **Observe toolbar, legacy scheduled run:** the schedule's "Active" switch replaces the "Suspend schedule" /
+  "Resume schedule" button; switching it off still asks for a reason first. Pausing a running run stays a button
+  (a one-shot action).
+- **Edit schedule dialog:** "Apply immediately" is a switch; the dialog's single primary action saves it with the
+  interval.
+- **Settings:** "Auto-connect on load" is a switch (was an On/Off select); each assistant skill is a switch named by
+  the skill (was a checkbox).
+- **System → Memory map:** "Live" is a switch.
+- The ledger's view toggle is always labelled "Condensed" (highlighted when on) instead of swapping to "All"; it and
+  the Flow graph's Subflows / Path toggles announce their state (`aria-pressed`); artifact type filter chips name the filter rather than an Add / Remove verb.
+- For contributors: `src/ui/state_toggles.test.tsx` runs the kit's `findVerbToggleLabels` over `src/` and checks
+  every switch in both states.
+
 ## [0.4.0] - 2026-09-30
 
 Responsive layout: AbstractObserver adapts to phones, tablets and resized desktop windows. Everyone who opens the

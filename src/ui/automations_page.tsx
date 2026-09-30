@@ -18,6 +18,7 @@ import {
   type GatewayFetch,
 } from "@abstractframework/panel-chat";
 import {
+  AfSwitch,
   AutomationStateLabel as KitAutomationStateLabel,
   CONTROL_ICONS,
   CONTROL_LABELS,
@@ -143,6 +144,40 @@ const LEGACY_LABELS: Record<LegacyAction, string> = {
   recreate: "Recreate as automation",
 };
 
+/** What the legacy schedule's switch does (legacy rows have no kit hint). */
+const LEGACY_ACTIVE_HINT = "On: the schedule runs at its times. Off: suspended, scheduled runs are skipped until it is on again.";
+
+/**
+ * The row's "Active" switch: ON = the schedule runs, OFF = paused. A click
+ * requests the other state; unavailable (ended, archived, not permitted) keeps
+ * the reason on hover and for assistive technology. While a command is in
+ * flight the switch is busy, not unavailable.
+ */
+export function ActiveSwitch(props: {
+  summary: AutomationSummary;
+  busy: boolean;
+  ctl: { enabled: boolean; reason?: string };
+  hint?: string;
+  onChange: () => void;
+}): React.ReactElement {
+  const reason = props.busy || props.ctl.enabled ? null : props.ctl.reason || "Not available now.";
+  return (
+    <AfSwitch
+      variant="sm"
+      className="auto_switch"
+      action="active"
+      id={`auto-active-${props.summary.automation_id}`}
+      label={CONTROL_LABELS.active}
+      checked={props.summary.status === "active"}
+      unavailableReason={reason}
+      reasonVisible={false}
+      busy={props.busy}
+      hint={props.hint}
+      onChange={props.onChange}
+    />
+  );
+}
+
 function AutomationRow(props: { summary: AutomationSummary; state: AutomationsState; h: AutomationsHandlers }): React.ReactElement {
   const s = props.summary;
   const v = automation_row_view(s);
@@ -170,15 +205,27 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
   let actions: React.ReactNode;
   if (v.legacy) {
     const c = legacy_row_controls(s, busy);
-    const order: LegacyAction[] = [s.status === "paused" ? "legacy_resume" : "legacy_pause", "legacy_run_now", "open_run", "recreate"];
-    actions = order.map((a) => btn(a, LEGACY_LABELS[a], c[a], () => props.h.on_legacy_action(s, a), undefined, LEGACY_ICONS[a]));
+    // The schedule's on/off state is a switch labelled by the feature
+    // (docs/state-toggles.md), never a Suspend/Resume verb swap.
+    const toggle: LegacyAction = s.status === "paused" ? "legacy_resume" : "legacy_pause";
+    const order: LegacyAction[] = ["legacy_run_now", "open_run", "recreate"];
+    actions = [
+      <ActiveSwitch key="active" summary={s} busy={busy} ctl={c[toggle]} hint={LEGACY_ACTIVE_HINT} onChange={() => props.h.on_legacy_action(s, toggle)} />,
+      ...order.map((a) => btn(a, LEGACY_LABELS[a], c[a], () => props.h.on_legacy_action(s, a), undefined, LEGACY_ICONS[a])),
+    ];
   } else {
     const c = automation_row_controls(s, busy);
     // Archive (destructive, rare) is the icon at the end of the row.
-    const order: RowAction[] = [s.status === "paused" ? "resume" : "pause", "run_now", "edit", "discuss", "archive"];
-    actions = order.map((a) =>
-      btn(a, ROW_LABELS[a], c[a], () => props.h.on_row_action(s, a), a === "archive" ? "danger auto_action_end" : undefined, ROW_ICONS[a], a === "archive", controlHint(ROW_CONTROL[a], s)),
-    );
+    // "Active" (on = runs on its schedule, off = paused): the kit's state
+    // switch, sending automation.pause / automation.resume.
+    const toggle: RowAction = s.status === "active" ? "pause" : "resume";
+    const order: RowAction[] = ["run_now", "edit", "discuss", "archive"];
+    actions = [
+      <ActiveSwitch key="active" summary={s} busy={busy} ctl={c.active} hint={controlHint("active", s)} onChange={() => props.h.on_row_action(s, toggle)} />,
+      ...order.map((a) =>
+        btn(a, ROW_LABELS[a], c[a], () => props.h.on_row_action(s, a), a === "archive" ? "danger auto_action_end" : undefined, ROW_ICONS[a], a === "archive", controlHint(ROW_CONTROL[a], s)),
+      ),
+    ];
   }
   const confirming = props.state.confirm_archive_id === s.automation_id;
   return (
@@ -317,9 +364,16 @@ export function AutomationsListView(props: { state: AutomationsState; available:
           <div className="help_text muted">No automations yet. Create one from Launch → Automate.</div>
         ) : null}
         {archived_count(st) > 0 && st.status_filter !== "archived" ? (
-          <label className="auto_show_archived help_text muted">
-            <input type="checkbox" data-action="show-archived" checked={st.show_archived} onChange={(e) => props.h.on_show_archived(e.target.checked)} /> Show archived ({archived_count(st)})
-          </label>
+          <div className="auto_show_archived">
+            <AfSwitch
+              variant="sm"
+              action="show-archived"
+              label={`Archived (${archived_count(st)})`}
+              hint="List archived automations too. Their history stays readable; they do not run."
+              checked={st.show_archived}
+              onChange={(next) => props.h.on_show_archived(next)}
+            />
+          </div>
         ) : null}
         <ul className="auto_rows">
           {visible_automations(st).map((s) => (

@@ -763,8 +763,8 @@ export function RuntimeExplorerPage(props: {
                       key={kind}
                       type="button"
                       aria-pressed={active}
-                      aria-label={`${active ? "Remove" : "Add"} ${label} artifact type filter. Type filters combine with OR.`}
-                      title={`${active ? "Remove" : "Add"} ${label}. Type filters combine with OR.`}
+                      aria-label={`${label} artifact type filter. Type filters combine with OR.`}
+                      title={`${label}: ${active ? "in the filter" : "not in the filter"}. Type filters combine with OR.`}
                       className={`artifact_filter_chip ${active ? "active" : ""}`}
                       onClick={() => toggle_type_filter(kind)}
                     >

@@ -70,9 +70,10 @@ describe("Run now: the kit's icon and hint", () => {
 
   it("every row control carries its own kit hint", () => {
     const s = summary();
-    for (const [action, id] of [["pause", "pause"], ["edit", "revise"], ["discuss", "discuss"], ["archive", "archive"]] as const) {
+    for (const [action, id] of [["active", "active"], ["edit", "revise"], ["discuss", "discuss"], ["archive", "archive"]] as const) {
       expect(row_button(s, action)).toContain(`aria-description="${CONTROL_HINTS[id]}"`);
     }
-    expect(row_button(summary({ status: "paused", next_fire_at: undefined }), "resume")).toContain(`title="${CONTROL_HINTS.resume}"`);
+    // The "Active" switch keeps its hint when the automation is paused (switch off).
+    expect(row_button(summary({ status: "paused", next_fire_at: undefined }), "active")).toContain(`title="${CONTROL_HINTS.active}"`);
   });
 });

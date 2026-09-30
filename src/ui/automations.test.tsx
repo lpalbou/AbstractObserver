@@ -491,7 +491,9 @@ describe("Automations page", () => {
     const row = html.slice(html.indexOf(`data-automation-id="${LEGACY_ID}"`));
     const li = row.slice(0, row.indexOf("</li>"));
     const actions = [...li.matchAll(/data-action="([a-z_]+)"/g)].map((m) => m[1]);
-    expect(actions).toEqual(["legacy_pause", "legacy_run_now", "open_run", "recreate"]);
+    // The schedule's on/off state is the "Active" switch (docs/state-toggles.md), then the legacy actions.
+    expect(actions).toEqual(["active", "legacy_run_now", "open_run", "recreate"]);
+    expect(li).toMatch(/role="switch"[^>]*data-action="active" aria-checked="true"/);
     await ctl.select(LEGACY_ID);
     expect(automation_panel_props(ctl, host_handlers)).toBeNull();
     expect(detail_html()).toContain("Recreate as automation");
@@ -622,20 +624,21 @@ describe("Launch modes and discoverability", () => {
     expect(parse_app_hash(`#${NEWS_ID}`)).toBeNull(); // run deep links stay run deep links
   });
 
-  it("archived automations are hidden until \"Show archived\" (or the archived filter) asks for them", async () => {
+  it("archived automations are hidden until the \"Archived\" switch (or the archived filter) asks for them", async () => {
     ids.push("cmd-arch-hide");
     await ctl.refresh();
     await ctl.row_action(summary_of(JOURNAL_ID), "archive");
     expect(summary_of(JOURNAL_ID).status).toBe("archived");
     const rowIds = (html: string) => [...html.matchAll(/data-automation-id="([^"]+)"/g)].map((m) => m[1]);
     expect(rowIds(list_html())).not.toContain(JOURNAL_ID);
-    expect(list_html()).toContain("Show archived (1)");
+    expect(list_html()).toMatch(/role="switch"[^>]*data-action="show-archived" aria-checked="false"[^]*?Archived \(1\)/);
     ctl.set_show_archived(true);
     expect(rowIds(list_html())).toContain(JOURNAL_ID);
+    expect(list_html()).toMatch(/data-action="show-archived" aria-checked="true"/);
     ctl.set_show_archived(false);
     await ctl.set_status_filter("archived");
     expect(visible_automations(ctl.state).map((s) => s.automation_id)).toEqual([JOURNAL_ID]);
-    expect(list_html()).not.toContain("Show archived");
+    expect(list_html()).not.toContain('data-action="show-archived"');
   });
 });
 

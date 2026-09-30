@@ -9,6 +9,7 @@ import {
   type MemoryScope,
 } from "@abstractframework/monitor-active-memory";
 import { Markdown } from "@abstractframework/panel-chat";
+import { MindmapLiveSwitch } from "./state_switches";
 
 import { GatewayClient } from "../lib/gateway_client";
 import { Modal } from "./modal";
@@ -840,10 +841,7 @@ export function MindmapPanel({ gateway, selected_run_id, selected_session_id }: 
             <option value="run">run</option>
           </select>
         </label>
-        <label className="field_inline">
-          <span className="mono muted">live</span>
-          <input type="checkbox" checked={live} onChange={(e) => set_live(Boolean(e.target.checked))} />
-        </label>
+        <MindmapLiveSwitch checked={live} onChange={set_live} />
         {source === "session" ? (
           <label className="field_inline">
             <span className="mono muted">session_id</span>
