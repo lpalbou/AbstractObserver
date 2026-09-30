@@ -37,6 +37,7 @@ import { RunChatReplayNote, run_chat_history, type RunChatHistoryReport } from "
 import { REVEAL_PATH, run_id_from_location } from "../lib/app_paths";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
+import { ApplyImmediatelySwitch, AssistantSkillSwitch, AutoConnectSwitch, ScheduleActiveSwitch } from "./state_switches";
 import {
   AUTOMATION_OWNED_INPUTS,
   AutomationsController,
@@ -3817,11 +3818,16 @@ export function App(): React.ReactElement {
   const is_scheduled_run = Boolean(run_state?.is_scheduled) || Boolean(schedule_meta);
   const is_scheduled_recurrent = is_scheduled_run && Boolean(schedule_interval);
 
-  const primary_control_label = is_scheduled_run ? (run_paused ? "Resume schedule" : "Suspend schedule") : run_status === "running" && !run_paused ? "Pause" : "Resume";
+  // A legacy schedule's on/off state is the "Active" switch in the toolbar
+  // (docs/state-toggles.md: a persistent state is a switch, never a
+  // Suspend/Resume verb swap). Pausing a RUNNING run stays a one-shot action.
+  const primary_control_label = run_status === "running" && !run_paused ? "Pause" : "Resume"; // state-toggle-lint: allow pausing a RUNNING run is a one-shot action, not a setting
   const primary_control_action: "pause" | "resume" = is_scheduled_run ? (run_paused ? "resume" : "pause") : primary_control_label === "Pause" ? "pause" : "resume";
   const primary_control_disabled = is_scheduled_run
     ? !run_id.trim() || connecting || resuming || run_terminal
     : !run_id.trim() || connecting || resuming || run_terminal || (primary_control_action === "resume" && !run_paused);
+
+  const schedule_active_reason = !run_id.trim() ? "No run selected." : run_terminal ? "The schedule has ended." : null;
 
   const can_run_scheduled_now =
     is_scheduled_run &&
@@ -5078,19 +5084,7 @@ export function App(): React.ReactElement {
                   </div>
                   {discovery_error ? <div className="warn_callout">{discovery_error}</div> : null}
                   <div className="settings_row">
-                    <div className="settings_row_main">
-                      <div className="settings_row_title">Auto-connect on load</div>
-                      <div className="settings_row_help">Reuse the browser session automatically when the app opens.</div>
-                    </div>
-                    <div className="settings_row_actions">
-                      <select
-                        value={settings.auto_connect_gateway ? "on" : "off"}
-                        onChange={(e) => set_settings((s) => ({ ...s, auto_connect_gateway: e.target.value === "on" }))}
-                      >
-                        <option value="on">On</option>
-                        <option value="off">Off</option>
-                      </select>
-                    </div>
+                    <AutoConnectSwitch checked={settings.auto_connect_gateway} onChange={(next) => set_settings((s) => ({ ...s, auto_connect_gateway: next }))} />
                   </div>
                   <details className="settings_advanced">
                     <summary>Advanced: direct dev connection (bearer token, cross-origin)</summary>
@@ -5171,22 +5165,21 @@ export function App(): React.ReactElement {
                       {assistant_skills.map((sk) => {
                         const on = settings.assistant_skill_names.includes(sk.name);
                         return (
-                          <label key={sk.name} className={`settings_choice ${on ? "on" : ""}`} title={sk.description || sk.name}>
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              onChange={(e) =>
-                                set_settings((s) => ({
-                                  ...s,
-                                  assistant_skill_names: e.target.checked
-                                    ? Array.from(new Set([...s.assistant_skill_names, sk.name]))
-                                    : s.assistant_skill_names.filter((n) => n !== sk.name),
-                                }))
-                              }
-                            />
-                            <span className="settings_choice_name">{sk.name}{sk.version ? <em> v{sk.version}</em> : null}</span>
-                            {sk.description ? <span className="settings_choice_desc">{sk.description}</span> : null}
-                          </label>
+                          <AssistantSkillSwitch
+                            key={sk.name}
+                            name={sk.name}
+                            version={sk.version}
+                            description={sk.description}
+                            checked={on}
+                            onChange={(next) =>
+                              set_settings((s) => ({
+                                ...s,
+                                assistant_skill_names: next
+                                  ? Array.from(new Set([...s.assistant_skill_names, sk.name]))
+                                  : s.assistant_skill_names.filter((n) => n !== sk.name),
+                              }))
+                            }
+                          />
                         );
                       })}
                     </div>
@@ -5732,22 +5725,41 @@ export function App(): React.ReactElement {
                   * buttons in the empty state reads as broken, not as guidance. */}
                 {run_id.trim() ? (
                   <>
-	                  <button
-	                    className="btn"
-	                    onClick={() => {
-	                      if (primary_control_action === "pause") {
-	                        set_run_control_type("pause");
-	                        set_run_control_reason("");
-	                        set_run_control_error("");
-	                        set_run_control_open(true);
-	                        return;
-	                      }
-	                      void submit_run_control("resume");
-	                    }}
-	                    disabled={primary_control_disabled}
-	                  >
-	                    {primary_control_label}
-	                  </button>
+	                  {is_scheduled_run ? (
+	                    <ScheduleActiveSwitch
+	                      active={!run_paused}
+	                      unavailableReason={schedule_active_reason}
+	                      busy={connecting || resuming}
+	                      onChange={(next) => {
+	                        if (!next) {
+	                          // Switching a schedule off asks for a reason first (the modal confirms).
+	                          set_run_control_type("pause");
+	                          set_run_control_reason("");
+	                          set_run_control_error("");
+	                          set_run_control_open(true);
+	                          return;
+	                        }
+	                        void submit_run_control("resume");
+	                      }}
+	                    />
+	                  ) : (
+	                    <button
+	                      className="btn"
+	                      onClick={() => {
+	                        if (primary_control_action === "pause") {
+	                          set_run_control_type("pause");
+	                          set_run_control_reason("");
+	                          set_run_control_error("");
+	                          set_run_control_open(true);
+	                          return;
+	                        }
+	                        void submit_run_control("resume");
+	                      }}
+	                      disabled={primary_control_disabled}
+	                    >
+	                      {primary_control_label}
+	                    </button>
+	                  )}
 	                  {can_run_scheduled_now ? (
 	                    <button
 	                      className="btn primary"
@@ -5921,8 +5933,8 @@ export function App(): React.ReactElement {
                         <button className={`seg_btn ${ledger_view === "cycles" ? "active" : ""}`} onClick={() => set_ledger_view("cycles")}>Cycles</button>
 	                  </div>
                       {ledger_view === "steps" ? (
-                        <button className={`seg_action ${ledger_condensed ? "active" : ""}`} onClick={() => set_ledger_condensed((v) => !v)} title={ledger_condensed ? "Showing condensed view" : "Showing all steps"}>
-                          {ledger_condensed ? "Condensed" : "All"}
+                        <button className={`seg_action ${ledger_condensed ? "active" : ""}`} aria-pressed={ledger_condensed} onClick={() => set_ledger_condensed((v) => !v)} title={ledger_condensed ? "Condensed: only the key steps are shown" : "Condensed is off: every step is shown"}>
+                          Condensed
                         </button>
                       ) : (
                           <select
@@ -5973,10 +5985,10 @@ export function App(): React.ReactElement {
                   {/* Graph inline controls — only shown when graph tab is active */}
                   {right_tab === "graph" ? (
                     <div className="tab_bar_controls">
-                      <button className={`seg_action ${graph_show_subflows ? "active" : ""}`} onClick={() => set_graph_show_subflows((v) => !v)}>
+                      <button className={`seg_action ${graph_show_subflows ? "active" : ""}`} aria-pressed={graph_show_subflows} onClick={() => set_graph_show_subflows((v) => !v)}>
                         Subflows
                       </button>
-                      <button className={`seg_action ${graph_highlight_path ? "active" : ""}`} onClick={() => set_graph_highlight_path((v) => !v)}>
+                      <button className={`seg_action ${graph_highlight_path ? "active" : ""}`} aria-pressed={graph_highlight_path} onClick={() => set_graph_highlight_path((v) => !v)}>
                         Path
                       </button>
                       {graph_flow_options.length ? (
@@ -6548,16 +6560,11 @@ export function App(): React.ReactElement {
             </div>
 
             <div className="field">
-              <label>Apply</label>
-              <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={schedule_edit_apply_immediately}
-                  onChange={(e) => set_schedule_edit_apply_immediately(Boolean(e.target.checked))}
-                  disabled={connecting || schedule_edit_submitting}
-                />
-                Apply immediately (recompute next run from now if waiting)
-              </label>
+              <ApplyImmediatelySwitch
+                checked={schedule_edit_apply_immediately}
+                busy={connecting || schedule_edit_submitting}
+                onChange={set_schedule_edit_apply_immediately}
+              />
             </div>
           </Modal>
         ) : null}

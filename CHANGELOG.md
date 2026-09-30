@@ -2,11 +2,38 @@
 
 ## [Unreleased]
 
+On/off settings are switches. Every setting that is either on or off now shows as one switch labelled by the
+feature, highlighted when on, instead of a Pause/Resume button pair, an On/Off select or a checkbox. Built with
+AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
+
 Screens that show a list next to a detail use the space they have on phones and tablets. Everyone who opens
 Automations, Observe, the Board or System on a phone or a tablet is affected; desktop windows keep their layout,
 except that each list can now be collapsed and the Automations detail reads at 14 px.
 
 ### Changed
+- **Automations: an "Active" switch** on every automation row replaces the Pause / Resume buttons (on = runs on its
+  schedule, off = paused; it sends `automation.pause` / `automation.resume`). Legacy scheduled runs get the same
+  switch instead of Suspend / Resume. An automation that has ended, is archived or does not allow the change shows
+  the switch unavailable, with the reason on hover and for screen readers; while a command is in flight the switch is
+  busy. The feedback line states the new state ("“News” is paused: scheduled runs are skipped.").
+- **Automations list:** "Show archived (n)" is an "Archived (n)" switch.
+- **Observe toolbar, legacy scheduled run:** the schedule's "Active" switch replaces the "Suspend schedule" /
+  "Resume schedule" button; switching it off still asks for a reason first. Pausing a running run stays a button
+  (a one-shot action).
+- **Edit schedule dialog:** "Apply immediately" is a switch; the dialog's single primary action saves it with the
+  interval.
+- **Settings:** "Auto-connect on load" is a switch (was an On/Off select); each assistant skill is a switch named by
+  the skill (was a checkbox).
+- **System → Memory map:** "Live" is a switch.
+- **Launch → Automate, Email:** "Email me the result" is a switch (from the kit); while email is not set up it is
+  unavailable, with the reason.
+- The ledger's view toggle is always labelled "Condensed" (highlighted when on) instead of swapping to "All"; it and
+  the Flow graph's Subflows / Path toggles announce their state (`aria-pressed`); artifact type filter chips name the filter rather than an Add / Remove verb.
+- **Type scale:** settings row titles and skill names are no heavier than weight 600; a skill name is regular when its
+  switch is off and bold when on.
+- For contributors: `src/ui/state_toggles.test.tsx` runs the kit's `findVerbToggleLabels` over `src/`, checks every
+  switch in both states and caps the settings label weights; `scripts/state_toggles.shots.mjs` captures the switch
+  surfaces at 1440 / 834 / 390 px in light and dark and measures every label's size and weight.
 - **Collapsible lists.** The Automations list, Observe's run list, System → Activity's Queues and Runs, and each
   Board column have a header button with a chevron that hides or shows the list. Lists are open by default, and the
   Observer remembers your choice in this browser. A hidden list leaves its header in place and gives the detail the

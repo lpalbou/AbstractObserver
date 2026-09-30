@@ -495,7 +495,10 @@ export type LegacyAction = "legacy_pause" | "legacy_resume" | "legacy_run_now" |
 
 /** Row-level controls from the kit's rule (`automationControls`). Edit and
  * Discuss open the panel (they need a form / an occurrence). */
-export function automation_row_controls(s: AutomationSummary, busy: boolean): Record<RowAction, { enabled: boolean; reason?: string }> {
+export function automation_row_controls(
+  s: AutomationSummary,
+  busy: boolean,
+): Record<RowAction, { enabled: boolean; reason?: string }> & { active: { enabled: boolean; reason?: string } } {
   const c = automationControls(s, [], busy);
   // Discuss opens a chat with a fork at the latest FINISHED occurrence.
   const at = discuss_index(s);
@@ -509,7 +512,7 @@ export function automation_row_controls(s: AutomationSummary, busy: boolean): Re
           : at === null
             ? { enabled: false, reason: s.last_occurrence ? "Available once the first run finishes." : "No occurrence to discuss yet." }
             : { enabled: true, reason: `Discuss run #${at} in a new chat (a fork of this automation).` };
-  return { pause: c.pause, resume: c.resume, run_now: c.run_now, edit: c.revise, archive: c.archive, discuss };
+  return { active: c.active, pause: c.pause, resume: c.resume, run_now: c.run_now, edit: c.revise, archive: c.archive, discuss };
 }
 
 export function legacy_row_controls(s: AutomationSummary, busy: boolean): Record<LegacyAction, { enabled: boolean; reason?: string }> {
@@ -520,7 +523,7 @@ export function legacy_row_controls(s: AutomationSummary, busy: boolean): Record
   return {
     legacy_pause: paused ? off("Already suspended.") : live ? { enabled: true } : off("The schedule has ended."),
     legacy_resume: paused ? { enabled: true } : off(live ? "Already running on schedule." : "The schedule has ended."),
-    legacy_run_now: s.status === "active" ? { enabled: true } : off(paused ? "Resume the schedule first." : "The schedule has ended."),
+    legacy_run_now: s.status === "active" ? { enabled: true } : off(paused ? "The schedule is off: switch Active on first." : "The schedule has ended."),
     open_run: { enabled: true },
     recreate: { enabled: true },
   };
@@ -1006,7 +1009,9 @@ export class AutomationsController {
         notice:
           action === "run_now" && summary.status === "paused"
             ? `Run now sent to “${summary.title}”; it stays paused.`
-            : `${ROW_ACTION_SENT[action]} sent to “${summary.title}”.`,
+            : action === "pause" || action === "resume"
+              ? active_notice(summary.title, action === "resume")
+              : `${ROW_ACTION_SENT[action]} sent to “${summary.title}”.`,
         confirm_archive_id: "",
       });
     } catch (e) {
@@ -1029,7 +1034,7 @@ export class AutomationsController {
     this.set({ busy: true, error: null, notice: "" });
     try {
       await this.host.legacy_command(summary.automation_id, cmd.type, cmd.payload);
-      this.set({ notice: `${cmd.type === "pause" ? "Suspend" : action === "legacy_run_now" ? "Run now" : "Resume"} sent to “${summary.title}”.` });
+      this.set({ notice: action === "legacy_run_now" ? `Run now sent to “${summary.title}”.` : active_notice(summary.title, action === "legacy_resume") });
       await this.refresh();
     } catch (e) {
       this.set({ error: to_api_error(e) });
@@ -1056,9 +1061,12 @@ export class AutomationsController {
   }
 }
 
-const ROW_ACTION_SENT: Record<"pause" | "resume" | "run_now" | "archive", string> = {
-  pause: "Pause",
-  resume: "Resume",
+/** The feedback line after the "Active" switch: the NEW state, not the verb sent. */
+export function active_notice(title: string, active: boolean): string {
+  return active ? `“${title}” is active: it runs on its schedule.` : `“${title}” is paused: scheduled runs are skipped.`;
+}
+
+const ROW_ACTION_SENT: Record<"run_now" | "archive", string> = {
   run_now: "Run now",
   archive: "Archive",
 };

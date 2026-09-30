@@ -406,7 +406,7 @@ details.form_subdisclosure[open] > summary::before {
 
 .settings_row_title {
   font-size: var(--t-small);
-  font-weight: 620;
+  font-weight: 600;
 }
 
 .settings_row_help {
@@ -454,17 +454,19 @@ details.form_subdisclosure[open] > summary::before {
   gap: 6px;
 }
 
+/* One skill = one kit switch (AfSwitch, row variant) inside a card; the
+   switch carries the name, the description and the on/off state. */
 .settings_choice {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: baseline;
-  gap: 10px;
-  padding: 9px 12px;
+  display: block;
+  padding: 2px 4px;
   border: 1px solid var(--pane-border);
   border-radius: 10px;
   background: var(--raised-bg);
-  cursor: pointer;
   transition: border-color 0.14s;
+}
+
+.settings_choice .af-switch--row {
+  width: 100%;
 }
 
 .settings_choice:hover {
@@ -475,9 +477,10 @@ details.form_subdisclosure[open] > summary::before {
   border-color: var(--accent-border, color-mix(in srgb, var(--accent) 40%, transparent));
 }
 
+/* The weight follows the switch: regular when off, bold when on (kit rule). */
 .settings_choice_name {
   font-size: var(--t-small);
-  font-weight: 620;
+  font-weight: inherit;
   white-space: nowrap;
 }
 
@@ -690,16 +693,8 @@ details.form_subdisclosure[open] > summary::before {
   background: color-mix(in srgb, var(--text-primary) 2%, transparent);
 }
 
-/* ── B7. Skills choices (populated shelf): center the checkbox with
-   the name row and give keyboard users the family focus cue. ── */
-.settings_col .settings_choice {
-  align-items: center;
-}
-
-.settings_col .settings_choice input[type="checkbox"] {
-  accent-color: var(--accent);
-}
-
+/* ── B7. Skills choices (populated shelf): keyboard users get the family
+   focus cue on the card. ── */
 .settings_col .settings_choice:focus-within {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
@@ -767,7 +762,7 @@ details.form_subdisclosure[open] > summary::before {
 
 .launch_skill_name {
   font-size: var(--t-small);
-  font-weight: 620;
+  font-weight: 600;
   white-space: nowrap;
 }
 

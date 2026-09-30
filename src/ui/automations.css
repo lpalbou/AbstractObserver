@@ -258,11 +258,6 @@
   margin: 0 0 8px;
 }
 
-.auto_show_archived input[type="checkbox"] {
-  width: auto;
-  height: auto;
-  margin: 0;
-}
 
 /* State as word then icon ("Active ▶", "Paused ⏸"). */
 .auto_state {
