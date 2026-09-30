@@ -23,19 +23,19 @@ jobs:
           path: abstractobserver
 
       # AbstractUIC is checked out NEXT TO this repo (workspace/abstractuic):
-      # vite.config.ts and vitest.config.cjs alias the shared UI packages
-      # (ui-kit, panel-chat, monitors) to ../abstractuic/*/src, so the build
-      # bundles them from this checkout. `@abstractframework/app-server` is a
-      # registry dependency (package.json), installed by `npm ci`.
+      # vite.config.ts and vitest.config.cjs alias the monitor-* packages to
+      # ../abstractuic/*/src, so the build bundles them from this checkout.
+      # `@abstractframework/ui-kit`, `panel-chat` and `app-server` are registry
+      # dependencies (package.json), installed by `npm ci`.
       # Pinned to the AbstractUIC release this Observer is built against
-      # (ui-kit 0.1.16: controlHint / CONTROL_HINTS, the shared control hints) —
+      # (v0.3.2: ui-kit 0.3.2, panel-chat 0.2.1, monitor-active-memory 0.2.1) —
       # never the default branch, so a later kit change cannot alter this
       # build. Bump it with that release; ci.yml and release.yml pin the same.
       - name: Check out AbstractUIC
         uses: actions/checkout@v4
         with:
           repository: lpalbou/AbstractUIC
-          ref: v0.2.0
+          ref: v0.3.2
           path: abstractuic
 
       - name: Set up Node
