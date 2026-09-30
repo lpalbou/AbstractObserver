@@ -57,6 +57,10 @@ except that each list can now be collapsed and the Automations detail reads at 1
   `src/ui/list_disclosure.test.tsx`; `scripts/space.screens.mjs` drives the list + detail screens through the shared
   capture harness (space metrics: text column, scroll containers, padding stack).
 
+- An unavailable switch always says why: the automation row's and the Observe toolbar's "Active" switches show
+  their reason ("The automation has ended.", "Archived: history is kept, nothing runs.") as text next to the
+  switch on touch screens; with a mouse it is the tooltip. docs/automations.md describes the Active switch.
+
 ## [0.4.0] - 2026-09-30
 
 Responsive layout: AbstractObserver adapts to phones, tablets and resized desktop windows. Everyone who opens the

@@ -153,7 +153,7 @@ the page is visible; **Refresh** reads it at once. Filter by status: All,
 Active, Paused, Completed, Failed, Archived. **+ New automation** opens Launch
 in Automate mode.
 
-Archived automations are hidden by default; **Show archived (N)** lists them
+Archived automations are hidden by default; the **Archived (N)** switch lists them
 again, and the Archived filter shows only them. Their history stays
 readable.
 
@@ -182,7 +182,7 @@ few seconds, with a dismiss button:
 
 | Control | What it does |
 | --- | --- |
-| **Pause** / **Resume** | Pause skips scheduled runs. Resume re-arms the schedule; the ticks that passed while paused are not run. |
+| **Active** switch | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; switching it on again re-arms the schedule, and the ticks that passed while paused are not run. Once the automation ended or is archived, the switch is unavailable and shows why (next to it on touch screens, in its tooltip with a mouse). |
 | **Run now** (the play-in-a-circle icon) | Runs one occurrence immediately instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. A manual run does not count toward a run limit. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). In a Growing automation, later runs see it in their history. It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). Its tooltip says all this, with the next scheduled time. |
 | **Edit** | Opens the automation with its Edit form already open, prefilled and focused (see [Edit](#edit)). |
 | **Discuss** | Opens a chat with a fork of the automation at its latest finished run, on this page (see [Discuss a result](#discuss-a-result)). |
@@ -229,13 +229,12 @@ never shown.
 ### Definition and controls
 
 The top of the panel shows **When**, **Context**, **Next run**, **Runs**,
-**Workspace**, **Attention** and **Revision**, then the controls **Pause** /
-**Resume**, **Run now**, **Stop current**, **Edit** and **Archive…** (each an
+**Workspace**, **Attention** and **Revision**, then the **Active** switch and the controls **Run now**, **Stop current**, **Edit** and **Archive…** (each an
 icon then its name; the tooltip says what it does, and a disabled one first says why), then the
 **Definition** card (one click opens it: workflow, task, trigger, context,
 tools, retries). While paused, the panel reminds you: "Paused: scheduled runs
-are skipped. Run now works and keeps it paused." What a control did ("Pause
-sent.", "Run requested.") shows next to the controls for a few seconds, with
+are skipped. Run now works and keeps it paused." What a control did ("Automation
+paused.", "Run requested.") shows next to the controls for a few seconds, with
 a dismiss button.
 
 - **Stop current** cancels the occurrence in progress (or its pending
@@ -376,8 +375,7 @@ only; a workflow name never makes a run an automation run.
 ## Legacy schedules
 
 Schedules created with `POST /runs/schedule` before automations existed are
-listed with a `legacy` tag and keep their own controls: **Suspend** /
-**Resume**, **Run now** (while not suspended), **Open run**, and
+listed with a `legacy` tag and keep their own controls: an **Active** switch (off = suspended), **Run now** (while not suspended), **Open run**, and
 **Recreate as automation**. Their run view also keeps **Edit schedule**.
 
 **Recreate as automation** (on the row, in the legacy panel and in the run

@@ -74,7 +74,6 @@ export function ScheduleActiveSwitch(props: {
       hint={SCHEDULE_ACTIVE_HINT}
       checked={props.active}
       unavailableReason={props.unavailableReason}
-      reasonVisible={false}
       busy={props.busy}
       onChange={props.onChange}
     />

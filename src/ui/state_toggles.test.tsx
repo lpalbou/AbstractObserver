@@ -90,6 +90,15 @@ describe("automation rows: the Active switch", () => {
     expect(tag).not.toMatch(/\sdisabled=""/);
     expect(tag).toMatch(/aria-describedby="auto-active-a1-reason"/);
     expect(tag).toContain('title="The automation has ended.');
+    // The reason is VISIBLE text (the kit's reason node, not the --hidden variant): a tap on a
+    // touch screen must say why; only a hover+fine pointer hides it (automations.css).
+    expect(html(<ActiveSwitch summary={summary({ status: "archived" })} busy={false} ctl={{ enabled: false, reason: "Archived: history is kept, nothing runs." }} onChange={noop} />)).toContain(
+      '<span id="auto-active-a1-reason" class="af-switch__reason">Archived: history is kept, nothing runs.</span>',
+    );
+    const css = readFileSync(join(__dirname, "automations.css"), "utf8");
+    const rule = /@media \(hover: hover\) and \(pointer: fine\) \{\s*\.auto_switch \+ \.af-switch__reason,\s*\.observe_schedule_switch \+ \.af-switch__reason \{/;
+    expect(css).toMatch(rule);
+    expect(css.replace(rule, "")).not.toMatch(/\.auto_switch \+ \.af-switch__reason[^{]*\{[^}]*clip-path/);
   });
 
   it("a command in flight makes it busy, not unavailable", () => {
@@ -128,6 +137,9 @@ describe("settings, Observe toolbar and memory map switches", () => {
     expect(both((on) => <ScheduleActiveSwitch active={on} unavailableReason={null} busy={false} onChange={noop} />, "schedule-active")).toEqual(["true", "false"]);
     const ended = sw(html(<ScheduleActiveSwitch active={false} unavailableReason="The schedule has ended." busy={false} onChange={noop} />), "schedule-active");
     expect(ended).toContain('aria-disabled="true"');
+    expect(html(<ScheduleActiveSwitch active={false} unavailableReason="The schedule has ended." busy={false} onChange={noop} />)).toMatch(
+      /<span id="[^"]+" class="af-switch__reason">The schedule has ended\.<\/span>/,
+    );
   });
 
   it("edit schedule dialog: Apply immediately (form state, busy while submitting)", () => {
