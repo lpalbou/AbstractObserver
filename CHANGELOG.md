@@ -31,6 +31,10 @@ AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
   switch in both states and caps the settings label weights; `scripts/state_toggles.shots.mjs` captures the switch
   surfaces at 1440 / 834 / 390 px in light and dark and measures every label's size and weight.
 
+- An unavailable switch always says why: the automation row's and the Observe toolbar's "Active" switches show
+  their reason ("The automation has ended.", "Archived: history is kept, nothing runs.") as text next to the
+  switch on touch screens; with a mouse it is the tooltip. docs/automations.md describes the Active switch.
+
 ## [0.4.0] - 2026-09-30
 
 Responsive layout: AbstractObserver adapts to phones, tablets and resized desktop windows. Everyone who opens the

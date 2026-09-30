@@ -149,9 +149,10 @@ const LEGACY_ACTIVE_HINT = "On: the schedule runs at its times. Off: suspended, 
 
 /**
  * The row's "Active" switch: ON = the schedule runs, OFF = paused. A click
- * requests the other state; unavailable (ended, archived, not permitted) keeps
- * the reason on hover and for assistive technology. While a command is in
- * flight the switch is busy, not unavailable.
+ * requests the other state; unavailable (ended, archived, not permitted) shows
+ * the reason as text next to the switch on touch screens (a tap must say why;
+ * with a hover-capable fine pointer it is the tooltip, automations.css). While
+ * a command is in flight the switch is busy, not unavailable.
  */
 export function ActiveSwitch(props: {
   summary: AutomationSummary;
@@ -170,7 +171,6 @@ export function ActiveSwitch(props: {
       label={CONTROL_LABELS.active}
       checked={props.summary.status === "active"}
       unavailableReason={reason}
-      reasonVisible={false}
       busy={props.busy}
       hint={props.hint}
       onChange={props.onChange}
