@@ -32,4 +32,13 @@ describe("workflows", () => {
     expect(dep).not.toMatch(/^file:/);
     for (const p of WORKFLOWS) expect(read(p), p).not.toMatch(/file:\.\.\/abstractuic/);
   });
+
+  it("install the Playwright Chromium before the tests (the phone layout test needs it)", () => {
+    for (const p of WORKFLOWS) {
+      const src = read(p);
+      const install = src.indexOf("npx playwright install --with-deps chromium");
+      expect(install, p).toBeGreaterThan(0);
+      expect(install, p).toBeLessThan(src.indexOf("run: npm test"));
+    }
+  });
 });

@@ -247,6 +247,29 @@ export default {
       // The graph canvas is a documented exception (DESIGN §12: a canvas, a graph).
       spaceIgnore: [".react-flow", ".amx-graph"],
     },
+    {
+      // Launch → Run once (a form page; §12 applies to its card too).
+      name: "launch-once",
+      async run(page) {
+        await nav(page, "Launch");
+        await page.locator(".launch_mode_switch").getByRole("radio", { name: "Run once" }).click();
+        await page.selectOption(".launch_workflow_select", WORKFLOW);
+        await page.waitForTimeout(500);
+      },
+      settle: 900,
+    },
+    {
+      // Launch → Automate, with the task filled in.
+      name: "launch-automate",
+      async run(page) {
+        await nav(page, "Launch");
+        await page.locator(".launch_mode_switch").getByRole("radio", { name: "Automate" }).click();
+        await page.selectOption(".launch_workflow_select", WORKFLOW);
+        await page.getByPlaceholder("What do you want the workflow/agent to do?").fill(TASK);
+        await page.waitForTimeout(500);
+      },
+      settle: 900,
+    },
   ],
   sweepScreen: "automations-detail",
 };

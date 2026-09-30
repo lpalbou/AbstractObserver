@@ -51,11 +51,18 @@ except that each list can now be collapsed and the Automations detail reads at 1
 - **Text size:** the automation panel and its transcripts use 14 px at every width. On phones and touch tablets, list
   titles, queue names, hints, ledger buttons and the wait details also use 14 px (chips, ids and times stay smaller).
 - **Tablets:** Observe keeps the run list beside the run only when both get about 360 px or more.
+- **Launch (Run once and Automate) on phones:** the form card and the "When" sections are flat, labels, help and
+  skill descriptions are 14 px, and the page no longer scrolls twice (a hidden switch reason made the whole document
+  scrollable under the page). Help text is at least 13 px on desktops.
 - **Desktop text floor:** dense text (run meta, ledger chips, board cards, System rows) is 12 px instead of 11 px, and
   secondary text 13 px instead of 12 px. On touch tablets the System → Memory explorer's help text is 14 px.
 - For contributors: `src/ui/space.css` (loaded after `responsive.css`) and `src/ui/list_disclosure.tsx`, guarded by
   `src/ui/list_disclosure.test.tsx`; `scripts/space.screens.mjs` drives the list + detail screens through the shared
   capture harness (space metrics: text column, scroll containers, padding stack).
+- For contributors: `src/ui/space_dom.test.tsx` lays Automations, Observe, System → Activity, the Board and a
+  Launch-shaped form out in Chromium at 390 px with the CSS a fresh build ships, and fails on any element that scrolls
+  inside the page or a document that scrolls under it; CI and the release workflow install the Playwright Chromium
+  before the tests.
 
 - An unavailable switch always says why: the automation row's and the Observe toolbar's "Active" switches show
   their reason ("The automation has ended.", "Archived: history is kept, nothing runs.") as text next to the
