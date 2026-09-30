@@ -12,7 +12,11 @@ import "@abstractframework/panel-chat/panel_chat.css";
 // at equal specificity. styles.css-after-App silently reverted every page
 // skin (operator's "still the old look" — this line was the root cause).
 import "./ui/styles.css";
+import { installViewportVars } from "@abstractframework/ui-kit";
 import { App } from "./ui/app";
+// Responsive layer: loads after App (whose page sheets it overrides) — the
+// per-breakpoint rules (drawer nav, page scrolling, single-pane Observe, sheets).
+import "./ui/responsive.css";
 import { SERVICE_WORKER_PATH } from "./lib/app_paths";
 
 // Register service worker (PWA shell cache).
@@ -47,6 +51,9 @@ if ("serviceWorker" in navigator) {
     window.location.reload();
   });
 }
+
+// --vv-height / --keyboard-inset follow the visual viewport (iOS keyboard, URL bar).
+installViewportVars();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -275,7 +275,7 @@
   gap: 12px;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1439.98px) {
   .runtime_artifacts_layout {
     grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
   }
@@ -577,7 +577,7 @@
   grid-template-columns: repeat(4, minmax(88px, 1fr));
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1439.98px) {
   .runtime_header_metrics {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
@@ -607,7 +607,7 @@
  * silently defeating it — at ≤1100px the three panes crushed into
  * unreadable slivers (audit: X-BLEED input 39px, vertical-word empty
  * states). Media rules must live AFTER the base they fall back from. */
-@media (max-width: 1100px) {
+@media (max-width: 1023.98px) {
   .runtime_ops_layout {
     grid-template-columns: 1fr;
   }

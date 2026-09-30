@@ -310,11 +310,11 @@
   margin: 2px 0 4px;
 }
 
-@media (max-width: 1240px) {
+@media (max-width: 1023.98px) {
   .mc_board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (max-width: 660px) {
+@media (max-width: 767.98px) {
   .mc_board { grid-template-columns: 1fr; }
 }
 
@@ -620,7 +620,7 @@
 
 /* Narrow layouts stack columns in a 2/1-wide grid; a viewport clamp
  * would crush them, so the page scroll comes back as the fallback. */
-@media (max-width: 1240px) {
+@media (max-width: 1023.98px) {
   .mc_page { overflow-y: auto; }
   .mc_column { min-height: 220px; max-height: 60vh; }
 }

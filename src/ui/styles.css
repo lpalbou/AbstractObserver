@@ -353,22 +353,7 @@ button.primary:hover:not(:disabled) {
   background: var(--canvas);
 }
 
-/* Narrow viewports: collapse the sidebar to an icon rail. */
-@media (max-width: 900px) {
-  .shell_sidebar {
-    flex-basis: 56px;
-  }
-
-  .shell_nav_label,
-  .shell_brand_name,
-  .shell_connection_label {
-    display: none;
-  }
-
-  .shell_connection {
-    justify-content: center;
-  }
-}
+/* Below 1024 px the sidebar is a left drawer (responsive.css). */
 
 /* Legacy aliases kept for components still using them (logo in modals). */
 .logo-icon {
@@ -490,7 +475,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .app-shell {
-  height: 100vh;
+  height: var(--vh-full, 100vh);
 }
 
 .app-body {
@@ -1433,7 +1418,7 @@ button.primary:hover:not(:disabled) {
   z-index: 3;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1023.98px) {
   .mindmap_overlay_timeline {
     max-width: calc(100% - 84px);
   }
@@ -2080,7 +2065,7 @@ button.primary:hover:not(:disabled) {
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767.98px) {
 
   .drawer_panel {
     width: 100%;
@@ -2088,7 +2073,7 @@ button.primary:hover:not(:disabled) {
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1023.98px) {
 
   /* Prevent iOS Safari auto-zoom on focus (needs >= 16px).
      Scope to touch devices so desktop narrow windows keep normal sizing. */
@@ -2320,7 +2305,7 @@ button.primary:hover:not(:disabled) {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767.98px) {
   .observe_toolbar_row {
     gap: 6px;
   }
@@ -3244,7 +3229,7 @@ button.primary:hover:not(:disabled) {
   margin-top: 12px;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1023.98px) {
   .observatory_layout,
   .runtime_layout,
   .runtime_ops_layout {
@@ -3278,7 +3263,7 @@ button.primary:hover:not(:disabled) {
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767.98px) {
   .runtime_controls,
   .runtime_artifact_toolbar_top,
   .metric_grid,
@@ -4385,7 +4370,7 @@ button.primary:hover:not(:disabled) {
   overflow-x: hidden;
 }
 
-@media (max-width: 1250px) {
+@media (max-width: 1439.98px) {
   .runtime_artifacts_layout {
     grid-template-columns: minmax(190px, 230px) minmax(320px, 1fr);
   }
@@ -4395,7 +4380,7 @@ button.primary:hover:not(:disabled) {
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 767.98px) {
 
   .runtime_mode_tabs {
     display: grid;
@@ -4670,7 +4655,7 @@ button.primary:hover:not(:disabled) {
   border-color: var(--text-muted);
 }
 
-@media (max-width: 600px) {
+@media (max-width: 767.98px) {
   .launch_workflow_bar {
     flex-wrap: wrap;
   }
@@ -4740,7 +4725,7 @@ button.primary:hover:not(:disabled) {
   width: 100%;
 }
 
-@media (max-width: 500px) {
+@media (max-width: 479.98px) {
   .launch_grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -4898,7 +4883,7 @@ button.primary:hover:not(:disabled) {
   min-width: 0;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 767.98px) {
   .sched_grid {
     flex-direction: column;
     align-items: stretch;
@@ -5031,8 +5016,8 @@ button.primary:hover:not(:disabled) {
   gap: 10px;
   align-items: start;
 }
-@media (max-width: 1100px) { .mc_board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .mc_board { grid-template-columns: 1fr; } }
+@media (max-width: 1023.98px) { .mc_board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 767.98px) { .mc_board { grid-template-columns: 1fr; } }
 
 .mc_column {
   border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.1));

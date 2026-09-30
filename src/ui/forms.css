@@ -706,7 +706,7 @@ details.form_subdisclosure[open] > summary::before {
 
 /* ── B8. MCP grid at narrow widths: stack url / token / chip instead
    of squeezing three columns. ── */
-@media (max-width: 760px) {
+@media (max-width: 767.98px) {
   .settings_body .settings_mcp_row {
     grid-template-columns: 1fr;
   }

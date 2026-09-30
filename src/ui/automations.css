@@ -11,7 +11,7 @@
   height: 100%;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1023.98px) {
   .auto_page {
     grid-template-columns: 1fr;
     height: auto;
@@ -174,7 +174,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 479.98px) {
   .auto_new_label {
     display: none;
   }

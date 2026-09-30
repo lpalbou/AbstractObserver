@@ -933,7 +933,7 @@
  * The scoped grid-template-columns above outranks styles.css's own media
  * collapse (media queries add no specificity) — mirror it here. */
 
-@media (max-width: 1100px) {
+@media (max-width: 1023.98px) {
   .observe_page .observatory_layout {
     grid-template-columns: 1fr;
   }

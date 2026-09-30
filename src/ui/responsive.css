@@ -1,0 +1,468 @@
+/* responsive.css — AbstractObserver responsive layer (responsive workstream
+ * 2026-09-30, shared DESIGN.md: breakpoints 480 / 768 / 1024 / 1440 +
+ * max-height 500, kit ui-kit 0.3.0 tokens).
+ *
+ * Loaded LAST (main.tsx), so it overrides the page sheets at equal
+ * specificity. Desktop-first: at >= 1440 px on a fine pointer nothing here
+ * changes the look except the hidden drawer toggle; 1024-1439 only loses
+ * fixed pane minimums that clipped content.
+ *
+ * Measured cause of "only a few lines on a phone" (reports/observer.md §1):
+ * every page was a fixed-height, non-scrolling flex column; below 1100 px
+ * the Observe rail, toolbar, steer box, wait card and tab strip stacked
+ * inside the viewport and left the ledger a 30 px sliver below the fold.
+ * The fixes: the sidebar leaves the row (drawer), pages scroll as a whole
+ * on small screens, Observe shows one pane at a time and its run view is
+ * a full-screen panel, the shell follows the dynamic viewport height. */
+
+:root {
+  --shell-header-h: calc(52px + var(--safe-top, 0px));
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+/* ───────────────────────── Shell ───────────────────────── */
+
+.shell_header {
+  height: auto;
+  min-height: var(--shell-header-h);
+  padding-top: var(--safe-top, 0px);
+  min-width: 0;
+}
+
+.shell_header_title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell_header_actions {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.shell_nav_toggle,
+.shell_nav_close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--tap-min, 32px);
+  height: var(--tap-min, 32px);
+  padding: 0;
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.shell_nav_toggle:hover,
+.shell_nav_close:hover {
+  color: var(--text-primary);
+  background: var(--ui-overlay-bg-hover);
+}
+
+.shell_nav_backdrop {
+  display: none;
+}
+
+.shell_content {
+  min-width: 0;
+}
+
+.modal_panel {
+  max-height: calc(var(--vh-full, 100vh) - 96px);
+}
+
+.modal_panel.fullscreen {
+  height: var(--vh-full, 100vh);
+  max-height: var(--vh-full, 100vh);
+}
+
+/* The decision row never pushes buttons off the panel's left edge. */
+.modal_footer {
+  flex-wrap: wrap;
+}
+
+.runtime_logs_panel .audit_log_tail {
+  height: calc(var(--vh-full, 100vh) - 330px);
+}
+
+/* Long ids / paths never widen a card. */
+.observe_run_identity,
+.runtime_ops_row_sub {
+  overflow-wrap: anywhere;
+}
+
+/* ─────────── very wide (>= 1800, e.g. 2560): use the width ─────────── */
+
+@media (min-width: 1800px) {
+  /* The run list gets room for full workflow names. */
+  .observe_page .observatory_layout {
+    grid-template-columns: 380px minmax(0, 1fr);
+  }
+
+  /* Settings: two columns of form panes instead of one 720 px column in a
+   * 2300 px void (each column keeps the form reading width). */
+  .settings_col {
+    max-width: calc(2 * var(--form-max, 720px) + 14px);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+/* ─────────── lg (< 1440): at most the panes that fit, no fixed minimums ─────────── */
+
+@media (max-width: 1439.98px) {
+  .observe_page .observatory_layout {
+    grid-template-columns: clamp(240px, 24vw, 312px) minmax(0, 1fr);
+  }
+
+  /* The 190 + 520 + 320 px minimums were wider than the content area of a
+   * 1180 px iPad landscape / 1280 px window with the sidebar: the table
+   * pane was clipped. Shrinkable tracks keep the three panes readable. */
+  .runtime_ops_layout {
+    grid-template-columns: minmax(150px, 200px) minmax(0, 1fr) minmax(240px, 340px);
+  }
+
+  .runtime_artifacts_layout {
+    grid-template-columns: minmax(150px, 200px) minmax(0, 1fr);
+  }
+}
+
+/* ─────────── md (< 1024): sidebar -> left drawer; panes stack ─────────── */
+
+@media (max-width: 1023.98px) {
+  .shell_nav_toggle {
+    display: inline-flex;
+  }
+
+  .shell_header {
+    gap: 8px;
+    padding-left: max(12px, var(--safe-left, 0px));
+    padding-right: max(12px, var(--safe-right, 0px));
+  }
+
+  .shell_sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1900;
+    width: min(280px, 86vw);
+    flex: none;
+    padding: var(--safe-top, 0px) 0 var(--safe-bottom, 0px) var(--safe-left, 0px);
+    box-shadow: var(--shadow-pop);
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+
+  .shell.nav_open .shell_sidebar {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.2s ease, visibility 0s linear 0s;
+  }
+
+  .shell_nav_close {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .shell_nav_backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1899;
+    background: color-mix(in srgb, black 50%, transparent);
+  }
+
+  .shell_nav {
+    overscroll-behavior: contain;
+  }
+
+  /* Tablet portrait / narrow window: the Observe rail stays docked next to
+   * the run (the sidebar is gone, so both fit). */
+  .observe_page .observatory_layout {
+    grid-template-columns: minmax(220px, 34%) minmax(0, 1fr);
+  }
+
+  /* The run toolbar and the tab strip wrap instead of squeezing chips. */
+  .observe_toolbar_row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .observe_run_identity {
+    min-width: 0;
+    flex: 1 1 100%;
+    order: -1;
+  }
+
+  .observe_page .tab_bar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .observe_tablist {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  /* System: one column that scrolls as a page; panes take their content
+   * height with their own capped scroll. */
+  .page.runtime_page {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .page.runtime_page > * {
+    flex: 0 0 auto;
+  }
+
+  .runtime_ops_layout,
+  .runtime_artifacts_layout,
+  .runtime_layout {
+    flex: 0 0 auto;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .runtime_page .pane_body.scroll,
+  .runtime_page .runtime_logs_panel {
+    max-height: min(70vh, 720px);
+  }
+
+  .runtime_logs_panel .audit_log_tail {
+    height: auto;
+    max-height: 60vh;
+  }
+
+  .metric_grid.compact.runtime_header_metrics {
+    min-width: 0;
+    width: 100%;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .runtime_mode_tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .runtime_mode_tab {
+    flex: 0 0 auto;
+  }
+}
+
+/* ─────────── sm (< 768) or short (phone landscape): one pane, page scroll, sheets ─────────── */
+
+@media (max-width: 767.98px), (max-height: 500px) {
+  .page {
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    padding: 12px var(--gutter, 16px) calc(16px + var(--safe-bottom, 0px));
+  }
+
+  /* Observe: one pane at a time (the app sets observe_pane_runs / _run). */
+  .observe_page .observatory_layout {
+    flex: 0 0 auto;
+    display: block;
+  }
+
+  .observatory_layout.observe_pane_run .observatory_sidebar,
+  .observatory_layout.observe_pane_runs .observatory_main {
+    display: none;
+  }
+
+  /* The run list fills the screen with its own scroll. */
+  .observatory_layout.observe_pane_runs .observatory_sidebar {
+    height: calc(var(--vv-height, var(--vh-full, 100vh)) - var(--shell-header-h) - 28px);
+    min-height: 280px;
+    max-height: none;
+  }
+
+  /* The run view: toolbar, steer and wait cards flow in the page; the
+   * content panel (tabs + ledger / story / flow / ask) is a full-screen
+   * panel the page scrolls to (reveal_observe_viewer). */
+  .observe_page .observatory_main {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .observe_page .observe_viewer_full {
+    flex: 0 0 auto;
+    height: calc(var(--vv-height, var(--vh-full, 100vh)) - var(--shell-header-h) - 12px);
+    min-height: 300px;
+    scroll-margin-top: 6px;
+  }
+
+  .observe_back_btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+  }
+
+  /* System on phones. */
+  .runtime_header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* Board: the page scroll owns the columns (their cap follows the dynamic viewport). */
+  .mc_column {
+    max-height: calc(var(--vh-full, 100vh) * 0.6);
+  }
+
+  /* App dialogs become bottom sheets (kit dialogs do the same in 0.3.0). */
+  .modal_backdrop:not(.fullscreen) {
+    align-items: flex-end;
+    padding: var(--safe-top, 0px) 0 0;
+  }
+
+  .modal_panel:not(.fullscreen) {
+    width: 100%;
+    max-height: calc(var(--vv-height, var(--vh-full, 100vh)) - var(--safe-top, 0px) - 8px);
+    border-radius: 14px 14px 0 0;
+  }
+
+  .modal_footer {
+    padding-bottom: max(12px, var(--safe-bottom, 0px));
+  }
+
+  /* Launch / Automate forms: fields take the full row. */
+  .launch_grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .launch_grid_cell,
+  .launch_grid > *,
+  .field {
+    min-width: 0;
+  }
+}
+
+/* ─────────── short: phone landscape, thin chrome ─────────── */
+
+@media (max-height: 500px) {
+  :root {
+    --shell-header-h: calc(44px + var(--safe-top, 0px));
+  }
+
+  .shell_header_title {
+    font-size: var(--t-body);
+  }
+}
+
+/* ─────────── xs (< 480): phone portrait ─────────── */
+
+@media (max-width: 479.98px) {
+  .shell_header_actions {
+    gap: 4px;
+  }
+
+  /* The header GPU sparkline is decoration; the System page shows the host. */
+  .shell_header_actions monitor-gpu {
+    display: none;
+  }
+
+  .modal_footer > .btn {
+    flex: 1 1 auto;
+  }
+
+  .metric_grid.compact.runtime_header_metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mc_board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ─────────── touch: 44 px targets, 16 px inputs, readable text ─────────── */
+
+@media (pointer: coarse) {
+  :root {
+    /* One step up from the dense desktop scale (11/12/13 px): phones and
+     * tablets read at arm's length. Kit tokens follow so kit components match. */
+    --t-micro: calc(12px * var(--font-scale, 1));
+    --t-small: calc(13px * var(--font-scale, 1));
+    --t-body: calc(14px * var(--font-scale, 1));
+    --font-size-xxs: calc(11px * var(--font-scale, 1));
+    --font-size-xs: calc(12px * var(--font-scale, 1));
+    --font-size-sm: calc(13px * var(--font-scale, 1));
+  }
+
+  .btn,
+  .tab,
+  .seg_btn,
+  .seg_select,
+  .runtime_mode_tab,
+  .shell_nav_item,
+  .launch_mode_switch button,
+  .launch_mode_switch [role="radio"],
+  .observe_page .run_tree_item,
+  select,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+    min-height: var(--tap-min, 44px);
+  }
+
+  /* App-owned rows and small buttons (harness offenders at 375-1180 touch). */
+  .settings_choice,
+  .launch_skill_row,
+  .automate_row > label,
+  .runtime_ops_filter,
+  .seg_action,
+  .lc_btn,
+  .launch_submit_btn {
+    min-height: var(--tap-min, 44px);
+  }
+
+  .settings_choice,
+  .launch_skill_row {
+    align-items: center;
+  }
+
+  .automate_row > label {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .shell_nav_toggle,
+  .shell_nav_close {
+    width: var(--tap-min, 44px);
+    height: var(--tap-min, 44px);
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: var(--font-size-input, 16px);
+  }
+
+  details > summary {
+    min-height: var(--tap-min, 44px);
+    padding-block: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell_sidebar,
+  .shell.nav_open .shell_sidebar {
+    transition: none;
+  }
+}

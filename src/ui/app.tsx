@@ -13,6 +13,7 @@ import {
   type ChatMessage,
 } from "@abstractframework/panel-chat";
 import {
+  AF_MEDIA,
   AfAppearanceDialog,
   AfSelect,
   apiErrorText,
@@ -23,6 +24,7 @@ import {
   ProviderModelSelect,
   SteerComposer,
   gatewayStatusBadge,
+  useAfMedia,
   useAppearanceSettings,
   useGatewayConnection,
   type AfSelectOption,
@@ -725,6 +727,17 @@ export function App(): React.ReactElement {
   const [observe_filter, set_observe_filter] = useState<RunFilterMode>("all");
   const [observe_group_by, set_observe_group_by] = useState<"status" | "workflow" | "session">("status");
   const [right_tab, set_right_tab] = useState<ObserveRightTab>("overview");
+  /* RESPONSIVE (DESIGN.md §5.2/§5.3): below 1024 px the sidebar is a left
+   * drawer opened from the header; below 768 px (or under 500 px tall) the
+   * Observe page shows ONE pane at a time — the run list, or the selected
+   * run with a "Runs" back button — and the page scrolls as a whole. */
+  const nav_is_drawer = useAfMedia(AF_MEDIA.md);
+  const single_pane = useAfMedia(`${AF_MEDIA.sm}, ${AF_MEDIA.short}`);
+  const [nav_open, set_nav_open] = useState(false);
+  const [observe_pane, set_observe_pane] = useState<"runs" | "run">("runs");
+  const nav_toggle_ref = useRef<HTMLButtonElement | null>(null);
+  const sidebar_ref = useRef<HTMLElement | null>(null);
+  const observe_viewer_ref = useRef<HTMLDivElement | null>(null);
   const [ledger_condensed, set_ledger_condensed] = useState(true);
   const [ledger_view, set_ledger_view] = useState<"steps" | "cycles">("steps");
   const [ledger_cycles_run_id, set_ledger_cycles_run_id] = useState<string>("");
@@ -4622,6 +4635,47 @@ export function App(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, gateway_connected, assistant_skills_probed]);
 
+  // Navigation drawer (< 1024 px): closes on page change, Escape, backdrop
+  // tap, the close button, and when the window grows back past 1024 px.
+  // Focus moves into the drawer on open and back to the header toggle on close.
+  const nav_was_open = useRef(false);
+  useEffect(() => {
+    set_nav_open(false);
+  }, [page, nav_is_drawer]);
+  useEffect(() => {
+    if (nav_open) {
+      nav_was_open.current = true;
+      const first = sidebar_ref.current?.querySelector<HTMLElement>(".shell_nav_item.active, .shell_nav_item");
+      first?.focus();
+      const on_key = (e: KeyboardEvent) => {
+        if (e.key === "Escape") set_nav_open(false);
+      };
+      window.addEventListener("keydown", on_key);
+      return () => window.removeEventListener("keydown", on_key);
+    }
+    if (nav_was_open.current) {
+      nav_was_open.current = false;
+      nav_toggle_ref.current?.focus();
+    }
+    return undefined;
+  }, [nav_open]);
+
+  // Single-pane Observe: a selected run shows the run; no run shows the list.
+  useEffect(() => {
+    set_observe_pane(run_id.trim() ? "run" : "runs");
+  }, [run_id]);
+
+  /** On a phone the run view is below its toolbar: bring the tab strip + content to the top. */
+  function reveal_observe_viewer(): void {
+    if (!single_pane) return;
+    window.setTimeout(() => observe_viewer_ref.current?.scrollIntoView({ block: "start" }), 60);
+  }
+
+  function select_observe_tab(tab: ObserveRightTab): void {
+    set_right_tab(tab);
+    reveal_observe_viewer();
+  }
+
   /* SHELL (redesign wave 1, 2026-07-13): sidebar nav + slim header — the
    * benchmark shape (continuum's shell, flow's restraint). The shell names
    * the page; the header holds page-scoped chrome; the connection control
@@ -4808,8 +4862,16 @@ export function App(): React.ReactElement {
   };
 
   return (
-    <div className="app-shell shell">
-      <aside className="shell_sidebar">
+    <div className={`app-shell shell${nav_open ? " nav_open" : ""}`}>
+      {nav_is_drawer && nav_open ? <div className="shell_nav_backdrop" aria-hidden="true" onClick={() => set_nav_open(false)} /> : null}
+      <aside
+        className="shell_sidebar"
+        id="shell_nav"
+        ref={sidebar_ref}
+        aria-label="Navigation"
+        {...(nav_is_drawer && nav_open ? { role: "dialog", "aria-modal": true } : {})}
+        {...(nav_is_drawer && !nav_open ? { inert: "" } : {})}
+      >
         <div className="shell_brand" title="AbstractObserver (Web/PWA)">
           <span className="logo-icon shell_brand_mark" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -4830,13 +4892,19 @@ export function App(): React.ReactElement {
             </svg>
           </span>
           <span className="shell_brand_name">Observer</span>
+          <button type="button" className="shell_nav_close" aria-label="Close navigation" title="Close navigation" onClick={() => set_nav_open(false)}>
+            <Icon name="x" size={16} />
+          </button>
         </div>
         <nav className="shell_nav">
           {NAV_ITEMS.map((item) => (
             <button
               key={item.id}
               className={`shell_nav_item ${page === item.id ? "active" : ""}`}
-              onClick={() => set_page(item.id)}
+              onClick={() => {
+                set_page(item.id);
+                set_nav_open(false);
+              }}
               type="button"
             >
               <span className="shell_nav_icon">{item.icon}</span>
@@ -4850,7 +4918,10 @@ export function App(): React.ReactElement {
           </a>
           <button
             className={`shell_nav_item ${page === "settings" ? "active" : ""}`}
-            onClick={() => set_page("settings")}
+            onClick={() => {
+              set_page("settings");
+              set_nav_open(false);
+            }}
             type="button"
           >
             <span className="shell_nav_icon"><Icon name="settings" size={16} /></span>
@@ -4881,6 +4952,19 @@ export function App(): React.ReactElement {
 
       <div className="shell_main">
         <header className="shell_header">
+          <button
+            ref={nav_toggle_ref}
+            type="button"
+            className="shell_nav_toggle"
+            data-nav-toggle
+            aria-label="Open navigation"
+            aria-controls="shell_nav"
+            aria-expanded={nav_open}
+            title="Navigation"
+            onClick={() => set_nav_open(true)}
+          >
+            <Icon name="list" size={18} />
+          </button>
           <div className="shell_header_title">{PAGE_TITLE[page] || "Observer"}</div>
           <div className="shell_header_actions">
             {monitor_gpu_enabled ? (
@@ -5616,7 +5700,7 @@ export function App(): React.ReactElement {
 
         {page === "observe" ? (
           <div className="page observe_page">
-            <div className="observatory_layout">
+            <div className={`observatory_layout observe_pane_${single_pane ? observe_pane : "both"}`}>
               <WorkflowRunNavigator
                 sections={observe_sections}
                 selected_run_id={run_id}
@@ -5634,7 +5718,10 @@ export function App(): React.ReactElement {
                 on_filter={set_observe_filter}
                 on_group_by={set_observe_group_by}
                 on_refresh={() => void refresh_runs()}
-                on_select={(rid, root) => void attach_to_run(rid, { root_run_id: root || rid })}
+                on_select={(rid, root) => {
+                  set_observe_pane("run");
+                  void attach_to_run(rid, { root_run_id: root || rid });
+                }}
               />
               <div className="observatory_main">
             {/* ── Observe toolbar ──
@@ -5643,6 +5730,12 @@ export function App(): React.ReactElement {
               * duplicate RunPicker dropdown is gone. */}
             <div className="observe_toolbar">
               <div className="observe_toolbar_row">
+                {single_pane ? (
+                  <button type="button" className="btn observe_back_btn" onClick={() => set_observe_pane("runs")} aria-label="Back to the run list" title="Back to the run list">
+                    <Icon name="list" size={14} />
+                    <span>Runs</span>
+                  </button>
+                ) : null}
                 {run_id.trim() ? (
                   <div className="observe_run_identity" title={run_id.trim()}>
                     <span className="observe_run_name">
@@ -5826,7 +5919,7 @@ export function App(): React.ReactElement {
               </div>
 
             {/* ── Single full-width content panel ── */}
-            <div className="card panel_card card_scroll observe_viewer observe_viewer_full">
+            <div className="card panel_card card_scroll observe_viewer observe_viewer_full" ref={observe_viewer_ref}>
               {/* Content tabs + inline contextual controls */}
                 {/* FOUR tabs (redesign: nine → four). Story is the answer-
                   * first narrative (outcome, waits, summary, produced,
@@ -5836,16 +5929,16 @@ export function App(): React.ReactElement {
                   * their unique content now lives inside Story or Runtime. */}
                 <div className="tab_bar">
                   <div role="tablist" aria-label="Run views" className="observe_tablist">
-                  <button role="tab" aria-selected={right_tab === "overview"} className={`tab ${right_tab === "overview" ? "active" : ""}`} onClick={() => set_right_tab("overview")}>
+                  <button role="tab" aria-selected={right_tab === "overview"} className={`tab ${right_tab === "overview" ? "active" : ""}`} onClick={() => select_observe_tab("overview")}>
                     Story
                   </button>
-                  <button role="tab" aria-selected={right_tab === "ledger"} className={`tab ${right_tab === "ledger" ? "active" : ""}`} onClick={() => set_right_tab("ledger")}>
+                  <button role="tab" aria-selected={right_tab === "ledger"} className={`tab ${right_tab === "ledger" ? "active" : ""}`} onClick={() => select_observe_tab("ledger")}>
                     Ledger
                   </button>
-                  <button role="tab" aria-selected={right_tab === "graph"} className={`tab ${right_tab === "graph" ? "active" : ""}`} onClick={() => set_right_tab("graph")}>
+                  <button role="tab" aria-selected={right_tab === "graph"} className={`tab ${right_tab === "graph" ? "active" : ""}`} onClick={() => select_observe_tab("graph")}>
                     Flow
                   </button>
-                  <button role="tab" aria-selected={right_tab === "chat"} className={`tab ${right_tab === "chat" ? "active" : ""}`} onClick={() => set_right_tab("chat")}>
+                  <button role="tab" aria-selected={right_tab === "chat"} className={`tab ${right_tab === "chat" ? "active" : ""}`} onClick={() => select_observe_tab("chat")}>
                     Ask
                   </button>
                 </div>
@@ -6661,6 +6754,8 @@ export function App(): React.ReactElement {
                   onClick={() => {
                     set_right_tab("ledger");
                     set_page("observe");
+                    set_observe_pane("run");
+                    reveal_observe_viewer();
                     if (wait_key) set_dismissed_wait_key(wait_key);
                   }}
                   disabled={!run_id.trim()}

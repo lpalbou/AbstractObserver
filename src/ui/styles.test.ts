@@ -14,7 +14,7 @@ describe("AbstractObserver styles", () => {
     expect(css).not.toMatch(/font-size:\s*\d+px\b/);
   });
 
-  it("ships the sidebar shell (redesign wave 1) with a mobile icon rail", () => {
+  it("ships the sidebar shell (redesign wave 1); below 1024 px the sidebar is a left drawer", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
     // The shell: sidebar nav + slim header; accent as a CUE (2px inset
@@ -24,8 +24,13 @@ describe("AbstractObserver styles", () => {
     expect(css).toMatch(/\.shell_nav_item\.active\s*\{[^}]*inset 2\.5px 0 0 var\(--accent\)/);
     expect(css).not.toMatch(/\.nav_tab\.active/);
     expect(css).toMatch(/\.shell_header_title\s*\{[^}]*font-size:\s*var\(--t-page\)/);
-    // Narrow viewports collapse to an icon rail instead of wrapping tabs.
-    expect(css).toMatch(/@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*\.shell_sidebar\s*\{[\s\S]*flex-basis:\s*56px/);
+    // Responsive workstream 2026-09-30: the 56 px icon rail never left the
+    // row on a phone; below 1024 px the sidebar is an off-canvas left drawer
+    // (responsive.css) opened from the header toggle.
+    const rcss = readFileSync(new URL("./responsive.css", import.meta.url), "utf8");
+    expect(css).not.toMatch(/flex-basis:\s*56px/);
+    expect(rcss).toMatch(/@media \(max-width: 1023\.98px\)\s*\{[\s\S]*?\.shell_sidebar\s*\{[^}]*position:\s*fixed;[^}]*transform:\s*translateX\(-105%\)/);
+    expect(rcss).toMatch(/\.shell\.nav_open \.shell_sidebar\s*\{[^}]*transform:\s*none/);
     expect(css).toMatch(/\.page\.page_scroll\s*\{[^}]*overflow-x:\s*hidden;/);
     expect(css).toMatch(/\.gateway_led\.ok\s*\{[^}]*animation:\s*gateway_led_pulse/);
     expect(css).toMatch(/@keyframes\s+gateway_led_pulse/);
@@ -139,4 +144,30 @@ describe("AbstractObserver styles", () => {
     expect(app).not.toContain("Start Workflow →");
   });
 
+});
+
+describe("responsive breakpoints (DESIGN.md: 480 / 768 / 1024 / 1440 + max-height 500)", () => {
+  it("every width/height media query in the app sheets uses a named breakpoint", () => {
+    const allowed = new Set(["max-width: 479.98px", "max-width: 767.98px", "max-width: 1023.98px", "max-width: 1439.98px", "min-width: 1440px", "min-width: 1800px", "max-height: 500px"]);
+    const bad: string[] = [];
+    for (const f of ["styles.css", "board.css", "observe.css", "system.css", "forms.css", "automations.css", "usability.css", "responsive.css"]) {
+      const css = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
+      for (const m of css.matchAll(/\((max|min)-(width|height):\s*([\d.]+px)\)/g)) {
+        const q = `${m[1]}-${m[2]}: ${m[3]}`;
+        if (!allowed.has(q)) bad.push(`${f}: ${q}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("the shell follows the dynamic viewport height and text is never inflated", () => {
+    const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const rcss = readFileSync(new URL("./responsive.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.app-shell\s*\{[^}]*height:\s*var\(--vh-full/);
+    expect(css).not.toMatch(/\.app-shell\s*\{[^}]*height:\s*100vh/);
+    expect(rcss).toMatch(/text-size-adjust:\s*100%/);
+    const html = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
+    expect(html).toMatch(/viewport-fit=cover/);
+    expect(html).not.toMatch(/maximum-scale|user-scalable/);
+  });
 });
