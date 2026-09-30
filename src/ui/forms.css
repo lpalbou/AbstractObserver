@@ -406,7 +406,7 @@ details.form_subdisclosure[open] > summary::before {
 
 .settings_row_title {
   font-size: var(--t-small);
-  font-weight: 620;
+  font-weight: 600;
 }
 
 .settings_row_help {
@@ -477,9 +477,10 @@ details.form_subdisclosure[open] > summary::before {
   border-color: var(--accent-border, color-mix(in srgb, var(--accent) 40%, transparent));
 }
 
+/* The weight follows the switch: regular when off, bold when on (kit rule). */
 .settings_choice_name {
   font-size: var(--t-small);
-  font-weight: 620;
+  font-weight: inherit;
   white-space: nowrap;
 }
 
@@ -761,7 +762,7 @@ details.form_subdisclosure[open] > summary::before {
 
 .launch_skill_name {
   font-size: var(--t-small);
-  font-weight: 620;
+  font-weight: 600;
   white-space: nowrap;
 }
 

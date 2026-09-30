@@ -23,8 +23,11 @@ AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
 - **System → Memory map:** "Live" is a switch.
 - The ledger's view toggle is always labelled "Condensed" (highlighted when on) instead of swapping to "All"; it and
   the Flow graph's Subflows / Path toggles announce their state (`aria-pressed`); artifact type filter chips name the filter rather than an Add / Remove verb.
-- For contributors: `src/ui/state_toggles.test.tsx` runs the kit's `findVerbToggleLabels` over `src/` and checks
-  every switch in both states.
+- **Type scale:** settings row titles and skill names are no heavier than weight 600; a skill name is regular when its
+  switch is off and bold when on.
+- For contributors: `src/ui/state_toggles.test.tsx` runs the kit's `findVerbToggleLabels` over `src/`, checks every
+  switch in both states and caps the settings label weights; `scripts/state_toggles.shots.mjs` captures the switch
+  surfaces at 1440 / 834 / 390 px in light and dark and measures every label's size and weight.
 
 ## [0.4.0] - 2026-09-30
 

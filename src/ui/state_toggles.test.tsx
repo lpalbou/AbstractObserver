@@ -148,3 +148,17 @@ describe("settings, Observe toolbar and memory map switches", () => {
     expect(both((on) => <MindmapLiveSwitch checked={on} onChange={noop} />, "mindmap-live")).toEqual(["true", "false"]);
   });
 });
+
+describe("type scale: settings labels (DESIGN §3: labels <= 15 px, weight <= 600)", () => {
+  const css = readFileSync(join(SRC, "ui/forms.css"), "utf8");
+  const rule = (sel: string) => new RegExp(`\\n${sel.replace(".", "\\.")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+  it.each([".settings_row_title", ".settings_choice_name", ".launch_skill_name"])("%s is not heavier than 600", (sel) => {
+    const body = rule(sel);
+    expect(body, `${sel} rule missing`).toMatch(/font-weight:/);
+    const w = /font-weight:\s*([a-z0-9]+)/.exec(body)![1];
+    expect(w === "inherit" || Number(w) <= 600, `${sel} font-weight ${w}`).toBe(true);
+  });
+  it("a skill name follows the switch weight (regular off, bold on)", () => {
+    expect(rule(".settings_choice_name")).toMatch(/font-weight:\s*inherit/);
+  });
+});
