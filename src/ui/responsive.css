@@ -105,6 +105,14 @@ body {
   flex: 0 0 auto;
 }
 
+/* System → Memory: the explorer's detail column scrolls instead of being
+ * cut by the explorer's overflow:hidden when its panels are taller. */
+.runtime_memory_panel .amx-right {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* Long ids / paths never widen a card. */
 .runtime_ops_row_sub {
   overflow-wrap: anywhere;
@@ -268,6 +276,36 @@ body {
     max-height: 60vh;
   }
 
+  /* System → Memory: the explorer is a full-screen panel of the page (a
+   * content-sized panel gave the graph 0 px once the kit's explorer stacks);
+   * the graph keeps a real height, controls and details scroll below it. */
+  .page.runtime_page > .runtime_memory_panel {
+    flex: 0 0 auto;
+    height: calc(var(--vv-height, var(--vh-full, 100vh)) - var(--shell-header-h) - 24px);
+    min-height: 420px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .page.runtime_page > .runtime_memory_panel {
+    display: block;
+  }
+
+  .runtime_memory_panel .mindmap_root,
+  .runtime_memory_panel .mindmap_explorer,
+  .runtime_memory_panel .amx-root {
+    width: 100%;
+    height: auto;
+  }
+
+  .runtime_memory_panel .field_inline {
+    flex-wrap: wrap;
+  }
+
+  .runtime_memory_panel .amx-graph {
+    min-height: min(60vh, 520px);
+  }
+
   .metric_grid.compact.runtime_header_metrics {
     min-width: 0;
     width: 100%;
@@ -372,26 +410,6 @@ body {
   .launch_grid > *,
   .field {
     min-width: 0;
-  }
-}
-
-/* monitor-active-memory (System → Memory) is consumed from the sibling
- * AbstractUIC source, not the kit packs: its explorer keeps a 420 px left
- * column next to a 380 px detail column. Below 1024 px the two stack and
- * the 420 px minimum goes (reported for an abstractuic fix). */
-@media (max-width: 1023.98px) {
-  .amx-root {
-    flex-direction: column;
-    min-height: 0;
-  }
-
-  .amx-left {
-    min-width: 0;
-  }
-
-  .amx-right {
-    width: 100%;
-    max-width: none;
   }
 }
 
