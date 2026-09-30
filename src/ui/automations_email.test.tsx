@@ -67,7 +67,9 @@ describe("Launch → Automate: email", () => {
       expect(html).toMatch(/disabled="" value="email"\/> When an email arrives/);
       expect(html).toContain("Email isn&#x27;t set up — ");
       expect(html).toContain('data-action="open-my-email"');
-      expect(html).toMatch(/<input type="checkbox" name="notify_email" disabled=""\/>/);
+      // "Email me the result" is the kit switch (ui-kit 0.3.3): unavailable with the reason, not a disabled checkbox.
+      expect(html).toMatch(/role="switch"[^>]*data-action="notify-email" aria-checked="false" aria-disabled="true"/);
+      expect(html).not.toMatch(/type="checkbox" name="notify_email"/);
     }
   });
 
@@ -75,6 +77,8 @@ describe("Launch → Automate: email", () => {
     const html = render(USABLE);
     expect(html).toMatch(/<input type="radio" name="automate_when" value="email"\/> When an email arrives/);
     expect(html).not.toContain('data-email-setup="missing"');
+    expect(html).toMatch(/role="switch"[^>]*data-action="notify-email" aria-checked="false"/);
+    expect(html).not.toMatch(/data-action="notify-email"[^>]*aria-disabled/);
     const chosen = render(USABLE, { ...DEFAULT_AUTOMATE_FORM, when: "email" });
     expect(chosen).toContain('name="email_from_in"');
     expect(chosen).toContain('data-email-rule="interval"');
