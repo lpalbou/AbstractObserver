@@ -4645,7 +4645,8 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (nav_open) {
       nav_was_open.current = true;
-      const first = sidebar_ref.current?.querySelector<HTMLElement>(".shell_nav_item.active, .shell_nav_item");
+      const root = sidebar_ref.current;
+      const first = root?.querySelector<HTMLElement>(".shell_nav_item.active") || root?.querySelector<HTMLElement>(".shell_nav_item");
       first?.focus();
       const on_key = (e: KeyboardEvent) => {
         if (e.key === "Escape") set_nav_open(false);

@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.4.0] - unreleased (responsive workstream, branch feat/responsive)
+
+Built with the vendored AbstractUIC packs ui-kit 0.3.0 + panel-chat 0.2.0 (`vendor/*.tgz`, `file:` deps; the
+coordinator relocks them to the registry after the kit publishes). The monitor-* packages still come from the
+sibling AbstractUIC checkout.
+
+### Changed
+- **Usable on phones, tablets and resized windows.** Measured cause of "only a few lines on a phone": every page
+  was a fixed-height, non-scrolling column; below 1100 px the Observe run list, toolbar, steer box, wait card
+  and tab strip stacked inside the viewport and left the ledger a 30 px scroller below the fold (0 visible lines
+  on an iPhone SE). Text was never enlarged (11 px dominant, no document overflow, no text inflation in
+  Chromium/WebKit mobile emulation).
+- Below 1024 px the sidebar is a left drawer opened from a header button (Escape, backdrop tap and a close
+  button close it; focus moves in and back); it closes when the window grows back.
+- Below 768 px wide or 500 px tall pages scroll as a whole; Observe shows one pane at a time (the run list, or
+  the selected run with a **Runs** back button) and its Story / Ledger / Flow / Ask panel fills the screen
+  (Open ledger and the tabs scroll it into view): 23 ledger lines on an iPhone SE, 32 on an iPhone 15 Pro, 12 in
+  landscape.
+- The approval dialog and the other app dialogs are bottom sheets on phones; their action row wraps instead of
+  pushing Reject / Open ledger off the panel.
+- Launch / Automate fields take the full row on phones (provider and model inputs were cut at the right edge);
+  System's panes stack and scroll; the three System panes lose the 190 + 520 + 320 px minimums that clipped
+  the run table at 1024-1439 px.
+- The shell follows the dynamic viewport (`--vh-full`, iOS URL bar), pads the notch / home indicator
+  (`viewport-fit=cover`), sets `text-size-adjust: 100%`, calls the kit's `installViewportVars()`.
+- Touch: 44 px targets for the app's buttons, tabs, rows and fields, 16 px inputs, one step larger text
+  (12 / 13 / 14 px instead of 11 / 12 / 13). Desktop (fine pointer, >= 1440 px) keeps its look.
+- 2560 px windows: Settings in two columns; a wider Observe run list.
+- Breakpoints unified on 480 / 768 / 1024 / 1440 (+ max-height 500) — 1250/1240/1180/1100/1080/900/800/760/
+  700/660/640/600/520/500 are gone; `src/ui/styles.test.ts` guards it.
+- `scripts/responsive.screens.mjs`: the screens module for the shared responsive capture harness.
+
 ## [0.3.0] - 2026-09-30
 
 Built with AbstractUIC ui-kit 0.2.0 (CI and release check out AbstractUIC v0.2.0). The email options need

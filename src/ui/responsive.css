@@ -98,10 +98,22 @@ body {
   height: calc(var(--vh-full, 100vh) - 330px);
 }
 
+/* Pre-existing desktop bug fixed here: in the fixed-height System page the
+ * section tab strip flex-shrank to ~6 px and the panes painted over it
+ * (measured 5.7 px tall at 1512x982). It keeps its own height. */
+.runtime_mode_tabs {
+  flex: 0 0 auto;
+}
+
 /* Long ids / paths never widen a card. */
-.observe_run_identity,
 .runtime_ops_row_sub {
   overflow-wrap: anywhere;
+}
+
+/* Status / id chips never break mid-word when the run name is long. */
+.observe_run_identity .chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* ─────────── very wide (>= 1800, e.g. 2560): use the width ─────────── */
@@ -218,6 +230,13 @@ body {
   .observe_tablist {
     overflow-x: auto;
     scrollbar-width: none;
+  }
+
+  /* Board: the page scrolls here (board.css), so the grid must take its
+   * content height — shrinking it to the viewport crushed every column to
+   * its 220 px minimum (iPad mini: 8 visible lines). */
+  .mc_page .mc_board {
+    flex: 0 0 auto;
   }
 
   /* System: one column that scrolls as a page; panes take their content
@@ -353,6 +372,26 @@ body {
   .launch_grid > *,
   .field {
     min-width: 0;
+  }
+}
+
+/* monitor-active-memory (System → Memory) is consumed from the sibling
+ * AbstractUIC source, not the kit packs: its explorer keeps a 420 px left
+ * column next to a 380 px detail column. Below 1024 px the two stack and
+ * the 420 px minimum goes (reported for an abstractuic fix). */
+@media (max-width: 1023.98px) {
+  .amx-root {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .amx-left {
+    min-width: 0;
+  }
+
+  .amx-right {
+    width: 100%;
+    max-width: none;
   }
 }
 
