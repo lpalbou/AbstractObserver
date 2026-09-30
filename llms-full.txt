@@ -198,7 +198,7 @@ All pages share the same gateway connection settings.
 - **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/edit (task, interval, context, tools — the row's Edit opens the form at once)/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
-- **Responsive layout**: phones, tablets and small windows get a navigation drawer, one pane at a time on Observe, bottom-sheet dialogs and touch-sized controls (`docs/getting-started.md` → "Responsive layout")
+- **Responsive layout**: phones, tablets and small windows get a navigation drawer, full-width lists and details with collapsible lists, bottom-sheet dialogs and touch-sized controls (`docs/getting-started.md` → "Responsive layout")
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
 
 ## Documentation
@@ -280,8 +280,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.11",
-    "@abstractframework/panel-chat": "file:vendor/abstractframework-panel-chat-0.2.1.tgz",
-    "@abstractframework/ui-kit": "file:vendor/abstractframework-ui-kit-0.3.2.tgz",
+    "@abstractframework/panel-chat": "^0.2.1",
+    "@abstractframework/ui-kit": "^0.3.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -495,6 +495,67 @@ export default defineConfig({
 ## CHANGELOG.md
 
 # Changelog
+
+## [Unreleased]
+
+On/off settings are switches. Every setting that is either on or off now shows as one switch labelled by the
+feature, highlighted when on, instead of a Pause/Resume button pair, an On/Off select or a checkbox. Built with
+AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
+
+Screens that show a list next to a detail use the space they have on phones and tablets. Everyone who opens
+Automations, Observe, the Board or System on a phone or a tablet is affected; desktop windows keep their layout,
+except that each list can now be collapsed and the Automations detail reads at 14 px.
+
+### Changed
+- **Automations: an "Active" switch** on every automation row replaces the Pause / Resume buttons (on = runs on its
+  schedule, off = paused; it sends `automation.pause` / `automation.resume`). Legacy scheduled runs get the same
+  switch instead of Suspend / Resume. An automation that has ended, is archived or does not allow the change shows
+  the switch unavailable, with the reason on hover and for screen readers; while a command is in flight the switch is
+  busy. The feedback line states the new state ("“News” is paused: scheduled runs are skipped.").
+- **Automations list:** "Show archived (n)" is an "Archived (n)" switch.
+- **Observe toolbar, legacy scheduled run:** the schedule's "Active" switch replaces the "Suspend schedule" /
+  "Resume schedule" button; switching it off still asks for a reason first. Pausing a running run stays a button
+  (a one-shot action).
+- **Edit schedule dialog:** "Apply immediately" is a switch; the dialog's single primary action saves it with the
+  interval.
+- **Settings:** "Auto-connect on load" is a switch (was an On/Off select); each assistant skill is a switch named by
+  the skill (was a checkbox).
+- **System → Memory map:** "Live" is a switch.
+- **Launch → Automate, Email:** "Email me the result" is a switch (from the kit); while email is not set up it is
+  unavailable, with the reason.
+- The ledger's view toggle is always labelled "Condensed" (highlighted when on) instead of swapping to "All"; it and
+  the Flow graph's Subflows / Path toggles announce their state (`aria-pressed`); artifact type filter chips name the filter rather than an Add / Remove verb.
+- **Type scale:** settings row titles and skill names are no heavier than weight 600; a skill name is regular when its
+  switch is off and bold when on.
+- For contributors: `src/ui/state_toggles.test.tsx` runs the kit's `findVerbToggleLabels` over `src/`, checks every
+  switch in both states and caps the settings label weights; `scripts/state_toggles.shots.mjs` captures the switch
+  surfaces at 1440 / 834 / 390 px in light and dark and measures every label's size and weight.
+- **Collapsible lists.** The Automations list, Observe's run list, System → Activity's Queues and Runs, and each
+  Board column have a header button with a chevron that hides or shows the list. Lists are open by default, and the
+  Observer remembers your choice in this browser. A hidden list leaves its header in place and gives the detail the
+  whole width (on a phone, the whole screen).
+- **Full width on phones and single-column tablets.** Below 1024 px (Automations, System) and below 768 px (Observe,
+  Board), panes and list items are flat sections separated by thin lines instead of cards inside cards, and the page
+  is the only thing that scrolls: lists, the automation detail, the Observe run list and ledger, and the Board columns
+  no longer scroll inside it. Text starts 12-16 px from the screen edge, and the automation transcript uses the full
+  width.
+- **Observe on phones** shows the run list above the selected run instead of one or the other; picking a run scrolls
+  to it. The **Runs** back button is gone: collapse the list to read the run alone.
+- **Automation details:** labels and values share a line ("When  every 24 hours (UTC)"); the workspace path, the
+  trigger and the task take the full width; paths and JSON are plain monospace text without a box on phones; the
+  control buttons fill the row.
+- **Text size:** the automation panel and its transcripts use 14 px at every width. On phones and touch tablets, list
+  titles, queue names, hints, ledger buttons and the wait details also use 14 px (chips, ids and times stay smaller).
+- **Tablets:** Observe keeps the run list beside the run only when both get about 360 px or more.
+- **Desktop text floor:** dense text (run meta, ledger chips, board cards, System rows) is 12 px instead of 11 px, and
+  secondary text 13 px instead of 12 px. On touch tablets the System → Memory explorer's help text is 14 px.
+- For contributors: `src/ui/space.css` (loaded after `responsive.css`) and `src/ui/list_disclosure.tsx`, guarded by
+  `src/ui/list_disclosure.test.tsx`; `scripts/space.screens.mjs` drives the list + detail screens through the shared
+  capture harness (space metrics: text column, scroll containers, padding stack).
+
+- An unavailable switch always says why: the automation row's and the Observe toolbar's "Active" switches show
+  their reason ("The automation has ended.", "Archived: history is kept, nothing runs.") as text next to the
+  switch on touch screens; with a mouse it is the tooltip. docs/automations.md describes the Active switch.
 
 ## [0.4.0] - 2026-09-30
 
@@ -1197,9 +1258,12 @@ AbstractObserver works on phones, tablets and desktop windows of any size:
   button at the left of the header; it closes when you pick a page, press Escape, tap outside it or use its
   close button. Pages that show several panes stack them and scroll.
 - **Below 768 px wide, or in landscape under 500 px tall** (phones), pages scroll as a whole and Observe shows
-  one pane at a time: the run list, or the selected run with a **Runs** button to go back. The run's Story /
-  Ledger / Flow / Ask panel fills the screen; **Open ledger** and the tabs bring it into view. Dialogs open as
-  bottom sheets with their buttons always visible, above the on-screen keyboard.
+  the run list above the selected run; picking a run scrolls to it. Dialogs open as bottom sheets with their
+  buttons always visible, above the on-screen keyboard.
+- **Lists use the full width on phones.** Automations, Observe, the Board and System show their lists and details
+  as flat sections with thin separators; only the page scrolls. Every list (Automations, Observe's runs, System's
+  Queues and Runs, each Board column) has a header button with a chevron that hides it and gives the detail the
+  whole screen; lists are open by default and your choice is remembered in this browser.
 - **On touch screens** buttons, tabs, rows and fields are at least 44 px tall, text fields use 16 px text (iOS
   Safari does not zoom when you focus them), and reading text (ledger payloads, Story entries, dialog text)
   is 14 px.
@@ -1969,7 +2033,7 @@ the page is visible; **Refresh** reads it at once. Filter by status: All,
 Active, Paused, Completed, Failed, Archived. **+ New automation** opens Launch
 in Automate mode.
 
-Archived automations are hidden by default; **Show archived (N)** lists them
+Archived automations are hidden by default; the **Archived (N)** switch lists them
 again, and the Archived filter shows only them. Their history stays
 readable.
 
@@ -1998,7 +2062,7 @@ few seconds, with a dismiss button:
 
 | Control | What it does |
 | --- | --- |
-| **Pause** / **Resume** | Pause skips scheduled runs. Resume re-arms the schedule; the ticks that passed while paused are not run. |
+| **Active** switch | On: the automation runs on its schedule. Off: paused, scheduled runs are skipped; switching it on again re-arms the schedule, and the ticks that passed while paused are not run. Once the automation ended or is archived, the switch is unavailable and shows why (next to it on touch screens, in its tooltip with a mouse). |
 | **Run now** (the play-in-a-circle icon) | Runs one occurrence immediately instead of waiting for the schedule. The schedule does not move: the next scheduled run keeps its time, and if that time comes while this run is still going, the scheduled run starts right after it. A manual run does not count toward a run limit. It also works while paused, and the automation stays paused ("Run now sent to “…”; it stays paused."). In a Growing automation, later runs see it in their history. It is disabled while a run is in progress (the gateway's current occurrence; the last run's status is never used for this). Its tooltip says all this, with the next scheduled time. |
 | **Edit** | Opens the automation with its Edit form already open, prefilled and focused (see [Edit](#edit)). |
 | **Discuss** | Opens a chat with a fork of the automation at its latest finished run, on this page (see [Discuss a result](#discuss-a-result)). |
@@ -2045,13 +2109,12 @@ never shown.
 ### Definition and controls
 
 The top of the panel shows **When**, **Context**, **Next run**, **Runs**,
-**Workspace**, **Attention** and **Revision**, then the controls **Pause** /
-**Resume**, **Run now**, **Stop current**, **Edit** and **Archive…** (each an
+**Workspace**, **Attention** and **Revision**, then the **Active** switch and the controls **Run now**, **Stop current**, **Edit** and **Archive…** (each an
 icon then its name; the tooltip says what it does, and a disabled one first says why), then the
 **Definition** card (one click opens it: workflow, task, trigger, context,
 tools, retries). While paused, the panel reminds you: "Paused: scheduled runs
-are skipped. Run now works and keeps it paused." What a control did ("Pause
-sent.", "Run requested.") shows next to the controls for a few seconds, with
+are skipped. Run now works and keeps it paused." What a control did ("Automation
+paused.", "Run requested.") shows next to the controls for a few seconds, with
 a dismiss button.
 
 - **Stop current** cancels the occurrence in progress (or its pending
@@ -2192,8 +2255,7 @@ only; a workflow name never makes a run an automation run.
 ## Legacy schedules
 
 Schedules created with `POST /runs/schedule` before automations existed are
-listed with a `legacy` tag and keep their own controls: **Suspend** /
-**Resume**, **Run now** (while not suspended), **Open run**, and
+listed with a `legacy` tag and keep their own controls: an **Active** switch (off = suspended), **Run now** (while not suspended), **Open run**, and
 **Recreate as automation**. Their run view also keeps **Edit schedule**.
 
 **Recreate as automation** (on the row, in the legacy panel and in the run

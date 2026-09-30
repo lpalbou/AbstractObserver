@@ -22,6 +22,7 @@ import { AfMemoryHintChip } from "@abstractframework/ui-kit";
 import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
 import type { WaitState } from "../lib/types";
 import { Modal } from "./modal";
+import { ListDisclosure, useListOpen } from "./list_disclosure";
 import { run_status_class, run_status_word, type RunSummary } from "./run_status";
 import {
   parse_iso_ms,
@@ -639,6 +640,23 @@ export type MissionControlProps = {
   phase_graph?: PhaseGraph | null;
 };
 
+/** One Board column: a collapsible list panel (DESIGN §12), remembered per viewer. */
+function BoardColumn(props: { col: BoardColumnId; title: string; head: React.ReactNode; children: React.ReactNode }): React.ReactElement {
+  const [open, toggle] = useListOpen(`board_${props.col}`);
+  const body_id = `mc_column_body_${props.col}`;
+  return (
+    <div className={`mc_column mc_column_${props.col}${open ? "" : " list_collapsed"}`}>
+      <div className="mc_column_head">
+        <ListDisclosure open={open} on_toggle={toggle} controls={body_id} title={props.title} className="mc_column_title" />
+        {props.head}
+      </div>
+      <div className="mc_column_body" id={body_id} hidden={!open}>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
 export function MissionControlPage(props: MissionControlProps): React.ReactElement {
   const now_ms = Date.now();
   const columns = useMemo(
@@ -1125,9 +1143,12 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
           const windowed = col === "done" ? done_view.visible : columns[col];
           const visible = col === "done" && !show_done ? windowed.slice(0, 8) : windowed;
           return (
-            <div key={col} className={`mc_column mc_column_${col}`}>
-              <div className="mc_column_head">
-                <span className="mc_column_title">{COLUMN_LABEL[col]}</span>
+            <BoardColumn
+              key={col}
+              col={col}
+              title={COLUMN_LABEL[col]}
+              head={
+                <>
                 {col === "done" ? (
                   <select
                     className="mc_window_select"
@@ -1153,7 +1174,9 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                 <span className="mc_column_count" title={col === "done" && done_view.hidden_count ? `${done_view.hidden_count} older run(s) outside this window` : undefined}>
                   {windowed.length}
                 </span>
-              </div>
+                </>
+              }
+            >
               <div className="mc_column_hint muted">{COLUMN_HINT[col]}</div>
               <div className="mc_column_cards">
                 {visible.map((card) => render_card(card))}
@@ -1177,7 +1200,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                   </div>
                 ) : null}
               </div>
-            </div>
+            </BoardColumn>
           );
         })}
       </div>

@@ -353,22 +353,10 @@ body {
     padding: 12px var(--gutter, 16px) calc(16px + var(--safe-bottom, 0px));
   }
 
-  /* Observe: one pane at a time (the app sets observe_pane_runs / _run). */
+  /* Observe: the run list (a collapsible panel, space.css) above the run. */
   .observe_page .observatory_layout {
     flex: 0 0 auto;
     display: block;
-  }
-
-  .observatory_layout.observe_pane_run .observatory_sidebar,
-  .observatory_layout.observe_pane_runs .observatory_main {
-    display: none;
-  }
-
-  /* The run list fills the screen with its own scroll. */
-  .observatory_layout.observe_pane_runs .observatory_sidebar {
-    height: calc(var(--vv-height, var(--vh-full, 100vh)) - var(--shell-header-h) - 28px);
-    min-height: 280px;
-    max-height: none;
   }
 
   /* The run view: toolbar, steer and wait cards flow in the page; the
@@ -391,13 +379,6 @@ body {
     flex: 1 1 auto;
     min-width: 0;
     max-width: 100%;
-  }
-
-  .observe_back_btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    flex: 0 0 auto;
   }
 
   /* System on phones. */

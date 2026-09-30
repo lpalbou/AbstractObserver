@@ -159,7 +159,9 @@ describe("icons on every action", () => {
     const controls = /<div class="af-auto__controls"[^]*?<\/div>/.exec(open)?.[0] ?? "";
     const form = /<form class="af-auto__revise"[^]*?<\/form>/.exec(open)?.[0] ?? "";
     const rows = /<ul class="auto_rows">[^]*<\/ul>/.exec(list)?.[0] ?? "";
-    const all = [...buttons(rows, "data-action="), ...buttons(controls), ...buttons(form)];
+    // Action buttons carry an icon; the "Active" state switches (role="switch") carry a track instead.
+    const actionsOnly = (bs: string[]) => bs.filter((b) => !/role="switch"/.test(b));
+    const all = actionsOnly([...buttons(rows, "data-action="), ...buttons(controls), ...buttons(form)]);
     expect(buttons(controls).length).toBeGreaterThanOrEqual(5);
     expect(buttons(form).length).toBe(2);
     for (const b of all) expect(b, b).toMatch(/^<button\b[^>]*><svg\b/);
@@ -187,7 +189,8 @@ describe("icons on every action", () => {
 describe("action feedback is brief, not left lying around", () => {
   it("the list's feedback line is dismissible and the controller clears it", async () => {
     await ctl.row_action(INBOX, "pause");
-    expect(ctl.state.notice).toMatch(/^Pause sent to/);
+    // The feedback line states the NEW state (docs/state-toggles.md), not the verb sent.
+    expect(ctl.state.notice).toMatch(/is paused: scheduled runs are skipped\.$/);
     let dismissed = 0;
     const list = unescape(
       renderToStaticMarkup(<AutomationsListView state={ctl.state} available={{ available: true, reason: "" }} h={{ ...handlers, on_dismiss_notice: () => (dismissed += 1) }} />),

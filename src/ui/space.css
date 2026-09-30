@@ -1,0 +1,588 @@
+/* space.css — list + detail screens use the space they have (DESIGN §12,
+ * operator 2026-09-30 "you do not use enough the space").
+ *
+ * Loaded after responsive.css (main.tsx). Measured cause on a 393 px phone
+ * (0.4.0, Automations): the page gutter (16) + the list card's border and
+ * padding (1 + 14) + each automation card's border and padding (1 + 10) +
+ * the selection inset stacked 54 px before the first character; the list
+ * scrolled inside the page and the detail card scrolled on its own; the
+ * transcript was a card in a card in a card. The fixes:
+ *   - every list panel has a disclosure header (list_disclosure.tsx);
+ *   - below 768 px (and on tablets where two columns would be narrower than
+ *     ~360 px each) panes and cards become flat sections with hairline
+ *     dividers, inner scroll boxes go away (one page scroll), label/value
+ *     pairs share a line, paths are a plain monospace line;
+ *   - the automation panel and transcripts are body size (14 px) at every
+ *     width; on phones and touch tablets list text is body size too, meta
+ *     (chips, ids, times) stays small. */
+
+/* ───────────────────────── Disclosure header ───────────────────────── */
+
+.list_collapsed [hidden] {
+  display: none !important;
+}
+
+/* The Board column body is a wrapper for the disclosure only: no box. */
+.mc_column_body {
+  display: contents;
+}
+
+.list_disclosure {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 8px 0 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.list_disclosure > svg {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.list_disclosure:hover {
+  background: var(--ui-overlay-bg-hover);
+}
+
+.list_disclosure:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.list_disclosure .pane_title {
+  min-width: 0;
+}
+
+.list_disclosure .pane_count {
+  flex: none;
+}
+
+@media (pointer: coarse) {
+  .list_disclosure {
+    min-height: var(--tap-min, 44px);
+  }
+}
+
+/* A collapsed panel is its header only. */
+.pane.list_collapsed > .pane_header,
+.mc_column.list_collapsed > .mc_column_head {
+  border-bottom: 0;
+}
+
+.mc_column.list_collapsed {
+  min-height: 0;
+}
+
+/* Collapsing the list gives the detail the whole width (two-column layouts). */
+@media (min-width: 1024px) {
+  .page.auto_page.list_collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .runtime_ops_layout {
+    grid-template-areas: "queues runs inspector";
+  }
+
+  .runtime_ops_layout > .runtime_ops_filters {
+    grid-area: queues;
+  }
+
+  .runtime_ops_layout > .runtime_ops_table_panel {
+    grid-area: runs;
+  }
+
+  .runtime_ops_layout > .runtime_ops_inspector {
+    grid-area: inspector;
+  }
+
+  .runtime_ops_layout.queues_collapsed {
+    grid-template-areas: "queues queues" "runs inspector";
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .runtime_ops_layout.runs_collapsed {
+    grid-template-areas: "queues runs" "queues inspector";
+    grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .runtime_ops_layout.queues_collapsed.runs_collapsed {
+    grid-template-areas: "queues runs" "inspector inspector";
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 768px) {
+  .observe_page .observatory_layout.list_collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+}
+
+/* ───────────────────────── Type: reading text is body size ───────────────────────── */
+
+/* The automation panel and its transcripts are reading surfaces at every
+ * width: body size (14 px). At 1512 px the panel's 11-13 px kit text was the
+ * dominant size of the screen. Dense data elsewhere (ledger chips, run meta,
+ * board cards) keeps the desktop scale; phones and touch tablets raise it below. */
+.auto_detail .af-auto,
+.auto_detail .pc-md,
+.auto_discussion .pc-md {
+  font-size: var(--font-size-body, 14px);
+}
+
+/* Desktop floor (DESIGN §12.1): dense tables and ledgers at least 12 px,
+ * prose, labels and helper text at least 13 px. The dense desktop scale was
+ * 11 / 12 / 13 px (app) and 10 / 11 / 12 px (kit xxs / xs / sm): the 11 px
+ * run meta and ledger chips were the dominant size of Observe, Board and
+ * System. One step up; touch keeps its own (larger) scale from responsive.css. */
+:root {
+  --t-micro: calc(12px * var(--font-scale, 1));
+  --t-small: calc(13px * var(--font-scale, 1));
+  --font-size-xxs: calc(11px * var(--font-scale, 1));
+  --font-size-xs: calc(12px * var(--font-scale, 1));
+  --font-size-sm: calc(13px * var(--font-scale, 1));
+}
+
+/* ───────────────────────── Tablets: two columns only when both get ~360 px ───────────────────────── */
+
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  .observe_page .observatory_layout {
+    grid-template-columns: minmax(340px, 42%) minmax(360px, 1fr);
+  }
+}
+
+/* ───────────────────────── Single column (< 1024): flat sections, one scroll ───────────────────────── */
+
+/* Automations and System stack into one column below 1024 px: from there
+ * the phone layout applies with the tablet's gutters. */
+@media (max-width: 1023.98px) {
+  /* The gutter was paid twice (the content area's 16 px padding, then each
+   * page's own): the page alone owns it (the kit's --gutter: 12 px below
+   * 480, 16 px above). */
+  .app-body.shell_content {
+    padding: 0;
+  }
+
+  .page.auto_page {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    height: auto;
+    overflow-y: auto;
+  }
+
+  /* In a scrolling column the panes take their content height (a shrunk
+   * flex item would paint its overflow over the next pane). */
+  .page.auto_page > .pane {
+    flex: 0 0 auto;
+  }
+
+  .page.auto_page > .pane,
+  .page.runtime_page .runtime_ops_layout > .pane,
+  .page.runtime_page > .runtime_memory_panel {
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .page.auto_page > .pane + .pane,
+  .page.runtime_page .runtime_ops_layout > .pane + .pane {
+    border-top: 1px solid var(--pane-border);
+  }
+
+  .page.auto_page > .pane > .pane_header,
+  .page.runtime_page .runtime_ops_layout > .pane > .pane_header {
+    padding-inline: 0;
+    border-bottom: 0;
+  }
+
+  .page.auto_page > .pane > .pane_body,
+  .page.auto_page > .pane.auto_detail,
+  .page.runtime_page .runtime_ops_layout > .pane > .pane_body {
+    padding-inline: 0;
+  }
+
+  /* One page scroll: no list or detail scrolls inside the page. */
+  .page.auto_page .pane_body.scroll,
+  .page.auto_page .auto_detail,
+  .page.runtime_page .runtime_ops_layout .pane_body.scroll,
+  .page.runtime_page > .runtime_memory_panel {
+    overflow: visible;
+    max-height: none;
+    height: auto;
+  }
+
+  .page.runtime_page .runtime_ops_layout {
+    gap: 0;
+  }
+
+  /* Automation rows: flat items with a hairline between them; the selected
+   * one keeps its accent rule. */
+  .auto_rows {
+    gap: 0;
+  }
+
+  .auto_row {
+    padding: 10px 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .auto_row + .auto_row {
+    border-top: 1px solid var(--pane-border);
+  }
+
+  .auto_row.selected {
+    padding-left: 10px;
+    box-shadow: inset 2.5px 0 0 var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+
+  /* System runs: flat rows. */
+  .page.runtime_page .runtime_ops_row {
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding-inline: 0;
+  }
+
+  .page.runtime_page .runtime_ops_row + .runtime_ops_row {
+    border-top: 1px solid var(--pane-border);
+  }
+
+  .page.runtime_page .runtime_ops_row.selected {
+    padding-left: 10px;
+    box-shadow: inset 2.5px 0 0 var(--accent);
+  }
+
+  /* The automation panel (kit AutomationPanel): no card inside the detail. */
+  .auto_detail .af-auto__facts {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 4px 12px;
+  }
+
+  .auto_detail .af-auto__facts > dd.af-auto__workspace,
+  .auto_detail .af-auto__facts > dt:has(+ dd.af-auto__workspace),
+  .auto_detail .af-auto__facts > dd:has(> .af-auto__json),
+  .auto_detail .af-auto__facts > dt:has(+ dd > .af-auto__json),
+  .auto_detail .af-auto__facts > dd:has(> .pc-chat-content),
+  .auto_detail .af-auto__facts > dt:has(+ dd > .pc-chat-content) {
+    grid-column: 1 / -1;
+  }
+
+  .auto_detail .af-auto__path {
+    min-height: var(--tap-min, 32px);
+    padding: 4px 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .auto_detail .af-auto__path-text,
+  .auto_detail .af-auto__json {
+    font-size: var(--font-size-sm);
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .auto_detail .af-auto__json {
+    padding: 0;
+    background: none;
+  }
+
+  .auto_detail .af-auto__definition {
+    border: 0;
+    border-top: 1px solid var(--pane-border);
+    border-radius: 0;
+    background: none;
+  }
+
+  .auto_detail .af-auto__definition > summary {
+    padding-inline: 0;
+  }
+
+  .auto_detail .af-auto__definition > .af-auto__facts {
+    padding: 0 0 12px;
+  }
+
+  .auto_detail .af-auto__timeline {
+    gap: 0;
+  }
+
+  .auto_detail .af-auto-occ {
+    padding: 12px 0;
+    border: 0;
+    border-top: 1px solid var(--pane-border);
+    border-radius: 0;
+    background: none;
+    opacity: 1;
+  }
+
+  .auto_detail .af-auto-occ--failed {
+    border-top: 2px solid var(--error);
+  }
+
+  .auto_detail .af-auto-occ--waiting {
+    border-top: 2px solid var(--warning);
+  }
+
+  .auto_detail .af-auto-occ--running {
+    border-top: 2px solid var(--accent);
+  }
+
+  .auto_detail .af-auto-turn--trigger {
+    max-width: 100%;
+  }
+
+  /* Transcript turns: the text column is the full width, no bubble card. */
+  .auto_detail .pc-chat-item,
+  .auto_discussion .pc-chat-item {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    max-width: 100%;
+  }
+
+  .auto_detail .af-auto__controls > .af-auto__btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* ───────────────────────── Phones (< 768): every list + detail screen ───────────────────────── */
+
+@media (max-width: 767.98px) {
+  /* Observe: the run list (a collapsible panel) above the selected run; the
+   * page is the one scroll — the rail and the ledger do not scroll inside it. */
+  .observe_page .observatory_layout {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .observe_page .observatory_layout > * {
+    flex: 0 0 auto;
+  }
+
+  .observe_page .observatory_sidebar.pane {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .observe_page .observatory_sidebar > .pane_header {
+    padding-inline: 0;
+    border-bottom: 0;
+  }
+
+  .observe_page .run_nav_controls {
+    padding-inline: 0;
+  }
+
+  .observe_page .run_tree {
+    overflow: visible;
+    padding-inline: 0;
+  }
+
+  .observe_page .observatory_main {
+    border-top: 1px solid var(--pane-border);
+    padding-top: 8px;
+  }
+
+  .observe_page .observe_viewer_full {
+    height: auto;
+    min-height: 0;
+  }
+
+  .observe_page .observe_viewer_full .log_scroll,
+  .observe_page .observe_viewer_full .panel_card,
+  .observe_page .run_overview {
+    overflow: visible;
+    max-height: none;
+    flex: 0 0 auto;
+  }
+
+  /* Board: columns are flat sections (cards stay the one card level), and
+   * the columns do not scroll inside the page. */
+  .mc_page .mc_board {
+    gap: 0;
+  }
+
+  .mc_page .mc_column {
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .mc_page .mc_column + .mc_column {
+    border-top: 1px solid var(--pane-border);
+  }
+
+  .mc_page .mc_column_head,
+  .mc_page .mc_column_hint {
+    padding-inline: 0;
+  }
+
+  .mc_page .mc_column_head {
+    border-bottom: 0;
+  }
+
+  .mc_page .mc_column_cards {
+    max-height: none;
+    overflow: visible;
+    padding-inline: 0;
+  }
+
+  /* System → Memory: the explorer flows in the page (the graph keeps its height). */
+  .page.runtime_page > .runtime_memory_panel {
+    min-height: 0;
+  }
+
+  /* Action rows wrap with one gap; buttons keep 44 px on touch. */
+  .auto_row_actions,
+  .runtime_ops_actions,
+  .runtime_detail_actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+/* Phones and touch tablets: body size for list text too (item titles, queue
+ * names, hints, row buttons); chips, ids and times keep --t-micro. */
+@media (max-width: 767.98px), (pointer: coarse) {
+  :root {
+    --t-small: var(--font-size-body, 14px);
+  }
+
+  .observe_page .run_tree_label,
+  .runtime_mode_tab,
+  .runtime_memory_panel label,
+  .runtime_memory_panel .amx-small {
+    font-size: var(--font-size-body, 14px);
+  }
+
+  .mc_page .mc_column_hint,
+  .mc_page .mc_card_line,
+  .runtime_ops_hint,
+  .observe_page .run_tree_section_header,
+  .observe_page .lc_btn,
+  .observe_page .seg_action,
+  .observe_page .af-steer__hint {
+    font-size: var(--t-small);
+  }
+
+  /* The workspace path is read in full: a body-size monospace line. */
+  .auto_detail .af-auto__path-text {
+    font-size: var(--font-size-body, 14px);
+  }
+
+  /* The wait context (what the run waits for) is read, not scanned. */
+  .observe_page .observe_context_body,
+  .observe_page .observe_context_body .mono {
+    font-size: var(--font-size-sm);
+  }
+}
+
+/* Phones: the run's one-line hero stacks at the left edge; a long workflow
+ * id wraps instead of being cut by the panel. */
+@media (max-width: 767.98px) {
+  .observe_page .run_hero.run_hero_line {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding-inline: 0;
+  }
+
+  .observe_page .run_hero_title {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Phones: ledger steps are flat sections (the status keeps its left rule);
+ * previews and payloads are plain monospace lines, not boxes in a card. */
+@media (max-width: 767.98px) {
+  .observe_page .lc {
+    padding: 10px 0 10px 10px;
+    border: 0;
+    border-left: 3px solid var(--lc-accent);
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .observe_page .lc + .lc {
+    margin-top: 0;
+  }
+
+  .observe_page .lc_preview,
+  .observe_page .lc_body {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    overflow-wrap: anywhere;
+  }
+
+  /* The fade marks a clipped preview's last line only (it used to cover the
+   * box's padding; without the box it would dim a one-line preview). */
+  .observe_page .lc_preview::after {
+    top: 5em;
+    bottom: auto;
+    height: 1.5em;
+    border-radius: 0;
+  }
+
+  /* Board: the health strip is a flat row (its stat tiles are the one card level). */
+  .mc_page .mc_health {
+    padding-inline: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  /* System queues: flat rows with hairlines; the selected queue keeps its tint. */
+  .page.runtime_page .runtime_ops_filter {
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .page.runtime_page .runtime_ops_filter + .runtime_ops_filter {
+    border-top: 1px solid var(--pane-border);
+  }
+
+  .page.runtime_page .runtime_ops_filter.selected {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    box-shadow: inset 2.5px 0 0 var(--accent);
+  }
+}

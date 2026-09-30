@@ -258,11 +258,6 @@
   margin: 0 0 8px;
 }
 
-.auto_show_archived input[type="checkbox"] {
-  width: auto;
-  height: auto;
-  margin: 0;
-}
 
 /* State as word then icon ("Active ▶", "Paused ⏸"). */
 .auto_state {
@@ -351,4 +346,23 @@
   max-height: 200px;
   overflow: auto;
   font-size: var(--t-micro);
+}
+
+/* An unavailable Active switch shows its reason as text next to it: on a touch screen a tap
+   must say why. With a hover-capable fine pointer the tooltip carries it and the text is kept
+   for assistive technology only. */
+.auto_switch + .af-switch__reason,
+.observe_schedule_switch + .af-switch__reason {
+  white-space: normal;
+}
+@media (hover: hover) and (pointer: fine) {
+  .auto_switch + .af-switch__reason,
+  .observe_schedule_switch + .af-switch__reason {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }

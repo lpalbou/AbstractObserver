@@ -37,6 +37,7 @@ import { RunChatReplayNote, run_chat_history, type RunChatHistoryReport } from "
 import { REVEAL_PATH, run_id_from_location } from "../lib/app_paths";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
+import { ApplyImmediatelySwitch, AssistantSkillSwitch, AutoConnectSwitch, ScheduleActiveSwitch } from "./state_switches";
 import {
   AUTOMATION_OWNED_INPUTS,
   AutomationsController,
@@ -143,6 +144,7 @@ import { MultiSelect } from "./multi_select";
 import { type RuntimeMetadata } from "./runtime_metadata";
 import { run_status_class, run_status_word, stop_reason_of, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
 import { useGatewayVoice } from "./use_gateway_voice";
+import { useListOpen } from "./list_disclosure";
 import "./system.css";
 // Usability layer LAST: it corrects actionable-information presentation and
 // must win equal-specificity fights with every page sheet above.
@@ -730,14 +732,15 @@ export function App(): React.ReactElement {
   const [right_tab, set_right_tab] = useState<ObserveRightTab>("overview");
   /* RESPONSIVE (DESIGN.md §5.2/§5.3): below 1024 px the sidebar is a left
    * drawer opened from the header; below 768 px (or under 500 px tall) the
-   * Observe page shows ONE pane at a time — the run list, or the selected
-   * run with a "Runs" back button — and the page scrolls as a whole. */
+   * Observe page stacks the run list (a collapsible panel, DESIGN §12) above
+   * the selected run, and the page scrolls as a whole (one scroll). */
   const nav_is_drawer = useAfMedia(AF_MEDIA.md);
   const single_pane = useAfMedia(`${AF_MEDIA.sm}, ${AF_MEDIA.short}`);
   const nav = use_nav_drawer({ is_drawer: nav_is_drawer, page });
   const nav_open = nav.open;
   const set_nav_open = nav.set_open;
-  const [observe_pane, set_observe_pane] = useState<"runs" | "run">("runs");
+  /* Observe's run list is a collapsible panel (DESIGN §12), remembered per viewer. */
+  const [observe_list_open, toggle_observe_list] = useListOpen("observe_runs");
   const nav_toggle_ref = nav.toggle_ref;
   const sidebar_ref = nav.sidebar_ref;
   const observe_viewer_ref = useRef<HTMLDivElement | null>(null);
@@ -3815,11 +3818,16 @@ export function App(): React.ReactElement {
   const is_scheduled_run = Boolean(run_state?.is_scheduled) || Boolean(schedule_meta);
   const is_scheduled_recurrent = is_scheduled_run && Boolean(schedule_interval);
 
-  const primary_control_label = is_scheduled_run ? (run_paused ? "Resume schedule" : "Suspend schedule") : run_status === "running" && !run_paused ? "Pause" : "Resume";
+  // A legacy schedule's on/off state is the "Active" switch in the toolbar
+  // (docs/state-toggles.md: a persistent state is a switch, never a
+  // Suspend/Resume verb swap). Pausing a RUNNING run stays a one-shot action.
+  const primary_control_label = run_status === "running" && !run_paused ? "Pause" : "Resume"; // state-toggle-lint: allow pausing a RUNNING run is a one-shot action, not a setting
   const primary_control_action: "pause" | "resume" = is_scheduled_run ? (run_paused ? "resume" : "pause") : primary_control_label === "Pause" ? "pause" : "resume";
   const primary_control_disabled = is_scheduled_run
     ? !run_id.trim() || connecting || resuming || run_terminal
     : !run_id.trim() || connecting || resuming || run_terminal || (primary_control_action === "resume" && !run_paused);
+
+  const schedule_active_reason = !run_id.trim() ? "No run selected." : run_terminal ? "The schedule has ended." : null;
 
   const can_run_scheduled_now =
     is_scheduled_run &&
@@ -4640,11 +4648,6 @@ export function App(): React.ReactElement {
 
   // Navigation drawer (< 1024 px): state, focus trap, inert shell — nav_drawer.ts.
 
-  // Single-pane Observe: a selected run shows the run; no run shows the list.
-  useEffect(() => {
-    set_observe_pane(run_id.trim() ? "run" : "runs");
-  }, [run_id]);
-
   /** On a phone the run view is below its toolbar: bring the tab strip + content to the top. */
   function reveal_observe_viewer(): void {
     if (!single_pane) return;
@@ -5081,19 +5084,7 @@ export function App(): React.ReactElement {
                   </div>
                   {discovery_error ? <div className="warn_callout">{discovery_error}</div> : null}
                   <div className="settings_row">
-                    <div className="settings_row_main">
-                      <div className="settings_row_title">Auto-connect on load</div>
-                      <div className="settings_row_help">Reuse the browser session automatically when the app opens.</div>
-                    </div>
-                    <div className="settings_row_actions">
-                      <select
-                        value={settings.auto_connect_gateway ? "on" : "off"}
-                        onChange={(e) => set_settings((s) => ({ ...s, auto_connect_gateway: e.target.value === "on" }))}
-                      >
-                        <option value="on">On</option>
-                        <option value="off">Off</option>
-                      </select>
-                    </div>
+                    <AutoConnectSwitch checked={settings.auto_connect_gateway} onChange={(next) => set_settings((s) => ({ ...s, auto_connect_gateway: next }))} />
                   </div>
                   <details className="settings_advanced">
                     <summary>Advanced: direct dev connection (bearer token, cross-origin)</summary>
@@ -5174,22 +5165,21 @@ export function App(): React.ReactElement {
                       {assistant_skills.map((sk) => {
                         const on = settings.assistant_skill_names.includes(sk.name);
                         return (
-                          <label key={sk.name} className={`settings_choice ${on ? "on" : ""}`} title={sk.description || sk.name}>
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              onChange={(e) =>
-                                set_settings((s) => ({
-                                  ...s,
-                                  assistant_skill_names: e.target.checked
-                                    ? Array.from(new Set([...s.assistant_skill_names, sk.name]))
-                                    : s.assistant_skill_names.filter((n) => n !== sk.name),
-                                }))
-                              }
-                            />
-                            <span className="settings_choice_name">{sk.name}{sk.version ? <em> v{sk.version}</em> : null}</span>
-                            {sk.description ? <span className="settings_choice_desc">{sk.description}</span> : null}
-                          </label>
+                          <AssistantSkillSwitch
+                            key={sk.name}
+                            name={sk.name}
+                            version={sk.version}
+                            description={sk.description}
+                            checked={on}
+                            onChange={(next) =>
+                              set_settings((s) => ({
+                                ...s,
+                                assistant_skill_names: next
+                                  ? Array.from(new Set([...s.assistant_skill_names, sk.name]))
+                                  : s.assistant_skill_names.filter((n) => n !== sk.name),
+                              }))
+                            }
+                          />
                         );
                       })}
                     </div>
@@ -5678,7 +5668,7 @@ export function App(): React.ReactElement {
 
         {page === "observe" ? (
           <div className="page observe_page">
-            <div className={`observatory_layout observe_pane_${single_pane ? observe_pane : "both"}`}>
+            <div className={`observatory_layout${observe_list_open ? "" : " list_collapsed"}`}>
               <WorkflowRunNavigator
                 sections={observe_sections}
                 selected_run_id={run_id}
@@ -5697,9 +5687,10 @@ export function App(): React.ReactElement {
                 on_group_by={set_observe_group_by}
                 on_refresh={() => void refresh_runs()}
                 on_select={(rid, root) => {
-                  set_observe_pane("run");
                   void attach_to_run(rid, { root_run_id: root || rid });
+                  reveal_observe_viewer();
                 }}
+                list={{ open: observe_list_open, on_toggle: toggle_observe_list }}
               />
               <div className="observatory_main">
             {/* ── Observe toolbar ──
@@ -5708,12 +5699,6 @@ export function App(): React.ReactElement {
               * duplicate RunPicker dropdown is gone. */}
             <div className="observe_toolbar">
               <div className="observe_toolbar_row">
-                {single_pane ? (
-                  <button type="button" className="btn observe_back_btn" onClick={() => set_observe_pane("runs")} aria-label="Back to the run list" title="Back to the run list">
-                    <Icon name="list" size={14} />
-                    <span>Runs</span>
-                  </button>
-                ) : null}
                 {run_id.trim() ? (
                   <div className="observe_run_identity" title={run_id.trim()}>
                     <span className="observe_run_name">
@@ -5740,22 +5725,41 @@ export function App(): React.ReactElement {
                   * buttons in the empty state reads as broken, not as guidance. */}
                 {run_id.trim() ? (
                   <>
-	                  <button
-	                    className="btn"
-	                    onClick={() => {
-	                      if (primary_control_action === "pause") {
-	                        set_run_control_type("pause");
-	                        set_run_control_reason("");
-	                        set_run_control_error("");
-	                        set_run_control_open(true);
-	                        return;
-	                      }
-	                      void submit_run_control("resume");
-	                    }}
-	                    disabled={primary_control_disabled}
-	                  >
-	                    {primary_control_label}
-	                  </button>
+	                  {is_scheduled_run ? (
+	                    <ScheduleActiveSwitch
+	                      active={!run_paused}
+	                      unavailableReason={schedule_active_reason}
+	                      busy={connecting || resuming}
+	                      onChange={(next) => {
+	                        if (!next) {
+	                          // Switching a schedule off asks for a reason first (the modal confirms).
+	                          set_run_control_type("pause");
+	                          set_run_control_reason("");
+	                          set_run_control_error("");
+	                          set_run_control_open(true);
+	                          return;
+	                        }
+	                        void submit_run_control("resume");
+	                      }}
+	                    />
+	                  ) : (
+	                    <button
+	                      className="btn"
+	                      onClick={() => {
+	                        if (primary_control_action === "pause") {
+	                          set_run_control_type("pause");
+	                          set_run_control_reason("");
+	                          set_run_control_error("");
+	                          set_run_control_open(true);
+	                          return;
+	                        }
+	                        void submit_run_control("resume");
+	                      }}
+	                      disabled={primary_control_disabled}
+	                    >
+	                      {primary_control_label}
+	                    </button>
+	                  )}
 	                  {can_run_scheduled_now ? (
 	                    <button
 	                      className="btn primary"
@@ -5929,8 +5933,8 @@ export function App(): React.ReactElement {
                         <button className={`seg_btn ${ledger_view === "cycles" ? "active" : ""}`} onClick={() => set_ledger_view("cycles")}>Cycles</button>
 	                  </div>
                       {ledger_view === "steps" ? (
-                        <button className={`seg_action ${ledger_condensed ? "active" : ""}`} onClick={() => set_ledger_condensed((v) => !v)} title={ledger_condensed ? "Showing condensed view" : "Showing all steps"}>
-                          {ledger_condensed ? "Condensed" : "All"}
+                        <button className={`seg_action ${ledger_condensed ? "active" : ""}`} aria-pressed={ledger_condensed} onClick={() => set_ledger_condensed((v) => !v)} title={ledger_condensed ? "Condensed: only the key steps are shown" : "Condensed is off: every step is shown"}>
+                          Condensed
                         </button>
                       ) : (
                           <select
@@ -5981,10 +5985,10 @@ export function App(): React.ReactElement {
                   {/* Graph inline controls — only shown when graph tab is active */}
                   {right_tab === "graph" ? (
                     <div className="tab_bar_controls">
-                      <button className={`seg_action ${graph_show_subflows ? "active" : ""}`} onClick={() => set_graph_show_subflows((v) => !v)}>
+                      <button className={`seg_action ${graph_show_subflows ? "active" : ""}`} aria-pressed={graph_show_subflows} onClick={() => set_graph_show_subflows((v) => !v)}>
                         Subflows
                       </button>
-                      <button className={`seg_action ${graph_highlight_path ? "active" : ""}`} onClick={() => set_graph_highlight_path((v) => !v)}>
+                      <button className={`seg_action ${graph_highlight_path ? "active" : ""}`} aria-pressed={graph_highlight_path} onClick={() => set_graph_highlight_path((v) => !v)}>
                         Path
                       </button>
                       {graph_flow_options.length ? (
@@ -6556,16 +6560,11 @@ export function App(): React.ReactElement {
             </div>
 
             <div className="field">
-              <label>Apply</label>
-              <label style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={schedule_edit_apply_immediately}
-                  onChange={(e) => set_schedule_edit_apply_immediately(Boolean(e.target.checked))}
-                  disabled={connecting || schedule_edit_submitting}
-                />
-                Apply immediately (recompute next run from now if waiting)
-              </label>
+              <ApplyImmediatelySwitch
+                checked={schedule_edit_apply_immediately}
+                busy={connecting || schedule_edit_submitting}
+                onChange={set_schedule_edit_apply_immediately}
+              />
             </div>
           </Modal>
         ) : null}
@@ -6732,7 +6731,6 @@ export function App(): React.ReactElement {
                   onClick={() => {
                     set_right_tab("ledger");
                     set_page("observe");
-                    set_observe_pane("run");
                     reveal_observe_viewer();
                     if (wait_key) set_dismissed_wait_key(wait_key);
                   }}

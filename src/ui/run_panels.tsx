@@ -13,6 +13,7 @@ import React, { useState } from "react";
 import { type LedgerRecordItem } from "@abstractframework/monitor-flow";
 import { JsonViewer as SharedJsonViewer, Markdown } from "@abstractframework/panel-chat";
 import { Icon } from "@abstractframework/ui-kit";
+import { ListDisclosure } from "./list_disclosure";
 import { extract_wait_from_record } from "../lib/runtime_extractors";
 import { type WaitState } from "../lib/types";
 import {
@@ -121,8 +122,11 @@ export function WorkflowRunNavigator(props: {
   on_group_by: (value: "status" | "workflow" | "session") => void;
   on_refresh: () => void;
   on_select: (run_id: string, root_run_id?: string) => void;
+  /** The list disclosure (DESIGN §12); absent = open, no toggle. */
+  list?: { open: boolean; on_toggle: () => void };
 }): React.ReactElement {
   const selected = props.selected_run_id.trim();
+  const open = props.list ? props.list.open : true;
   const root_selected = props.root_run_id.trim() || selected;
   const active_count = props.sections.reduce(
     (count, section) =>
@@ -135,12 +139,24 @@ export function WorkflowRunNavigator(props: {
   );
 
   return (
-    <aside className="observatory_sidebar pane">
+    <aside className={`observatory_sidebar pane${open ? "" : " list_collapsed"}`}>
       <div className="run_nav_header pane_header">
-        <span className="pane_title">Runs</span>
-        <span className="pane_count">
-          {props.total_runs.toLocaleString()} runs • {active_count.toLocaleString()} active
-        </span>
+        {props.list ? (
+          <ListDisclosure
+            open={open}
+            on_toggle={props.list.on_toggle}
+            controls="run_nav_controls run_nav_tree"
+            title="Runs"
+            count={`${props.total_runs.toLocaleString()} runs • ${active_count.toLocaleString()} active`}
+          />
+        ) : (
+          <>
+            <span className="pane_title">Runs</span>
+            <span className="pane_count">
+              {props.total_runs.toLocaleString()} runs • {active_count.toLocaleString()} active
+            </span>
+          </>
+        )}
         <span className="pane_spacer" />
         <button className="btn btn_icon" onClick={props.on_refresh} disabled={props.loading} title="Refresh workflow runs">
           <Icon name="refresh" size={14} />
@@ -148,7 +164,7 @@ export function WorkflowRunNavigator(props: {
         </button>
       </div>
 
-      <div className="run_nav_controls">
+      <div className="run_nav_controls" id="run_nav_controls" hidden={!open}>
         <input
           value={props.search}
           onChange={(e) => props.on_search(e.target.value)}
@@ -175,7 +191,7 @@ export function WorkflowRunNavigator(props: {
         </div>
       </div>
 
-      <div className="run_tree">
+      <div className="run_tree" id="run_nav_tree" hidden={!open}>
         {!props.sections.length ? (
           props.connected ? (
             <div className="run_tree_empty">No runs match the current filters.</div>
