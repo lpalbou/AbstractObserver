@@ -111,7 +111,7 @@ All pages share the same gateway connection settings.
 - **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/edit (task, interval, context, tools — the row's Edit opens the form at once)/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
-- **Responsive layout**: phones, tablets and small windows get a navigation drawer, one pane at a time on Observe, bottom-sheet dialogs and touch-sized controls (`docs/getting-started.md` → "Responsive layout")
+- **Responsive layout**: phones, tablets and small windows get a navigation drawer, full-width lists and details with collapsible lists, bottom-sheet dialogs and touch-sized controls (`docs/getting-started.md` → "Responsive layout")
 - **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
 
 ## Documentation
