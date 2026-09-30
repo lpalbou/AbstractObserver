@@ -862,7 +862,7 @@ export function App(): React.ReactElement {
     (fn) => automations_ctl.subscribe(fn),
     () => automations_ctl.state,
   );
-  // "Email isn't set up — open My email": the gateway console's Users tab, in a new tab.
+  // "Connect a mailbox first — open My email": the gateway console's Users tab, in a new tab.
   const my_email_url = my_email_console_url(settings.gateway_url);
   const open_my_email = my_email_url
     ? () => {

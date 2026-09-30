@@ -389,7 +389,7 @@ export type PanelHostHandlers = {
   on_open_run(run_id: string): void;
   /** Browse a run's folder (the automation id = its controller run). Absent: no folder controls. */
   on_open_workspace?(run_id: string): void;
-  /** Opens the gateway console's My email ("Email isn't set up — open My email" in the Edit form). */
+  /** Opens the gateway console's My email ("Connect a mailbox first — open My email" in the Edit form). */
   on_open_my_email?(): void;
   /** Credentialed gateway request (`GatewayClient.fetch_gateway`): the panel opens a run's ledger and
    * artifacts through it (panel-chat `openGatewayResource`, safe tab-open), never as raw links. */

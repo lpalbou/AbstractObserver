@@ -34,6 +34,8 @@ AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
 - An unavailable switch always says why: the automation row's and the Observe toolbar's "Active" switches show
   their reason ("The automation has ended.", "Archived: history is kept, nothing runs.") as text next to the
   switch on touch screens; with a mouse it is the tooltip. docs/automations.md describes the Active switch.
+- Launch → Automate and the Edit form say "Connect a mailbox first — open My email" when no mailbox is usable,
+  and the email section is titled "Mailbox" (ui-kit 0.3.3 wording).
 
 ## [0.4.0] - 2026-09-30
 

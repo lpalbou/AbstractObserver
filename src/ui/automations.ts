@@ -637,7 +637,7 @@ export type AutomationsState = {
   /**
    * GET /me/email, re-read with every list refresh (and when Launch → Automate
    * opens). null = unknown (not read yet, refused or failed): the email options
-   * then say "Email isn't set up — open My email".
+   * then say "Connect a mailbox first — open My email".
    */
   email_status: MyEmailStatus | null;
 };
