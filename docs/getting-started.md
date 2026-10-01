@@ -52,10 +52,48 @@ requests or answer questions inline, or click any card to open the run.
 Go to **Observe** (or click a Board card):
 - pick a run from **Runs**
 - inspect:
-  - **Ledger** (durable log; replay-first + streaming)
-  - **Graph** (flow visualization from bundle/workflow flow data)
-  - **Digest** (derived stats + summary)
+  - **Ledger** (the run view, opened by default; replay-first + streaming)
+  - **Flow** (flow visualization from bundle/workflow flow data)
   - **Ask** (ask about this run; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
+
+### The run view
+
+The **Ledger** tab opens with a short summary of the run: its status, duration, LLM calls, tokens and tool
+calls (with how many failed), then the outcome in one paragraph (the error, or the final answer; **More** shows
+the rest of a long answer), and **Artifacts** (this run's artifacts in System), **Folder** (the run's workspace)
+and **Answer** (when the run waits for you).
+
+Below it, the run's steps, grouped by **agent cycle**: one LLM call and the tool calls that follow it. Each step
+is one row, collapsed: its kind (LLM call, Tools, Subflow, Event, Question, Answer…), node, status, duration and
+one line of substance (an LLM call: model and tokens in/out; tools: the tool and its arguments; an event: its
+name; a subflow: the workflow and the child run id). Click a row to expand it:
+
+- an **LLM call** shows **System**, **Messages** (the turns as sent to the provider), **Tools offered**,
+  **Response** (text and the tool calls it asked for), **Reasoning** and **Raw JSON**, each folded with its own
+  **Copy**;
+- **Tools** shows the **Calls** (arguments) and the **Results** (output, or the error of a failed call);
+- other steps show their payload, their result and the raw record.
+
+The ledger stores a long prompt once: the record written when a step finishes points at the step's start record
+(`$slim`). The Observer rebuilds the body from that start record and checks its checksum, so you always read the
+real prompt. When the start record is not in the loaded ledger, the step says so once ("Prompt body not kept:
+<reason>"); when the checksum differs, it says the rebuilt prompt may differ from what was sent.
+
+Controls:
+
+- **Cycles / Steps**: grouped by cycle, or one chronological list.
+- **All / LLM calls / Tools / Failed**: show only that kind of step. A tool step is failed when one of its tool
+  results failed.
+- **All steps** (off by default): also list the housekeeping steps: status and progress events, waits,
+  subworkflow resumes, memory bookkeeping, model loads and steps with no effect. A failed step is always shown.
+  The table lives in `src/ui/run_step_kinds.ts`.
+- **Search steps**: keeps the steps whose card text or expanded content (prompts, answers, tool arguments and
+  results) contains the text, ignoring case.
+- With subruns, a run picker chooses whose steps are listed (by default the one with the most LLM calls).
+- **Copy JSONL** (top right) copies the raw ledger.
+
+The layout, the filter, **All steps** and the search are kept in the address (`#run/<run_id>?only=llm&q=…`), so a
+link or a reload shows the same view.
 
 ### Link to one run
 
@@ -126,7 +164,7 @@ AbstractObserver works on phones, tablets and desktop windows of any size:
   Queues and Runs, each Board column) has a header button with a chevron that hides it and gives the detail the
   whole screen; lists are open by default and your choice is remembered in this browser.
 - **On touch screens** buttons, tabs, rows and fields are at least 44 px tall, text fields use 16 px text (iOS
-  Safari does not zoom when you focus them), and reading text (ledger payloads, Story entries, dialog text)
+  Safari does not zoom when you focus them), and reading text (ledger payloads, step cards, dialog text)
   is 14 px.
 - **On wide windows** (1800 px and more) Settings uses two columns and the Observe run list is wider.
 

@@ -9,6 +9,25 @@
   version. Bundles your admin made unavailable are no longer offered; runs of them still show by name.
 - **Release:** a `v*` tag now also gets a GitHub release page carrying its CHANGELOG section (job
   `github-release`), like the framework's other packages. The page for `v0.5.0` was created by hand.
+- **Observe: the run opens on the run view** (the Ledger tab), grouped by agent cycle. The **Story** tab is
+  removed; what only it showed stays above the steps as one summary: status, duration, LLM calls, tokens, tool
+  calls (and how many failed), the outcome in one paragraph (the error, or the final answer, or the saved
+  summary), and **Artifacts**, **Folder** and **Answer** (when the run waits for you). Session files, the metric
+  tiles, the chronology and the Summarize button are gone (artifacts stay reachable from System).
+- **Steps are collapsed cards**: kind, node, status, duration and one line (model + tokens in/out, the tool and
+  its arguments, the event name, the child run). Expanded, an LLM call shows System, Messages (as sent),
+  Tools offered, Response, Reasoning and Raw JSON, each foldable with Copy; a tool step shows its calls and
+  results. Replaces the old ledger cards and the cycles panel.
+- **Prompts stored once are shown in full**: a `$slim` placeholder in a finished step is rebuilt from the step's
+  start record in the same ledger and checked against its sha256. When the start record is not loaded the step
+  says "Prompt body not kept: <reason>"; when the checksum differs it says so.
+- **Housekeeping hidden by default**: status/progress events, waits, subworkflow resumes, memory bookkeeping,
+  model loads and effect-less steps appear only with the **All steps** switch (one table,
+  `src/ui/run_step_kinds.ts`). A failed step is always shown; a tool step with a failed result counts as failed.
+- **Filters and search**: All / LLM calls / Tools / Failed, and a search over card text and expanded content
+  (plain text, any case). The view, filter, All steps and search are kept in the address
+  (`#run/<run_id>?only=llm&all=1&q=…`); `#run/<run_id>` links keep working.
+- The run picker counts one LLM call per call (its start and end records were counted twice).
 
 ## [0.5.0] - 2026-10-01
 

@@ -122,16 +122,18 @@ describe("AbstractObserver styles", () => {
     expect(css).toMatch(/\.mc_status\s*\{[^}]*padding:\s*2px 8px/);
   });
 
-  it("observe ships exactly FOUR content tabs (Story/Ledger/Flow/Ask)", () => {
+  it("observe ships exactly THREE content tabs (Ledger/Flow/Ask): Story is gone, the run opens on the Ledger", () => {
     // The nine-tab strip was the operator's core "not simple enough"
-    // complaint; the collapse to four is pinned at the source level.
+    // complaint (collapsed to four); 2026-10-01 13:05 the Story went too
+    // ("unreadable"): the run opens on the Ledger's cycles view.
     const app = readFileSync(new URL("./app.tsx", import.meta.url), "utf8");
-    expect(app).toMatch(/type ObserveRightTab = "overview" \| "ledger" \| "graph" \| "chat";/);
-    for (const label of [">Story<", ">Ledger<", ">Flow<", ">Ask<"]) {
+    expect(app).toMatch(/type ObserveRightTab = "ledger" \| "graph" \| "chat";/);
+    expect(app).toMatch(/useState<ObserveRightTab>\("ledger"\)/);
+    for (const label of [">Ledger<", ">Flow<", ">Ask<"]) {
       expect(app.replace(/\s+/g, "")).toContain(label.replace(/\s+/g, ""));
     }
-    for (const dead of ["Timeline</button>", "Replay</button>", "Digest</button>", "Attachments</button>", "Providers</button>"]) {
-      expect(app).not.toContain(dead);
+    for (const dead of [">Story<", "Timeline</button>", "Replay</button>", "Digest</button>", "Attachments</button>", "Providers</button>", "RunOverviewPanel", "AgentCyclesPanel"]) {
+      expect(app.replace(/\s+/g, "")).not.toContain(dead);
     }
   });
 
@@ -150,7 +152,7 @@ describe("responsive breakpoints (DESIGN.md: 480 / 768 / 1024 / 1440 + max-heigh
   it("every width/height media query in the app sheets uses a named breakpoint", () => {
     const allowed = new Set(["max-width: 479.98px", "max-width: 767.98px", "max-width: 1023.98px", "max-width: 1439.98px", "min-width: 1440px", "min-width: 1800px", "max-height: 500px"]);
     const bad: string[] = [];
-    for (const f of ["styles.css", "board.css", "observe.css", "system.css", "forms.css", "automations.css", "usability.css", "responsive.css"]) {
+    for (const f of ["styles.css", "board.css", "observe.css", "system.css", "forms.css", "automations.css", "usability.css", "responsive.css", "run_steps.css"]) {
       const css = readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
       for (const m of css.matchAll(/\((max|min)-(width|height):\s*([\d.]+px)\)/g)) {
         const q = `${m[1]}-${m[2]}: ${m[3]}`;
@@ -175,7 +177,7 @@ describe("responsive breakpoints (DESIGN.md: 480 / 768 / 1024 / 1440 + max-heigh
 describe("touch selects (one rule set: the kit's appearance-none select with its chevron)", () => {
   it("no app select rule uses the background shorthand, and the app never pins a select height", () => {
     const bad: string[] = [];
-    for (const f of ["styles.css", "board.css", "observe.css", "system.css", "forms.css", "automations.css", "usability.css", "responsive.css"]) {
+    for (const f of ["styles.css", "board.css", "observe.css", "system.css", "forms.css", "automations.css", "usability.css", "responsive.css", "run_steps.css"]) {
       const css = readFileSync(new URL(`./${f}`, import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
       for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
         const sel = m[1];

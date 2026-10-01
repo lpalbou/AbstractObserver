@@ -32,7 +32,8 @@ export function run_hash(run_id: string): string {
 export function run_id_from_run_hash(hash: string): string {
   const h = String(hash || "");
   if (!h.startsWith(RUN_HASH_PREFIX)) return "";
-  const raw = h.slice(RUN_HASH_PREFIX.length);
+  //  carries the run view's state (run_steps.ts run_view_hash); the id ends at "?".
+  const raw = h.slice(RUN_HASH_PREFIX.length).split("?")[0];
   if (!raw || raw.includes("/")) return "";
   try {
     return decodeURIComponent(raw).trim();

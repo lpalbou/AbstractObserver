@@ -192,7 +192,7 @@ See `docs/configuration.md` for the full list.
 All pages share the same gateway connection settings.
 
 - **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
-- **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS)
+- **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, the run view (a one-paragraph summary, then the steps grouped by agent cycle as collapsed cards that expand to the full prompt and answer; LLM calls / Tools / Failed filters, an All steps switch for housekeeping, search), graph, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS)
 - **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
@@ -281,8 +281,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.11",
-    "@abstractframework/panel-chat": "^0.2.1",
-    "@abstractframework/ui-kit": "^0.3.2",
+    "@abstractframework/panel-chat": "^0.2.2",
+    "@abstractframework/ui-kit": "^0.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -496,6 +496,29 @@ export default defineConfig({
 ## CHANGELOG.md
 
 # Changelog
+
+## [Unreleased]
+
+### Changed
+- **Observe: the run opens on the run view** (the Ledger tab), grouped by agent cycle. The **Story** tab is
+  removed; what only it showed stays above the steps as one summary: status, duration, LLM calls, tokens, tool
+  calls (and how many failed), the outcome in one paragraph (the error, or the final answer, or the saved
+  summary), and **Artifacts**, **Folder** and **Answer** (when the run waits for you). Session files, the metric
+  tiles, the chronology and the Summarize button are gone (artifacts stay reachable from System).
+- **Steps are collapsed cards**: kind, node, status, duration and one line (model + tokens in/out, the tool and
+  its arguments, the event name, the child run). Expanded, an LLM call shows System, Messages (as sent),
+  Tools offered, Response, Reasoning and Raw JSON, each foldable with Copy; a tool step shows its calls and
+  results. Replaces the old ledger cards and the cycles panel.
+- **Prompts stored once are shown in full**: a `$slim` placeholder in a finished step is rebuilt from the step's
+  start record in the same ledger and checked against its sha256. When the start record is not loaded the step
+  says "Prompt body not kept: <reason>"; when the checksum differs it says so.
+- **Housekeeping hidden by default**: status/progress events, waits, subworkflow resumes, memory bookkeeping,
+  model loads and effect-less steps appear only with the **All steps** switch (one table,
+  `src/ui/run_step_kinds.ts`). A failed step is always shown; a tool step with a failed result counts as failed.
+- **Filters and search**: All / LLM calls / Tools / Failed, and a search over card text and expanded content
+  (plain text, any case). The view, filter, All steps and search are kept in the address
+  (`#run/<run_id>?only=llm&all=1&q=…`); `#run/<run_id>` links keep working.
+- The run picker counts one LLM call per call (its start and end records were counted twice).
 
 ## [0.5.0] - 2026-10-01
 
@@ -1127,6 +1150,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Run the UI locally** → `getting-started.md`
 - **Deploy behind a reverse proxy (same-origin)** → `configuration.md` (recommended pattern)
 - **Connect to a remote gateway (cross-origin/CORS)** → `configuration.md` + `troubleshooting.md`
+- **Read a run: steps by agent cycle, full prompts and answers, filters, search** → `getting-started.md` → "The run view"
 - **Create and manage automations (scheduled runs)** → `automations.md`
 - **See which gateway endpoints are required for each UI feature** → `api.md`
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
@@ -1236,10 +1260,48 @@ requests or answer questions inline, or click any card to open the run.
 Go to **Observe** (or click a Board card):
 - pick a run from **Runs**
 - inspect:
-  - **Ledger** (durable log; replay-first + streaming)
-  - **Graph** (flow visualization from bundle/workflow flow data)
-  - **Digest** (derived stats + summary)
+  - **Ledger** (the run view, opened by default; replay-first + streaming)
+  - **Flow** (flow visualization from bundle/workflow flow data)
   - **Ask** (ask about this run; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
+
+### The run view
+
+The **Ledger** tab opens with a short summary of the run: its status, duration, LLM calls, tokens and tool
+calls (with how many failed), then the outcome in one paragraph (the error, or the final answer; **More** shows
+the rest of a long answer), and **Artifacts** (this run's artifacts in System), **Folder** (the run's workspace)
+and **Answer** (when the run waits for you).
+
+Below it, the run's steps, grouped by **agent cycle**: one LLM call and the tool calls that follow it. Each step
+is one row, collapsed: its kind (LLM call, Tools, Subflow, Event, Question, Answer…), node, status, duration and
+one line of substance (an LLM call: model and tokens in/out; tools: the tool and its arguments; an event: its
+name; a subflow: the workflow and the child run id). Click a row to expand it:
+
+- an **LLM call** shows **System**, **Messages** (the turns as sent to the provider), **Tools offered**,
+  **Response** (text and the tool calls it asked for), **Reasoning** and **Raw JSON**, each folded with its own
+  **Copy**;
+- **Tools** shows the **Calls** (arguments) and the **Results** (output, or the error of a failed call);
+- other steps show their payload, their result and the raw record.
+
+The ledger stores a long prompt once: the record written when a step finishes points at the step's start record
+(`$slim`). The Observer rebuilds the body from that start record and checks its checksum, so you always read the
+real prompt. When the start record is not in the loaded ledger, the step says so once ("Prompt body not kept:
+<reason>"); when the checksum differs, it says the rebuilt prompt may differ from what was sent.
+
+Controls:
+
+- **Cycles / Steps**: grouped by cycle, or one chronological list.
+- **All / LLM calls / Tools / Failed**: show only that kind of step. A tool step is failed when one of its tool
+  results failed.
+- **All steps** (off by default): also list the housekeeping steps: status and progress events, waits,
+  subworkflow resumes, memory bookkeeping, model loads and steps with no effect. A failed step is always shown.
+  The table lives in `src/ui/run_step_kinds.ts`.
+- **Search steps**: keeps the steps whose card text or expanded content (prompts, answers, tool arguments and
+  results) contains the text, ignoring case.
+- With subruns, a run picker chooses whose steps are listed (by default the one with the most LLM calls).
+- **Copy JSONL** (top right) copies the raw ledger.
+
+The layout, the filter, **All steps** and the search are kept in the address (`#run/<run_id>?only=llm&q=…`), so a
+link or a reload shows the same view.
 
 ### Link to one run
 
@@ -1310,7 +1372,7 @@ AbstractObserver works on phones, tablets and desktop windows of any size:
   Queues and Runs, each Board column) has a header button with a chevron that hides it and gives the detail the
   whole screen; lists are open by default and your choice is remembered in this browser.
 - **On touch screens** buttons, tabs, rows and fields are at least 44 px tall, text fields use 16 px text (iOS
-  Safari does not zoom when you focus them), and reading text (ledger payloads, Story entries, dialog text)
+  Safari does not zoom when you focus them), and reading text (ledger payloads, step cards, dialog text)
   is 14 px.
 - **On wide windows** (1800 px and more) Settings uses two columns and the Observe run list is wider.
 

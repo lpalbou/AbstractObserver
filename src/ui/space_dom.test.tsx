@@ -26,6 +26,8 @@ import { MissionControlPage } from "./mission_control";
 import { WorkflowRunNavigator } from "./run_panels";
 import { RuntimeActivityConsole } from "./runtime_page";
 import type { RunSummary } from "./run_status";
+import { DEFAULT_RUN_VIEW_STATE, build_run_steps } from "./run_steps";
+import { RunStepsView, StepCard } from "./run_steps_view";
 
 const ROOT = resolve(__dirname, "../..");
 const noop = () => {};
@@ -101,8 +103,15 @@ function screens(): Record<string, string> {
     />,
   );
   // The run view's containers, with the class names app.tsx renders (asserted below).
-  const steps = Array.from({ length: 30 }, (_, i) => `<div class="lc"><div class="lc_header"><span class="lc_title">tool ${i}</span></div><div class="lc_preview">${LONG}</div></div>`).join("");
-  const observe = `<div class="page observe_page"><div class="observatory_layout">${nav}<div class="observatory_main"><div class="observe_toolbar"><div class="observe_toolbar_row">run</div></div><div class="card panel_card card_scroll observe_viewer observe_viewer_full"><div class="log log_scroll">${steps}</div></div></div></div></div>`;
+  // The REAL run view over a recorded ledger: the step list with every step, plus expanded LLM/tool cards.
+  const fix = JSON.parse(readFileSync(resolve(__dirname, "__fixtures__", "runview_agent_ledger.json"), "utf8"));
+  const ledger = (fix.child as any[]).map((record, i) => ({ run_id: fix.child_run_id, cursor: i + 1, record }));
+  const run_steps = build_run_steps(ledger, fix.child_run_id);
+  const steps =
+    renderToStaticMarkup(
+      <RunStepsView items={ledger} run_id={fix.child_run_id} run_options={[fix.child_run_id]} run_llm_counts={{}} on_select_run={noop} state={{ ...DEFAULT_RUN_VIEW_STATE, all_steps: true }} on_state={noop} node_label={(_r, n) => n} on_copy={noop} />,
+    ) + run_steps.filter((x) => x.kind !== "event").map((x) => renderToStaticMarkup(<StepCard step={x} node_label={x.node_id} open on_toggle={noop} on_copy={noop} />)).join("");
+  const observe = `<div class="page observe_page"><div class="observatory_layout">${nav}<div class="observatory_main"><div class="observe_toolbar"><div class="observe_toolbar_row">run</div></div><div class="card panel_card card_scroll observe_viewer observe_viewer_full"><div class="rs_page">${steps}</div></div></div></div></div>`;
   const system = `<div class="page runtime_page">${renderToStaticMarkup(
     <RuntimeActivityConsole
       gateway_connected
@@ -189,7 +198,7 @@ describe("phones (390 px): one page scroll on every list + detail screen (render
   it("the run view skeleton uses the class names app.tsx renders", () => {
     const app = readFileSync(resolve(__dirname, "app.tsx"), "utf8");
     expect(app).toContain('className="card panel_card card_scroll observe_viewer observe_viewer_full"');
-    expect(app).toContain('<div className="log log_scroll">');
+    expect(app).toContain('<div className="rs_page">');
     expect(app).toContain('<div className="page observe_page">');
   });
 
