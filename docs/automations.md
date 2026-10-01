@@ -40,7 +40,7 @@ is selected:
 Switch to **Automate**, or use **+ New automation** on the Automations page,
 which opens Launch in Automate mode. The address `#launch/automate` opens it
 directly (bookmarkable; `#launch` opens Run once, `#automations` the
-Automations page).
+Automations page, `#run/<run_id>` one run in Observe).
 
 ### What
 

@@ -291,6 +291,19 @@
   font-size: var(--t-small);
 }
 
+/* A #run/<id> link the gateway does not show this account: one plain sentence
+ * in place of "No run selected", wrapping (a uuid breaks anywhere on phones). */
+.observe_page .observe_run_link_missing {
+  flex: 1 1 100%;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: max(14px, var(--t-body));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  padding-left: 10px;
+  border-left: 3px solid var(--error);
+}
+
 /* Icon-only buttons go ghost (the clear ⨯, navigator refresh, JSON copy). */
 .observe_page .btn.btn_icon {
   background: transparent;

@@ -56,6 +56,7 @@ import {
 } from "@abstractframework/ui-kit";
 
 import type { RunSummary } from "./run_status";
+import { run_id_from_run_hash } from "../lib/app_paths";
 
 // --- launch target -------------------------------------------------------------
 
@@ -168,8 +169,15 @@ export function my_email_console_url(gateway_url: string | null | undefined): st
 /** Deep link to Launch in Automate mode (the Automations page's "+ New automation"). */
 export const LAUNCH_AUTOMATE_HASH = "#launch/automate";
 
-/** `#launch`, `#launch/once`, `#launch/automate`, `#automations` → the page (and Launch mode); anything else → null. */
-export function parse_app_hash(hash: string): { page: "launch"; mode: LaunchMode } | { page: "automations" } | null {
+/**
+ * `#launch`, `#launch/once`, `#launch/automate`, `#automations` → the page (and Launch mode);
+ * `#run/<run_id>` → that run in Observe (app_paths RUN_HASH_PREFIX); anything else → null.
+ */
+export function parse_app_hash(
+  hash: string,
+): { page: "launch"; mode: LaunchMode } | { page: "automations" } | { page: "run"; run_id: string } | null {
+  const run_id = run_id_from_run_hash(String(hash || ""));
+  if (run_id) return { page: "run", run_id };
   const h = String(hash || "").replace(/^#\/?/, "");
   if (h === "automations") return { page: "automations" };
   const m = /^launch(?:\/(once|automate))?$/.exec(h);

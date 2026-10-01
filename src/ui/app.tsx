@@ -34,7 +34,7 @@ import {
 import { AppAssistantDrawer } from "./app_assistant";
 import { use_nav_drawer } from "./nav_drawer";
 import { RunChatReplayNote, run_chat_history, type RunChatHistoryReport } from "./run_chat";
-import { REVEAL_PATH, run_id_from_location } from "../lib/app_paths";
+import { REVEAL_PATH, run_id_from_location, run_link_missing_message } from "../lib/app_paths";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import { ApplyImmediatelySwitch, AssistantSkillSwitch, AutoConnectSwitch, ScheduleActiveSwitch } from "./state_switches";
@@ -497,6 +497,8 @@ export function App(): React.ReactElement {
   const [run_id, set_run_id] = useState<string>("");
   const [root_run_id, set_root_run_id] = useState<string>("");
   const [pending_url_run_id, set_pending_url_run_id] = useState<string>(() => parse_run_id_from_url());
+  /** A `#run/<id>` link whose run the gateway does not show this account (unknown, or another user's). */
+  const [run_link_missing, set_run_link_missing] = useState<string>("");
   const [flow_id, set_flow_id] = useState<string>("");
   const [bundle_id, set_bundle_id] = useState<string>("");
   const [input_data_text, set_input_data_text] = useState<string>("{}");
@@ -866,11 +868,16 @@ export function App(): React.ReactElement {
   useEffect(() => {
     if (page === "launch" && launch_mode === "automate" && gateway_connected) void automations_ctl.load_email_status();
   }, [page, launch_mode, gateway_connected, automations_ctl]);
-  // Deep links: #launch/automate, #launch/once, #launch, #automations.
+  // Deep links: #launch/automate, #launch/once, #launch, #automations, #run/<run_id>.
   useEffect(() => {
     const apply = () => {
       const target = parse_app_hash(window.location.hash);
       if (!target) return;
+      // #run/<run_id> while the app is open: the same path as a link opened in a new tab.
+      if (target.page === "run") {
+        set_pending_url_run_id(target.run_id);
+        return;
+      }
       if (target.page === "launch") set_launch_mode(target.mode);
       set_page(target.page);
     };
@@ -3019,6 +3026,7 @@ export function App(): React.ReactElement {
       return;
     }
     set_error_text("");
+    set_run_link_missing("");
     const root = String(opts?.root_run_id || run).trim() || run;
     set_root_run_id(root);
     set_run_id(run);
@@ -3039,7 +3047,17 @@ export function App(): React.ReactElement {
         // run reads as an empty page (adversary 1 P1-7).
         set_right_tab("overview");
         set_page("observe");
+        // Unknown, or not this account's: say so instead of an empty run view.
+        const found = await gateway.find_run(rid);
+        if (stopped) return;
+        if (found === null) {
+          clear_run_view();
+          set_run_link_missing(rid);
+          return;
+        }
         await attach_to_run(rid);
+        // Phones (single pane): land on the run view, as a click in the run list does.
+        reveal_observe_viewer();
       } catch (e: any) {
         if (!stopped) set_error_text(String(e?.message || e || "Failed to attach run from URL"));
       } finally {
@@ -5686,7 +5704,13 @@ export function App(): React.ReactElement {
                   // The body's empty state carries the instruction; the
                   // toolbar states the fact once (was a duplicate
                   // "Select a run…" sentence at two heights).
-                  <span className="observe_run_identity_empty">No run selected</span>
+                  run_link_missing ? (
+                    <span className="observe_run_identity_empty observe_run_link_missing" role="alert">
+                      {run_link_missing_message(run_link_missing)}
+                    </span>
+                  ) : (
+                    <span className="observe_run_identity_empty">No run selected</span>
+                  )
                 )}
 
                 <span className="observe_toolbar_spacer" />
