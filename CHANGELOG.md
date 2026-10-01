@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **Launch / Automate: the workflow picker lists only what you can run.** It is the kit's `WorkflowPicker`
+  (ui-kit, unreleased) over `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1`: "Gateway default", then
+  **Shared** (made available by your admin) and **Mine** (your own), each with its version. Workflows of other
+  interfaces and bundles your admin made unavailable are no longer offered; runs of them still show by name.
+
 ## [0.5.0] - 2026-10-01
 
 On/off settings are switches. Every setting that is either on or off shows as one switch labelled by the

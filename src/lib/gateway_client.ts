@@ -828,6 +828,19 @@ export class GatewayClient {
     return await r.json();
   }
 
+  /** `GET /bundles?executable_for=<interface>` — the workflows this app can run
+   * for the signed-in person (the gateway applies availability + ownership).
+   * `path` comes from the kit's executableWorkflowsPath(); the answer is parsed
+   * (and contract-checked) by the kit's parseExecutableWorkflows(). */
+  async get_gateway_json(path: string, signal?: AbortSignal): Promise<any> {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(path)), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: signal ?? _deadline(),
+    });
+    if (!r.ok) throw new Error(await _read_error(r));
+    return await r.json();
+  }
+
   async reload_bundles(): Promise<any> {
     const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("bundles/reload")), {
       method: "POST",

@@ -70,6 +70,25 @@ export type WorkflowChoice =
   | { kind: "bundle"; bundle_id: string; flow_id: string }
   | { kind: "default"; interface: string };
 
+/** The Launch picker's value (kit WorkflowPicker) for a choice: "@default" for the
+ * code-agent gateway default, the entry's `bundle@version:flow` for a listed
+ * bundle; "" when the choice is not in the gateway's executable list (shown as
+ * the current label, never added as an option). */
+export function launch_picker_value(
+  choice: WorkflowChoice | null,
+  entries: ReadonlyArray<{ value: string; bundleId: string; flowId: string }>,
+): string {
+  if (!choice) return "";
+  if (choice.kind === "default") return choice.interface === CODE_AGENT_INTERFACE ? "@default" : "";
+  return entries.find((e) => e.bundleId === choice.bundle_id && e.flowId === choice.flow_id)?.value ?? "";
+}
+
+/** The choice a picker value stands for ("@default" → the code-agent gateway default). */
+export function choice_from_picker(value: string, entry: { bundleId: string; flowId: string } | null): WorkflowChoice | null {
+  if (value === "@default") return { kind: "default", interface: CODE_AGENT_INTERFACE };
+  return entry ? { kind: "bundle", bundle_id: entry.bundleId, flow_id: entry.flowId } : null;
+}
+
 /** `bundle:flow` or `@default:<interface>` → the choice, or null. */
 export function parse_workflow_choice(value: string): WorkflowChoice | null {
   const s = String(value || "").trim();

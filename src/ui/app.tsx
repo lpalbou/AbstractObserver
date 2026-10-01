@@ -27,6 +27,8 @@ import {
   useAfMedia,
   useAppearanceSettings,
   useGatewayConnection,
+  useExecutableWorkflows,
+  WorkflowPicker,
   type AfSelectOption,
   type GatewayConnectionState,
   type ProviderOption,
@@ -46,12 +48,13 @@ import {
   automations_capability,
   build_automate_request_memo,
   my_email_console_url,
-  default_agent_choices,
+  CODE_AGENT_INTERFACE,
+  choice_from_picker,
+  launch_picker_value,
   legacy_recreate_prefill,
   normalize_run_summary,
   observer_automations_host,
   parse_app_hash,
-  parse_workflow_choice,
   workflow_choice_value,
   type AutomateForm,
   type WorkflowChoice,
@@ -1056,15 +1059,18 @@ export function App(): React.ReactElement {
     return out;
   }, [workflow_options]);
 
-  /* LAUNCHABLE SET (operator 2026-07-14): the Launch picker surfaces only
-   * entrypoints that declare an interface contract — scratch/dev bundles
-   * (test, yoda, basic…) publish none and are not operator-facing. The
-   * FULL option list stays for run labels, so runs of unlisted bundles
-   * still display their names everywhere else. */
-  const launchable_workflow_options = useMemo(
-    () => workflow_options.filter((w) => w.has_interface),
-    [workflow_options],
-  );
+  /* LAUNCH PICKER (operator 2026-10-01): the kit WorkflowPicker lists exactly
+   * GET /bundles?executable_for=abstractcode.agent.v1 — the agents this app
+   * launches that the signed-in person may run (the gateway applies the
+   * admin's availability and adds the person's own). The FULL option list
+   * (workflow_options) stays for run labels only. Refetched with every
+   * discovery / bundle reload (workflow_options changes identity then). */
+  const executable_workflows = useExecutableWorkflows({
+    interfaceId: CODE_AGENT_INTERFACE,
+    request: (path, init) => gateway.get_gateway_json(path, init.signal),
+    enabled: gateway_connected,
+    reloadKey: workflow_options,
+  });
 
   const available_providers = useMemo(() => {
     const out = new Set<string>();
@@ -5238,41 +5244,24 @@ export function App(): React.ReactElement {
 
                 {launch_mode === "automate" ? <div className="section_title">What</div> : null}
                 <div className="launch_workflow_bar">
-                  <select
-                    className="launch_workflow_select"
-                    aria-label="Workflow"
-                    value={selected_workflow_value}
-                    onChange={async (e) => {
-                      const choice = parse_workflow_choice(String(e.target.value || ""));
-                      if (!choice) return;
-                      await choose_launch_target(choice);
+                  <WorkflowPicker
+                    id="launch-workflow-picker"
+                    className="launch_workflow_picker"
+                    interfaceId={CODE_AGENT_INTERFACE}
+                    ariaLabel="Workflow"
+                    workflows={executable_workflows}
+                    value={launch_picker_value(launch_choice, executable_workflows.data?.entries ?? [])}
+                    currentLabel={
+                      launch_choice && !launch_picker_value(launch_choice, executable_workflows.data?.entries ?? [])
+                        ? { name: workflow_label_by_id[selected_workflow_value] || selected_workflow_value }
+                        : null
+                    }
+                    unavailableReason={!gateway_connected ? "Sign in to load workflows." : discovery_loading ? "Loading workflows…" : null}
+                    onChange={(value, entry) => {
+                      const choice = choice_from_picker(value, entry);
+                      if (choice) void choose_launch_target(choice);
                     }}
-                    disabled={discovery_loading || !gateway_connected}
-                  >
-                    <option value="">
-                      {launchable_workflow_options.length
-                        ? "(select workflow)"
-                        : connected
-                          ? discovery_loading
-                            ? "(loading workflows…)"
-                            : "(no executable workflows published on this gateway)"
-                          : "(sign in to load workflows)"}
-                    </option>
-                    <optgroup label="Gateway default">
-                      {default_agent_choices(workflow_options).map((d) => (
-                        <option key={d.value} value={d.value}>
-                          {d.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Workflows">
-                      {launchable_workflow_options.map((w) => (
-                        <option key={w.workflow_id} value={w.workflow_id}>
-                          {w.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
+                  />
                 </div>
                 <div className="field">
                   {selected_entrypoint?.description ? (

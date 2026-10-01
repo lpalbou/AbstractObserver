@@ -15,7 +15,8 @@ The **source of truth** for paths, query params, and request bodies is `src/lib/
 Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
 
 - **Workflows / bundles**
-  - `GET /api/gateway/bundles` — list bundles (workflow discovery)
+  - `GET /api/gateway/bundles` — list bundles (workflow discovery, run labels)
+  - `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1` — the Launch / Automate picker (the kit `WorkflowPicker`): the agents the signed-in person may run, with `owner` (Shared / Mine) and `shipped`
   - `GET /api/gateway/bundles/{bundle_id}` — bundle details
   - `GET /api/gateway/bundles/{bundle_id}/flows/{flow_id}` — flow graph data (graph rendering + pin inference)
   - `GET /api/gateway/workflows/{workflow_id}/flow` — flow graph for a namespaced workflow id (bundle:flow)

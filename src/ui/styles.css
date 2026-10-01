@@ -4624,9 +4624,14 @@ button.primary:hover:not(:disabled) {
   margin-bottom: 10px;
 }
 
-.launch_workflow_select {
+/* The kit WorkflowPicker (ui-kit theme.css af-workflow-picker) fills the bar. */
+.launch_workflow_picker {
   flex: 1 1 auto;
   min-width: 0;
+}
+.launch_workflow_picker .af-workflow-picker__trigger {
+  width: 100%;
+  min-height: 38px;
 }
 
 .launch_workflow_bar .btn {
@@ -4660,7 +4665,7 @@ button.primary:hover:not(:disabled) {
     flex-wrap: wrap;
   }
 
-  .launch_workflow_select {
+  .launch_workflow_picker {
     flex: 1 1 100%;
   }
 }
