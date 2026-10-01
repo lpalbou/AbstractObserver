@@ -1059,14 +1059,17 @@ export function App(): React.ReactElement {
     return out;
   }, [workflow_options]);
 
-  /* LAUNCH PICKER (operator 2026-10-01): the kit WorkflowPicker lists exactly
-   * GET /bundles?executable_for=abstractcode.agent.v1 — the agents this app
-   * launches that the signed-in person may run (the gateway applies the
-   * admin's availability and adds the person's own). The FULL option list
-   * (workflow_options) stays for run labels only. Refetched with every
-   * discovery / bundle reload (workflow_options changes identity then). */
+  /* LAUNCH PICKER (operator 2026-10-01, C3F): Observer is a LAUNCHER, not an
+   * agent client — the kit WorkflowPicker in its any-interface mode lists
+   * every workflow the signed-in person may run (GET /bundles: the gateway
+   * applies the admin's availability and adds the person's own), each with
+   * its interfaces as the detail line; "Gateway default" is the code agent's.
+   * The FULL option list (workflow_options) stays for run labels only.
+   * Refetched with every discovery / bundle reload (workflow_options changes
+   * identity then). */
   const executable_workflows = useExecutableWorkflows({
-    interfaceId: CODE_AGENT_INTERFACE,
+    interfaceId: null,
+    defaultInterface: CODE_AGENT_INTERFACE,
     request: (path, init) => gateway.get_gateway_json(path, init.signal),
     enabled: gateway_connected,
     reloadKey: workflow_options,
@@ -5247,7 +5250,8 @@ export function App(): React.ReactElement {
                   <WorkflowPicker
                     id="launch-workflow-picker"
                     className="launch_workflow_picker"
-                    interfaceId={CODE_AGENT_INTERFACE}
+                    interfaceId={null}
+                    defaultInterface={CODE_AGENT_INTERFACE}
                     ariaLabel="Workflow"
                     workflows={executable_workflows}
                     value={launch_picker_value(launch_choice, executable_workflows.data?.entries ?? [])}

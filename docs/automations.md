@@ -44,12 +44,12 @@ Automations page, `#run/<run_id>` one run in Observe).
 
 ### What
 
-The workflow and its inputs, usually the prompt. The picker lists only the
-coding agents the gateway says you can run here
-(`GET /api/gateway/bundles?executable_for=abstractcode.agent.v1`): **Gateway
-default** first (with the workflow it currently resolves to), then **Shared**
-(made available by your admin) and **Mine** (your own), each with its version
-in small text. There is no "show all": ask your admin when a workflow is
+The workflow and its inputs, usually the prompt. The picker lists every
+workflow the gateway lets you run, whatever app it is for
+(`GET /api/gateway/bundles`, filtered by the gateway): **Gateway default**
+first (the coding agent's default, with the workflow it currently resolves
+to), then **Shared** (made available by your admin) and **Mine** (your own),
+each with its interface and version in small text. There is no "show all": ask your admin when a workflow is
 missing. A default-agent automation is sent as `flow_id: "@default"` plus the
 interface; the gateway resolves it when the automation is created.
 
