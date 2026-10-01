@@ -85,7 +85,9 @@ except that each list can be collapsed and the Automations detail reads at 14 px
   select and copy"), and over plain http the chat's voice control says "This
   page is loaded over http, so voice and camera is unavailable — open it over
   https (for example through tailscale serve; the gateway console's Network
-  page explains how) or on the gateway's own computer." The manifest link
+  page explains how) or on the gateway's own computer." On https or
+  localhost in a browser without the microphone API it says "Voice and camera
+  are not supported in this browser (getUserMedia unavailable)." The manifest link
   sends the app's session cookie (`crossorigin="use-credentials"`), so the
   gateway answers it instead of returning 401.
 

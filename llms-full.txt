@@ -582,21 +582,11 @@ except that each list can be collapsed and the Automations detail reads at 14 px
   select and copy"), and over plain http the chat's voice control says "This
   page is loaded over http, so voice and camera is unavailable — open it over
   https (for example through tailscale serve; the gateway console's Network
-  page explains how) or on the gateway's own computer." The manifest link
+  page explains how) or on the gateway's own computer." On https or
+  localhost in a browser without the microphone API it says "Voice and camera
+  are not supported in this browser (getUserMedia unavailable)." The manifest link
   sends the app's session cookie (`crossorigin="use-credentials"`), so the
   gateway answers it instead of returning 401.
-
-### Fixed
-- **Plain http from another machine** (LAN, Tailscale). Browsers withhold
-  `crypto.randomUUID`, `crypto.subtle`, the clipboard API and the microphone
-  outside https and localhost. Ids now come from the kit's `randomId()`, the
-  session memory run id falls back to a plain SHA-256 (same id), **Copy**
-  says "Copied to clipboard" only when the copy worked (else "Copy failed —
-  select and copy"), and the chat's voice control says "Voice and camera need
-  an https address (Network → HTTPS in the gateway console)." The manifest
-  link sends the app's session cookie (`crossorigin="use-credentials"`), so
-  the gateway no longer answers it with 401. Needs `@abstractframework/ui-kit`
-  0.3.3.
 
 ## [0.4.0] - 2026-09-30
 
