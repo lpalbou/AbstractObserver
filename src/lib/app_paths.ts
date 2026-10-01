@@ -16,10 +16,44 @@ export const REVEAL_PATH = "api/local/reveal";
 export const SERVICE_WORKER_PATH = "sw.js";
 
 /**
- * A run id from the address: the last hash segment, else the last path
- * segment (a uuid), wherever the app is mounted (`/`, `/apps/observer/`).
+ * The run deep link: `#run/<run_id>` opens that run in Observe. A hash route,
+ * so it works wherever the app is mounted (`/`, the gateway's `/apps/observer/`)
+ * and the app server needs no route for it. Other apps link here (the gateway
+ * console's account Logs: `/apps/observer/#run/<run_id>`).
+ */
+export const RUN_HASH_PREFIX = "#run/";
+
+/** `#run/<run_id>` for a run id (url-encoded). */
+export function run_hash(run_id: string): string {
+  return `${RUN_HASH_PREFIX}${encodeURIComponent(String(run_id || "").trim())}`;
+}
+
+/** The run id of a `#run/<run_id>` hash (any id, not only a uuid); "" for any other hash. */
+export function run_id_from_run_hash(hash: string): string {
+  const h = String(hash || "");
+  if (!h.startsWith(RUN_HASH_PREFIX)) return "";
+  const raw = h.slice(RUN_HASH_PREFIX.length);
+  if (!raw || raw.includes("/")) return "";
+  try {
+    return decodeURIComponent(raw).trim();
+  } catch {
+    return "";
+  }
+}
+
+/** What Observe says when a linked run cannot be opened (the gateway answers 404 for an unknown run and for another user's run). */
+export function run_link_missing_message(run_id: string): string {
+  return `Run ${run_id} cannot be opened: it does not exist on this gateway, or your account cannot see it.`;
+}
+
+/**
+ * A run id from the address: `#run/<run_id>`, else the last hash segment,
+ * else the last path segment (a uuid), wherever the app is mounted (`/`,
+ * `/apps/observer/`).
  */
 export function run_id_from_location(loc: { hash: string; pathname: string }): string {
+  const linked = run_id_from_run_hash(loc.hash);
+  if (linked) return linked;
   const is_uuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
   const last = (s: string) => {
     const parts = s.split("/").filter(Boolean);

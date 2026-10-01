@@ -237,6 +237,20 @@ export class GatewayClient {
     return await r.json();
   }
 
+  /** `GET /runs/{id}` for a run link: the run, or null when the gateway answers
+   * 404 (no such run, or another user's run) or 403 (not visible to this account).
+   * Any other refusal throws with the gateway's reason. */
+  async find_run(run_id: string): Promise<any | null> {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(run_id)}`)), {
+      headers: {
+        ..._auth_headers(this._cfg.auth_token),
+      },
+    });
+    if (r.status === 404 || r.status === 403) return null;
+    if (!r.ok) throw await gateway_error(r, "Opening the run failed");
+    return await r.json();
+  }
+
   async get_run_history_bundle(
     run_id: string,
     opts?: {
