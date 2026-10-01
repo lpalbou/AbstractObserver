@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **Release:** a `v*` tag now also gets a GitHub release page carrying its CHANGELOG section (job
+  `github-release`), like the framework's other packages. The page for `v0.5.0` was created by hand.
+
 ## [0.5.0] - 2026-10-01
 
 On/off settings are switches. Every setting that is either on or off shows as one switch labelled by the
