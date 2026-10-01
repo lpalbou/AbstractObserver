@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { AgentCyclesPanel, build_agent_trace, type LedgerRecordItem } from "@abstractframework/monitor-flow";
-import "@abstractframework/monitor-flow/agent_cycles.css";
+import { type LedgerRecordItem } from "@abstractframework/monitor-flow";
 import {
   ChatComposer,
   ChatThread,
@@ -34,7 +33,9 @@ import {
 import { AppAssistantDrawer } from "./app_assistant";
 import { use_nav_drawer } from "./nav_drawer";
 import { RunChatReplayNote, run_chat_history, type RunChatHistoryReport } from "./run_chat";
-import { REVEAL_PATH, run_id_from_location, run_link_missing_message } from "../lib/app_paths";
+import { REVEAL_PATH, run_hash, run_id_from_location, run_link_missing_message } from "../lib/app_paths";
+import { parse_run_view_hash, run_facts, run_facts_line, run_view_hash, type RunViewState } from "./run_steps";
+import { RunOutcome, RunStepsView } from "./run_steps_view";
 import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import { ApplyImmediatelySwitch, AssistantSkillSwitch, AutoConnectSwitch, ScheduleActiveSwitch } from "./state_switches";
@@ -97,6 +98,7 @@ import {
   RunStatusPill,
   extract_conversation_context,
   is_generic_wait_prompt,
+  run_error_label,
   run_workflow_label,
   TOOL_RISK_INFERRED_TITLE,
   tool_risk_labels,
@@ -106,13 +108,11 @@ import {
   wait_json_value,
 } from "./run_labels";
 import {
-  build_provider_activities_from_ledger,
   extract_response_text_from_record,
   extract_textish,
   format_step_summary,
   is_waiting_status,
   ledger_record_human_summary,
-  type ProviderActivity,
   type LatestRunSummary,
   type UiLogItem,
 } from "./ledger_views";
@@ -120,8 +120,6 @@ import { RuntimeStructuredTextPreview, type RuntimeEmbeddedPreview } from "./art
 import { RuntimeExplorerPage, type RuntimeLedgerLogItem, type RuntimeLogSource, type RuntimeTab } from "./runtime_page";
 import {
   AskForm,
-  LedgerCard,
-  RunOverviewPanel,
   WorkflowRunNavigator,
 } from "./run_panels";
 import { GatewayClient, csrf_headers } from "../lib/gateway_client";
@@ -213,8 +211,9 @@ type WorkflowOption = {
   has_interface: boolean;
 };
 
-/* Observe content tabs — Story (overview), Ledger, Flow (graph), Ask (chat). */
-type ObserveRightTab = "overview" | "ledger" | "graph" | "chat";
+/* Observe content tabs — Ledger (the run view: summary + steps by cycle), Flow (graph), Ask (chat).
+ * The Story tab was removed (operator 2026-10-01 13:05: "unreadable"); its outcome and actions live in RunOutcome. */
+type ObserveRightTab = "ledger" | "graph" | "chat";
 
 
 const RUNTIME_ARTIFACT_PAGE_SIZE = 500;
@@ -337,46 +336,6 @@ export async function session_memory_run_id(session_id: string): Promise<string>
 }
 
 
-const CONDENSED_HIDE_EMIT_NAMES = new Set(["abstract.status", "abstract.summary", "abstract.chat"]);
-
-function is_condensed_ledger_item(item: UiLogItem): boolean {
-  if (!item) return false;
-  if (item.kind === "error") return true;
-  if (item.kind === "info") return false;
-
-  const emit_name = String(item.emit_name || "").trim();
-  if ((item.kind === "event" || item.kind === "message") && emit_name) {
-    if (CONDENSED_HIDE_EMIT_NAMES.has(emit_name)) return false;
-    return true;
-  }
-
-  const effect_type = String(item.effect_type || "").trim();
-  if (effect_type) {
-    if (effect_type === "tool_calls") return true;
-    if (effect_type === "llm_call") return true;
-    if (effect_type === "ask_user") return true;
-    if (effect_type === "answer_user") return true;
-    if (effect_type === "memory_compact") return true;
-    if (effect_type === "start_subworkflow") return true;
-    if (effect_type === "emit_event") {
-      if (emit_name && CONDENSED_HIDE_EMIT_NAMES.has(emit_name)) return false;
-      return true;
-    }
-  }
-
-  const status = String(item.status || "").trim();
-  if (status === "waiting") {
-    const w = extract_wait_from_record(item.data);
-    const reason = String(w?.reason || "").trim();
-    if (reason === "user" || reason === "event") return true;
-    const tool_calls = extract_tool_calls_from_wait(w);
-    if (tool_calls.length) return true;
-    return false;
-  }
-
-  const resp = extract_response_text_from_record(item.data);
-  return Boolean(resp);
-}
 
 function load_settings(): Settings {
   try {
@@ -715,14 +674,12 @@ export function App(): React.ReactElement {
   }, [monitor_gpu_enabled, settings.auth_token, settings.gateway_auth_mode]);
 
   const [log, set_log] = useState<UiLogItem[]>([]);
-  const [log_open, set_log_open] = useState<Record<string, boolean>>({});
-  const [log_response_open, set_log_response_open] = useState<Record<string, boolean>>({});
   const [error_text, set_error_text] = useState<string>("");
 
   const [observe_search, set_observe_search] = useState("");
   const [observe_filter, set_observe_filter] = useState<RunFilterMode>("all");
   const [observe_group_by, set_observe_group_by] = useState<"status" | "workflow" | "session">("status");
-  const [right_tab, set_right_tab] = useState<ObserveRightTab>("overview");
+  const [right_tab, set_right_tab] = useState<ObserveRightTab>("ledger");
   /* RESPONSIVE (DESIGN.md §5.2/§5.3): below 1024 px the sidebar is a left
    * drawer opened from the header; below 768 px (or under 500 px tall) the
    * Observe page stacks the run list (a collapsible panel, DESIGN §12) above
@@ -737,25 +694,13 @@ export function App(): React.ReactElement {
   const nav_toggle_ref = nav.toggle_ref;
   const sidebar_ref = nav.sidebar_ref;
   const observe_viewer_ref = useRef<HTMLDivElement | null>(null);
-  const [ledger_condensed, set_ledger_condensed] = useState(true);
-  const [ledger_view, set_ledger_view] = useState<"steps" | "cycles">("steps");
+  /* Run view state (cycles/steps, filter, All steps, search) — kept in the URL hash: `#run/<id>?only=llm…`. */
+  const [run_view_state, set_run_view_state] = useState<RunViewState>(() => parse_run_view_hash(typeof window !== "undefined" ? window.location.hash : ""));
   const [ledger_cycles_run_id, set_ledger_cycles_run_id] = useState<string>("");
-  const [session_attachments_run_id, set_session_attachments_run_id] = useState<string>("");
-  const [session_attachments, set_session_attachments] = useState<any[]>([]);
-  const [session_attachments_loading, set_session_attachments_loading] = useState(false);
-  const [session_attachments_error, set_session_attachments_error] = useState<string>("");
   /* Run workspace + durable artifacts (operator 2026-07-15): the folder
    * button reveals the run's workspace locally; the Story lists what the
    * runtime durably recorded for THIS run. */
   const [run_workspace_root, set_run_workspace_root] = useState<string>("");
-  const [run_artifacts, set_run_artifacts] = useState<any[]>([]);
-  const [run_artifacts_loading, set_run_artifacts_loading] = useState(false);
-  const [run_artifacts_error, set_run_artifacts_error] = useState<string>("");
-  const [attachment_preview_open, set_attachment_preview_open] = useState(false);
-  const [attachment_preview_title, set_attachment_preview_title] = useState<string>("");
-  const [attachment_preview_text, set_attachment_preview_text] = useState<string>("");
-  const [attachment_preview_error, set_attachment_preview_error] = useState<string>("");
-  const [attachment_preview_loading, set_attachment_preview_loading] = useState<boolean>(false);
   const [graph_flow_id, set_graph_flow_id] = useState<string>("");
   const [graph_flow, set_graph_flow] = useState<any | null>(null);
   const [graph_flow_cache, set_graph_flow_cache] = useState<Record<string, any>>({});
@@ -787,8 +732,6 @@ export function App(): React.ReactElement {
   const [following_child_run_id, set_following_child_run_id] = useState<string>("");
   const [follow_run_id, set_follow_run_id] = useState<string>("");
   const follow_run_ref = useRef<string>("");
-  const [summary_generating, set_summary_generating] = useState(false);
-  const [summary_error, set_summary_error] = useState<string>("");
 
   const empty_runtime_preview = (): RuntimeEmbeddedPreview => ({
     artifact_id: "",
@@ -876,6 +819,7 @@ export function App(): React.ReactElement {
       // #run/<run_id> while the app is open: the same path as a link opened in a new tab.
       if (target.page === "run") {
         set_pending_url_run_id(target.run_id);
+        set_run_view_state(parse_run_view_hash(window.location.hash));
         return;
       }
       if (target.page === "launch") set_launch_mode(target.mode);
@@ -1956,46 +1900,6 @@ export function App(): React.ReactElement {
     }
   }
 
-  async function refresh_session_attachments(): Promise<void> {
-    if (session_attachments_loading) return;
-    if (!gateway_connected || !session_id_for_run) {
-      set_session_attachments_run_id("");
-      set_session_attachments([]);
-      set_session_attachments_error("");
-      return;
-    }
-    set_session_attachments_loading(true);
-    set_session_attachments_error("");
-    try {
-      const rid = await session_memory_run_id(session_id_for_run);
-      set_session_attachments_run_id(rid);
-      const res = await gateway.list_run_artifacts(rid, { limit: 800 });
-      const items = Array.isArray((res as any)?.items) ? ((res as any).items as any[]) : [];
-      const atts = items.filter((it) => {
-        const tags = it?.tags;
-        return tags && typeof tags === "object" && String((tags as any).kind || "").trim() === "attachment";
-      });
-      set_session_attachments(atts);
-    } catch (e: any) {
-      const msg = String(e?.message || e || "Failed to load session attachments");
-      // No session memory run yet → treat as empty instead of error noise.
-      const low = msg.toLowerCase();
-      const missing_session_store =
-        msg.includes("404") ||
-        (low.includes("session_memory_") && low.includes("not found")) ||
-        (low.includes("\"detail\"") && low.includes("not found") && low.includes("session_memory_"));
-      if (missing_session_store) {
-        set_session_attachments([]);
-        set_session_attachments_error("");
-      } else {
-        set_session_attachments([]);
-        set_session_attachments_error(msg);
-      }
-      set_session_attachments_run_id("");
-    } finally {
-      set_session_attachments_loading(false);
-    }
-  }
 
   /** Reveal the run's workspace folder in the local file manager. Served
    * by the observer's own cli.js (/api/local/reveal, loopback-only) —
@@ -2025,76 +1929,7 @@ export function App(): React.ReactElement {
     }
   }
 
-  async function download_session_attachment(item: any): Promise<void> {
-    const rid = String(session_attachments_run_id || "").trim();
-    if (!rid) {
-      set_status("No session attachment store yet", 2);
-      return;
-    }
-    const artifact_id = String(item?.artifact_id || "").trim();
-    if (!artifact_id) return;
-    const tags = item?.tags && typeof item.tags === "object" ? item.tags : {};
-    const filename = String((tags as any).filename || "").trim();
-    const path = String((tags as any).path || "").trim();
-    const fallback = filename || (path ? path.split("/").pop() : "") || artifact_id;
-    const safe = sanitize_filename_part(fallback);
-    try {
-      const blob = await gateway.download_run_artifact_content(rid, artifact_id, { access: "download" });
-      _download_blob(blob, safe);
-      set_status("Downloaded attachment", 2);
-    } catch (e: any) {
-      set_status(String(e?.message || e || "Download failed"), 3);
-    }
-  }
 
-  async function preview_session_attachment(item: any): Promise<void> {
-    const rid = String(session_attachments_run_id || "").trim();
-    const artifact_id = String(item?.artifact_id || "").trim();
-    if (!rid || !artifact_id) return;
-
-    const tags = item?.tags && typeof item.tags === "object" ? item.tags : {};
-    const filename = String((tags as any).filename || "").trim();
-    const path = String((tags as any).path || "").trim();
-    const label = path ? `@${path}` : filename || artifact_id;
-
-    const size_bytes = typeof item?.size_bytes === "number" ? Number(item.size_bytes) : null;
-    const content_type = String(item?.content_type || (tags as any).content_type || "").trim().toLowerCase();
-
-    set_attachment_preview_title(label);
-    set_attachment_preview_text("");
-    set_attachment_preview_error("");
-    set_attachment_preview_open(true);
-
-    if (typeof size_bytes === "number" && size_bytes > 1_000_000) {
-      set_attachment_preview_text(`(Attachment is ${size_bytes.toLocaleString()} bytes; download to view.)`);
-      return;
-    }
-
-    const textish =
-      !content_type ||
-      content_type.startsWith("text/") ||
-      content_type.includes("json") ||
-      content_type.includes("yaml") ||
-      content_type.includes("toml") ||
-      content_type.includes("xml");
-    if (!textish) {
-      set_attachment_preview_text(`(Binary attachment: ${content_type || "unknown"}; download to view.)`);
-      return;
-    }
-
-    set_attachment_preview_loading(true);
-    try {
-      const blob = await gateway.download_run_artifact_content(rid, artifact_id, { access: "download" });
-      const raw = await blob.text();
-      const max_chars = 14000;
-      const text = raw.length > max_chars ? `${raw.slice(0, Math.max(0, max_chars - 1))}…` : raw;
-      set_attachment_preview_text(text);
-    } catch (e: any) {
-      set_attachment_preview_error(String(e?.message || e || "Preview failed"));
-    } finally {
-      set_attachment_preview_loading(false);
-    }
-  }
 
   async function download_runtime_artifact(item: RuntimeArtifact): Promise<void> {
     const rid = String(item?.run_id || "").trim();
@@ -2247,10 +2082,6 @@ export function App(): React.ReactElement {
     set_runtime_embedded_preview({ artifact_id, kind, render_kind: "", text: "", url: "", loading: true, error: "" });
     set_runtime_embedded_preview(await fetch_runtime_embedded_preview(item));
   }
-
-  useEffect(() => {
-    void refresh_session_attachments();
-  }, [gateway, gateway_connected, session_id_for_run]);
 
   function push_log(item: Omit<UiLogItem, "id"> & { id?: string }): void {
     const id = String(item.id || "").trim() || random_id();
@@ -2664,16 +2495,11 @@ export function App(): React.ReactElement {
     set_child_records_for_digest([]);
     digest_seen_ref.current = new Set();
     set_log([]);
-    set_log_open({});
-    set_log_response_open({});
-    set_ledger_view("steps");
     set_ledger_cycles_run_id("");
     set_status_text("");
     set_run_state(null);
     set_dismissed_wait_key("");
     set_run_workspace_root("");
-    set_run_artifacts([]);
-    set_run_artifacts_error("");
     set_active_node_id("");
     active_node_ref.current = "";
     set_recent_nodes({});
@@ -2738,27 +2564,6 @@ export function App(): React.ReactElement {
       } catch {
         set_run_workspace_root("");
       }
-
-      // Durable run artifacts for the Story panel (products + internal
-      // offloads; the panel separates them). Best-effort — never blocks;
-      // the attach AbortController is the staleness guard (a newer attach
-      // aborts this one before its state lands).
-      void (async () => {
-        set_run_artifacts_loading(true);
-        set_run_artifacts_error("");
-        try {
-          const resp = await gateway.list_run_artifacts(rid, { limit: 200 });
-          const items = Array.isArray((resp as any)?.items) ? (resp as any).items : [];
-          if (!abort.signal.aborted) set_run_artifacts(items);
-        } catch (e: any) {
-          if (!abort.signal.aborted) {
-            set_run_artifacts([]);
-            set_run_artifacts_error(String(e?.message || e || "artifact listing failed"));
-          }
-        } finally {
-          if (!abort.signal.aborted) set_run_artifacts_loading(false);
-        }
-      })();
 
       if (inferred_bundle_id && inferred_flow_id) {
         set_bundle_id(inferred_bundle_id);
@@ -2976,7 +2781,7 @@ export function App(): React.ReactElement {
       return;
     }
     // Launch is not a dead end: the operator lands on the run just created.
-    set_right_tab("overview");
+    set_right_tab("ledger");
     set_page("observe");
   }
 
@@ -3045,7 +2850,7 @@ export function App(): React.ReactElement {
         // default page, so deep links now navigate explicitly. Reset the
         // content tab too: landing on a stale Ask/Ledger tab for a fresh
         // run reads as an empty page (adversary 1 P1-7).
-        set_right_tab("overview");
+        set_right_tab("ledger");
         set_page("observe");
         // Unknown, or not this account's: say so instead of an empty run view.
         const found = await gateway.find_run(rid);
@@ -3108,7 +2913,6 @@ export function App(): React.ReactElement {
     digest_seen_ref.current = new Set();
     set_run_state(null);
     set_log([]);
-    set_log_open({});
     set_active_node_id("");
     active_node_ref.current = "";
     set_recent_nodes({});
@@ -3117,8 +2921,6 @@ export function App(): React.ReactElement {
     set_graph_now_ms(Date.now());
     set_status("", -1);
     set_error_text("");
-    set_summary_generating(false);
-    set_summary_error("");
 
     set_chat_messages([]);
     set_chat_replay_history(null);
@@ -3359,27 +3161,6 @@ export function App(): React.ReactElement {
     } finally {
       set_connecting(false);
       set_compact_submitting(false);
-    }
-  }
-
-  async function generate_summary(): Promise<void> {
-    const rid = run_id.trim();
-    if (!rid) {
-      set_summary_error("Missing run_id");
-      return;
-    }
-    if (summary_generating) return;
-    set_summary_error("");
-    set_summary_generating(true);
-    try {
-      const provider = settings.maintenance_ai_provider.trim();
-      const model = settings.maintenance_ai_model.trim();
-      await gateway.generate_run_summary(rid, { provider: provider || undefined, model: model || undefined, include_subruns: true });
-      push_log({ ts: now_iso(), kind: "info", title: "Summary generation requested", preview: clamp_preview(`run ${rid}`) });
-    } catch (e: any) {
-      set_summary_error(String(e?.message || e || "Failed to generate summary"));
-    } finally {
-      set_summary_generating(false);
     }
   }
 
@@ -4231,11 +4012,6 @@ export function App(): React.ReactElement {
     };
   }, [connected, run_id, subrun_ids, gateway]);
 
-  const visible_log = useMemo(() => {
-    if (!ledger_condensed) return log;
-    return log.filter(is_condensed_ledger_item);
-  }, [ledger_condensed, log]);
-
   const ledger_record_items = useMemo<LedgerRecordItem[]>(() => {
     const root = run_id.trim();
     const out: LedgerRecordItem[] = [];
@@ -4257,6 +4033,8 @@ export function App(): React.ReactElement {
       if (!rid) continue;
       const eff = String(item.record?.effect?.type || "").trim();
       if (eff !== "llm_call") continue;
+      // One count per call: its STARTED record and its terminal record are the same step.
+      if (String(item.record?.status || "") === "started") continue;
       counts[rid] = (counts[rid] || 0) + 1;
     }
     return counts;
@@ -4304,7 +4082,25 @@ export function App(): React.ReactElement {
     return ids;
   }, [run_id, follow_run_id, subrun_ids, ledger_record_items]);
 
-  const agent_trace = useMemo(() => build_agent_trace(ledger_record_items, { run_id: cycles_run_id }), [ledger_record_items, cycles_run_id]);
+  // The run summary's outcome paragraph: the last response text the root run recorded (as the Story did).
+  const run_outcome_text = useMemo(() => {
+    for (let i = records.length - 1; i >= 0; i--) {
+      const t = extract_response_text_from_record(records[i]?.record);
+      if (t) return t;
+    }
+    return "";
+  }, [records]);
+
+  function update_run_view_state(next: RunViewState): void {
+    set_run_view_state(next);
+    const rid = run_id.trim();
+    if (!rid || typeof window === "undefined") return;
+    try {
+      window.history.replaceState(null, "", run_view_hash(run_hash(rid), next));
+    } catch {
+      // a sandboxed frame may refuse history writes: the state still applies
+    }
+  }
 
   const selected_run_summary = useMemo(() => {
     const rid = run_id.trim();
@@ -4532,17 +4328,6 @@ export function App(): React.ReactElement {
     [runtime_run_rows, observe_search, observe_filter, observe_group_by, workflow_label_by_id],
   );
 
-  const provider_activities = useMemo<ProviderActivity[]>(() => build_provider_activities_from_ledger(ledger_record_items as any), [ledger_record_items]);
-
-  const timeline_items = useMemo(() => {
-    const out = [...ledger_record_items];
-    out.sort((a, b) => {
-      const at = parse_iso_ms(a.record?.ended_at || a.record?.started_at) ?? 0;
-      const bt = parse_iso_ms(b.record?.ended_at || b.record?.started_at) ?? 0;
-      return at - bt;
-    });
-    return out.slice(-240);
-  }, [ledger_record_items]);
 
   const runtime_run_by_id = useMemo(() => {
     const out: Record<string, RunSummary> = {};
@@ -4792,7 +4577,7 @@ export function App(): React.ReactElement {
 
   function open_run_in_observe(rid: string): void {
     set_page("observe");
-    set_right_tab("overview");
+    set_right_tab("ledger");
     void attach_to_run(rid);
   }
 
@@ -5029,7 +4814,7 @@ export function App(): React.ReactElement {
               on_refresh={() => void refresh_runs(gateway, { force: true })}
               on_open_run={(rid) => {
                 set_page("observe");
-                set_right_tab("overview");
+                set_right_tab("ledger");
                 void attach_to_run(rid);
               }}
               on_resume_wait={board_resume_wait}
@@ -5630,7 +5415,7 @@ export function App(): React.ReactElement {
             on_open_run={(rid) => {
               set_runtime_selected_run_id(String(rid || "").trim());
               set_page("observe");
-              set_right_tab("overview");
+              set_right_tab("ledger");
               void attach_to_run(rid);
             }}
             on_open_ledger={(rid) => {
@@ -5905,9 +5690,6 @@ export function App(): React.ReactElement {
                   * their unique content now lives inside Story or Runtime. */}
                 <div className="tab_bar">
                   <div role="tablist" aria-label="Run views" className="observe_tablist">
-                  <button role="tab" aria-selected={right_tab === "overview"} className={`tab ${right_tab === "overview" ? "active" : ""}`} onClick={() => select_observe_tab("overview")}>
-                    Story
-                  </button>
                   <button role="tab" aria-selected={right_tab === "ledger"} className={`tab ${right_tab === "ledger" ? "active" : ""}`} onClick={() => select_observe_tab("ledger")}>
                     Ledger
                   </button>
@@ -5919,37 +5701,9 @@ export function App(): React.ReactElement {
                   </button>
                 </div>
 
-                  {/* Ledger inline controls — only shown when ledger tab is active AND there is data */}
-                  {right_tab === "ledger" && (visible_log.length > 0 || ledger_view === "cycles") ? (
+                  {/* Ledger inline control: the raw ledger as JSONL (filters and search live in the run view). */}
+                  {right_tab === "ledger" && (records.length > 0 || child_records_for_digest.length > 0) ? (
                     <div className="tab_bar_controls">
-                      <div className="seg_toggle">
-                        <button className={`seg_btn ${ledger_view === "steps" ? "active" : ""}`} onClick={() => set_ledger_view("steps")}>Steps</button>
-                        <button className={`seg_btn ${ledger_view === "cycles" ? "active" : ""}`} onClick={() => set_ledger_view("cycles")}>Cycles</button>
-	                  </div>
-                      {ledger_view === "steps" ? (
-                        <button className={`seg_action ${ledger_condensed ? "active" : ""}`} aria-pressed={ledger_condensed} onClick={() => set_ledger_condensed((v) => !v)} title={ledger_condensed ? "Condensed: only the key steps are shown" : "Condensed is off: every step is shown"}>
-                          Condensed
-                        </button>
-                      ) : (
-                          <select
-                          className="mono seg_select"
-                            value={cycles_run_id}
-                            onChange={(e) => set_ledger_cycles_run_id(String(e.target.value || ""))}
-                            disabled={!cycles_run_options.length}
-                          title="Select run for cycles view"
-                          >
-                            {!cycles_run_options.length ? <option value="">(no runs)</option> : null}
-                            {cycles_run_options.map((rid) => {
-                              const count = typeof cycles_run_counts[rid] === "number" ? Number(cycles_run_counts[rid]) : 0;
-                              const label = `${short_id(rid, 18)}${count ? ` • ${count} llm` : ""}`;
-                              return (
-                                <option key={rid} value={rid}>
-                                  {label}
-                                </option>
-                              );
-                            })}
-                          </select>
-                      )}
                       <button
                         className="seg_action"
                         disabled={!records.length && !child_records_for_digest.length}
@@ -6004,99 +5758,57 @@ export function App(): React.ReactElement {
 
                 </div>
 
-                {right_tab === "overview" ? (
-                  <RunOverviewPanel
-                    run_id={run_id}
-                    run={selected_run_summary}
-                    run_state={run_state}
-                    status_label={selected_run_status_label || selected_run_status_raw || "unknown"}
-                    workflow_label_by_id={workflow_label_by_id}
-                    root_run_id={root_run_id}
-                    subrun_ids={subrun_ids}
-                    session_id={session_id_for_run}
-                    records_count={records.length}
-                    records={records}
-                    child_records_count={child_records_for_digest.length}
-                    provider_activities={provider_activities}
-                    attachments_count={session_attachments.length}
-                    latest_summary={latest_run_summary}
-                    wait_state={wait_state}
-                    summary_generating={summary_generating}
-                    summary_error={summary_error}
-                    on_generate_summary={() => void generate_summary()}
-                    on_open_runtime={() => {
-                      const rid = String(run_id || "").trim();
-                      if (rid) {
-                        set_runtime_selected_run_id(rid);
-                        set_runtime_artifact_run_filter(rid);
-                        set_runtime_scope("run");
-                      }
-                      set_runtime_tab("artifacts");
-                      set_page("runtime");
-                    }}
-                    on_open_subrun={(rid) => void attach_to_run(rid, { root_run_id: root_run_id || run_id || rid })}
-                    on_answer_wait={() => set_dismissed_wait_key("")}
-                    workspace_root={run_workspace_root}
-                    on_reveal_workspace={() => void reveal_run_workspace()}
-                    run_artifacts={run_artifacts}
-                    run_artifacts_loading={run_artifacts_loading}
-                    run_artifacts_error={run_artifacts_error}
-                    on_preview_run_artifact={(a) => void preview_runtime_artifact(a as RuntimeArtifact)}
-                    on_download_run_artifact={(a) => void download_runtime_artifact(a as RuntimeArtifact)}
-                    timeline_items={timeline_items}
-                    node_index={node_index_for_run}
-                    attachments={session_attachments}
-                    attachments_loading={session_attachments_loading}
-                    attachments_error={session_attachments_error}
-                    attachments_ready={Boolean(session_attachments_run_id.trim())}
-                    on_refresh_attachments={() => void refresh_session_attachments()}
-                    on_preview_attachment={(a) => void preview_session_attachment(a)}
-                    on_download_attachment={(a) => void download_session_attachment(a)}
-                    on_copy={(text) => void copy_to_clipboard(text)}
-                  />
-                ) : null}
-
                 {right_tab === "ledger" ? (
-                  <>
-                    {ledger_view === "steps" ? (
-                      <div className="log log_scroll">
-                        {visible_log.map((item) => (
-                          <LedgerCard
-                            key={item.id}
-                            item={item}
-                            open={log_open[item.id] === true}
-                            on_toggle={() => set_log_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
-                            response_open={log_response_open[item.id] === true}
-                            on_toggle_response={() => set_log_response_open((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
-                            node_index={node_index_for_run}
-                            on_copy={(t) => void copy_to_clipboard(t)}
-                          />
-                        ))}
-                        {!visible_log.length ? (
-                          <div className="empty_state_inline">
-                            (no ledger items)
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="log log_scroll">
-                        <AgentCyclesPanel
-                          items={agent_trace.items}
-                          title="Agent"
-                          subtitle={agent_trace.node_id ? `node_id: ${agent_trace.node_id}` : "Live per-effect trace (LLM/tool calls)."}
-                          subRunId={cycles_run_id}
-                          onOpenSubRun={
-                            cycles_run_id && cycles_run_id !== run_id.trim()
-                              ? () => {
-                                  set_run_id(cycles_run_id);
-                                  void connect_to_run(cycles_run_id);
-                                }
-                              : undefined
+                  run_id.trim() ? (
+                    <div className="rs_page">
+                      <RunOutcome
+                        status={selected_run_status_label || selected_run_status_raw || "unknown"}
+                        duration={selected_run_summary ? run_duration_label(selected_run_summary) : ""}
+                        facts={run_facts_line(run_facts(ledger_record_items))}
+                        error={run_error_label(selected_run_summary) || String(run_state?.error || "").trim()}
+                        answer={run_outcome_text || String(latest_run_summary?.text || "").trim()}
+                        waiting_for_user={Boolean(wait_state?.wait_key) && String(wait_state?.reason || "") === "user"}
+                        on_answer_wait={() => set_dismissed_wait_key("")}
+                        workspace_root={run_workspace_root}
+                        on_reveal_workspace={() => void reveal_run_workspace()}
+                        on_open_artifacts={() => {
+                          const rid = String(run_id || "").trim();
+                          if (rid) {
+                            set_runtime_selected_run_id(rid);
+                            set_runtime_artifact_run_filter(rid);
+                            set_runtime_scope("run");
                           }
-                        />
-                      </div>
-                    )}
-                  </>
+                          set_runtime_tab("artifacts");
+                          set_page("runtime");
+                        }}
+                      />
+                      {log
+                        .filter((x) => x.kind === "error" && !x.data)
+                        .slice(0, 3)
+                        .map((x) => (
+                          <p key={x.id} className="rs_notice">
+                            {x.title}: {x.preview}
+                          </p>
+                        ))}
+                      <RunStepsView
+                        items={ledger_record_items}
+                        run_id={cycles_run_id}
+                        run_options={cycles_run_options}
+                        run_llm_counts={cycles_run_counts}
+                        on_select_run={(rid) => set_ledger_cycles_run_id(rid)}
+                        state={run_view_state}
+                        on_state={update_run_view_state}
+                        node_label={(rid, nid) => {
+                          const meta = nid ? (node_index_for_run as any)?.[graph_node_id_for(rid, nid)] || (node_index_for_run as any)?.[nid] : null;
+                          return String(meta?.label || nid || "").trim();
+                        }}
+                        on_copy={(t) => void copy_to_clipboard(t)}
+                        on_open_run={(rid) => void attach_to_run(rid, { root_run_id: root_run_id || run_id || rid })}
+                      />
+                    </div>
+                  ) : (
+                    <div className="empty_state_inline">Select a run on the left to inspect it — or start one from Launch.</div>
+                  )
                 ) : null}
 
                 {right_tab === "graph" ? (
@@ -6140,47 +5852,6 @@ export function App(): React.ReactElement {
                     </div>
                   </>
                 ) : null}
-
-                {/* Attachment preview modal (opened from Story's Session files list) */}
-                <Modal
-                  open={attachment_preview_open}
-                  title={attachment_preview_title || "Attachment"}
-                  onClose={() => {
-                    set_attachment_preview_open(false);
-                    set_attachment_preview_text("");
-                    set_attachment_preview_error("");
-                    set_attachment_preview_loading(false);
-                  }}
-                  actions={
-                    <>
-                      <button
-                        className="btn"
-                        onClick={() => {
-                          set_attachment_preview_open(false);
-                          set_attachment_preview_text("");
-                          set_attachment_preview_error("");
-                          set_attachment_preview_loading(false);
-                        }}
-                      >
-                        Close
-                      </button>
-                    </>
-                  }
-                >
-                  {attachment_preview_loading ? (
-                    <div className="mono muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
-                      Loading…
-                    </div>
-                  ) : null}
-                  {attachment_preview_error ? (
-                    <div className="mono" style={{ color: "rgba(239, 68, 68, 0.9)", fontSize: "var(--font-size-sm)", marginBottom: "8px" }}>
-                      {attachment_preview_error}
-                    </div>
-                  ) : null}
-                  <pre className="mono" style={{ whiteSpace: "pre-wrap", maxHeight: "62vh", overflow: "auto", margin: 0 }}>
-                    {attachment_preview_text || "(empty)"}
-                  </pre>
-                </Modal>
 
                 {right_tab === "chat" ? (
                   <div className="ask_tab log_scroll" style={{ marginTop: "6px" }}>

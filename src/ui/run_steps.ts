@@ -560,3 +560,34 @@ export function step_search_text(step: RunStep, node_label: string): string {
 }
 
 export { HOUSEKEEPING_EVENT_NAMES };
+
+export type RunFacts = { llm_calls: number; tokens: number; tool_calls: number; tool_failures: number };
+
+/** Totals over every run in the loaded ledger (root + subruns), one count per step. */
+export function run_facts(items: LedgerItem[]): RunFacts {
+  const runs = Array.from(new Set((items || []).map((x) => String(x.run_id || x.record?.run_id || "").trim()).filter(Boolean)));
+  const out: RunFacts = { llm_calls: 0, tokens: 0, tool_calls: 0, tool_failures: 0 };
+  for (const rid of runs) {
+    for (const s of build_run_steps(items, rid)) {
+      if (s.kind === "llm_call") {
+        out.llm_calls += 1;
+        const u = s.record?.result?.usage || {};
+        out.tokens += Number(u.total_tokens ?? Number(u.prompt_tokens ?? u.input_tokens ?? 0) + Number(u.completion_tokens ?? u.output_tokens ?? 0)) || 0;
+      } else if (s.kind === "tool") {
+        const d = tool_detail(s);
+        out.tool_calls += Math.max(d.calls.length, d.results.length);
+        out.tool_failures += d.results.filter((r) => r.success === false).length;
+      }
+    }
+  }
+  return out;
+}
+
+/** The one facts line of the run summary: "3 LLM calls · 3,282 tokens · 2 tool calls, 1 failed". */
+export function run_facts_line(f: RunFacts): string {
+  const parts: string[] = [];
+  if (f.llm_calls) parts.push(`${f.llm_calls} LLM call${f.llm_calls === 1 ? "" : "s"}`);
+  if (f.tokens) parts.push(`${f.tokens.toLocaleString("en-US")} tokens`);
+  if (f.tool_calls) parts.push(`${f.tool_calls} tool call${f.tool_calls === 1 ? "" : "s"}${f.tool_failures ? `, ${f.tool_failures} failed` : ""}`);
+  return parts.join(" · ");
+}
