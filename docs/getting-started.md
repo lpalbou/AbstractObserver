@@ -57,6 +57,18 @@ Go to **Observe** (or click a Board card):
   - **Digest** (derived stats + summary)
   - **Ask** (ask about this run; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
 
+### Link to one run
+
+The address `#run/<run_id>` opens that run in Observe, in a new tab or while
+the Observer is already open: `http://localhost:3001/#run/<run_id>` when the
+Observer runs on its own, `/apps/observer/#run/<run_id>` when the gateway
+serves it (the gateway console's account **Logs** link "Run started" events
+this way). Run ids that are not uuids work too. If the gateway does not know
+the run, or your account cannot see it (another user's run), Observe says so
+in place of "No run selected": "Run <run_id> cannot be opened: it does not
+exist on this gateway, or your account cannot see it." On a phone the link
+lands on the run view.
+
 Architecture and data flow: `architecture.md`.
 
 ## Ask about a run, or ask the Assistant

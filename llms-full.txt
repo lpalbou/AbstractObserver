@@ -191,7 +191,7 @@ See `docs/configuration.md` for the full list.
 All pages share the same gateway connection settings.
 
 - **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
-- **Observe**: workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS)
+- **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS)
 - **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
 - **Launch**: Run once, or Automate (what, when in UTC intervals, independent or growing context, tool approval); bundle upload/reload
@@ -506,6 +506,14 @@ Screens that show a list next to a detail use the space they have on phones and 
 Automations, Observe, the Board or System on a phone or a tablet is affected; desktop windows keep their layout,
 except that each list can now be collapsed and the Automations detail reads at 14 px.
 
+### Added
+- **Run deep link `#run/<run_id>`**: opens that run in Observe, in a new tab or while the Observer is open
+  (hashchange), wherever it is mounted; under the gateway the address is `/apps/observer/#run/<run_id>` (the gateway
+  console's account Logs links "Run started" events there). Run ids that are not uuids work. When the gateway answers
+  404 or 403 (no such run, or another user's run) Observe says "Run <run_id> cannot be opened: it does not exist on
+  this gateway, or your account cannot see it." in place of "No run selected", instead of an empty run view. On
+  phones the link lands on the run view.
+
 ### Changed
 - **Automations: an "Active" switch** on every automation row replaces the Pause / Resume buttons (on = runs on its
   schedule, off = paused; it sends `automation.pause` / `automation.resume`). Legacy scheduled runs get the same
@@ -565,6 +573,18 @@ except that each list can now be collapsed and the Automations detail reads at 1
   switch on touch screens; with a mouse it is the tooltip. docs/automations.md describes the Active switch.
 - Launch → Automate and the Edit form say "Connect a mailbox first — open My email" when no mailbox is usable,
   and the email section is titled "Mailbox" (ui-kit 0.3.3 wording).
+
+### Fixed
+- **Plain http from another machine** (LAN, Tailscale). Browsers withhold
+  `crypto.randomUUID`, `crypto.subtle`, the clipboard API and the microphone
+  outside https and localhost. Ids now come from the kit's `randomId()`, the
+  session memory run id falls back to a plain SHA-256 (same id), **Copy**
+  says "Copied to clipboard" only when the copy worked (else "Copy failed —
+  select and copy"), and the chat's voice control says "Voice and camera need
+  an https address (Network → HTTPS in the gateway console)." The manifest
+  link sends the app's session cookie (`crossorigin="use-credentials"`), so
+  the gateway no longer answers it with 401. Needs `@abstractframework/ui-kit`
+  0.3.3.
 
 ## [0.4.0] - 2026-09-30
 
@@ -1216,6 +1236,18 @@ Go to **Observe** (or click a Board card):
   - **Graph** (flow visualization from bundle/workflow flow data)
   - **Digest** (derived stats + summary)
   - **Ask** (ask about this run; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
+
+### Link to one run
+
+The address `#run/<run_id>` opens that run in Observe, in a new tab or while
+the Observer is already open: `http://localhost:3001/#run/<run_id>` when the
+Observer runs on its own, `/apps/observer/#run/<run_id>` when the gateway
+serves it (the gateway console's account **Logs** link "Run started" events
+this way). Run ids that are not uuids work too. If the gateway does not know
+the run, or your account cannot see it (another user's run), Observe says so
+in place of "No run selected": "Run <run_id> cannot be opened: it does not
+exist on this gateway, or your account cannot see it." On a phone the link
+lands on the run view.
 
 Architecture and data flow: `architecture.md`.
 
@@ -1929,7 +1961,7 @@ is selected:
 Switch to **Automate**, or use **+ New automation** on the Automations page,
 which opens Launch in Automate mode. The address `#launch/automate` opens it
 directly (bookmarkable; `#launch` opens Run once, `#automations` the
-Automations page).
+Automations page, `#run/<run_id>` one run in Observe).
 
 ### What
 
@@ -2375,6 +2407,8 @@ server. The gateway starts this server on `127.0.0.1` and relays
   `__ABSTRACT_UI_CONFIG__`; every URL the app uses is relative (assets, the
   gateway API through its own session proxy, the service worker, whose scope
   is `/apps/observer/`), so the same build works at `/` and under the mount;
+- the run deep link is a hash route, so it needs no server route:
+  `/apps/observer/#run/<run_id>` (see getting-started.md, "Link to one run");
 - session cookies are set at `Path=/apps/observer/`;
 - "is this browser on this machine" (the folder reveal) is decided from the
   browser's address the gateway forwards, never the relaying connection.

@@ -10,6 +10,14 @@ Screens that show a list next to a detail use the space they have on phones and 
 Automations, Observe, the Board or System on a phone or a tablet is affected; desktop windows keep their layout,
 except that each list can now be collapsed and the Automations detail reads at 14 px.
 
+### Added
+- **Run deep link `#run/<run_id>`**: opens that run in Observe, in a new tab or while the Observer is open
+  (hashchange), wherever it is mounted; under the gateway the address is `/apps/observer/#run/<run_id>` (the gateway
+  console's account Logs links "Run started" events there). Run ids that are not uuids work. When the gateway answers
+  404 or 403 (no such run, or another user's run) Observe says "Run <run_id> cannot be opened: it does not exist on
+  this gateway, or your account cannot see it." in place of "No run selected", instead of an empty run view. On
+  phones the link lands on the run view.
+
 ### Changed
 - **Automations: an "Active" switch** on every automation row replaces the Pause / Resume buttons (on = runs on its
   schedule, off = paused; it sends `automation.pause` / `automation.resume`). Legacy scheduled runs get the same

@@ -61,6 +61,8 @@ server. The gateway starts this server on `127.0.0.1` and relays
   `__ABSTRACT_UI_CONFIG__`; every URL the app uses is relative (assets, the
   gateway API through its own session proxy, the service worker, whose scope
   is `/apps/observer/`), so the same build works at `/` and under the mount;
+- the run deep link is a hash route, so it needs no server route:
+  `/apps/observer/#run/<run_id>` (see getting-started.md, "Link to one run");
 - session cookies are set at `Path=/apps/observer/`;
 - "is this browser on this machine" (the folder reveal) is decided from the
   browser's address the gateway forwards, never the relaying connection.

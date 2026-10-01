@@ -3056,6 +3056,8 @@ export function App(): React.ReactElement {
           return;
         }
         await attach_to_run(rid);
+        // Phones (single pane): land on the run view, as a click in the run list does.
+        reveal_observe_viewer();
       } catch (e: any) {
         if (!stopped) set_error_text(String(e?.message || e || "Failed to attach run from URL"));
       } finally {
