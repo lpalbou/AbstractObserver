@@ -7,6 +7,8 @@
   (ui-kit, unreleased) over `GET /api/gateway/bundles?executable_for=abstractcode.agent.v1`: "Gateway default", then
   **Shared** (made available by your admin) and **Mine** (your own), each with its version. Workflows of other
   interfaces and bundles your admin made unavailable are no longer offered; runs of them still show by name.
+- **Release:** a `v*` tag now also gets a GitHub release page carrying its CHANGELOG section (job
+  `github-release`), like the framework's other packages. The page for `v0.5.0` was created by hand.
 
 ## [0.5.0] - 2026-10-01
 
