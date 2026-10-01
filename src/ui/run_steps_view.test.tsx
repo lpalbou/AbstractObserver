@@ -45,7 +45,8 @@ describe("RunStepsView", () => {
 
   it("each collapsed card shows kind, node, status, duration and ONE line of substance", () => {
     const m = view();
-    expect(m).toContain('<span class="rs_line">fake-model · 900 in / 42 out</span>');
+    expect(m).toContain('<span class="rs_line">900 in · 42 out</span>');
+    expect(m).toContain('<span class="rs_detail">fake-model</span>');
     expect(m).toContain('<span class="rs_line">list_files(directory_path=".")</span>');
     expect(m).toMatch(/<span class="rs_kind">LLM call<\/span><span class="rs_node">reason<\/span><span class="rs_status ok">completed<\/span>/);
   });
@@ -56,6 +57,20 @@ describe("RunStepsView", () => {
     expect(sw).toContain('aria-checked="false"');
     expect(m).toContain("All steps");
     expect(cards(view({ all_steps: true }))).toBe(7);
+  });
+
+  it("one toolbar row right under the count: Layout, filter, search, then the All steps switch at the end", () => {
+    const m = view();
+    const count = m.indexOf('class="rs_count"');
+    const bar = m.indexOf('class="rs_toolbar"');
+    expect(count).toBeGreaterThan(-1);
+    expect(bar).toBeGreaterThan(count);
+    const toolbar = m.slice(bar, m.indexOf("</div>", m.indexOf('data-action="show-all-steps"')));
+    const order = ['aria-label="Layout"', 'aria-label="Show"', 'class="rs_search"', 'data-action="show-all-steps"'].map((k) => toolbar.indexOf(k));
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // Nothing (no card) sits between the count and the toolbar.
+    expect(m.slice(count, bar)).not.toContain("rs_card");
   });
 
   it("filters: LLM calls only, Tools only, Failed only (segmented, the active one checked)", () => {
@@ -121,5 +136,14 @@ describe("RunOutcome (what remains of the Story)", () => {
     expect(f).not.toContain("All done.");
     expect(f).toContain(">Answer<");
     expect(f).toContain(">Folder<");
+  });
+});
+
+describe("section fold affordance", () => {
+  it("every section header carries a ▸ marker that turns ▾ when open (native marker hidden)", () => {
+    const css = readFileSync(join(__dirname, "run_steps.css"), "utf8");
+    expect(css).toMatch(/\.rs_section > summary::before\s*\{[^}]*content:\s*"▸"/);
+    expect(css).toMatch(/\.rs_section\[open\] > summary::before\s*\{[^}]*content:\s*"▾"/);
+    expect(css).toMatch(/\.rs_section > summary\s*\{[^}]*list-style:\s*none/);
   });
 });

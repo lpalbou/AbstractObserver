@@ -64,13 +64,13 @@ the rest of a long answer), and **Artifacts** (this run's artifacts in System), 
 and **Answer** (when the run waits for you).
 
 Below it, the run's steps, grouped by **agent cycle**: one LLM call and the tool calls that follow it. Each step
-is one row, collapsed: its kind (LLM call, Tools, Subflow, Event, Question, Answer…), node, status, duration and
-one line of substance (an LLM call: model and tokens in/out; tools: the tool and its arguments; an event: its
+is one row, collapsed: its kind (LLM call, Tools, Subflow, Event, Question, Answer…), node, status, duration (and
+the model of an LLM call) and one line of substance (an LLM call: tokens in · out; tools: the tool and its arguments; an event: its
 name; a subflow: the workflow and the child run id). Click a row to expand it:
 
 - an **LLM call** shows **System**, **Messages** (the turns as sent to the provider), **Tools offered**,
-  **Response** (text and the tool calls it asked for), **Reasoning** and **Raw JSON**, each folded with its own
-  **Copy**;
+  **Response** (text and the tool calls it asked for), **Reasoning** and **Raw JSON**, each folded (▸, ▾ when
+  open) with its own **Copy**;
 - **Tools** shows the **Calls** (arguments) and the **Results** (output, or the error of a failed call);
 - other steps show their payload, their result and the raw record.
 
@@ -79,7 +79,7 @@ The ledger stores a long prompt once: the record written when a step finishes po
 real prompt. When the start record is not in the loaded ledger, the step says so once ("Prompt body not kept:
 <reason>"); when the checksum differs, it says the rebuilt prompt may differ from what was sent.
 
-Controls:
+Controls (one row under the step count; it wraps on a phone):
 
 - **Cycles / Steps**: grouped by cycle, or one chronological list.
 - **All / LLM calls / Tools / Failed**: show only that kind of step. A tool step is failed when one of its tool

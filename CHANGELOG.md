@@ -14,9 +14,9 @@
   calls (and how many failed), the outcome in one paragraph (the error, or the final answer, or the saved
   summary), and **Artifacts**, **Folder** and **Answer** (when the run waits for you). Session files, the metric
   tiles, the chronology and the Summarize button are gone (artifacts stay reachable from System).
-- **Steps are collapsed cards**: kind, node, status, duration and one line (model + tokens in/out, the tool and
-  its arguments, the event name, the child run). Expanded, an LLM call shows System, Messages (as sent),
-  Tools offered, Response, Reasoning and Raw JSON, each foldable with Copy; a tool step shows its calls and
+- **Steps are collapsed cards**: kind, node, status, duration, the model of an LLM call, and one line (tokens
+  in · out, the tool and its arguments, the event name, the child run). Expanded, an LLM call shows System, Messages (as sent),
+  Tools offered, Response, Reasoning and Raw JSON, each foldable (▸/▾) with Copy; a tool step shows its calls and
   results. Replaces the old ledger cards and the cycles panel.
 - **Prompts stored once are shown in full**: a `$slim` placeholder in a finished step is rebuilt from the step's
   start record in the same ledger and checked against its sha256. When the start record is not loaded the step
@@ -24,7 +24,8 @@
 - **Housekeeping hidden by default**: status/progress events, waits, subworkflow resumes, memory bookkeeping,
   model loads and effect-less steps appear only with the **All steps** switch (one table,
   `src/ui/run_step_kinds.ts`). A failed step is always shown; a tool step with a failed result counts as failed.
-- **Filters and search**: All / LLM calls / Tools / Failed, and a search over card text and expanded content
+- **Filters and search**, in one toolbar row under the step count (wraps on phones): Cycles / Steps,
+  All / LLM calls / Tools / Failed, a search over card text and expanded content
   (plain text, any case). The view, filter, All steps and search are kept in the address
   (`#run/<run_id>?only=llm&all=1&q=…`); `#run/<run_id>` links keep working.
 - The run picker counts one LLM call per call (its start and end records were counted twice).

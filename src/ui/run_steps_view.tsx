@@ -22,6 +22,7 @@ import {
   group_by_cycle,
   llm_detail,
   step_search_text,
+  step_detail,
   step_substance,
   subflow_child_id,
   tool_detail,
@@ -208,6 +209,7 @@ export function StepCard(props: {
 }): React.ReactElement {
   const s = props.step;
   const line = step_substance(s);
+  const detail = step_detail(s);
   const status = s.failed && s.status !== "failed" ? "failed" : s.status;
   return (
     <article className={`rs_card ${s.failed ? "rs_failed" : ""}`} data-kind={s.kind} data-step-id={s.step_id || undefined}>
@@ -217,6 +219,7 @@ export function StepCard(props: {
         <span className="rs_node">{props.node_label || s.node_id || s.effect_type || "step"}</span>
         <span className={`rs_status ${run_status_class(status)}`}>{status || "—"}</span>
         <span className="rs_dur">{s.duration_ms !== null ? format_duration_ms(s.duration_ms) : ""}</span>
+        {detail ? <span className="rs_detail">{detail}</span> : null}
         {line ? <span className="rs_line">{line}</span> : null}
       </button>
       {props.open ? (
@@ -279,6 +282,23 @@ export function RunStepsView(props: {
 
   return (
     <div className="rs_view">
+      <div className="rs_count">
+        <span>
+          {visible.length} of {steps.length} steps{has_cycles ? ` · ${cycles} cycle${cycles === 1 ? "" : "s"}` : ""}
+          {hidden && state.only === "all" && !state.all_steps && !state.q ? ` · ${hidden} housekeeping hidden` : ""}
+        </span>
+        {props.run_options.length > 1 ? (
+          <select className="seg_select mono" value={props.run_id} onChange={(e) => props.on_select_run(String(e.target.value || ""))} aria-label="Run">
+            {props.run_options.map((rid) => (
+              <option key={rid} value={rid}>
+                {short_id(rid, 14)}
+                {props.run_llm_counts[rid] ? ` · ${props.run_llm_counts[rid]} LLM` : ""}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+      {/* One compact toolbar row under the count: segmented controls left, search right, the switch at the end (wraps on phones). */}
       <div className="rs_toolbar">
         <div className="seg_toggle" role="radiogroup" aria-label="Layout">
           {(["cycles", "steps"] as const).map((v) => (
@@ -294,15 +314,6 @@ export function RunStepsView(props: {
             </button>
           ))}
         </div>
-        {state.only === "all" ? (
-          <AfSwitch
-            label="All steps"
-            action="show-all-steps"
-            hint="Also list status events, waits, resumes and memory bookkeeping."
-            checked={state.all_steps}
-            onChange={(next) => set({ all_steps: next })}
-          />
-        ) : null}
         <input
           className="rs_search"
           type="search"
@@ -313,21 +324,16 @@ export function RunStepsView(props: {
           autoComplete="off"
           spellCheck={false}
         />
-        {props.run_options.length > 1 ? (
-          <select className="seg_select mono" value={props.run_id} onChange={(e) => props.on_select_run(String(e.target.value || ""))} aria-label="Run">
-            {props.run_options.map((rid) => (
-              <option key={rid} value={rid}>
-                {short_id(rid, 14)}
-                {props.run_llm_counts[rid] ? ` · ${props.run_llm_counts[rid]} LLM` : ""}
-              </option>
-            ))}
-          </select>
+        {state.only === "all" ? (
+          <AfSwitch
+            label="All steps"
+            action="show-all-steps"
+            hint="Also list status events, waits, resumes and memory bookkeeping."
+            checked={state.all_steps}
+            onChange={(next) => set({ all_steps: next })}
+          />
         ) : null}
       </div>
-      <p className="rs_count">
-        {visible.length} of {steps.length} steps{has_cycles ? ` · ${cycles} cycle${cycles === 1 ? "" : "s"}` : ""}
-        {hidden && state.only === "all" && !state.all_steps && !state.q ? ` · ${hidden} housekeeping hidden` : ""}
-      </p>
       {!steps.length ? <p className="rs_muted">No steps recorded for this run yet.</p> : null}
       {steps.length && !visible.length ? <p className="rs_muted">No step matches.</p> : null}
       {state.view === "cycles" && has_cycles

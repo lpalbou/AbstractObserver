@@ -519,8 +519,7 @@ export function step_substance(step: RunStep): string {
   switch (step.kind) {
     case "llm_call": {
       const d = llm_detail(step);
-      const tok = d.tokens_in !== null || d.tokens_out !== null ? `${(d.tokens_in ?? 0).toLocaleString("en-US")} in / ${(d.tokens_out ?? 0).toLocaleString("en-US")} out` : "";
-      return [d.model, tok].filter(Boolean).join(" · ");
+      return d.tokens_in !== null || d.tokens_out !== null ? `${(d.tokens_in ?? 0).toLocaleString("en-US")} in · ${(d.tokens_out ?? 0).toLocaleString("en-US")} out` : "";
     }
     case "tool": {
       const calls = tool_detail(step).calls;
@@ -547,9 +546,14 @@ export function step_substance(step: RunStep): string {
   }
 }
 
+/** The card's detail next to the status: the model of an LLM call ("" for other kinds). */
+export function step_detail(step: RunStep): string {
+  return step.kind === "llm_call" ? llm_detail(step).model : "";
+}
+
 /** Everything a search may match for one step: the card text plus the expanded bodies (lower-cased). */
 export function step_search_text(step: RunStep, node_label: string): string {
-  const parts = [step.kind, step.effect_type, step.event_name, step.node_id, node_label, step.status, step_substance(step)];
+  const parts = [step.kind, step.effect_type, step.event_name, step.node_id, node_label, step.status, step_substance(step), step_detail(step)];
   try {
     parts.push(JSON.stringify(step.started?.effect?.payload ?? null));
     parts.push(JSON.stringify(step.record ?? null));
