@@ -20,6 +20,12 @@ If you opened the UI from another device (phone, tablet), `localhost` refers to 
 
 Evidence: loopback guard in `on_discover_gateway()` in `src/ui/app.tsx`.
 
+## The voice control says "This page is loaded over http, so voice and camera is unavailable"
+You opened the Observer from another computer at a plain http address. Browsers offer the microphone only on
+https or on the computer itself; everything else works. Open it through an https address (for example with
+`tailscale serve`; the gateway console's Network page explains how) or on the gateway's own computer. See
+`getting-started.md` → "Open the Observer from another computer over http".
+
 ## CORS errors in the browser console
 Use same-origin deployment (recommended) or configure CORS on the gateway for your UI origin.
 See `configuration.md`.

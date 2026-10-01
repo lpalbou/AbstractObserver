@@ -35,6 +35,7 @@ Notes:
 - Build output lives in `dist/` and is served by `bin/cli.js` (don’t edit `dist/` manually).
 - `@abstractframework/ui-kit` and `@abstractframework/panel-chat` are npm dependencies; the monitor packages are Vite aliases to sibling `../abstractuic/*/src` (see `vite.config.ts` and `docs/development.md`).
 - Responsive layout (phones, tablets, small windows): `docs/getting-started.md` → "Responsive layout"; rules in `src/ui/responsive.css`.
+- On/off switches and opening the Observer over plain http from another computer (voice needs https): `docs/getting-started.md` → "Switches", "Open the Observer from another computer over http"; fallbacks in `src/lib/secure-context.ts`.
 - `llms.txt` format reference: https://llmstxt.org/
 
 ## Documentation (start here)
@@ -159,7 +160,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.3.0 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.5.0 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -236,7 +237,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -496,15 +497,15 @@ export default defineConfig({
 
 # Changelog
 
-## [Unreleased]
+## [0.5.0] - 2026-10-01
 
-On/off settings are switches. Every setting that is either on or off now shows as one switch labelled by the
-feature, highlighted when on, instead of a Pause/Resume button pair, an On/Off select or a checkbox. Built with
-AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
+On/off settings are switches. Every setting that is either on or off shows as one switch labelled by the
+feature, highlighted when on, in place of a Pause/Resume button pair, an On/Off select or a checkbox. Requires
+AbstractUIC ui-kit 0.4.0 (`AfSwitch`, `randomId()`, `insecureContextReason()`).
 
 Screens that show a list next to a detail use the space they have on phones and tablets. Everyone who opens
 Automations, Observe, the Board or System on a phone or a tablet is affected; desktop windows keep their layout,
-except that each list can now be collapsed and the Automations detail reads at 14 px.
+except that each list can be collapsed and the Automations detail reads at 14 px.
 
 ### Changed
 - **Automations: an "Active" switch** on every automation row replaces the Pause / Resume buttons (on = runs on its
@@ -536,8 +537,8 @@ except that each list can now be collapsed and the Automations detail reads at 1
   whole width (on a phone, the whole screen).
 - **Full width on phones and single-column tablets.** Below 1024 px (Automations, System) and below 768 px (Observe,
   Board), panes and list items are flat sections separated by thin lines instead of cards inside cards, and the page
-  is the only thing that scrolls: lists, the automation detail, the Observe run list and ledger, and the Board columns
-  no longer scroll inside it. Text starts 12-16 px from the screen edge, and the automation transcript uses the full
+  is the only thing that scrolls (lists, the automation detail, the Observe run list and ledger, and the Board columns
+  do not scroll inside it). Text starts 12-16 px from the screen edge, and the automation transcript uses the full
   width.
 - **Observe on phones** shows the run list above the selected run instead of one or the other; picking a run scrolls
   to it. The **Runs** back button is gone: collapse the list to read the run alone.
@@ -548,8 +549,7 @@ except that each list can now be collapsed and the Automations detail reads at 1
   titles, queue names, hints, ledger buttons and the wait details also use 14 px (chips, ids and times stay smaller).
 - **Tablets:** Observe keeps the run list beside the run only when both get about 360 px or more.
 - **Launch (Run once and Automate) on phones:** the form card and the "When" sections are flat, labels, help and
-  skill descriptions are 14 px, and the page no longer scrolls twice (a hidden switch reason made the whole document
-  scrollable under the page). Help text is at least 13 px on desktops.
+  skill descriptions are 14 px, and the page scrolls once (the document never scrolls under it). Help text is at least 13 px on desktops.
 - **Desktop text floor:** dense text (run meta, ledger chips, board cards, System rows) is 12 px instead of 11 px, and
   secondary text 13 px instead of 12 px. On touch tablets the System → Memory explorer's help text is 14 px.
 - For contributors: `src/ui/space.css` (loaded after `responsive.css`) and `src/ui/list_disclosure.tsx`, guarded by
@@ -559,12 +559,24 @@ except that each list can now be collapsed and the Automations detail reads at 1
   Launch-shaped form out in Chromium at 390 px with the CSS a fresh build ships, and fails on any element that scrolls
   inside the page or a document that scrolls under it; CI and the release workflow install the Playwright Chromium
   before the tests.
-
 - An unavailable switch always says why: the automation row's and the Observe toolbar's "Active" switches show
   their reason ("The automation has ended.", "Archived: history is kept, nothing runs.") as text next to the
   switch on touch screens; with a mouse it is the tooltip. docs/automations.md describes the Active switch.
 - Launch → Automate and the Edit form say "Connect a mailbox first — open My email" when no mailbox is usable,
-  and the email section is titled "Mailbox" (ui-kit 0.3.3 wording).
+  and the email section is titled "Mailbox" (ui-kit 0.4.0 wording).
+
+### Fixed
+- **Plain http from another machine** (LAN, Tailscale). Browsers withhold
+  `crypto.randomUUID`, `crypto.subtle`, the clipboard API and the microphone
+  outside https and localhost. Ids come from the kit's `randomId()`, the
+  session memory run id falls back to a plain SHA-256 (same id), **Copy**
+  says "Copied to clipboard" only when the copy worked (else "Copy failed —
+  select and copy"), and over plain http the chat's voice control says "This
+  page is loaded over http, so voice and camera is unavailable — open it over
+  https (for example through tailscale serve; the gateway console's Network
+  page explains how) or on the gateway's own computer." The manifest link
+  sends the app's session cookie (`crossorigin="use-credentials"`), so the
+  gateway answers it instead of returning 401.
 
 ## [0.4.0] - 2026-09-30
 
@@ -1114,6 +1126,8 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Troubleshoot common browser/network issues** → `troubleshooting.md`
 - **Ask about a run, or ask the Assistant about the Observer (history window, New conversation, no tools)** → `getting-started.md` → "Ask about a run, or ask the Assistant"
 - **Use the Observer on a phone, a tablet or a small window** → `getting-started.md` → "Responsive layout"
+- **What the on/off switches do** → `getting-started.md` → "Switches"
+- **Open the Observer from another computer over plain http (LAN, Tailscale)** → `getting-started.md` → "Open the Observer from another computer over http"
 - **See which version I run (About dialog)** → `faq.md`
 - **Understand trust boundaries (process control, MCP worker, tokens)** → `security.md`
 - **Contribute changes** → `../CONTRIBUTING.md`
@@ -1280,6 +1294,24 @@ AbstractObserver works on phones, tablets and desktop windows of any size:
 
 You can still pinch to zoom on phones. The text size and theme follow the **Appearance** settings (the
 half-filled circle in the top bar) on every screen size.
+
+## Switches
+Every setting that is either on or off is a switch named after what it controls: an automation's **Active**,
+**Archived (N)** on the Automations page, **Apply immediately** in Edit schedule, **Auto-connect on load** and one
+switch per assistant skill in Settings, **Live** in System → Memory map, and **Email me the result** in
+Launch → Automate. A switch that is on is highlighted; one that cannot change right now is unavailable and says why
+(next to it on touch screens, in its tooltip with a mouse). One-shot actions, such as pausing a running run, stay
+buttons. See `automations.md` for the Active switch.
+
+## Open the Observer from another computer over http
+You can open the Observer from another computer at the gateway's plain http address, for example
+`http://<host>:8080/apps/observer/` on your LAN or over Tailscale. Runs, automations and the ledger work there;
+**Copy** uses the browser's copy command when the clipboard API is withheld and says "Copied to clipboard" or
+"Copy failed — select and copy". Browsers offer the microphone and camera only on https or on the computer itself,
+so over plain http the voice control in Ask stays off and says: "This page is loaded over http, so voice and camera
+is unavailable — open it over https (for example through tailscale serve; the gateway console's Network page
+explains how) or on the gateway's own computer." To use voice from another computer, open the Observer through an
+https address such as `tailscale serve` or your own HTTPS reverse proxy (`configuration.md`).
 
 ## Next
 - Docs index: `README.md`
@@ -2627,6 +2659,12 @@ If you opened the UI from another device (phone, tablet), `localhost` refers to 
 - keep same-origin via a reverse proxy.
 
 Evidence: loopback guard in `on_discover_gateway()` in `src/ui/app.tsx`.
+
+## The voice control says "This page is loaded over http, so voice and camera is unavailable"
+You opened the Observer from another computer at a plain http address. Browsers offer the microphone only on
+https or on the computer itself; everything else works. Open it through an https address (for example with
+`tailscale serve`; the gateway console's Network page explains how) or on the gateway's own computer. See
+`getting-started.md` → "Open the Observer from another computer over http".
 
 ## CORS errors in the browser console
 Use same-origin deployment (recommended) or configure CORS on the gateway for your UI origin.

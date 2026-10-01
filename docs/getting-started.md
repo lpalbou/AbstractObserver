@@ -121,6 +121,24 @@ AbstractObserver works on phones, tablets and desktop windows of any size:
 You can still pinch to zoom on phones. The text size and theme follow the **Appearance** settings (the
 half-filled circle in the top bar) on every screen size.
 
+## Switches
+Every setting that is either on or off is a switch named after what it controls: an automation's **Active**,
+**Archived (N)** on the Automations page, **Apply immediately** in Edit schedule, **Auto-connect on load** and one
+switch per assistant skill in Settings, **Live** in System → Memory map, and **Email me the result** in
+Launch → Automate. A switch that is on is highlighted; one that cannot change right now is unavailable and says why
+(next to it on touch screens, in its tooltip with a mouse). One-shot actions, such as pausing a running run, stay
+buttons. See `automations.md` for the Active switch.
+
+## Open the Observer from another computer over http
+You can open the Observer from another computer at the gateway's plain http address, for example
+`http://<host>:8080/apps/observer/` on your LAN or over Tailscale. Runs, automations and the ledger work there;
+**Copy** uses the browser's copy command when the clipboard API is withheld and says "Copied to clipboard" or
+"Copy failed — select and copy". Browsers offer the microphone and camera only on https or on the computer itself,
+so over plain http the voice control in Ask stays off and says: "This page is loaded over http, so voice and camera
+is unavailable — open it over https (for example through tailscale serve; the gateway console's Network page
+explains how) or on the gateway's own computer." To use voice from another computer, open the Observer through an
+https address such as `tailscale serve` or your own HTTPS reverse proxy (`configuration.md`).
+
 ## Next
 - Docs index: `README.md`
 - FAQ: `faq.md`

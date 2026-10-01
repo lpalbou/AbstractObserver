@@ -19,6 +19,7 @@ Notes:
 - Build output lives in `dist/` and is served by `bin/cli.js` (don’t edit `dist/` manually).
 - `@abstractframework/ui-kit` and `@abstractframework/panel-chat` are npm dependencies; the monitor packages are Vite aliases to sibling `../abstractuic/*/src` (see `vite.config.ts` and `docs/development.md`).
 - Responsive layout (phones, tablets, small windows): `docs/getting-started.md` → "Responsive layout"; rules in `src/ui/responsive.css`.
+- On/off switches and opening the Observer over plain http from another computer (voice needs https): `docs/getting-started.md` → "Switches", "Open the Observer from another computer over http"; fallbacks in `src/lib/secure-context.ts`.
 - `llms.txt` format reference: https://llmstxt.org/
 
 ## Documentation (start here)

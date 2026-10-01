@@ -1,14 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.0] - 2026-10-01
 
-On/off settings are switches. Every setting that is either on or off now shows as one switch labelled by the
-feature, highlighted when on, instead of a Pause/Resume button pair, an On/Off select or a checkbox. Built with
-AbstractUIC ui-kit 0.3.3 (`AfSwitch`).
+On/off settings are switches. Every setting that is either on or off shows as one switch labelled by the
+feature, highlighted when on, in place of a Pause/Resume button pair, an On/Off select or a checkbox. Requires
+AbstractUIC ui-kit 0.4.0 (`AfSwitch`, `randomId()`, `insecureContextReason()`).
 
 Screens that show a list next to a detail use the space they have on phones and tablets. Everyone who opens
 Automations, Observe, the Board or System on a phone or a tablet is affected; desktop windows keep their layout,
-except that each list can now be collapsed and the Automations detail reads at 14 px.
+except that each list can be collapsed and the Automations detail reads at 14 px.
 
 ### Changed
 - **Automations: an "Active" switch** on every automation row replaces the Pause / Resume buttons (on = runs on its
@@ -40,8 +40,8 @@ except that each list can now be collapsed and the Automations detail reads at 1
   whole width (on a phone, the whole screen).
 - **Full width on phones and single-column tablets.** Below 1024 px (Automations, System) and below 768 px (Observe,
   Board), panes and list items are flat sections separated by thin lines instead of cards inside cards, and the page
-  is the only thing that scrolls: lists, the automation detail, the Observe run list and ledger, and the Board columns
-  no longer scroll inside it. Text starts 12-16 px from the screen edge, and the automation transcript uses the full
+  is the only thing that scrolls (lists, the automation detail, the Observe run list and ledger, and the Board columns
+  do not scroll inside it). Text starts 12-16 px from the screen edge, and the automation transcript uses the full
   width.
 - **Observe on phones** shows the run list above the selected run instead of one or the other; picking a run scrolls
   to it. The **Runs** back button is gone: collapse the list to read the run alone.
@@ -52,8 +52,7 @@ except that each list can now be collapsed and the Automations detail reads at 1
   titles, queue names, hints, ledger buttons and the wait details also use 14 px (chips, ids and times stay smaller).
 - **Tablets:** Observe keeps the run list beside the run only when both get about 360 px or more.
 - **Launch (Run once and Automate) on phones:** the form card and the "When" sections are flat, labels, help and
-  skill descriptions are 14 px, and the page no longer scrolls twice (a hidden switch reason made the whole document
-  scrollable under the page). Help text is at least 13 px on desktops.
+  skill descriptions are 14 px, and the page scrolls once (the document never scrolls under it). Help text is at least 13 px on desktops.
 - **Desktop text floor:** dense text (run meta, ledger chips, board cards, System rows) is 12 px instead of 11 px, and
   secondary text 13 px instead of 12 px. On touch tablets the System → Memory explorer's help text is 14 px.
 - For contributors: `src/ui/space.css` (loaded after `responsive.css`) and `src/ui/list_disclosure.tsx`, guarded by
@@ -63,24 +62,24 @@ except that each list can now be collapsed and the Automations detail reads at 1
   Launch-shaped form out in Chromium at 390 px with the CSS a fresh build ships, and fails on any element that scrolls
   inside the page or a document that scrolls under it; CI and the release workflow install the Playwright Chromium
   before the tests.
-
 - An unavailable switch always says why: the automation row's and the Observe toolbar's "Active" switches show
   their reason ("The automation has ended.", "Archived: history is kept, nothing runs.") as text next to the
   switch on touch screens; with a mouse it is the tooltip. docs/automations.md describes the Active switch.
 - Launch → Automate and the Edit form say "Connect a mailbox first — open My email" when no mailbox is usable,
-  and the email section is titled "Mailbox" (ui-kit 0.3.3 wording).
+  and the email section is titled "Mailbox" (ui-kit 0.4.0 wording).
 
 ### Fixed
 - **Plain http from another machine** (LAN, Tailscale). Browsers withhold
   `crypto.randomUUID`, `crypto.subtle`, the clipboard API and the microphone
-  outside https and localhost. Ids now come from the kit's `randomId()`, the
+  outside https and localhost. Ids come from the kit's `randomId()`, the
   session memory run id falls back to a plain SHA-256 (same id), **Copy**
   says "Copied to clipboard" only when the copy worked (else "Copy failed —
-  select and copy"), and the chat's voice control says "Voice and camera need
-  an https address (Network → HTTPS in the gateway console)." The manifest
-  link sends the app's session cookie (`crossorigin="use-credentials"`), so
-  the gateway no longer answers it with 401. Needs `@abstractframework/ui-kit`
-  0.3.3.
+  select and copy"), and over plain http the chat's voice control says "This
+  page is loaded over http, so voice and camera is unavailable — open it over
+  https (for example through tailscale serve; the gateway console's Network
+  page explains how) or on the gateway's own computer." The manifest link
+  sends the app's session cookie (`crossorigin="use-credentials"`), so the
+  gateway answers it instead of returning 401.
 
 ## [0.4.0] - 2026-09-30
 
