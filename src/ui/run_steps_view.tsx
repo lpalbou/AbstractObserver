@@ -282,10 +282,22 @@ export function RunStepsView(props: {
 
   return (
     <div className="rs_view">
-      <p className="rs_count">
-        {visible.length} of {steps.length} steps{has_cycles ? ` · ${cycles} cycle${cycles === 1 ? "" : "s"}` : ""}
-        {hidden && state.only === "all" && !state.all_steps && !state.q ? ` · ${hidden} housekeeping hidden` : ""}
-      </p>
+      <div className="rs_count">
+        <span>
+          {visible.length} of {steps.length} steps{has_cycles ? ` · ${cycles} cycle${cycles === 1 ? "" : "s"}` : ""}
+          {hidden && state.only === "all" && !state.all_steps && !state.q ? ` · ${hidden} housekeeping hidden` : ""}
+        </span>
+        {props.run_options.length > 1 ? (
+          <select className="seg_select mono" value={props.run_id} onChange={(e) => props.on_select_run(String(e.target.value || ""))} aria-label="Run">
+            {props.run_options.map((rid) => (
+              <option key={rid} value={rid}>
+                {short_id(rid, 14)}
+                {props.run_llm_counts[rid] ? ` · ${props.run_llm_counts[rid]} LLM` : ""}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
       {/* One compact toolbar row under the count: segmented controls left, search right, the switch at the end (wraps on phones). */}
       <div className="rs_toolbar">
         <div className="seg_toggle" role="radiogroup" aria-label="Layout">
@@ -302,16 +314,6 @@ export function RunStepsView(props: {
             </button>
           ))}
         </div>
-        {props.run_options.length > 1 ? (
-          <select className="seg_select mono" value={props.run_id} onChange={(e) => props.on_select_run(String(e.target.value || ""))} aria-label="Run">
-            {props.run_options.map((rid) => (
-              <option key={rid} value={rid}>
-                {short_id(rid, 14)}
-                {props.run_llm_counts[rid] ? ` · ${props.run_llm_counts[rid]} LLM` : ""}
-              </option>
-            ))}
-          </select>
-        ) : null}
         <input
           className="rs_search"
           type="search"

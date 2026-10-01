@@ -66,6 +66,10 @@
 
 .rs_count {
   margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
   color: var(--text-muted);
   font-size: var(--t-small, 13px);
 }
