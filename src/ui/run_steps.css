@@ -59,9 +59,9 @@
 }
 
 .rs_search {
-  flex: 1 1 200px;
+  flex: 1 1 180px;
   min-width: 0;
-  max-width: 360px;
+  margin-left: auto;
 }
 
 .rs_count {
@@ -209,6 +209,7 @@
 }
 
 .rs_section > summary {
+  list-style: none;
   min-height: 36px;
   display: flex;
   flex-wrap: wrap;
@@ -216,6 +217,28 @@
   gap: 8px;
   cursor: pointer;
   color: var(--text-primary);
+}
+
+.rs_section > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Fold marker (kit disclosure style): ▸ closed, ▾ open. */
+.rs_section > summary::before {
+  content: "▸";
+  width: 1em;
+  color: var(--text-muted);
+}
+
+.rs_section[open] > summary::before {
+  content: "▾";
+}
+
+.rs_detail {
+  font-size: var(--t-small, 13px);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
 .rs_section_title {
@@ -356,7 +379,8 @@
   .rs_status,
   .rs_count,
   .rs_section_meta,
-  .rs_role {
+  .rs_role,
+  .rs_detail {
     font-size: 14px;
   }
 }

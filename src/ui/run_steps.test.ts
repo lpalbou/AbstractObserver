@@ -18,6 +18,7 @@ import {
   resolve_slim_marker,
   run_view_hash,
   sha256_hex,
+  step_detail,
   step_search_text,
   step_substance,
   tool_detail,
@@ -125,7 +126,9 @@ describe("steps and agent cycles", () => {
 
   it("one line of substance per kind", () => {
     const steps = build_run_steps(ALL, CHILD);
-    expect(step_substance(steps[0])).toBe("fake-model · 900 in / 42 out");
+    expect(step_substance(steps[0])).toBe("900 in · 42 out");
+    expect(step_detail(steps[0])).toBe("fake-model");
+    expect(step_detail(steps[1])).toBe("");
     expect(step_substance(steps[1])).toBe('list_files(directory_path=".")');
     expect(step_substance(steps[6])).toBe("abstract.status");
     const sub = build_run_steps(ALL, ROOT).find((s) => s.kind === "subflow" && s.node_id === "node-2")!;
