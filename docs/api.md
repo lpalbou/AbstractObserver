@@ -43,7 +43,7 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `POST /api/gateway/automations/{id}/commands` — `automation.pause|resume|run_now|stop_current|archive`
 - `POST /api/gateway/automations/{id}/discuss` — fork the automation at an occurrence into a discussion session (opened as a chat on the Automations page); the answer carries `workspace_root` (the discussion's own, writable) and `mounted_workspace` (the automation's folder, read-only), both shown to the user
 - `POST /api/gateway/automations/{id}/seen` — acknowledge the last displayed attention item
-- `GET /api/gateway/me/email` — whether your email account is usable; the email trigger, **Email me the result** and the allowed recipients are offered only when it is (AbstractGateway 0.8.0+)
+- `GET /api/gateway/me/email` — whether your email account is usable; the email trigger, **Email result** and the result recipients are offered only when it is (AbstractGateway 0.8.0+)
 - `POST /api/gateway/runs/start` with the discussion's `session_id` — a later turn of a discussion (the gateway re-stamps its workspace, mount and history); the chat reads it with `GET /api/gateway/runs/{run_id}`, `/history_bundle?include_session=true`, `/ledger` and `/ledger/stream`
 - `GET /api/gateway/runs/{run_id}/workspace`, `/workspace/files?path=`, `/workspace/content?path=` — browse a run's folder and open or download its files (an automation's id is its controller run, so the automation's folder is `runs/{automation_id}/workspace`)
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel

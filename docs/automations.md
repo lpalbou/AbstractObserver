@@ -76,10 +76,10 @@ first run now." or "Runs every minute (UTC), first run now."; it reads
 - **Independent** (default): each run starts fresh in its own session. Runs
   never see each other.
 - **Growing**: each run is a new turn of one conversation and sees the
-  previous runs. The history is bounded: the most recent 50,000 tokens of
-  whole turns are replayed; older runs drop out.
+  previous runs. The most recent whole turns are replayed within the configured history
+  budget (50,000 tokens by default); older runs drop out.
 
-The Context choice is the one history control of an automation. The gateway
+The Context choice determines whether an automation uses history. The gateway
 sets the workflow's `use_context` input from it, so Automate mode does not
 show the workflow's **Use Context** input (Run once still does).
 
@@ -115,11 +115,10 @@ a new tab. Nothing email-related is sent without a usable account.
   once; mail that arrived before the automation existed, or while it was
   paused, is skipped. The Tools section adds that incoming mail is data, never
   instructions, and that link-opening tools always ask.
-- **Email me the result**: a run that notifies you, or fails for good, is also
-  emailed to you (`notify.channels: ["console", "email"]`).
-- **May send email without asking to**: **Only me** (default) or **Me and
-  these addresses** (`policy.email_allowed_recipients`). Mail to anyone else
-  waits for your approval; your recipient policy in My email still applies.
+- **Email result** emails every completed run’s full result.
+- **Recipients** appears when Email result is enabled: **Only me** (default) or
+  **Me and these addresses**. Recipients are stored in `notify.recipients`;
+  this setting does not grant email-tool permissions. The mailbox recipient policy still applies.
 
 The fields and their words are the kit's (`AfEmailTriggerFields`,
 `AfEmailOptionsFields`, `AfEmailSetupNotice`), the same as in AbstractCode's
@@ -255,7 +254,7 @@ title field focused:
 | **Repeat every (UTC)** | The interval, in minutes, hours or days (interval schedules only). For an email trigger: **Check for new mail every** (never under 60 seconds). |
 | **Context** | Independent (each run starts fresh) or growing (each run sees the previous runs). |
 | **Tools** | Run without asking, or ask before each tool call. |
-| **Email** | **Email me the result** and **May send email without asking to** (with a usable account; an option already on can always be turned off). |
+| **Email** | **Email result** and **Recipients** (with a usable account; an option already on can always be turned off). |
 
 **Save changes** sends only what changed, once (`PATCH
 /api/gateway/automations/{id}` with `expected_revision`), closes the form and
@@ -419,3 +418,16 @@ See [development.md](development.md).
 - the panel itself is the ui-kit's `AutomationPanel`
   (`@abstractframework/ui-kit`), shared with AbstractAssistant;
 - `src/ui/run_tree.ts`: navigator grouping.
+
+## Growing context limit
+
+These options require AbstractGateway 0.11.3 or later.
+
+Choose **Growing** to set **Max growing context (tokens)** when creating or editing an
+automation. The default is 50,000; enter `30000` for a 30,000-token history budget.
+The limit is hidden for **Independent** runs. Changing it affects subsequent occurrences;
+already admitted occurrences retain their history for retries. History retains whole turns,
+including the newest turn even when that turn alone exceeds the budget.
+
+The API field is `context.growing.max_tokens`, a positive integer. Existing definitions
+that omit it retain the 50,000-token default.

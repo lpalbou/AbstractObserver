@@ -28,14 +28,14 @@ jobs:
       # `@abstractframework/ui-kit`, `panel-chat` and `app-server` are registry
       # dependencies (package.json), installed by `npm ci`.
       # Pinned to the AbstractUIC release this Observer is built against
-      # (v0.4.0: ui-kit 0.4.0, panel-chat 0.2.2, monitor-active-memory 0.2.2) —
+      # (v0.5.2: ui-kit 0.5.1, panel-chat 0.2.4, monitor-active-memory 0.2.2) —
       # never the default branch, so a later kit change cannot alter this
       # build. Bump it with that release; ci.yml and release.yml pin the same.
       - name: Check out AbstractUIC
         uses: actions/checkout@v4
         with:
           repository: lpalbou/AbstractUIC
-          ref: v0.5.0
+          ref: v0.5.2
           path: abstractuic
 
       - name: Set up Node

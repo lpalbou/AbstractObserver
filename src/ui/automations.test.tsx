@@ -200,14 +200,14 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     await automate({ when: "once", once_at: "2026-09-28T08:00" }, news, { prompt: "One-off check" }, "req-once");
     expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 1, config: { start_at: "2026-09-28T08:00:00Z" } });
     await automate(
-      { amount: "12", unit: "h", context: "growing", title: "Energy watch", start_at: "2026-09-27T09:00", count: "10", until: "2026-10-31T00:00" },
+      { amount: "12", unit: "h", context: "growing", growing_max_tokens: "30000", title: "Energy watch", start_at: "2026-09-27T09:00", count: "10", until: "2026-10-31T00:00" },
       news,
       { prompt: "Energy prices" },
       "req-custom",
     );
     const body = last_request("POST", "/api/gateway/automations").body;
     expect(body.title).toBe("Energy watch");
-    expect(body.context).toEqual({ mode: "growing" });
+    expect(body.context).toEqual({ mode: "growing", growing: { max_tokens: 30000 } });
     expect(body.trigger.config).toEqual({ every: "12h", start_at: "2026-09-27T09:00:00Z", count: 10, until: "2026-10-31T00:00:00Z" });
   });
 
@@ -277,7 +277,7 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(html).toContain("When (UTC)");
     for (const p of SCHEDULE_PRESETS) expect(html).toContain(`data-preset="${p.label}"`);
     expect(html).toContain("Runs every 24 hours (UTC), first run now.");
-    expect(html).toContain("the most recent 50,000 tokens of whole turns are replayed");
+    expect(html).toContain("The most recent whole turns are replayed within your token budget");
     // One history control: the Context choice says it owns the flow's Use Context input.
     expect(html).toContain('data-context-owns="use_context"');
     expect(html).not.toMatch(/daily at|local time|weekly on/i);

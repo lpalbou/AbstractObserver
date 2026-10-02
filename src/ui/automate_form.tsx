@@ -143,6 +143,10 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
           <input type="radio" name="automate_context" value="growing" checked={f.context === "growing"} disabled={p.disabled} onChange={() => p.on_change({ context: "growing" })} />{" "}
           <strong>Growing</strong> — {CONTEXT_HELP.growing}
         </label>
+        {f.context === "growing" ? <label>
+          Max growing context (tokens)
+          <input type="number" min={1} step={1} required value={f.growing_max_tokens} disabled={p.disabled} onChange={(e) => p.on_change({ growing_max_tokens: e.target.value })} />
+        </label> : null}
         <p className="help_text muted" data-context-owns="use_context">
           {CONTEXT_OWNS_HISTORY}
         </p>

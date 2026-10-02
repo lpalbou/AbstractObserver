@@ -38,8 +38,8 @@ describe("Launch → Automate: email", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.body.trigger).toEqual({ source_id: "email.received", source_version: 1, config: { uses_model: true, every: "1h", max_batch: 100, filter: { from_domain_in: ["example.test"], subject_contains: "invoice" } } });
-    expect(r.body.notify).toEqual({ channels: ["console", "email"] });
-    expect(r.body.policy).toEqual({ tool_approval: "auto", email_allowed_recipients: ["self", "boss@example.test"] });
+    expect(r.body.notify).toEqual({ channels: ["console", "email"], recipients: ["self", "boss@example.test"] });
+    expect(r.body.policy).toEqual({ tool_approval: "auto" });
   });
 
   it("refuses the email trigger without a usable account, and never sends email options then", () => {

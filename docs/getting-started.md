@@ -174,7 +174,7 @@ half-filled circle in the top bar) on every screen size.
 ## Switches
 Every setting that is either on or off is a switch named after what it controls: an automation's **Active**,
 **Archived (N)** on the Automations page, **Apply immediately** in Edit schedule, **Auto-connect on load** and one
-switch per assistant skill in Settings, **Live** in System → Memory map, and **Email me the result** in
+switch per assistant skill in Settings, **Live** in System → Memory map, and **Email result** in
 Launch → Automate. A switch that is on is highlighted; one that cannot change right now is unavailable and says why
 (next to it on touch screens, in its tooltip with a mouse). One-shot actions, such as pausing a running run, stay
 buttons. See `automations.md` for the Active switch.

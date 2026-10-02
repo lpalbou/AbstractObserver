@@ -26,6 +26,7 @@ import {
   relativeIn,
   buildCreateRequest,
   DEFAULT_EMAIL_RECIPIENTS,
+  DEFAULT_GROWING_MAX_TOKENS,
   DEFAULT_EMAIL_TRIGGER_FORM,
   EMAIL_TEXT,
   emailTriggerLabel,
@@ -222,6 +223,7 @@ export type AutomateForm = {
   /** `YYYY-MM-DDTHH:MM`, read as UTC. */
   once_at: string;
   context: ContextMode;
+  growing_max_tokens: string;
   /** Decision D1: "auto" (default) = creating the automation approves its
    * tool calls; "ask" = every tool call waits for approval. */
   tool_approval: ToolApprovalPolicy;
@@ -241,6 +243,7 @@ export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
   unit: "h",
   once_at: "",
   context: "independent",
+  growing_max_tokens: String(DEFAULT_GROWING_MAX_TOKENS),
   tool_approval: "auto",
   title: "",
   start_at: "",
@@ -251,7 +254,7 @@ export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
 export const CONTEXT_HELP: Record<ContextMode, string> = {
   independent: "Each run starts fresh in its own session. Runs never see each other.",
   growing:
-    "Each run is a new turn of one conversation and sees the previous runs. The history is bounded: the most recent 50,000 tokens of whole turns are replayed; older runs drop out.",
+    "Each run is a new turn of one conversation and sees the previous runs. The most recent whole turns are replayed within your token budget; older runs drop out. The newest turn is kept whole even if it exceeds the budget.",
 };
 
 /**
@@ -281,6 +284,7 @@ export function schedule_form(form: AutomateForm, prompt: string, email_usable =
     ...(email_usable && form.notify_email ? { notifyEmail: true } : {}),
     ...(email_usable && form.email_recipients.mode === "list" ? { emailRecipients: form.email_recipients } : {}),
     context: form.context,
+    growingMaxTokens: Number(form.growing_max_tokens),
     toolApproval: form.tool_approval,
     title: form.title,
     ...(every && form.start_at ? { startAt: form.start_at } : {}),
