@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { random_id } from "./ids";
+import { session_memory_run_id } from "../ui/app";
 import { clipboardWrite, mediaAvailable, MEDIA_NEEDS_HTTPS } from "./secure-context";
 
 // Plain http from another machine (LAN, Tailscale) is not a secure context:
@@ -34,7 +35,6 @@ describe("non-secure context (plain http)", () => {
   });
 
   it("the session memory run id is the same without crypto.subtle", async () => {
-    const { session_memory_run_id } = await import("../ui/app");
     const sid = "session id with spaces / and ✓";
     const withSubtle = await session_memory_run_id(sid);
     withoutSecureCrypto();
