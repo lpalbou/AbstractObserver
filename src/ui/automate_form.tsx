@@ -9,6 +9,7 @@
 import React from "react";
 
 import {
+  AutomationToolsPicker,
   AfEmailOptionsFields,
   AfEmailSetupNotice,
   AfEmailTriggerFields,
@@ -59,6 +60,8 @@ export type AutomateFieldsProps = {
   form: AutomateForm;
   /** The target's tool list when the inputs name one (`input_data.tools`). */
   tools?: string[];
+  available_tools?: string[];
+  on_tools_change?(tools: string[] | null): void;
   disabled?: boolean;
   on_change(patch: Partial<AutomateForm>): void;
   /** GET /me/email (framework backlog 0992): the email options are offered only when usable; null/absent = not set up. */
@@ -153,6 +156,7 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
       </fieldset>
       <fieldset data-section="tools">
         <legend>Tools</legend>
+        {p.available_tools && p.on_tools_change ? <AutomationToolsPicker availableTools={p.available_tools} value={p.tools ?? null} onChange={p.on_tools_change} disabled={p.disabled} /> : null}
         {when === "email" ? (
           <p className="help_text muted" data-email-rule="untrusted">
             {EMAIL_TEXT.untrusted_hint}

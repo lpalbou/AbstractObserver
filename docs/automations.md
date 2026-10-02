@@ -85,6 +85,8 @@ show the workflow's **Use Context** input (Run once still does).
 
 ### Tools
 
+Choose available tools with the searchable dropdown in creation or **Edit**. Selected tools appear as removable chips; **All** selects the available list and **Clear** disables all tools. **Use workflow default tools** removes the selection override. Gateway restrictions always apply.
+
 - **Tools run without asking (you approve them now by creating this
   automation)** (default). An unattended run cannot stop to ask you at every
   tick, so creating the automation is the approval. When the inputs name the
@@ -249,11 +251,12 @@ title field focused:
 
 | Field | What it changes |
 | --- | --- |
+| **Workflow** | The workflow used for future runs; the header identifies the saved workflow. |
 | **Title** | The automation's name. |
 | **Task** | The instruction every run receives (the workflow's `prompt` input). |
 | **Repeat every (UTC)** | The interval, in minutes, hours or days (interval schedules only). For an email trigger: **Check for new mail every** (never under 60 seconds). |
 | **Context** | Independent (each run starts fresh) or growing (each run sees the previous runs). |
-| **Tools** | Run without asking, or ask before each tool call. |
+| **Tools** | Select the available tools, then choose whether to run without asking or ask before each tool call. |
 | **Email** | **Email result** and **Recipients** (with a usable account; an option already on can always be turned off). |
 
 **Save changes** sends only what changed, once (`PATCH
@@ -419,6 +422,11 @@ See [development.md](development.md).
   (`@abstractframework/ui-kit`), shared with AbstractAssistant;
 - `src/ui/run_tree.ts`: navigator grouping.
 
+Changing workflows preserves the task, portable agent settings, selected tools and result-email
+recipients. The new workflow supplies its input defaults. If additional required inputs are
+missing, the form refuses the change; configure those inputs when creating a new automation
+or choose a compatible workflow.
+
 ## Growing context limit
 
 These options require AbstractGateway 0.11.3 or later.
@@ -428,6 +436,10 @@ automation. The default is 50,000; enter `30000` for a 30,000-token history budg
 The limit is hidden for **Independent** runs. Changing it affects subsequent occurrences;
 already admitted occurrences retain their history for retries. History retains whole turns,
 including the newest turn even when that turn alone exceeds the budget.
+
+This budget limits inherited history at the start of a run. New messages, tool results,
+system instructions and generated output can increase the model’s working context beyond it.
+It is not a per-call context or memory limit.
 
 The API field is `context.growing.max_tokens`, a positive integer. Existing definitions
 that omit it retain the 50,000-token default.

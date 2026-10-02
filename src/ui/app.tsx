@@ -12,6 +12,8 @@ import {
   type ChatMessage,
 } from "@abstractframework/panel-chat";
 import {
+  automationToolSelection,
+  withAutomationTools,
   AF_MEDIA,
   AfAppearanceDialog,
   AfSelect,
@@ -5129,6 +5131,7 @@ export function App(): React.ReactElement {
                         const placeholder_default = has_default ? `${default_s}` : "";
 
                         if (ptype === "tools") {
+                          if (launch_mode === "automate" && pid === "tools") return null;
                           const selected = Array.isArray(cur) ? (cur as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
                           const default_tools = Array.isArray(default_val) ? (default_val as any[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
                           const merged_options = Array.from(new Set([...available_tool_names, ...selected, ...default_tools])).sort();
@@ -5238,7 +5241,9 @@ export function App(): React.ReactElement {
                       form={automate_form}
                       email_status={automations_state.email_status}
                       on_open_my_email={open_my_email}
-                      tools={Array.isArray((input_data_obj as any)?.tools) ? ((input_data_obj as any).tools as any[]).map((t) => String(t)) : undefined}
+                      tools={automationToolSelection(input_data_obj || {}) ?? undefined}
+                      available_tools={available_tool_names}
+                      on_tools_change={(tools) => set_input_data_text(JSON.stringify(withAutomationTools(input_data_obj || {}, tools), null, 2))}
                       disabled={automate_submitting}
                       on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))}
                     />
@@ -5317,6 +5322,8 @@ export function App(): React.ReactElement {
 
         {page === "automations" ? (
           <AutomationsPage
+            workflowPickerOptions={{ interfaceId: null, defaultInterface: CODE_AGENT_INTERFACE, workflows: executable_workflows, request: (path, init) => gateway.get_gateway_json(path, init.signal) }}
+            availableTools={available_tool_names}
             ctl={automations_ctl}
             gateway={gateway}
             active={page === "automations" && gateway_connected}

@@ -29,6 +29,7 @@ import {
   type IconName,
   apiErrorText,
   type AutomationCommandType,
+  type AutomationWorkflowPickerOptions,
   type AutomationStatus,
   type AutomationSummary,
   type DiscussResponse,
@@ -457,6 +458,8 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
  * `browser` (a folder browser the host opened through the panel's
  * `onOpenWorkspace`) shows above the panel. */
 export function AutomationDetailView(props: {
+  workflowPickerOptions?: AutomationWorkflowPickerOptions;
+  availableTools?: string[];
   ctl: AutomationsController;
   host: PanelHostHandlers;
   h: AutomationsHandlers;
@@ -510,7 +513,7 @@ export function AutomationDetailView(props: {
   return (
     <section className="pane auto_detail">
       {props.browser ?? null}
-      {p ? <AutomationPanelWithMarkdown {...p} /> : null}
+      {p ? <AutomationPanelWithMarkdown {...p} workflowPickerOptions={props.workflowPickerOptions} availableTools={props.availableTools} /> : null}
     </section>
   );
 }
@@ -532,6 +535,8 @@ export function route_row_action(
  * open discussion (a chat in place, never a jump to Observe) and the folder
  * browser toggle. */
 export function AutomationsPage(props: {
+  workflowPickerOptions?: AutomationWorkflowPickerOptions;
+  availableTools?: string[];
   ctl: AutomationsController;
   gateway: GatewayClient;
   active: boolean;
@@ -627,6 +632,8 @@ export function AutomationsPage(props: {
         />
       ) : (
         <AutomationDetailView
+          workflowPickerOptions={props.workflowPickerOptions}
+          availableTools={props.availableTools}
           ctl={ctl}
           host={host}
           h={h}
