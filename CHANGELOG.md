@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-03
+
 - Change the workflow of an existing automation in Edit, alongside its tool selection and result-email recipients. Automation headers identify the selected workflow.
 
 - Select automation tools at creation and editing with the shared searchable dropdown, including All/Clear controls and workflow defaults. Saved tool restrictions remain respected.

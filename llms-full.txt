@@ -237,7 +237,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -281,8 +281,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.11",
-    "@abstractframework/panel-chat": "^0.2.4",
-    "@abstractframework/ui-kit": "^0.5.1",
+    "@abstractframework/panel-chat": "^0.2.5",
+    "@abstractframework/ui-kit": "^0.5.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -498,6 +498,8 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+## [0.6.2] - 2026-10-03
 
 - Change the workflow of an existing automation in Edit, alongside its tool selection and result-email recipients. Automation headers identify the selected workflow.
 
