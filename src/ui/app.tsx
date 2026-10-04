@@ -19,6 +19,7 @@ import {
   AfSelect,
   apiErrorText,
   type ApiError,
+  AfAudioPlayer,
   AfTopBarActions,
   GatewayConnectModal,
   Icon,
@@ -62,7 +63,7 @@ import {
   type AutomateForm,
   type WorkflowChoice,
 } from "./automations";
-import { load_gateway_about_rows, observer_identity, type AboutRow } from "./about";
+import { ABOUT_VERSIONS_LOADING, load_gateway_about_versions, observer_identity, type AfAboutVersions } from "./about";
 import { registerMonitorGpuWidget } from "@abstractframework/monitor-gpu";
 
 import "./forms.css";
@@ -843,13 +844,13 @@ export function App(): React.ReactElement {
   // About dialog: identity is fixed for the build; gateway versions are
   // fetched each time the dialog opens (the latest answer wins).
   const about_identity = useMemo(() => observer_identity(), []);
-  const [about_gateway_rows, set_about_gateway_rows] = useState<AboutRow[]>([]);
+  const [about_versions, set_about_versions] = useState<AfAboutVersions>(ABOUT_VERSIONS_LOADING);
   const about_request_seq = useRef(0);
-  function refresh_about_gateway_rows(): void {
+  function refresh_about_versions(): void {
     const seq = ++about_request_seq.current;
-    set_about_gateway_rows([["Gateway", "checking…"]]);
-    void load_gateway_about_rows(gateway).then((rows) => {
-      if (seq === about_request_seq.current) set_about_gateway_rows(rows);
+    set_about_versions(ABOUT_VERSIONS_LOADING);
+    void load_gateway_about_versions(gateway).then((versions) => {
+      if (seq === about_request_seq.current) set_about_versions(versions);
     });
   }
   const worker = useMemo(
@@ -4758,7 +4759,7 @@ export function App(): React.ReactElement {
             <AfTopBarActions
               assistant={{ open: assistant_open, onToggle: () => set_assistant_open((v) => !v), label: "Observer assistant (docs-grounded)" }}
               appearance={{ onOpen: () => set_appearance_open(true) }}
-              about={{ identity: about_identity, extraRows: about_gateway_rows, onOpen: refresh_about_gateway_rows }}
+              about={{ identity: about_identity, versions: about_versions, onOpen: refresh_about_versions }}
               connection={{
                 phase: gateway_connection.phase,
                 signingOut: gateway_connection.signingOut,
@@ -6142,7 +6143,7 @@ export function App(): React.ReactElement {
           {runtime_preview_kind === "image" && runtime_preview_url ? (
             <img className="runtime_preview_media" src={runtime_preview_url} alt={runtime_preview_title || "Artifact preview"} />
           ) : runtime_preview_kind === "audio" && runtime_preview_url ? (
-            <audio className="runtime_preview_media" controls src={runtime_preview_url} />
+            <AfAudioPlayer className="runtime_preview_media" src={runtime_preview_url} name={runtime_preview_title || undefined} />
           ) : runtime_preview_kind === "video" && runtime_preview_url ? (
             <video className="runtime_preview_media" controls src={runtime_preview_url} />
           ) : (

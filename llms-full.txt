@@ -499,6 +499,12 @@ export default defineConfig({
 
 ## [Unreleased]
 
+### Changed
+
+- **About is the shared compact card** (ui-kit 0.7.0 `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
+- **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog, instead of the browser's bare audio controls.
+- Requires `@abstractframework/ui-kit` 0.7.0 and `@abstractframework/panel-chat` 0.3.1 (unreleased; pins move at release).
+
 ## [0.6.2] - 2026-10-03
 
 - Change the workflow of an existing automation in Edit, alongside its tool selection and result-email recipients. Automation headers identify the selected workflow.
@@ -1499,14 +1505,16 @@ or your own reverse proxy that routes `/api` to the gateway.
 Evidence: `bin/cli.js` (static server + session proxy), `vite.config.ts` (dev proxy), `src/lib/gateway_client.ts` (fetches `/api/...` when `base_url=""`).
 
 ## Which version am I running?
-Open **About** (the info button in the top bar). It shows the AbstractObserver
-version (fixed at build time from `package.json`), links to the website,
-source, documentation, issue tracker and feedback page, and the versions the
-connected gateway reports. The gateway versions are read from
-`GET /api/gateway/about` each time the dialog opens: "Gateway: checking…"
-while the answer is on its way, then one row each for AbstractGateway,
-AbstractFramework and the gateway's packages, or "Gateway: unavailable (…)"
-with the reason. See `troubleshooting.md`.
+Open **About** (the info button in the top bar). It is the shared compact
+About card of every AbstractFramework app (ui-kit `AfAboutDialog`): the
+AbstractObserver version (fixed at build time from `package.json`), the
+AbstractFramework and AbstractGateway versions the connected gateway reports,
+links to the website, source, documentation, issues, feedback and contact, and
+the author/licence line. It does not list the gateway's packages. The versions
+are read from `GET /api/gateway/about` each time the dialog opens:
+"checking…" while the answer is on its way, then the two versions, or
+"unavailable (…)" with the reason in place of the gateway version. See
+`troubleshooting.md`.
 
 ## What should I put in “Gateway URL”?
 Usually: your gateway base URL (e.g. `http://localhost:8080` for local dev).
@@ -1854,7 +1862,8 @@ The Artifact Explorer consumes `artifact_envelope_v1` rows from
 chips and totals are exact for the selected scope instead of inferred from the
 current page. It separates semantic kind (`voice`, `music`, `sound`,
 unclassified `audio`) from render kind (`image`, `markdown`, `html`, `json`,
-and similar display formats). The detail view prioritizes embedded preview,
+and similar display formats); audio plays in the kit's shared waveform player
+(`AfAudioPlayer`, ui-kit 0.7.0). The detail view prioritizes embedded preview,
 creation summary, prompt/provider/media facts when recorded, run and ledger
 links, provider trace/audit actions, and then raw metadata.
 
@@ -1956,8 +1965,8 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/bundles/reload`
   - `POST /api/gateway/bundles/upload`
   - `DELETE /api/gateway/bundles/{bundle_id}?bundle_version=…&reload=true|false`
-- **About dialog** — public, read each time the dialog opens; if it fails the dialog shows "Gateway: unavailable" with the reason
-  - `GET /api/gateway/about` — `{ abstractframework, abstractgateway, packages }` versions on the gateway host
+- **About dialog** — public, read each time the dialog opens; if it fails the dialog shows AbstractGateway "unavailable (…)" with the reason
+  - `GET /api/gateway/about` — `{ abstractframework, abstractgateway, packages }` versions on the gateway host; About shows only the framework and gateway versions (no package list)
 - **Knowledge graph (Runtime → Memory)**
   - `POST /api/gateway/kg/query`
 - **Process manager** — part of AbstractContinuum (`@abstractframework/continuum`)
@@ -2811,7 +2820,7 @@ answers `401 Gateway sign-in required`.
 - Sign in from the connection dialog (header badge), and
 - check that the server points at your gateway (`--gateway-url`; see `configuration.md`).
 
-## About shows "Gateway: unavailable (…)"
+## About shows AbstractGateway "unavailable (…)"
 The About dialog could not read `GET /api/gateway/about`; the reason in
 brackets says why. An HTTP 404 means the gateway does not serve the About
 route: upgrade it to a version with `GET /about`. A sign-in or network error

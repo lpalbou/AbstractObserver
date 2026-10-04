@@ -64,14 +64,16 @@ or your own reverse proxy that routes `/api` to the gateway.
 Evidence: `bin/cli.js` (static server + session proxy), `vite.config.ts` (dev proxy), `src/lib/gateway_client.ts` (fetches `/api/...` when `base_url=""`).
 
 ## Which version am I running?
-Open **About** (the info button in the top bar). It shows the AbstractObserver
-version (fixed at build time from `package.json`), links to the website,
-source, documentation, issue tracker and feedback page, and the versions the
-connected gateway reports. The gateway versions are read from
-`GET /api/gateway/about` each time the dialog opens: "Gateway: checking…"
-while the answer is on its way, then one row each for AbstractGateway,
-AbstractFramework and the gateway's packages, or "Gateway: unavailable (…)"
-with the reason. See `troubleshooting.md`.
+Open **About** (the info button in the top bar). It is the shared compact
+About card of every AbstractFramework app (ui-kit `AfAboutDialog`): the
+AbstractObserver version (fixed at build time from `package.json`), the
+AbstractFramework and AbstractGateway versions the connected gateway reports,
+links to the website, source, documentation, issues, feedback and contact, and
+the author/licence line. It does not list the gateway's packages. The versions
+are read from `GET /api/gateway/about` each time the dialog opens:
+"checking…" while the answer is on its way, then the two versions, or
+"unavailable (…)" with the reason in place of the gateway version. See
+`troubleshooting.md`.
 
 ## What should I put in “Gateway URL”?
 Usually: your gateway base URL (e.g. `http://localhost:8080` for local dev).

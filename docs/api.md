@@ -66,8 +66,8 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/bundles/reload`
   - `POST /api/gateway/bundles/upload`
   - `DELETE /api/gateway/bundles/{bundle_id}?bundle_version=…&reload=true|false`
-- **About dialog** — public, read each time the dialog opens; if it fails the dialog shows "Gateway: unavailable" with the reason
-  - `GET /api/gateway/about` — `{ abstractframework, abstractgateway, packages }` versions on the gateway host
+- **About dialog** — public, read each time the dialog opens; if it fails the dialog shows AbstractGateway "unavailable (…)" with the reason
+  - `GET /api/gateway/about` — `{ abstractframework, abstractgateway, packages }` versions on the gateway host; About shows only the framework and gateway versions (no package list)
 - **Knowledge graph (Runtime → Memory)**
   - `POST /api/gateway/kg/query`
 - **Process manager** — part of AbstractContinuum (`@abstractframework/continuum`)

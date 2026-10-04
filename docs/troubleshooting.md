@@ -37,7 +37,7 @@ answers `401 Gateway sign-in required`.
 - Sign in from the connection dialog (header badge), and
 - check that the server points at your gateway (`--gateway-url`; see `configuration.md`).
 
-## About shows "Gateway: unavailable (…)"
+## About shows AbstractGateway "unavailable (…)"
 The About dialog could not read `GET /api/gateway/about`; the reason in
 brackets says why. An HTTP 404 means the gateway does not serve the About
 route: upgrade it to a version with `GET /about`. A sign-in or network error

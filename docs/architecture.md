@@ -167,7 +167,8 @@ The Artifact Explorer consumes `artifact_envelope_v1` rows from
 chips and totals are exact for the selected scope instead of inferred from the
 current page. It separates semantic kind (`voice`, `music`, `sound`,
 unclassified `audio`) from render kind (`image`, `markdown`, `html`, `json`,
-and similar display formats). The detail view prioritizes embedded preview,
+and similar display formats); audio plays in the kit's shared waveform player
+(`AfAudioPlayer`, ui-kit 0.7.0). The detail view prioritizes embedded preview,
 creation summary, prompt/provider/media facts when recorded, run and ledger
 links, provider trace/audit actions, and then raw metadata.
 

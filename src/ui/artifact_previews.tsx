@@ -8,6 +8,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 
+import { AfAudioPlayer } from "@abstractframework/ui-kit";
 import { JsonViewer as SharedJsonViewer, Markdown, tryParseJson } from "@abstractframework/panel-chat";
 import {
   artifact_display_kind,
@@ -337,7 +338,7 @@ export function RuntimeInlinePreview(props: { artifact: RuntimeArtifact | null; 
   if (preview.loading) return <div className="runtime_inline_preview empty">Loading preview…</div>;
   if (preview.error) return <div className="runtime_inline_preview empty danger">{preview.error}</div>;
   if (preview.kind === "image" && preview.url) return <img className="runtime_inline_preview media" src={preview.url} alt={artifact_label(artifact)} />;
-  if (preview.kind === "audio" && preview.url) return <audio className="runtime_inline_preview audio" src={preview.url} controls />;
+  if (preview.kind === "audio" && preview.url) return <AfAudioPlayer className="runtime_inline_preview audio" src={preview.url} name={artifact_label(artifact)} />;
   if (preview.kind === "video" && preview.url) return <video className="runtime_inline_preview media" src={preview.url} controls />;
   return <RuntimeStructuredTextPreview artifact={artifact} text={preview.text || "Preview unavailable. Use Preview or Download."} className="runtime_inline_preview text" />;
 }

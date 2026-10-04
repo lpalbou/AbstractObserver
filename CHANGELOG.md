@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **About is the shared compact card** (ui-kit 0.7.0 `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
+- **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog, instead of the browser's bare audio controls.
+- Requires `@abstractframework/ui-kit` 0.7.0 and `@abstractframework/panel-chat` 0.3.1 (unreleased; pins move at release).
+
 ## [0.6.2] - 2026-10-03
 
 - Change the workflow of an existing automation in Edit, alongside its tool selection and result-email recipients. Automation headers identify the selected workflow.
