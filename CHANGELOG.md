@@ -16,7 +16,8 @@
 
 - **About is the shared compact card** (ui-kit `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
 - **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog.
-- Dependencies: `@abstractframework/ui-kit` ^0.8.0 and `@abstractframework/panel-chat` ^0.3.1. Voice and archived runs need AbstractGateway 0.13.0 or later; with an older gateway the Board shows only active runs.
+- **Docs assistant is the kit's shared `DocsAssistantDrawer`** (panel-chat 0.4.0; the book icon in the top bar, the same drawer as the console and the other apps): your question on the right, the answer on the left with markdown, code, JSON and links rendered, streaming, copy, attachments, an icon-only New conversation and a one-line grounding footer. It answers from this app's `llms.txt` through the gateway's docs-qa workflow (`GET /docs/corpus?app=observer`), one gateway session per conversation. The build ships `llms.txt` in `dist/` and the app server serves it as `text/plain`. The basic-agent transport and its inlined docs index are gone.
+- Dependencies: `@abstractframework/ui-kit` ^0.8.0 and `@abstractframework/panel-chat` ^0.4.0. Voice and archived runs need AbstractGateway 0.13.0 or later; with an older gateway the Board shows only active runs.
 
 ## [0.6.2] - 2026-10-03
 

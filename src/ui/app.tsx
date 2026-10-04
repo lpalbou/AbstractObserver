@@ -4740,9 +4740,9 @@ export function App(): React.ReactElement {
               />
             ) : null}
             {/* The unified upper-right cluster (same order in every
-              * AbstractFramework app): assistant → appearance → Disconnect. */}
+              * AbstractFramework app): docs assistant → appearance → Disconnect. */}
             <AfTopBarActions
-              assistant={{ open: assistant_open, onToggle: () => set_assistant_open((v) => !v), label: "Observer assistant (docs-grounded)" }}
+              docs={{ open: assistant_open, onToggle: () => set_assistant_open((v) => !v), label: "Docs assistant" }}
               appearance={{ onOpen: () => set_appearance_open(true) }}
               about={{ identity: about_identity, versions: about_versions, onOpen: refresh_about_versions }}
               connection={{
