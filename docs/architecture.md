@@ -1,6 +1,6 @@
 # AbstractObserver — Architecture
 
-> Last updated: 2026-09-27
+> Last updated: 2026-10-04
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
@@ -26,6 +26,8 @@ flowchart LR
   S -->|mounts| P
   P -->|HTTP fetch + SSE, session attached server-side| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
   B -->|About dialog: GET /api/gateway/about<br/><code>src/ui/about.ts</code>| P
+  B -->|voice: /voice/defaults, voice/tts/stream, audio/transcribe<br/><code>src/ui/observer_voice.tsx</code>| P
+  K[ui-kit + panel-chat<br/>About card, waveform player, voice stack] -.->|bundled into| B
   B -.->|direct mode, local dev| G
   G -->|backed by| R[AbstractRuntime<br/>durable runs + append-only ledger]
   B -->|optional JSON-RPC over HTTP| W[MCP tool worker<br/><code>src/lib/mcp_worker_client.ts</code>]
@@ -168,7 +170,7 @@ chips and totals are exact for the selected scope instead of inferred from the
 current page. It separates semantic kind (`voice`, `music`, `sound`,
 unclassified `audio`) from render kind (`image`, `markdown`, `html`, `json`,
 and similar display formats); audio plays in the kit's shared waveform player
-(`AfAudioPlayer`, ui-kit 0.7.0). The detail view prioritizes embedded preview,
+(`AfAudioPlayer`, ui-kit 0.8.0). The detail view prioritizes embedded preview,
 creation summary, prompt/provider/media facts when recorded, run and ledger
 links, provider trace/audit actions, and then raw metadata.
 

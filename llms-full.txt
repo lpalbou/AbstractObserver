@@ -36,7 +36,9 @@ Notes:
 - `@abstractframework/ui-kit` and `@abstractframework/panel-chat` are npm dependencies; the monitor packages are Vite aliases to sibling `../abstractuic/*/src` (see `vite.config.ts` and `docs/development.md`).
 - Responsive layout (phones, tablets, small windows): `docs/getting-started.md` → "Responsive layout"; rules in `src/ui/responsive.css`.
 - On/off switches and opening the Observer over plain http from another computer (voice needs https): `docs/getting-started.md` → "Switches", "Open the Observer from another computer over http"; fallbacks in `src/lib/secure-context.ts`.
-- Voice (Read aloud streamed per sentence, dictation in Ask/Discuss, Settings → Voice = the kit section with the gateway's default routes from `GET /voice/defaults`): `docs/faq.md` → "Does it support voice", routes in `docs/api.md` → Voice; code `src/ui/observer_voice.tsx`; tests `src/ui/observer_voice.test.tsx` + `scripts/voice_e2e.mjs` (fake routes: `scripts/fake_voice_proxy.mjs`).
+- Voice (Read aloud streamed per sentence, dictation in Ask/Discuss, Settings → Voice = the kit section with the gateway's default routes from `GET /voice/defaults`): `docs/faq.md` → "Does it support voice", routes in `docs/api.md` → Voice; code `src/ui/observer_voice.tsx`; tests `src/ui/observer_voice.test.tsx` + `scripts/voice_e2e.mjs` (fake routes: `scripts/fake_voice_proxy.mjs`). Needs AbstractGateway 0.13.0 or later.
+- Archived conversations: the Board appends `GET /runs?root_only=true&archived_only=true` (AbstractGateway 0.13.0+) and tags those runs **Archived**; Observer lists runs, not sessions, so it has no Archive button: `docs/api.md` → Runs, `docs/faq.md`; code `with_archived_roots()` in `src/ui/automations.ts`.
+- About: the shared ui-kit compact card (app, framework and gateway versions, links, licence line) from `GET /api/gateway/about`: `docs/faq.md` → "Which version am I running?"; code `src/ui/about.ts`.
 - `llms.txt` format reference: https://llmstxt.org/
 
 ## Documentation (start here)
@@ -192,7 +194,7 @@ See `docs/configuration.md` for the full list.
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
-- **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
+- **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; runs of conversations archived in AbstractCode stay on the Board, tagged **Archived**; run lists poll live (5s visible / 30s hidden)
 - **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, the run view (a one-paragraph summary, then the steps grouped by agent cycle as collapsed cards that expand to the full prompt and answer; LLM calls / Tools / Failed filters, an All steps switch for housekeeping, search), graph, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS)
 - **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
@@ -201,7 +203,7 @@ All pages share the same gateway connection settings.
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **Responsive layout**: phones, tablets and small windows get a navigation drawer, full-width lists and details with collapsible lists, bottom-sheet dialogs and touch-sized controls (`docs/getting-started.md` → "Responsive layout")
-- **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
+- **About** (the info button in the top bar): the shared compact About card with the AbstractObserver version, the AbstractFramework and AbstractGateway versions the connected gateway reports, links (website, source, docs, issues, feedback, contact) and the licence line
 
 ## Documentation
 - Start here: `docs/getting-started.md`
@@ -238,7 +240,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -282,8 +284,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.11",
-    "@abstractframework/panel-chat": "^0.2.5",
-    "@abstractframework/ui-kit": "^0.5.2",
+    "@abstractframework/panel-chat": "^0.3.1",
+    "@abstractframework/ui-kit": "^0.8.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -500,23 +502,21 @@ export default defineConfig({
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-04
+
 ### Added
 
-- **Voice everywhere through the gateway's voice routes** (round 7), with the kit's shared stack — no voice code of its own:
+- **Voice through the gateway's voice routes**, with the kit's shared voice stack:
   - **Read aloud**: a run's outcome has **Read aloud** / **Stop**; every reply in Observe → Ask and in Automations → Discuss has a speaker. Speech streams sentence by sentence from `POST /runs/{id}/voice/tts/stream` (the kit's `useGatewayVoice` + `streamTtsJsonl`), so a long answer starts speaking on its first sentence. Requests ride the session's media run, never the run being watched.
-  - **Dictation** in Ask and in **Discuss** (also before the discussion's first message): hold the microphone, or tap to start and tap again to stop; the status line reads `Recording… 3 s`, then `Transcribing… 4 s · faster-whisper / large-v3` (the override, else the gateway default `input.voice` route). A transcription that has not answered after 180 s fails as a sentence.
-  - **Settings → Voice** is the kit's `AfVoiceSection`: "Gateway default · supertonic / supertonic-3" from `GET /voice/defaults` (never from the voice catalog), output device + Test + reply volume, microphone + level meter + Test + input level, spoken language, and **Read aloud** (speak each new reply). Preferences stay in this browser.
+  - **Dictation** in Ask and in **Discuss** (also before the discussion's first message): hold the microphone, or tap to start and tap again to stop; the status line reads `Recording… 3 s`, then `Transcribing… 4 s · faster-whisper / large-v3` (your override, else the gateway default `input.voice` route). A transcription that has not answered after 180 s fails as a sentence.
+  - **Settings → Voice** is the kit's `AfVoiceSection`: "Gateway default · supertonic / supertonic-3" from `GET /voice/defaults`, output device + Test + reply volume, microphone + level meter + Test + input level, spoken language, and **Read aloud** (speak each new reply). Preferences stay in this browser.
+- **Archived conversations stay on the Board.** A conversation archived in AbstractCode leaves the gateway's `root_only` runs listing; Observer also asks for `archived_only=true` and appends those runs, each tagged **Archived**. Observer lists runs, not sessions, so it has no Archive button.
 
 ### Changed
 
-- The local copy of the voice hook (`src/ui/use_gateway_voice.ts`, non-streaming, synthesised the whole reply before playing) is removed.
-- Requires `@abstractframework/ui-kit` 0.7.1 (voice defaults, devices; unreleased; pin moves at release).
-
-- **Archived conversations stay on the Board.** A conversation archived in AbstractCode leaves the gateway's `root_only` runs listing; Observer also asks for `archived_only=true` and appends those runs, each tagged **Archived**. Nothing is hidden from the audit view. (Observer lists runs, not sessions, so it has no Archive button.)
-
-- **About is the shared compact card** (ui-kit 0.7.0 `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
-- **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog, instead of the browser's bare audio controls.
-- Requires `@abstractframework/ui-kit` 0.7.0 and `@abstractframework/panel-chat` 0.3.1 (unreleased; pins move at release).
+- **About is the shared compact card** (ui-kit `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
+- **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog.
+- Dependencies: `@abstractframework/ui-kit` ^0.8.0 and `@abstractframework/panel-chat` ^0.3.1. Voice and archived runs need AbstractGateway 0.13.0 or later; with an older gateway the Board shows only active runs.
 
 ## [0.6.2] - 2026-10-03
 
@@ -1254,7 +1254,7 @@ It serves a static single-page app (`dist/`) via a small Node.js CLI (`bin/cli.j
 
 ## Prerequisites
 - Node.js `>=18`
-- A running **AbstractGateway** (base URL, e.g. `http://127.0.0.1:8080`)
+- A running **AbstractGateway** (base URL, e.g. `http://127.0.0.1:8080`); voice and the Board's archived runs need AbstractGateway 0.13.0 or later
 - In hosted user-auth mode, a Gateway user id and that user's token
 
 ## Run AbstractObserver
@@ -1716,7 +1716,7 @@ Evidence: `vite.config.ts`. See `development.md`.
 
 # AbstractObserver — Architecture
 
-> Last updated: 2026-09-27
+> Last updated: 2026-10-04
 
 AbstractObserver is a **gateway-only** UI:
 - It **does not execute** workflows.
@@ -1742,6 +1742,8 @@ flowchart LR
   S -->|mounts| P
   P -->|HTTP fetch + SSE, session attached server-side| G[AbstractGateway HTTP API<br/><code>src/lib/gateway_client.ts</code>]
   B -->|About dialog: GET /api/gateway/about<br/><code>src/ui/about.ts</code>| P
+  B -->|voice: /voice/defaults, voice/tts/stream, audio/transcribe<br/><code>src/ui/observer_voice.tsx</code>| P
+  K[ui-kit + panel-chat<br/>About card, waveform player, voice stack] -.->|bundled into| B
   B -.->|direct mode, local dev| G
   G -->|backed by| R[AbstractRuntime<br/>durable runs + append-only ledger]
   B -->|optional JSON-RPC over HTTP| W[MCP tool worker<br/><code>src/lib/mcp_worker_client.ts</code>]
@@ -1884,7 +1886,7 @@ chips and totals are exact for the selected scope instead of inferred from the
 current page. It separates semantic kind (`voice`, `music`, `sound`,
 unclassified `audio`) from render kind (`image`, `markdown`, `html`, `json`,
 and similar display formats); audio plays in the kit's shared waveform player
-(`AfAudioPlayer`, ui-kit 0.7.0). The detail view prioritizes embedded preview,
+(`AfAudioPlayer`, ui-kit 0.8.0). The detail view prioritizes embedded preview,
 creation summary, prompt/provider/media facts when recorded, run and ledger
 links, provider trace/audit actions, and then raw metadata.
 
@@ -1944,7 +1946,7 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs/{run_id}` — run state (status, paused, waiting, schedule metadata, etc.)
   - `GET /api/gateway/runs/{run_id}/input_data` — inputs used for the run (shown in UI)
   - `POST /api/gateway/runs/start` — start a run (body includes `input_data` and optional `bundle_id`, `flow_id`, `session_id`; the gateway default agent is `flow_id: "@default"` + `interface`, without `bundle_id`)
-  - `GET /api/gateway/runs?root_only=true&archived_only=true` — runs of ARCHIVED sessions (a conversation archived in AbstractCode, `POST /sessions/{id}/archive`). A `root_only` listing leaves them out, so the Board fetches them too and appends them after the active runs, each marked **Archived** (the gateway's `archived: true`); Observer has no sessions list and no Archive button of its own.
+  - `GET /api/gateway/runs?root_only=true&archived_only=true` — runs of ARCHIVED sessions (a conversation archived in AbstractCode, `POST /sessions/{id}/archive`). A `root_only` listing leaves them out, so the Board fetches them too and appends them after the active runs, each marked **Archived** (the gateway's `archived: true`); Observer has no sessions list and no Archive button of its own. Needs AbstractGateway 0.13.0 or later; an older gateway ignores `archived_only`, and the Board then shows only the active runs.
   - Listing rows are read with their automation attribution when the gateway sends it (`session_kind`, `automation_id`, `role`, `occurrence_index`) and `actor_id`; the Board, Observe navigator and System queues tag and group runs from these fields.
 - **Ledger (durable source of truth)**
   - `GET /api/gateway/runs/{run_id}/ledger?after=…&limit=…` — paged replay
@@ -2004,7 +2006,7 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/runs/{run_id}/summary`
   - `POST /api/gateway/runs/{run_id}/chat`
   - `POST /api/gateway/runs/{run_id}/chat_threads` — persist a discussion as an artifact
-- **Voice (Observe → Ask, a run's outcome, Automations → Discuss, Settings → Voice; optional)** — the kit's shared voice stack (`useGatewayVoice`, `streamTtsJsonl`, `AfVoiceSection`), no engine in the browser. Requests ride the session's media run (`session_memory_<session_id>`), so the runs you watch never gain child runs from being read aloud.
+- **Voice (Observe → Ask, a run's outcome, Automations → Discuss, Settings → Voice; optional)** — the kit's shared voice stack (`useGatewayVoice`, `streamTtsJsonl`, `AfVoiceSection`), no engine in the browser. Needs AbstractGateway 0.13.0 or later (`GET /voice/defaults`). Requests ride the session's media run (`session_memory_<session_id>`), so the runs you watch never gain child runs from being read aloud.
   - `GET /api/gateway/voice/defaults` — the gateway's default routes (`output.voice`, `input.voice`): the only source of "Gateway default · supertonic / supertonic-3" in Settings → Voice
   - `GET /api/gateway/voice/voices?compact=true[&provider&model]` — engines, models and voices to pick an override from
   - `POST /api/gateway/runs/{run_id}/voice/tts/stream` — streaming text-to-speech (JSON Lines; one WAV per sentence, played as it arrives); the body carries only the speech fields of your override (`provider`, `model`, `voice`, …; none = the gateway default route)

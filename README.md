@@ -103,7 +103,7 @@ See `docs/configuration.md` for the full list.
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
-- **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; run lists poll live (5s visible / 30s hidden)
+- **Board** (Mission Control, the landing page): kanban columns Pending / Working / Review / Done across every run — cards move themselves by state; the Review column carries inline Approve/Deny/Answer; an entities strip shows each entity's phase and links into the entity app; runs of conversations archived in AbstractCode stay on the Board, tagged **Archived**; run lists poll live (5s visible / 30s hidden)
 - **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, the run view (a one-paragraph summary, then the steps grouped by agent cycle as collapsed cards that expand to the full prompt and answer; LLM calls / Tools / Failed filters, an All steps switch for housekeeping, search), graph, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS)
 - **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
@@ -112,7 +112,7 @@ All pages share the same gateway connection settings.
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **Responsive layout**: phones, tablets and small windows get a navigation drawer, full-width lists and details with collapsible lists, bottom-sheet dialogs and touch-sized controls (`docs/getting-started.md` → "Responsive layout")
-- **About** (the info button in the top bar): the AbstractObserver version, links to its website, source, documentation and issue tracker, and the versions the connected gateway reports
+- **About** (the info button in the top bar): the shared compact About card with the AbstractObserver version, the AbstractFramework and AbstractGateway versions the connected gateway reports, links (website, source, docs, issues, feedback, contact) and the licence line
 
 ## Documentation
 - Start here: `docs/getting-started.md`

@@ -5,7 +5,7 @@ It serves a static single-page app (`dist/`) via a small Node.js CLI (`bin/cli.j
 
 ## Prerequisites
 - Node.js `>=18`
-- A running **AbstractGateway** (base URL, e.g. `http://127.0.0.1:8080`)
+- A running **AbstractGateway** (base URL, e.g. `http://127.0.0.1:8080`); voice and the Board's archived runs need AbstractGateway 0.13.0 or later
 - In hosted user-auth mode, a Gateway user id and that user's token
 
 ## Run AbstractObserver

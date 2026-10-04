@@ -20,7 +20,9 @@ Notes:
 - `@abstractframework/ui-kit` and `@abstractframework/panel-chat` are npm dependencies; the monitor packages are Vite aliases to sibling `../abstractuic/*/src` (see `vite.config.ts` and `docs/development.md`).
 - Responsive layout (phones, tablets, small windows): `docs/getting-started.md` → "Responsive layout"; rules in `src/ui/responsive.css`.
 - On/off switches and opening the Observer over plain http from another computer (voice needs https): `docs/getting-started.md` → "Switches", "Open the Observer from another computer over http"; fallbacks in `src/lib/secure-context.ts`.
-- Voice (Read aloud streamed per sentence, dictation in Ask/Discuss, Settings → Voice = the kit section with the gateway's default routes from `GET /voice/defaults`): `docs/faq.md` → "Does it support voice", routes in `docs/api.md` → Voice; code `src/ui/observer_voice.tsx`; tests `src/ui/observer_voice.test.tsx` + `scripts/voice_e2e.mjs` (fake routes: `scripts/fake_voice_proxy.mjs`).
+- Voice (Read aloud streamed per sentence, dictation in Ask/Discuss, Settings → Voice = the kit section with the gateway's default routes from `GET /voice/defaults`): `docs/faq.md` → "Does it support voice", routes in `docs/api.md` → Voice; code `src/ui/observer_voice.tsx`; tests `src/ui/observer_voice.test.tsx` + `scripts/voice_e2e.mjs` (fake routes: `scripts/fake_voice_proxy.mjs`). Needs AbstractGateway 0.13.0 or later.
+- Archived conversations: the Board appends `GET /runs?root_only=true&archived_only=true` (AbstractGateway 0.13.0+) and tags those runs **Archived**; Observer lists runs, not sessions, so it has no Archive button: `docs/api.md` → Runs, `docs/faq.md`; code `with_archived_roots()` in `src/ui/automations.ts`.
+- About: the shared ui-kit compact card (app, framework and gateway versions, links, licence line) from `GET /api/gateway/about`: `docs/faq.md` → "Which version am I running?"; code `src/ui/about.ts`.
 - `llms.txt` format reference: https://llmstxt.org/
 
 ## Documentation (start here)

@@ -24,7 +24,7 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs/{run_id}` — run state (status, paused, waiting, schedule metadata, etc.)
   - `GET /api/gateway/runs/{run_id}/input_data` — inputs used for the run (shown in UI)
   - `POST /api/gateway/runs/start` — start a run (body includes `input_data` and optional `bundle_id`, `flow_id`, `session_id`; the gateway default agent is `flow_id: "@default"` + `interface`, without `bundle_id`)
-  - `GET /api/gateway/runs?root_only=true&archived_only=true` — runs of ARCHIVED sessions (a conversation archived in AbstractCode, `POST /sessions/{id}/archive`). A `root_only` listing leaves them out, so the Board fetches them too and appends them after the active runs, each marked **Archived** (the gateway's `archived: true`); Observer has no sessions list and no Archive button of its own.
+  - `GET /api/gateway/runs?root_only=true&archived_only=true` — runs of ARCHIVED sessions (a conversation archived in AbstractCode, `POST /sessions/{id}/archive`). A `root_only` listing leaves them out, so the Board fetches them too and appends them after the active runs, each marked **Archived** (the gateway's `archived: true`); Observer has no sessions list and no Archive button of its own. Needs AbstractGateway 0.13.0 or later; an older gateway ignores `archived_only`, and the Board then shows only the active runs.
   - Listing rows are read with their automation attribution when the gateway sends it (`session_kind`, `automation_id`, `role`, `occurrence_index`) and `actor_id`; the Board, Observe navigator and System queues tag and group runs from these fields.
 - **Ledger (durable source of truth)**
   - `GET /api/gateway/runs/{run_id}/ledger?after=…&limit=…` — paged replay
@@ -84,7 +84,7 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/runs/{run_id}/summary`
   - `POST /api/gateway/runs/{run_id}/chat`
   - `POST /api/gateway/runs/{run_id}/chat_threads` — persist a discussion as an artifact
-- **Voice (Observe → Ask, a run's outcome, Automations → Discuss, Settings → Voice; optional)** — the kit's shared voice stack (`useGatewayVoice`, `streamTtsJsonl`, `AfVoiceSection`), no engine in the browser. Requests ride the session's media run (`session_memory_<session_id>`), so the runs you watch never gain child runs from being read aloud.
+- **Voice (Observe → Ask, a run's outcome, Automations → Discuss, Settings → Voice; optional)** — the kit's shared voice stack (`useGatewayVoice`, `streamTtsJsonl`, `AfVoiceSection`), no engine in the browser. Needs AbstractGateway 0.13.0 or later (`GET /voice/defaults`). Requests ride the session's media run (`session_memory_<session_id>`), so the runs you watch never gain child runs from being read aloud.
   - `GET /api/gateway/voice/defaults` — the gateway's default routes (`output.voice`, `input.voice`): the only source of "Gateway default · supertonic / supertonic-3" in Settings → Voice
   - `GET /api/gateway/voice/voices?compact=true[&provider&model]` — engines, models and voices to pick an override from
   - `POST /api/gateway/runs/{run_id}/voice/tts/stream` — streaming text-to-speech (JSON Lines; one WAV per sentence, played as it arrives); the body carries only the speech fields of your override (`provider`, `model`, `voice`, …; none = the gateway default route)
