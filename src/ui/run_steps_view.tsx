@@ -10,7 +10,7 @@
  */
 import React, { useMemo, useState } from "react";
 
-import { JsonViewer as SharedJsonViewer, Markdown } from "@abstractframework/panel-chat";
+import { JsonViewer as SharedJsonViewer, Markdown, ToolSandboxLine, toolSandbox } from "@abstractframework/panel-chat";
 import { AfSwitch } from "@abstractframework/ui-kit";
 
 import { format_duration_ms, short_id } from "./format";
@@ -160,6 +160,8 @@ function ToolBody(props: { step: RunStep; on_copy: (t: string) => void }): React
               <span className="rs_role">
                 {r.name} · {r.success === false ? "failed" : r.success ? "ok" : "unknown"}
               </span>
+              {/* The command sandbox this call ran under (process-spawning tools), from the ledger. */}
+              <ToolSandboxLine sandbox={toolSandbox(r.raw)} className="rs_sandbox" />
               {r.error ? <pre className="rs_text">{r.error}</pre> : null}
               {r.output ? <pre className="rs_text">{r.output}</pre> : null}
             </li>

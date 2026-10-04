@@ -388,3 +388,8 @@
     font-size: 14px;
   }
 }
+
+/* The command sandbox of a call (panel-chat ToolSandboxLine, R13.4), under the call's name. */
+.rs_sandbox {
+  margin: 2px 0 4px;
+}

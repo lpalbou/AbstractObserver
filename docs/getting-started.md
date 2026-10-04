@@ -72,7 +72,11 @@ name; a subflow: the workflow and the child run id). Click a row to expand it:
 - an **LLM call** shows **System**, **Messages** (the turns as sent to the provider), **Tools offered**,
   **Response** (text and the tool calls it asked for), **Reasoning** and **Raw JSON**, each folded (▸, ▾ when
   open) with its own **Copy**;
-- **Tools** shows the **Calls** (arguments) and the **Results** (output, or the error of a failed call);
+- **Tools** shows the **Calls** (arguments) and the **Results** (output, or the error of a failed call); a
+  command call (`execute_command`, `shell_exec`, `local_helper_start`, `execute_python`) also shows, under its
+  name, the sandbox it ran under, from the ledger: `Sandbox: macOS sandbox-exec · 3 workspaces enforced` with
+  the enforced workspaces and their mode, or `Sandbox: none — refused` when the host had no sandbox and the
+  command did not run;
 - other steps show their payload, their result and the raw record.
 
 The ledger stores a long prompt once: the record written when a step finishes points at the step's start record

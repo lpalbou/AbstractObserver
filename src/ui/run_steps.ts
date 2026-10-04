@@ -478,7 +478,8 @@ export function llm_detail(step: RunStep): LlmDetail {
 
 export type ToolDetail = {
   calls: Array<{ name: string; arguments: any; call_id: string }>;
-  results: Array<{ name: string; success: boolean | null; output: string; error: string; call_id: string }>;
+  /** `raw` = the ledger's result row as recorded (its `output.sandbox` is the command sandbox evidence). */
+  results: Array<{ name: string; success: boolean | null; output: string; error: string; call_id: string; raw: any }>;
 };
 
 export function tool_detail(step: RunStep): ToolDetail {
@@ -494,6 +495,7 @@ export function tool_detail(step: RunStep): ToolDetail {
     output: r?.output == null ? "" : text_of(r.output),
     error: r?.error == null ? "" : text_of(r.error),
     call_id: String(r?.call_id || ""),
+    raw: r,
   }));
   return { calls, results };
 }

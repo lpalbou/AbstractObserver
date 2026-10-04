@@ -284,8 +284,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.11",
-    "@abstractframework/panel-chat": "^0.4.0",
-    "@abstractframework/ui-kit": "^0.8.3",
+    "@abstractframework/panel-chat": "^0.4.1",
+    "@abstractframework/ui-kit": "^0.8.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -521,6 +521,10 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+### Added
+
+- Run view: each command call's result shows the sandbox it ran under, from the ledger's `output.sandbox` (AbstractGateway round 12): one line `Sandbox: macOS sandbox-exec · 4 workspaces enforced` (the recorded label and the number of workspaces enforced) with the enforced paths and their mode, or `Sandbox: none — refused`. Uses panel-chat 0.4.1's `ToolSandboxLine` (the same line as AbstractCode); needs `@abstractframework/panel-chat` 0.4.1 and ui-kit 0.8.5.
 
 ### Changed
 
@@ -1351,7 +1355,11 @@ name; a subflow: the workflow and the child run id). Click a row to expand it:
 - an **LLM call** shows **System**, **Messages** (the turns as sent to the provider), **Tools offered**,
   **Response** (text and the tool calls it asked for), **Reasoning** and **Raw JSON**, each folded (▸, ▾ when
   open) with its own **Copy**;
-- **Tools** shows the **Calls** (arguments) and the **Results** (output, or the error of a failed call);
+- **Tools** shows the **Calls** (arguments) and the **Results** (output, or the error of a failed call); a
+  command call (`execute_command`, `shell_exec`, `local_helper_start`, `execute_python`) also shows, under its
+  name, the sandbox it ran under, from the ledger: `Sandbox: macOS sandbox-exec · 3 workspaces enforced` with
+  the enforced workspaces and their mode, or `Sandbox: none — refused` when the host had no sandbox and the
+  command did not run;
 - other steps show their payload, their result and the raw record.
 
 The ledger stores a long prompt once: the record written when a step finishes points at the step's start record

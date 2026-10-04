@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Run view: each command call's result shows the sandbox it ran under, from the ledger's `output.sandbox` (AbstractGateway round 12): one line `Sandbox: macOS sandbox-exec · 4 workspaces enforced` (the recorded label and the number of workspaces enforced) with the enforced paths and their mode, or `Sandbox: none — refused`. Uses panel-chat 0.4.1's `ToolSandboxLine` (the same line as AbstractCode); needs `@abstractframework/panel-chat` 0.4.1 and ui-kit 0.8.5.
+
 ### Changed
 
 - Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.3) at the run level: "Gateway: <the admin's eligible workspaces>" on top, **Use my default** (on by default), the posture, each workspace with Read-only / Read & write / Refused (a mode above the gateway's cap disabled), **Add a workspace path** and the effective line — the same words as the gateway console, AbstractCode, Flow and the AbstractAssistant. Each change is checked by the gateway (`POST /api/gateway/workspace/effective/me`, nothing stored); a refusal shows its sentence with "Not saved.". The choice is kept as `input_data.workspace` in the form: **Run once** sends it as the run-start body's `workspace`, **Create automation** stores it in the definition (`target.input_data.workspace`). Requires the AbstractGateway round-11 workspace model.
