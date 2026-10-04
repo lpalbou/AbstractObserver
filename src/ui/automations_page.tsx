@@ -41,7 +41,6 @@ import type { GatewayClient } from "../lib/gateway_client";
 import { AutomationDiscussion, type OpenDiscussion } from "./automation_discussion";
 import type { RunWorkspace } from "../lib/gateway_client";
 import {
-  AUTOMATION_WORKSPACES_TITLE,
   AutomationWorkspacesChooser,
   AutomationWorkspacesLine,
   WorkspaceRevisions,
@@ -567,9 +566,8 @@ export function AutomationDetailView(props: {
         <div className="auto_workspaces" data-section="workspaces" data-editing={props.edit?.open ? "true" : undefined}>
           {props.edit?.open ? (
             <>
-              <div className="auto_workspaces_title">{AUTOMATION_WORKSPACES_TITLE}</div>
-              <p className="help_text muted auto_workspaces_help">Each change is saved at once as a new revision; it applies from the next run.</p>
               <AutomationWorkspacesChooser
+                footer={<p className="help_text muted auto_workspaces_help">Each change is saved at once as a new revision; it applies from the next run.</p>}
                 id_prefix={`observer-automation-workspace-${d.automation_id}`}
                 connected={ws.connected}
                 request={ws.request}

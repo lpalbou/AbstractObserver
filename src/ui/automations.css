@@ -381,24 +381,18 @@
   min-width: 0;
 }
 
-.auto_workspaces[data-editing="true"] {
-  border: 1px solid var(--pane-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-}
-
-.auto_workspaces_title,
 .launch_section_title {
   font-size: var(--t-section);
   font-weight: 600;
 }
 
 .auto_workspaces_help {
-  margin: 2px 0 8px;
+  margin: 8px 0 0;
   font-size: var(--t-small);
 }
 
-.automate_fields fieldset[data-section="workspaces"] {
+.automate_workspaces {
+  margin: 10px 0 0;
   min-width: 0;
 }
 

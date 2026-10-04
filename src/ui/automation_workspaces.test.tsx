@@ -40,9 +40,11 @@ const form_src = readFileSync(new URL("./automate_form.tsx", import.meta.url), "
 const unescape = (h: string) => h.replace(/&amp;/g, "&").replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
 
 describe("Automate form: a visible Workspaces section, no Advanced disclosure (R13.2)", () => {
-  it("Workspaces is its own fieldset after Tools and before Email, with the host's chooser inside", () => {
+  it("Workspaces is its own group after Tools and before Email, with the host's chooser inside (one heading)", () => {
     const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} workspaces={<div id="chooser">chooser</div>} />));
-    expect(html).toContain('<fieldset data-section="workspaces"><legend>Workspaces</legend><div id="chooser">chooser</div></fieldset>');
+    expect(html).toContain('<div class="automate_workspaces" data-section="workspaces" role="group" aria-label="Workspaces"><div id="chooser">chooser</div></div>');
+    // One heading: the chooser's own ("Workspaces"), never a second legend around it.
+    expect(html).not.toContain("<legend>Workspaces</legend>");
     expect(html.indexOf('data-section="tools"')).toBeLessThan(html.indexOf('data-section="workspaces"'));
     expect(html.indexOf('data-section="workspaces"')).toBeLessThan(html.indexOf('data-section="email"'));
     expect(html).not.toMatch(/<details|<summary/);

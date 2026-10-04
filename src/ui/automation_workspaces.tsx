@@ -128,6 +128,8 @@ export function AutomationWorkspacesChooser(props: {
   on_change(next: RunWorkspace | null): void | Promise<unknown>;
   disabled?: boolean;
   id_prefix: string;
+  /** A line under the chooser (the kit's footer slot). */
+  footer?: React.ReactNode;
 }): React.ReactElement {
   const { connected, request, value } = props;
   const [effective, set_effective] = useState<WorkspaceEffective | null>(null);
@@ -171,6 +173,7 @@ export function AutomationWorkspacesChooser(props: {
       onChange={change}
       loadError={connected ? error : unavailable}
       unavailableReason={unavailable}
+      footer={props.footer}
     />
   );
 }

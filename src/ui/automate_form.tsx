@@ -177,10 +177,10 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
         </label>
       </fieldset>
       {p.workspaces ? (
-        <fieldset data-section="workspaces">
-          <legend>Workspaces</legend>
+        // The chooser titles its own group ("Workspaces"): no second heading here.
+        <div className="automate_workspaces" data-section="workspaces" role="group" aria-label="Workspaces">
           {p.workspaces}
-        </fieldset>
+        </div>
       ) : null}
       <fieldset data-section="email">
         <legend>Email</legend>
