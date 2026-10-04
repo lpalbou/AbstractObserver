@@ -227,7 +227,7 @@ export type AutomateForm = {
   /** Decision D1: "auto" (default) = creating the automation approves its
    * tool calls; "ask" = every tool call waits for approval. */
   tool_approval: ToolApprovalPolicy;
-  /** Advanced. */
+  /** Title and limits. */
   title: string;
   start_at: string;
   count: string;
@@ -315,6 +315,10 @@ export function build_automate_request(
   const prompt = typeof cleaned.prompt === "string" ? cleaned.prompt : "";
   delete cleaned.prompt;
   for (const key of AUTOMATION_OWNED_INPUTS) delete cleaned[key];
+  // An automation works in its own private workspace; other workspaces are
+  // chosen in Workspaces (input_data.workspace). Run once's "Run workspace"
+  // never rides an automation.
+  delete cleaned.workspace_root;
   let target: AutomationTarget | null;
   try {
     target = automation_target(opts.choice, opts.bundle_ref_for, cleaned);
@@ -1010,6 +1014,26 @@ export class AutomationsController {
     } finally {
       this.set({ busy: false });
     }
+  }
+
+  private definitions = new Map<string, { revision: number | null; answer: Promise<AutomationDefinition | null> }>();
+
+  /**
+   * One automation's definition for its card (the list carries none), read
+   * once per revision: a new revision (any client) reads it again. Legacy
+   * schedules have none (null).
+   */
+  definition(summary: AutomationSummary): Promise<AutomationDefinition | null> {
+    if (is_legacy_summary(summary)) return Promise.resolve(null);
+    const id = summary.automation_id;
+    const open = this.state.detail;
+    if (open && open.automation_id === id && open.definition && open.definition.revision === summary.revision) return Promise.resolve(open.definition);
+    const hit = this.definitions.get(id);
+    if (hit && hit.revision === summary.revision) return hit.answer;
+    const answer = this.client.getAutomation(id).then((d) => d.definition ?? null);
+    answer.catch(() => this.definitions.delete(id));
+    this.definitions.set(id, { revision: summary.revision, answer });
+    return answer;
   }
 
   /** `POST /automations/{id}/discuss` → the new session (the host opens it). */

@@ -25,7 +25,7 @@ import {
 import { LEGACY_ID, LEGACY_TARGET, loadFixture, startAutomationsStub } from "../../scripts/automations_stub_server.mjs";
 import { renderAutomationText } from "@abstractframework/panel-chat";
 import { GatewayClient } from "../lib/gateway_client";
-import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
+import { AutomateTitleLimits, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import {
   AutomationsController,
   DEFAULT_AUTOMATE_FORM,
@@ -196,7 +196,7 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(res.summary.current_occurrence).toBeNull();
   });
 
-  it("once at a UTC time, and custom count/until/first run under Advanced", async () => {
+  it("once at a UTC time, and custom count/until/first run under Title and limits", async () => {
     await automate({ when: "once", once_at: "2026-09-28T08:00" }, news, { prompt: "One-off check" }, "req-once");
     expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 1, config: { start_at: "2026-09-28T08:00:00Z" } });
     await automate(
@@ -272,7 +272,7 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     }
   });
 
-  it("When/Context speak fixed UTC intervals, Growing discloses its bounded history, Advanced holds the schedule extras", () => {
+  it("When/Context speak fixed UTC intervals, Growing discloses its bounded history, Title and limits is a visible section", () => {
     const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />));
     expect(html).toContain("When (UTC)");
     for (const p of SCHEDULE_PRESETS) expect(html).toContain(`data-preset="${p.label}"`);
@@ -281,8 +281,11 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     // One history control: the Context choice says it owns the flow's Use Context input.
     expect(html).toContain('data-context-owns="use_context"');
     expect(html).not.toMatch(/daily at|local time|weekly on/i);
-    const adv = unescape(renderToStaticMarkup(<AutomateAdvancedSchedule form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />));
+    const adv = unescape(renderToStaticMarkup(<AutomateTitleLimits form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />));
+    expect(adv).toContain('data-section="limits"><legend>Title and limits</legend>');
+    expect(adv).not.toMatch(/<details|<summary|Advanced/);
     expect(adv).toContain("Title");
+    expect(adv).toContain("First run at (UTC; empty = now)");
     expect(adv).toContain("Stop after this many runs");
     expect(adv).toContain("Stop at (UTC)");
     // D1: the consent line with the target's tools, and the "ask" option.

@@ -8,7 +8,7 @@
  * state and call their handlers without a DOM; `AutomationsPage` only
  * subscribes to the controller and runs the poll timer.
  */
-import React, { useEffect, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   AutomationPanelWithMarkdown,
@@ -33,10 +33,21 @@ import {
   type AutomationStatus,
   type AutomationSummary,
   type DiscussResponse,
+  type WorkspaceRequest,
+  randomId,
 } from "@abstractframework/ui-kit";
 
 import type { GatewayClient } from "../lib/gateway_client";
 import { AutomationDiscussion, type OpenDiscussion } from "./automation_discussion";
+import type { RunWorkspace } from "../lib/gateway_client";
+import {
+  AUTOMATION_WORKSPACES_TITLE,
+  AutomationWorkspacesChooser,
+  AutomationWorkspacesLine,
+  WorkspaceRevisions,
+  automation_workspace,
+  save_automation_workspace,
+} from "./automation_workspaces";
 import { ListDisclosure, useListOpen } from "./list_disclosure";
 import {
   AUTOMATIONS_POLL_MS,
@@ -180,7 +191,30 @@ export function ActiveSwitch(props: {
   );
 }
 
-function AutomationRow(props: { summary: AutomationSummary; state: AutomationsState; h: AutomationsHandlers }): React.ReactElement {
+/** Where the page reads an automation's workspaces for its card: the definition (per revision) and the gateway's dry run. */
+export type RowWorkspaces = { request: WorkspaceRequest; connected: boolean; definition(summary: AutomationSummary): Promise<{ target: { input_data?: unknown } } | null> };
+
+/** The card's "Workspaces: <summary>" line (absent for legacy schedules and until the gateway answered). */
+function RowWorkspacesLine(props: { summary: AutomationSummary; ws: RowWorkspaces }): React.ReactElement | null {
+  const [value, set_value] = useState<RunWorkspace | null | undefined>(undefined);
+  const { summary, ws } = props;
+  useEffect(() => {
+    let live = true;
+    ws.definition(summary).then(
+      (d) => live && set_value(d ? automation_workspace(d as any) : undefined),
+      () => live && set_value(undefined),
+    );
+    return () => {
+      live = false;
+    };
+    // A new revision (any client) reads the definition again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary.automation_id, summary.revision, ws.definition]);
+  if (value === undefined) return null;
+  return <AutomationWorkspacesLine request={ws.request} connected={ws.connected} value={value} refresh_key={summary.revision ?? ""} />;
+}
+
+function AutomationRow(props: { summary: AutomationSummary; state: AutomationsState; h: AutomationsHandlers; ws?: RowWorkspaces }): React.ReactElement {
   const s = props.summary;
   const v = automation_row_view(s);
   const selected = props.state.selected_id === s.automation_id;
@@ -259,6 +293,7 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
             {v.last_status}
           </Fact>
         </span>
+        {props.ws && !v.legacy ? <RowWorkspacesLine summary={s} ws={props.ws} /> : null}
         {v.last ? (
           <span className="auto_row_excerpt" data-field="excerpt">
             {renderAutomationText(v.last)}
@@ -292,6 +327,8 @@ export function AutomationsListView(props: {
   h: AutomationsHandlers;
   /** The list disclosure (DESIGN §12); absent = open, no toggle. */
   list?: { open: boolean; on_toggle: () => void };
+  /** Each card's "Workspaces: <summary>" line; absent = no line. */
+  ws?: RowWorkspaces;
 }): React.ReactElement {
   const st = props.state;
   const open = props.list ? props.list.open : true;
@@ -392,7 +429,7 @@ export function AutomationsListView(props: {
         ) : null}
         <ul className="auto_rows">
           {visible_automations(st).map((s) => (
-            <AutomationRow key={s.automation_id} summary={s} state={st} h={props.h} />
+            <AutomationRow key={s.automation_id} summary={s} state={st} h={props.h} ws={props.ws} />
           ))}
         </ul>
       </div>
@@ -420,7 +457,7 @@ export type PanelHostHandlers = {
 /** The panel's Edit form, driven by the page (a row's Edit opens it at once). */
 export type PanelEdit = { open: boolean; on_change(open: boolean): void };
 
-export function automation_panel_props(ctl: AutomationsController, host: PanelHostHandlers, edit?: PanelEdit): AutomationPanelWithMarkdownProps | null {
+export function automation_panel_props(ctl: AutomationsController, host: PanelHostHandlers, edit?: PanelEdit, revisions?: WorkspaceRevisions): AutomationPanelWithMarkdownProps | null {
   const st = ctl.state;
   const d = st.detail;
   if (!d || is_legacy_summary(d.summary)) return null;
@@ -434,7 +471,9 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     ...(d.error ? { error: d.error } : {}),
     // The panel mints one id per user action and reuses it on retry: forward
     // it so a retried command/discussion is idempotent at the gateway.
-    onRevise: (changes, expected, meta) => ctl.revise(id, changes, expected, meta?.command_id),
+    // The Edit form saves after this page's own Workspaces revisions (never past another client's).
+    onRevise: (changes, expected, meta) =>
+      revisions ? ctl.revise(id, revisions.changes(id, changes), revisions.expected(id, expected), meta?.command_id) : ctl.revise(id, changes, expected, meta?.command_id),
     onCommand: (type, payload, meta) => ctl.command(id, type as AutomationCommandType, payload as Record<string, any> | undefined, meta?.command_id),
     onDiscuss: async (index, prompt, meta) => {
       const r = await ctl.discuss(id, index, prompt, meta?.request_id);
@@ -465,6 +504,8 @@ export function AutomationDetailView(props: {
   h: AutomationsHandlers;
   browser?: React.ReactNode;
   edit?: PanelEdit;
+  /** The automation's Workspaces: its one line, and the chooser while its Edit form is open. Absent = neither. */
+  workspaces?: { request: WorkspaceRequest; connected: boolean; revisions: WorkspaceRevisions };
 }): React.ReactElement {
   const d = props.ctl.state.detail;
   if (!d && props.ctl.state.selected_id) {
@@ -507,12 +548,36 @@ export function AutomationDetailView(props: {
       </section>
     );
   }
-  const p = automation_panel_props(props.ctl, props.host, props.edit);
+  const ws = props.workspaces;
+  const p = automation_panel_props(props.ctl, props.host, props.edit, ws?.revisions);
+  const ctl = props.ctl;
+  const definition = d.definition;
+  const value = automation_workspace(definition);
   // Occurrence turns render as the shared chat cards (panel-chat), text
   // through the shared renderer (markdown, tables, code, JSON).
   return (
     <section className="pane auto_detail">
       {props.browser ?? null}
+      {ws && definition ? (
+        <div className="auto_workspaces" data-section="workspaces" data-editing={props.edit?.open ? "true" : undefined}>
+          {props.edit?.open ? (
+            <>
+              <div className="auto_workspaces_title">{AUTOMATION_WORKSPACES_TITLE}</div>
+              <p className="help_text muted auto_workspaces_help">Each change is saved at once as a new revision; it applies from the next run.</p>
+              <AutomationWorkspacesChooser
+                id_prefix={`observer-automation-workspace-${d.automation_id}`}
+                connected={ws.connected}
+                request={ws.request}
+                value={value}
+                disabled={ctl.state.busy}
+                on_change={(next) => save_automation_workspace(ctl, ws.revisions, { automation_id: d.automation_id, summary: d.summary, definition }, next, randomId())}
+              />
+            </>
+          ) : (
+            <AutomationWorkspacesLine request={ws.request} connected={ws.connected} value={value} refresh_key={d.summary.revision ?? ""} />
+          )}
+        </div>
+      ) : null}
       {p ? <AutomationPanelWithMarkdown {...p} workflowPickerOptions={props.workflowPickerOptions} availableTools={props.availableTools} /> : null}
     </section>
   );
@@ -545,8 +610,15 @@ export function AutomationsPage(props: {
   h: AutomationsHandlers;
   /** This Observer's own session: its media run holds dictation before a discussion exists. */
   voice_session_id?: string;
+  /** The gateway transport for the Workspaces lines and chooser (the kit's request shape). */
+  workspace_request?: WorkspaceRequest;
 }): React.ReactElement {
   const ctl = props.ctl;
+  const revisions_ref = useRef<WorkspaceRevisions | null>(null);
+  if (!revisions_ref.current) revisions_ref.current = new WorkspaceRevisions();
+  const row_ws: RowWorkspaces | undefined = props.workspace_request
+    ? { request: props.workspace_request, connected: props.active, definition: (summary) => ctl.definition(summary) }
+    : undefined;
   const [list_open, toggle_list] = useListOpen("automations");
   const [discussion, set_discussion] = useState<(OpenDiscussion & { opened: number }) | null>(null);
   const open_discussion = (d: OpenDiscussion) => set_discussion((prev) => ({ ...d, opened: (prev?.opened || 0) + 1 }));
@@ -617,7 +689,7 @@ export function AutomationsPage(props: {
   };
   return (
     <div className={`page auto_page${list_open ? "" : " list_collapsed"}`}>
-      <AutomationsListView state={ctl.state} available={props.available} h={h} list={{ open: list_open, on_toggle: toggle_list }} />
+      <AutomationsListView state={ctl.state} available={props.available} h={h} list={{ open: list_open, on_toggle: toggle_list }} ws={row_ws} />
       {discussion ? (
         <AutomationDiscussion
           key={discussion.opened}
@@ -644,6 +716,7 @@ export function AutomationsPage(props: {
             open: !!detail && edit_id === detail.automation_id,
             on_change: (open) => set_edit_id(open && detail ? detail.automation_id : ""),
           }}
+          workspaces={props.workspace_request ? { request: props.workspace_request, connected: props.active, revisions: revisions_ref.current } : undefined}
           browser={
             files_run ? (
               <WorkspaceBrowser

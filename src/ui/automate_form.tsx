@@ -1,6 +1,8 @@
 /**
- * Launch → Automate: the When and Context fields, and the schedule part of
- * Advanced. Hook-free (the Launch page owns the state); the rules — presets,
+ * Launch → Automate: When, Context, Tools, Workspaces (the host's chooser),
+ * Email, and Title and limits — every section visible, no disclosure (the
+ * same sections as the kit's AfScheduleDialog in AbstractCode and the
+ * AbstractAssistant's schedule sheet). Hook-free (the Launch page owns the state); the rules — presets,
  * `schedule@1` config, UTC wording, validation — are the kit's
  * (`SCHEDULE_PRESETS`, `buildCreateRequest`, `scheduleLabel`) through
  * ./automations.ts. Wording is fixed-interval UTC ("every 24 hours (UTC)"),
@@ -68,6 +70,8 @@ export type AutomateFieldsProps = {
   email_status?: MyEmailStatus | null;
   /** Opens the gateway console's My email; absent = "open My email" is plain text. */
   on_open_my_email?: () => void;
+  /** The Workspaces section's content (the run-level WorkspaceChooser), shown after Tools. */
+  workspaces?: React.ReactNode;
 };
 
 export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement {
@@ -172,6 +176,12 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
           waits for your approval on the Automations page
         </label>
       </fieldset>
+      {p.workspaces ? (
+        <fieldset data-section="workspaces">
+          <legend>Workspaces</legend>
+          {p.workspaces}
+        </fieldset>
+      ) : null}
       <fieldset data-section="email">
         <legend>Email</legend>
         {!usable ? <AfEmailSetupNotice status={p.email_status} onOpenMyEmail={p.on_open_my_email} /> : null}
@@ -188,31 +198,36 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
   );
 }
 
-/** Advanced schedule fields: title, first run, max runs, stop at (UTC). */
-export function AutomateAdvancedSchedule(p: AutomateFieldsProps): React.ReactElement {
+/** Title and limits: title, and for Repeat the first run, max runs and stop at (UTC) — a visible section (the kit dialog's words). */
+export function AutomateTitleLimits(p: AutomateFieldsProps): React.ReactElement {
   const f = p.form;
   return (
-    <div className="automate_fields launch_grid" data-section="advanced-schedule">
-      <label className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
-        <span className="launch_label">Title</span>
-        <input value={f.title} maxLength={120} disabled={p.disabled} placeholder="Defaults to the prompt's first line" onChange={(e) => p.on_change({ title: e.target.value })} />
-      </label>
-      {f.when === "every" ? (
-        <>
-          <label className="launch_grid_cell">
-            <span className="launch_label">First run at (UTC; empty = now)</span>
-            <input type="datetime-local" value={f.start_at} disabled={p.disabled} onChange={(e) => p.on_change({ start_at: e.target.value })} />
-          </label>
-          <label className="launch_grid_cell">
-            <span className="launch_label">Stop after this many runs</span>
-            <input type="number" min={1} step={1} value={f.count} disabled={p.disabled} onChange={(e) => p.on_change({ count: e.target.value })} />
-          </label>
-          <label className="launch_grid_cell">
-            <span className="launch_label">Stop at (UTC)</span>
-            <input type="datetime-local" value={f.until} disabled={p.disabled} onChange={(e) => p.on_change({ until: e.target.value })} />
-          </label>
-        </>
-      ) : null}
+    <div className="automate_fields">
+    <fieldset className="automate_limits" data-section="limits">
+      <legend>Title and limits</legend>
+      <div className="launch_grid">
+        <label className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
+          <span className="launch_label">Title</span>
+          <input value={f.title} maxLength={120} disabled={p.disabled} placeholder="Defaults to the task's first line" onChange={(e) => p.on_change({ title: e.target.value })} />
+        </label>
+        {f.when === "every" ? (
+          <>
+            <label className="launch_grid_cell">
+              <span className="launch_label">First run at (UTC; empty = now)</span>
+              <input type="datetime-local" value={f.start_at} disabled={p.disabled} onChange={(e) => p.on_change({ start_at: e.target.value })} />
+            </label>
+            <label className="launch_grid_cell">
+              <span className="launch_label">Stop after this many runs</span>
+              <input type="number" min={1} step={1} value={f.count} disabled={p.disabled} onChange={(e) => p.on_change({ count: e.target.value })} />
+            </label>
+            <label className="launch_grid_cell">
+              <span className="launch_label">Stop at (UTC)</span>
+              <input type="datetime-local" value={f.until} disabled={p.disabled} onChange={(e) => p.on_change({ until: e.target.value })} />
+            </label>
+          </>
+        ) : null}
+      </div>
+    </fieldset>
     </div>
   );
 }

@@ -41,7 +41,7 @@ import { RunChatReplayNote, run_chat_history, type RunChatHistoryReport } from "
 import { REVEAL_PATH, run_hash, run_id_from_location, run_link_missing_message } from "../lib/app_paths";
 import { parse_run_view_hash, run_facts, run_facts_line, run_view_hash, type RunViewState } from "./run_steps";
 import { RunOutcome, RunStepsView } from "./run_steps_view";
-import { AutomateAdvancedSchedule, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
+import { AutomateTitleLimits, AutomateWhenContext, LaunchModeSwitch } from "./automate_form";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import { ApplyImmediatelySwitch, AssistantSkillSwitch, AutoConnectSwitch, ScheduleActiveSwitch } from "./state_switches";
 import {
@@ -4449,10 +4449,20 @@ export function App(): React.ReactElement {
     settings: "Settings",
   };
 
-  /* Launch extras shared by both modes (under Advanced in Automate mode):
-   * the ONE skills picker, the workspace, and bundle upload/reload (moved
-   * out of the picker row). */
-  const launch_extras = (
+  /* Launch extras shared by both modes: the ONE skills picker, the
+   * Workspaces section (visible, never under a disclosure: R13.2) and bundle
+   * upload/reload (moved out of the picker row). In Automate mode Workspaces
+   * sits in the automation form after Tools, as in the kit dialog. */
+  const launch_workspaces_chooser = (
+    <LaunchWorkspace
+      connected={gateway_connected}
+      request={workspace_request}
+      value={workspace_value}
+      onChange={(next) => update_input_data_field("workspace", next === null ? undefined : next)}
+      disabled={connecting || resuming}
+    />
+  );
+  const launch_capabilities = (
     <>
                   {/* ── CAPABILITIES: run-level skills attachment (operator directive
                     * 2026-07-15 16:22; contract = decision:launch-skills-selection-
@@ -4517,20 +4527,13 @@ export function App(): React.ReactElement {
                       ) : null}
                     </details>
                   ) : null}
-
-                  <details style={{ marginTop: "10px" }}>
-                    <summary className="help_text muted" style={{ cursor: "pointer" }}>
-                      Workspace
-                    </summary>
-                    <div style={{ marginTop: "8px" }}>
-                      <LaunchWorkspace
-                        connected={gateway_connected}
-                        request={workspace_request}
-                        value={workspace_value}
-                        onChange={(next) => update_input_data_field("workspace", next === null ? undefined : next)}
-                        disabled={connecting || resuming}
-                      />
-                    </div>
+    </>
+  );
+  /* Run once: Workspaces + the run's working folder ("Run workspace"). */
+  const launch_once_workspaces = (
+                  <section className="launch_workspaces" data-section="workspaces" style={{ marginTop: "10px" }}>
+                    <div className="launch_label launch_section_title">Workspaces</div>
+                    {launch_workspaces_chooser}
                     <div className="launch_grid" style={{ marginTop: "8px" }}>
                       <div className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
                         <label className="launch_label">Run workspace</label>
@@ -4538,8 +4541,9 @@ export function App(): React.ReactElement {
                         <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = the run's own private workspace. Otherwise a workspace the gateway's posture reaches; the gateway refuses any other.</div>
                       </div>
                     </div>
-	                  </details>
-
+                  </section>
+  );
+  const launch_bundles = (
                   <details className="launch_bundles" style={{ marginTop: "10px" }}>
                     <summary className="help_text muted" style={{ cursor: "pointer" }}>
                       Workflow bundles
@@ -4550,7 +4554,6 @@ export function App(): React.ReactElement {
                       <button type="button" className="btn launch_btn_reload" onClick={() => void reload_gateway_bundles()} disabled={!gateway_connected || discovery_loading || bundles_reloading || connecting || resuming} title="Reload picks up server-side edits"><Icon name="refresh" size={14} />{bundles_reloading ? "…" : "Reload bundles"}</button>
                     </div>
                   </details>
-    </>
   );
 
   function open_run_in_observe(rid: string): void {
@@ -5229,17 +5232,18 @@ export function App(): React.ReactElement {
                       on_tools_change={(tools) => set_input_data_text(JSON.stringify(withAutomationTools(input_data_obj || {}, tools), null, 2))}
                       disabled={automate_submitting}
                       on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))}
+                      workspaces={launch_workspaces_chooser}
                     />
-                    <details className="launch_advanced" style={{ marginTop: "10px" }}>
-                      <summary className="help_text muted" style={{ cursor: "pointer" }}>
-                        Advanced{launch_skills.length ? ` · ${launch_skills.length} skill${launch_skills.length === 1 ? "" : "s"}` : ""}
-                      </summary>
-                      <AutomateAdvancedSchedule form={automate_form} disabled={automate_submitting} on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))} />
-                      {launch_extras}
-                    </details>
+                    <AutomateTitleLimits form={automate_form} disabled={automate_submitting} on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))} />
+                    {launch_capabilities}
+                    {launch_bundles}
                   </>
                 ) : (
-                  launch_extras
+                  <>
+                    {launch_capabilities}
+                    {launch_once_workspaces}
+                    {launch_bundles}
+                  </>
                 )}
 
                 {/* ── Launch button ── */}
@@ -5313,6 +5317,7 @@ export function App(): React.ReactElement {
             available={automations_cap}
             h={automations_handlers}
             voice_session_id={start_session_id}
+            workspace_request={workspace_request}
             host={{
               on_open_run: (rid) => open_run_in_observe(rid),
               ...(open_my_email ? { on_open_my_email: open_my_email } : {}),

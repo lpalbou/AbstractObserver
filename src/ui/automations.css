@@ -366,3 +366,45 @@
     white-space: nowrap;
   }
 }
+
+/* Workspaces (R13.2): the card's and the detail's one line, the chooser while
+   the Edit form is open, the Launch sections. Paths wrap; nothing scrolls sideways. */
+.auto_workspaces_line {
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.auto_workspaces {
+  margin: 0 0 10px;
+  min-width: 0;
+}
+
+.auto_workspaces[data-editing="true"] {
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.auto_workspaces_title,
+.launch_section_title {
+  font-size: var(--t-section);
+  font-weight: 600;
+}
+
+.auto_workspaces_help {
+  margin: 2px 0 8px;
+  font-size: var(--t-small);
+}
+
+.automate_fields fieldset[data-section="workspaces"] {
+  min-width: 0;
+}
+
+.launch_workspaces {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
