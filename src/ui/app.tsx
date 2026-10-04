@@ -129,7 +129,7 @@ import {
   AskForm,
   WorkflowRunNavigator,
 } from "./run_panels";
-import { GatewayClient, csrf_headers } from "../lib/gateway_client";
+import { GatewayClient, csrf_headers, type RunWorkspace } from "../lib/gateway_client";
 import { LaunchWorkspace, observerWorkspaceRequest } from "./launch_workspace";
 import { random_id } from "../lib/ids";
 import { clipboardWrite, COPY_FAILED, MEDIA_NEEDS_HTTPS, mediaAvailable } from "../lib/secure-context";
@@ -914,10 +914,12 @@ export function App(): React.ReactElement {
   const provider_value = typeof input_data_obj?.provider === "string" ? String(input_data_obj.provider) : "";
   const model_value = typeof input_data_obj?.model === "string" ? String(input_data_obj.model) : "";
   const workspace_root_value = typeof input_data_obj?.workspace_root === "string" ? String(input_data_obj.workspace_root) : "";
-  // Round 9: the run's folders = the kit WorkspaceChooser (absent = follows the account).
-  const workspace_selection_value: string[] | null = useMemo(() => {
-    const raw = (input_data_obj as any)?.workspace_allowed_paths;
-    return Array.isArray(raw) ? raw.map((x) => String(x || "").trim()).filter(Boolean) : null;
+  // R11 run level: this launch's workspaces = the kit WorkspaceChooser, kept as
+  // input_data.workspace in the form (absent = "Use my default"). Run once moves
+  // it to the start body; Automate stores it on the definition (target.input_data.workspace).
+  const workspace_value: RunWorkspace | null = useMemo(() => {
+    const raw = (input_data_obj as any)?.workspace;
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as RunWorkspace) : null;
   }, [input_data_obj]);
   const has_adaptive_inputs = adaptive_pins.length > 0 && Boolean(bundle_id.trim());
 
@@ -2693,7 +2695,11 @@ export function App(): React.ReactElement {
 	        set_error_text(msg);
 	        return msg;
 	      }
+      // The run's workspaces ride the start body, not input_data.
+      const run_workspace = input_data.workspace && typeof input_data.workspace === "object" ? (input_data.workspace as RunWorkspace) : null;
+      delete (input_data as any).workspace;
       const rid = await gateway.start_run(fid, input_data, {
+        ...(run_workspace ? { workspace: run_workspace } : {}),
         ...(bid ? { bundle_id: bid } : {}),
         ...(choice.kind === "default" ? { interface: choice.interface } : {}),
         session_id: String(start_session_id || "").trim() || null,
@@ -4520,10 +4526,9 @@ export function App(): React.ReactElement {
                       <LaunchWorkspace
                         connected={gateway_connected}
                         request={workspace_request}
-                        selection={workspace_selection_value}
-                        onSelectionChange={(next) => update_input_data_field("workspace_allowed_paths", next === null ? undefined : next)}
+                        value={workspace_value}
+                        onChange={(next) => update_input_data_field("workspace", next === null ? undefined : next)}
                         disabled={connecting || resuming}
-                        subject={launch_mode === "automate" ? "automation" : "run"}
                       />
                     </div>
                     <div className="launch_grid" style={{ marginTop: "8px" }}>

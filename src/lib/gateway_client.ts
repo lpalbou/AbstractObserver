@@ -104,6 +104,31 @@ export async function gateway_error(resp: Response, what: string): Promise<Gatew
   return new GatewayRequestError(resp.status, `${what} (HTTP ${resp.status}): ${reason || resp.statusText || "no reason given"}`);
 }
 
+/** The gateway's refusal sentence alone (FastAPI `detail` string or `detail.message`), shown verbatim; "" when the body says nothing. */
+async function _gateway_sentence(resp: Response): Promise<string> {
+  let text = "";
+  try {
+    text = (await resp.text()).trim();
+  } catch {
+    return "";
+  }
+  try {
+    const detail = (JSON.parse(text) as any)?.detail;
+    if (typeof detail === "string") return detail.trim();
+    if (detail && typeof detail.message === "string") return detail.message.trim();
+    return "";
+  } catch {
+    return text;
+  }
+}
+
+/** One run's workspaces (R11 run level): the start body's `workspace`; the gateway clamps it and refuses a wider one. */
+export type RunWorkspace = {
+  posture: "allowed_only" | "any_except_denied";
+  default_mode: "ro" | "rw";
+  folders: { path: string; mode: "ro" | "rw" | "deny" }[];
+};
+
 /** Public `GET /api/gateway/about`: the versions the gateway host runs.
  * `abstractframework` is null when the meta-package is not installed there. */
 export type GatewayAbout = {
@@ -122,7 +147,7 @@ export class GatewayClient {
   async start_run(
     flow_id: string | null | undefined,
     input_data: Record<string, any>,
-    opts?: { bundle_id?: string; session_id?: string | null; interface?: string }
+    opts?: { bundle_id?: string; session_id?: string | null; interface?: string; workspace?: RunWorkspace | null }
   ): Promise<string> {
     const bundle_id = String(opts?.bundle_id || "").trim();
     const session_id = opts?.session_id === null || opts?.session_id === undefined ? "" : String(opts.session_id || "").trim();
@@ -135,6 +160,8 @@ export class GatewayClient {
     if (fid) req_body.flow_id = fid;
     if (fid === "@default") req_body.interface = iface;
     if (session_id) req_body.session_id = session_id;
+    // R11 run level: this run's workspaces ride the body (absent = the gateway resolves session > account > gateway).
+    if (opts?.workspace) req_body.workspace = opts.workspace;
     const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("runs/start")), {
       method: "POST",
       headers: {
@@ -143,7 +170,7 @@ export class GatewayClient {
       },
       body: JSON.stringify(req_body),
     });
-    if (!r.ok) throw new Error(`start_run failed: ${r.status}`);
+    if (!r.ok) throw new Error((await _gateway_sentence(r)) || `start_run failed: ${r.status}`);
     const body = await r.json();
     const run_id = body?.run_id;
     if (typeof run_id !== "string" || !run_id) throw new Error("start_run: missing run_id");
