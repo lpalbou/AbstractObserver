@@ -284,8 +284,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.11",
-    "@abstractframework/panel-chat": "^0.3.1",
-    "@abstractframework/ui-kit": "^0.8.0",
+    "@abstractframework/panel-chat": "^0.4.0",
+    "@abstractframework/ui-kit": "^0.8.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -427,6 +427,26 @@ function gatewaySessionDevProxy(): Plugin {
   };
 }
 
+// The app's llms.txt ships in dist/ and is served at /llms.txt (dev too): the
+// gateway's `GET /docs/corpus?app=observer` reads it from the running app to
+// ground the Docs assistant (round 8, R8.3). One file, the repo's own.
+const LLMS_TXT = resolve(__dirname, "llms.txt");
+function llmsTxtPlugin(): Plugin {
+  return {
+    name: "abstractframework-llms-txt",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (String(req.url || "").split("?")[0] !== "/llms.txt") return next();
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(readFileSync(LLMS_TXT, "utf8"));
+      });
+    },
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "llms.txt", source: readFileSync(LLMS_TXT, "utf8") });
+    },
+  };
+}
+
 // The app version shown in the About dialog comes from package.json at build
 // time. A missing or empty version fails the build instead of shipping "unknown".
 function packageVersion(): string {
@@ -440,7 +460,7 @@ export default defineConfig({
   // Relative asset URLs: the same build serves at / and under the gateway's
   // /apps/observer/ (the app server sets <base href>).
   base: "./",
-  plugins: [gatewaySessionDevProxy(), react()],
+  plugins: [llmsTxtPlugin(), gatewaySessionDevProxy(), react()],
   define: {
     __APP_VERSION__: JSON.stringify(packageVersion()),
   },
@@ -502,6 +522,14 @@ export default defineConfig({
 
 ## [Unreleased]
 
+### Changed
+
+- Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.1), the same folder model and words as the gateway console, AbstractCode and the AbstractAssistant: the shared workspace (always on) and your account's other folders as switches (`GET /api/gateway/workspace/policy/me`), "Agents may use: …". The run (or the automation being created) follows your account's folders until you change a switch; the chosen set rides as `input_data.workspace_allowed_paths` and the gateway refuses a folder outside them. **Workspace Root** is now **Run folder**. Requires the gateway's round-9 workspace model.
+
+### Removed
+
+- The launch form's **Access Mode**, **Allowed Paths** and **Ignored Paths** fields (the gateway no longer has access modes; never-allowed folders are gateway-wide).
+
 ## [0.7.0] - 2026-10-04
 
 ### Added
@@ -516,7 +544,8 @@ export default defineConfig({
 
 - **About is the shared compact card** (ui-kit `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
 - **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog.
-- Dependencies: `@abstractframework/ui-kit` ^0.8.0 and `@abstractframework/panel-chat` ^0.3.1. Voice and archived runs need AbstractGateway 0.13.0 or later; with an older gateway the Board shows only active runs.
+- **Docs assistant is the kit's shared `DocsAssistantDrawer`** (panel-chat 0.4.0; the book icon in the top bar, the same drawer as the console and the other apps): your question on the right, the answer on the left with markdown, code, JSON and links rendered, streaming, copy, attachments, an icon-only New conversation and a one-line grounding footer. It answers from this app's `llms.txt` through the gateway's docs-qa workflow (`GET /docs/corpus?app=observer`), one gateway session per conversation. The build ships `llms.txt` in `dist/` and the app server serves it as `text/plain`. The basic-agent transport and its inlined docs index are gone.
+- Dependencies: `@abstractframework/ui-kit` ^0.8.0 and `@abstractframework/panel-chat` ^0.4.0. Voice and archived runs need AbstractGateway 0.13.0 or later; with an older gateway the Board shows only active runs.
 
 ## [0.6.2] - 2026-10-03
 
@@ -2196,7 +2225,12 @@ dialog.
 - the skills picker (the gateway resolves the selected skills through its
   trust gate), the workspace, and bundle upload / reload.
 
-Leave **Workspace Root** empty: the gateway then creates a folder of its own
+**Workspace folders** is the same chooser as the gateway console, AbstractCode
+and the AbstractAssistant: the shared workspace (always on) and your account's
+other folders as switches. Until you change a switch the automation follows
+your account's folders; a change stores the chosen set in the definition
+(`workspace_allowed_paths`), and the gateway refuses a folder outside your
+account's folders. Leave **Run folder** empty: the gateway then creates a folder of its own
 for the automation. A folder the gateway made for another conversation, run or
 automation is refused, and the Observer never copies one into a new form.
 
@@ -2879,7 +2913,7 @@ schedules stay manageable from their run view in both cases. See
 `automations.md` → "Before you start".
 
 ### Creating an automation says the workspace "is a folder the gateway made for another conversation, run or automation"
-The **Workspace Root** field (Advanced) holds a folder the gateway made for
+The **Run folder** field (Workspace) holds a folder the gateway made for
 something else. Empty the field: the gateway creates a folder of its own for
 the new automation.
 

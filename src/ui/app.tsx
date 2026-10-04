@@ -130,6 +130,7 @@ import {
   WorkflowRunNavigator,
 } from "./run_panels";
 import { GatewayClient, csrf_headers } from "../lib/gateway_client";
+import { LaunchWorkspace, observerWorkspaceRequest } from "./launch_workspace";
 import { random_id } from "../lib/ids";
 import { clipboardWrite, COPY_FAILED, MEDIA_NEEDS_HTTPS, mediaAvailable } from "../lib/secure-context";
 import { McpWorkerClient } from "../lib/mcp_worker_client";
@@ -837,6 +838,7 @@ export function App(): React.ReactElement {
     () => (settings.worker_url.trim() ? new McpWorkerClient({ url: settings.worker_url.trim(), auth_token: settings.worker_token }) : null),
     [settings.worker_url, settings.worker_token]
   );
+  const workspace_request = useMemo(() => observerWorkspaceRequest(gateway.fetch_gateway, csrf_headers), [gateway]);
 
   const last_record = records.length ? records[records.length - 1].record : null;
   const wait_state: WaitState | null = useMemo(() => extract_wait_from_record(last_record), [last_record]);
@@ -912,19 +914,10 @@ export function App(): React.ReactElement {
   const provider_value = typeof input_data_obj?.provider === "string" ? String(input_data_obj.provider) : "";
   const model_value = typeof input_data_obj?.model === "string" ? String(input_data_obj.model) : "";
   const workspace_root_value = typeof input_data_obj?.workspace_root === "string" ? String(input_data_obj.workspace_root) : "";
-  const workspace_access_mode_value =
-    typeof input_data_obj?.workspace_access_mode === "string" ? String(input_data_obj.workspace_access_mode) : "";
-  const workspace_allowed_paths_value = useMemo(() => {
+  // Round 9: the run's folders = the kit WorkspaceChooser (absent = follows the account).
+  const workspace_selection_value: string[] | null = useMemo(() => {
     const raw = (input_data_obj as any)?.workspace_allowed_paths;
-    if (Array.isArray(raw)) return raw.map((x) => String(x || "").trim()).filter(Boolean).join("\n");
-    if (typeof raw === "string") return String(raw);
-    return "";
-  }, [input_data_obj]);
-  const workspace_ignored_paths_value = useMemo(() => {
-    const raw = (input_data_obj as any)?.workspace_ignored_paths;
-    if (Array.isArray(raw)) return raw.map((x) => String(x || "").trim()).filter(Boolean).join("\n");
-    if (typeof raw === "string") return String(raw);
-    return "";
+    return Array.isArray(raw) ? raw.map((x) => String(x || "").trim()).filter(Boolean) : null;
   }, [input_data_obj]);
   const has_adaptive_inputs = adaptive_pins.length > 0 && Boolean(bundle_id.trim());
 
@@ -4523,40 +4516,23 @@ export function App(): React.ReactElement {
                     <summary className="help_text muted" style={{ cursor: "pointer" }}>
                       Workspace
                     </summary>
-                    <div className="help_text muted" style={{ marginTop: "8px" }}>
-                      Controls what the agent can access via filesystem tools.
+                    <div style={{ marginTop: "8px" }}>
+                      <LaunchWorkspace
+                        connected={gateway_connected}
+                        request={workspace_request}
+                        selection={workspace_selection_value}
+                        onSelectionChange={(next) => update_input_data_field("workspace_allowed_paths", next === null ? undefined : next)}
+                        disabled={connecting || resuming}
+                        subject={launch_mode === "automate" ? "automation" : "run"}
+                      />
                     </div>
-
                     <div className="launch_grid" style={{ marginTop: "8px" }}>
                       <div className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
-                        <label className="launch_label">Workspace Root</label>
-                        <input className="mono" value={workspace_root_value} onChange={(e) => update_input_data_field("workspace_root", e.target.value)} placeholder="/path/to/workspace" disabled={connecting || resuming} />
-                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = gateway default (isolated per-run workspace)</div>
-                      </div>
-                      <div className="launch_grid_cell">
-                        <label className="launch_label">Access Mode</label>
-                        <select className="mono" value={(workspace_access_mode_value || "workspace_only").trim() || "workspace_only"} onChange={(e) => update_input_data_field("workspace_access_mode", e.target.value)} disabled={connecting || resuming}>
-                          <option value="workspace_only">workspace_only</option>
-                          <option value="workspace_or_allowed">workspace_or_allowed</option>
-                          <option value="all_except_ignored">all_except_ignored</option>
-                      </select>
-                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>workspace_only: absolute paths must stay under root. workspace_or_allowed: allow additional roots.</div>
+                        <label className="launch_label">Run folder</label>
+                        <input className="mono" value={workspace_root_value} onChange={(e) => update_input_data_field("workspace_root", e.target.value || undefined)} placeholder="/path/to/folder" disabled={connecting || resuming} />
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = the run's own private folder. Otherwise one of the folders above; the gateway refuses any other.</div>
                       </div>
                     </div>
-
-                    {(workspace_access_mode_value || "").trim() === "workspace_or_allowed" ? (
-                      <div className="field" style={{ marginTop: "8px" }}>
-                        <label className="launch_label">Allowed Paths</label>
-                        <textarea className="mono" rows={3} value={workspace_allowed_paths_value} onChange={(e) => update_input_data_field("workspace_allowed_paths", e.target.value)} placeholder={"/path/to/project\n/path/to/workspace"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
-                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated directories (absolute or relative to workspace_root)</div>
-                      </div>
-                    ) : null}
-
-                    <div className="field" style={{ marginTop: "8px" }}>
-                      <label className="launch_label">Ignored Paths</label>
-                      <textarea className="mono" rows={3} value={workspace_ignored_paths_value} onChange={(e) => update_input_data_field("workspace_ignored_paths", e.target.value)} placeholder={"node_modules\nruntime\nsecret"} disabled={connecting || resuming} spellCheck={false} autoCorrect="off" autoCapitalize="off" autoComplete="off" />
-                      <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Newline-separated paths to block (absolute or relative to workspace_root)</div>
-	                    </div>
 	                  </details>
 
                   <details className="launch_bundles" style={{ marginTop: "10px" }}>

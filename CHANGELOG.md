@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.1), the same folder model and words as the gateway console, AbstractCode and the AbstractAssistant: the shared workspace (always on) and your account's other folders as switches (`GET /api/gateway/workspace/policy/me`), "Agents may use: …". The run (or the automation being created) follows your account's folders until you change a switch; the chosen set rides as `input_data.workspace_allowed_paths` and the gateway refuses a folder outside them. **Workspace Root** is now **Run folder**. Requires the gateway's round-9 workspace model.
+
+### Removed
+
+- The launch form's **Access Mode**, **Allowed Paths** and **Ignored Paths** fields (the gateway no longer has access modes; never-allowed folders are gateway-wide).
+
 ## [0.7.0] - 2026-10-04
 
 ### Added
