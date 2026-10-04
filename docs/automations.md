@@ -134,13 +134,13 @@ dialog.
 - the skills picker (the gateway resolves the selected skills through its
   trust gate), the workspace, and bundle upload / reload.
 
-**Workspace folders** is the same chooser as the gateway console, AbstractCode
-and the AbstractAssistant: the shared workspace (always on) and your account's
-other folders as switches. Until you change a switch the automation follows
-your account's folders; a change stores the chosen set in the definition
-(`workspace_allowed_paths`), and the gateway refuses a folder outside your
-account's folders. Leave **Run folder** empty: the gateway then creates a folder of its own
-for the automation. A folder the gateway made for another conversation, run or
+**Workspaces** is the same chooser as the gateway console, AbstractCode and the
+AbstractAssistant: the gateway's posture, the shared workspace (always on, Read &
+write) and your account's workspaces as switches with their mode. Until you change
+a switch the automation follows your account's workspaces; a change stores the
+chosen set in the definition (`workspace_allowed_paths`), and the gateway refuses
+a workspace outside your account's workspaces. Leave **Run workspace** empty: the
+gateway then creates a workspace of its own for the automation. A folder the gateway made for another conversation, run or
 automation is refused, and the Observer never copies one into a new form.
 
 ### Create

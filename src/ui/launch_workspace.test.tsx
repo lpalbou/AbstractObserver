@@ -15,12 +15,11 @@ const OWN = "/home/me/thesis";
 const B = "/data/notes";
 const DENIED = "/etc/secrets";
 const effective = {
+  posture: "allowed_only",
+  default_mode: null,
   shared_workspace: SHARED,
-  folders: [{ path: SHARED, source: "shared" }, { path: A, source: "allowed" }, { path: OWN, source: "own" }],
-  available_folders: [{ path: A, enabled: true }, { path: B, enabled: false }],
-  own_folders_allowed: true,
-  never_allowed: [DENIED],
-  summary: "Private session folder + Shared workspace (workspaces) + 2 folders (1 of your own). Never: 1 folder.",
+  folders: [{ path: SHARED, mode: "rw", source: "shared" }, { path: A, mode: "rw", source: "gateway" }, { path: OWN, mode: "ro", source: "gateway" }, { path: DENIED, mode: "deny", source: "gateway" }],
+  summary: "Deny everything, allow listed workspaces · Shared workspace (rw) · /data/projects (rw) · /home/me/thesis (ro)",
 };
 const app = readFileSync(new URL("./app.tsx", import.meta.url), "utf8");
 
@@ -29,7 +28,7 @@ describe("Launch → Workspace (round 9)", () => {
     const calls: Array<[string, RequestInit | undefined]> = [];
     const fetchGateway = vi.fn(async (path: string, init?: RequestInit) => {
       calls.push([path, init]);
-      return new Response(JSON.stringify({ ok: true, policy: { enabled_folders: [A], own_folders: [OWN] }, effective }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, policy: { default_mode: null, folders: [] }, gateway: { shared_workspace: SHARED, posture: "allowed_only", default_mode: "rw", folders: [{ path: A, mode: "rw" }, { path: OWN, mode: "ro" }, { path: DENIED, mode: "deny" }] }, effective }), { status: 200 });
     });
     const state = await workspaceChooserClient(observerWorkspaceRequest(fetchGateway)).load();
     expect(calls[0][0]).toBe("api/gateway/workspace/policy/me");
@@ -38,11 +37,11 @@ describe("Launch → Workspace (round 9)", () => {
     await expect(workspaceChooserClient(observerWorkspaceRequest(refusing)).load()).rejects.toThrow("Sign in first.");
   });
 
-  it("the run's set is chosen among the account's folders; a folder the admin did not allow cannot be chosen", () => {
+  it("the run's set is chosen among the account's workspaces; a workspace the admin did not list (or refused) cannot be chosen", () => {
     const html = renderToStaticMarkup(<WorkspaceChooser mode="automation" subject="run" effective={effective} selection={null} onSelectionChange={() => {}} />);
     expect(html).toContain(T.runHelp.replace(/'/g, "&#x27;"));
     expect(html).toContain('data-workspace="shared-always"');
-    expect(html).not.toContain(`aria-label="${B}"`);
+    expect(html).not.toContain(B);
     expect(html).not.toContain(DENIED);
     const view = workspaceSelectionView(effective, [OWN, B, DENIED]);
     expect(workspaceSelectionAfterToggle(view, A, true)).toEqual([A, OWN]);
@@ -51,7 +50,7 @@ describe("Launch → Workspace (round 9)", () => {
 
   it("while disconnected the chooser says why", () => {
     const html = renderToStaticMarkup(<LaunchWorkspace connected={false} request={async () => ({})} selection={null} onSelectionChange={() => {}} />);
-    expect(html).toContain("Connect to your gateway to choose workspace folders.");
+    expect(html).toContain("Connect to your gateway to choose workspaces.");
   });
 
   it("the launch form has no access modes, allowed-paths text or ignored paths any more", () => {

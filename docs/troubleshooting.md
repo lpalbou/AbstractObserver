@@ -69,7 +69,7 @@ schedules stay manageable from their run view in both cases. See
 `automations.md` → "Before you start".
 
 ### Creating an automation says the workspace "is a folder the gateway made for another conversation, run or automation"
-The **Run folder** field (Workspace) holds a folder the gateway made for
+The **Run workspace** field (Workspace) holds a folder the gateway made for
 something else. Empty the field: the gateway creates a folder of its own for
 the new automation.
 

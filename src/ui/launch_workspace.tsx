@@ -53,12 +53,12 @@ export function LaunchWorkspace({ connected, request, selection, onSelectionChan
     workspaceChooserClient(request)
       .load()
       .then((state) => live && setEffective(state.effective))
-      .catch((e) => live && setError(`Could not read your workspace folders: ${e instanceof Error ? e.message : String(e)}`));
+      .catch((e) => live && setError(`Could not read your workspaces: ${e instanceof Error ? e.message : String(e)}`));
     return () => {
       live = false;
     };
   }, [connected, request]);
-  const unavailable = !connected ? "Connect to your gateway to choose workspace folders." : disabled ? "The run is starting." : null;
+  const unavailable = !connected ? "Connect to your gateway to choose workspaces." : disabled ? "The run is starting." : null;
   return (
     <WorkspaceChooser
       mode="automation"

@@ -4528,9 +4528,9 @@ export function App(): React.ReactElement {
                     </div>
                     <div className="launch_grid" style={{ marginTop: "8px" }}>
                       <div className="launch_grid_cell" style={{ gridColumn: "1 / -1" }}>
-                        <label className="launch_label">Run folder</label>
-                        <input className="mono" value={workspace_root_value} onChange={(e) => update_input_data_field("workspace_root", e.target.value || undefined)} placeholder="/path/to/folder" disabled={connecting || resuming} />
-                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = the run's own private folder. Otherwise one of the folders above; the gateway refuses any other.</div>
+                        <label className="launch_label">Run workspace</label>
+                        <input className="mono" value={workspace_root_value} onChange={(e) => update_input_data_field("workspace_root", e.target.value || undefined)} placeholder="/path/to/workspace" disabled={connecting || resuming} />
+                        <div className="help_text muted" style={{ fontSize: "var(--font-size-xxs)" }}>Empty = the run's own private workspace. Otherwise a workspace the gateway's posture reaches; the gateway refuses any other.</div>
                       </div>
                     </div>
 	                  </details>
