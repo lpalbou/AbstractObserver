@@ -24,6 +24,7 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs/{run_id}` — run state (status, paused, waiting, schedule metadata, etc.)
   - `GET /api/gateway/runs/{run_id}/input_data` — inputs used for the run (shown in UI)
   - `POST /api/gateway/runs/start` — start a run (body includes `input_data` and optional `bundle_id`, `flow_id`, `session_id`; the gateway default agent is `flow_id: "@default"` + `interface`, without `bundle_id`)
+  - `GET /api/gateway/runs?root_only=true&archived_only=true` — runs of ARCHIVED sessions (a conversation archived in AbstractCode, `POST /sessions/{id}/archive`). A `root_only` listing leaves them out, so the Board fetches them too and appends them after the active runs, each marked **Archived** (the gateway's `archived: true`); Observer has no sessions list and no Archive button of its own.
   - Listing rows are read with their automation attribution when the gateway sends it (`session_kind`, `automation_id`, `role`, `occurrence_index`) and `actor_id`; the Board, Observe navigator and System queues tag and group runs from these fields.
 - **Ledger (durable source of truth)**
   - `GET /api/gateway/runs/{run_id}/ledger?after=…&limit=…` — paged replay

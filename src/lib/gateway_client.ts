@@ -284,6 +284,8 @@ export class GatewayClient {
     include_ledger_len?: boolean;
     include_metrics?: boolean;
     include_drafts?: boolean;
+    /** Only runs of ARCHIVED sessions (POST /sessions/{id}/archive); a root_only listing leaves them out. */
+    archived_only?: boolean;
   }): Promise<any> {
     const limit = typeof opts?.limit === "number" ? opts.limit : 50;
     const status = String(opts?.status || "").trim();
@@ -296,6 +298,7 @@ export class GatewayClient {
     if (workflow_id) qs.set("workflow_id", workflow_id);
     if (session_id) qs.set("session_id", session_id);
     if (root_only) qs.set("root_only", "true");
+    if (opts?.archived_only === true) qs.set("archived_only", "true");
     if (typeof opts?.include_ledger_len === "boolean") qs.set("include_ledger_len", String(opts.include_ledger_len));
     if (typeof opts?.include_metrics === "boolean") qs.set("include_metrics", String(opts.include_metrics));
     if (typeof opts?.include_drafts === "boolean") qs.set("include_drafts", String(opts.include_drafts));

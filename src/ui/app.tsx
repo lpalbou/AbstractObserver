@@ -57,6 +57,7 @@ import {
   launch_picker_value,
   legacy_recreate_prefill,
   normalize_run_summary,
+  with_archived_roots,
   observer_automations_host,
   parse_app_hash,
   workflow_choice_value,
@@ -1230,14 +1231,19 @@ export function App(): React.ReactElement {
       // uses, including actor_id and the automation attribution.
       const normalize_runs = (items: any[]): RunSummary[] => items.map(normalize_run_summary).filter((r) => Boolean(r.run_id));
 
-      const [root_runs, all_runs] = await Promise.all([
+      const [root_runs, all_runs, archived_runs] = await Promise.all([
         gateway_client.list_runs({ limit: 200, root_only: true, include_metrics: true }),
         gateway_client.list_runs({ limit: 500, root_only: false, include_metrics: true }),
+        // Archived conversations leave the root listing; Observer still shows them (audit view).
+        gateway_client.list_runs({ limit: 200, root_only: true, archived_only: true, include_metrics: true }),
       ]);
       // EPOCH GUARD (adversary 2026-07-13): a sign-out during this await
       // must not repopulate the disconnected app with late results.
       if (epoch !== discovery_epoch_ref.current) return;
-      const root_items = Array.isArray((root_runs as any)?.items) ? ((root_runs as any).items as any[]) : [];
+      const root_items = with_archived_roots(
+        Array.isArray((root_runs as any)?.items) ? ((root_runs as any).items as any[]) : [],
+        Array.isArray((archived_runs as any)?.items) ? ((archived_runs as any).items as any[]) : [],
+      );
       const all_items = Array.isArray((all_runs as any)?.items) ? ((all_runs as any).items as any[]) : [];
       const next: RunSummary[] = normalize_runs(root_items)
         // Observability UX: show only TURN roots — parent-less runs plus

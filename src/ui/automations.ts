@@ -414,7 +414,27 @@ export function normalize_run_summary(r: any): RunSummary {
     tokens_total: typeof r?.tokens_total === "number" ? Number(r.tokens_total) : r?.tokens_total ?? null,
     error: r?.error ?? null,
     waiting: r?.waiting ?? null,
+    archived: r?.archived === true,
   };
+}
+
+/**
+ * Observer is the audit view: an archived conversation (its session archived through
+ * POST /sessions/{id}/archive) leaves the gateway's `root_only` listing, so its runs are fetched
+ * with `archived_only=true` and appended here, each keeping the gateway's `archived: true`. A run
+ * already listed is never repeated (an older gateway that ignores `archived_only` answers the
+ * same rows, which then stay unmarked).
+ */
+export function with_archived_roots<T extends { run_id?: unknown }>(active: readonly T[], archived: readonly T[]): T[] {
+  const seen = new Set(active.map((r) => String(r?.run_id || "")));
+  const out = [...active];
+  for (const r of archived) {
+    const id = String(r?.run_id || "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(r);
+  }
+  return out;
 }
 
 export type RunSessionTag = "automation" | "occurrence" | "discussion" | "legacy";

@@ -501,6 +501,8 @@ export default defineConfig({
 
 ### Changed
 
+- **Archived conversations stay on the Board.** A conversation archived in AbstractCode leaves the gateway's `root_only` runs listing; Observer also asks for `archived_only=true` and appends those runs, each tagged **Archived**. Nothing is hidden from the audit view. (Observer lists runs, not sessions, so it has no Archive button.)
+
 - **About is the shared compact card** (ui-kit 0.7.0 `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
 - **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog, instead of the browser's bare audio controls.
 - Requires `@abstractframework/ui-kit` 0.7.0 and `@abstractframework/panel-chat` 0.3.1 (unreleased; pins move at release).
@@ -1617,6 +1619,11 @@ An automation between runs is not a run you can act on, so it lives on the
 Automations page. Its occurrences are Board cards (tag `occurrence #N`) with
 an **Automation** button back to it.
 
+## I archived a conversation in AbstractCode — is it gone from Observer?
+No. Archiving only hides a conversation from chat lists; nothing is deleted.
+The Board keeps its runs, with an **Archived** tag on the card, and the run view
+and ledger read as before. Unarchive it from AbstractCode's **Archived · N** line.
+
 ## What happens to my legacy schedules?
 They keep running with their controls (Suspend / Resume / Run now / Open run,
 Edit schedule in the run view). **Recreate as automation** prefills Launch →
@@ -1923,6 +1930,7 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs/{run_id}` — run state (status, paused, waiting, schedule metadata, etc.)
   - `GET /api/gateway/runs/{run_id}/input_data` — inputs used for the run (shown in UI)
   - `POST /api/gateway/runs/start` — start a run (body includes `input_data` and optional `bundle_id`, `flow_id`, `session_id`; the gateway default agent is `flow_id: "@default"` + `interface`, without `bundle_id`)
+  - `GET /api/gateway/runs?root_only=true&archived_only=true` — runs of ARCHIVED sessions (a conversation archived in AbstractCode, `POST /sessions/{id}/archive`). A `root_only` listing leaves them out, so the Board fetches them too and appends them after the active runs, each marked **Archived** (the gateway's `archived: true`); Observer has no sessions list and no Archive button of its own.
   - Listing rows are read with their automation attribution when the gateway sends it (`session_kind`, `automation_id`, `role`, `occurrence_index`) and `actor_id`; the Board, Observe navigator and System queues tag and group runs from these fields.
 - **Ledger (durable source of truth)**
   - `GET /api/gateway/runs/{run_id}/ledger?after=…&limit=…` — paged replay

@@ -61,6 +61,8 @@ export type BoardCard = {
   /** Automation tag from the gateway's attribution (never a workflow-id prefix). */
   tag: RunSessionTag | null;
   tag_label: string;
+  /** The run's conversation is archived (still shown here: Observer is the audit view). */
+  archived: boolean;
   /** The automation an occurrence belongs to ("" otherwise). */
   automation_id: string;
 };
@@ -289,6 +291,7 @@ export function board_card(run: RunSummary, now_ms = Date.now()): BoardCard {
     is_subrun: Boolean(String(run?.parent_run_id || "").trim()),
     tag: run_session_tag(run),
     tag_label: run_session_tag_label(run),
+    archived: (run as any)?.archived === true,
     automation_id: run_session_tag(run) === "occurrence" ? String(run?.automation_id || "").trim() : "",
   };
 }
@@ -757,6 +760,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
           <span className="mono" title={card.run_id}>{short_run_id(card.run_id)}</span>
           {card.is_subrun ? <span title="This wait lives in a child run of an agent workflow">subrun</span> : null}
           {card.tag ? <span className="mc_pill" data-tag={card.tag}>{card.tag_label}</span> : null}
+          {card.archived ? <span className="mc_pill" data-tag="archived" title="This conversation is archived: hidden from chat lists, kept here and in the ledger">Archived</span> : null}
           {card.automation_id ? (
             <button
               type="button"

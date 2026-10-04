@@ -106,6 +106,8 @@ export type RunSummary = {
   tokens_total?: number | null;
   error?: any;
   waiting?: any;
+  /** The run's session is archived (Code's "Archive"): hidden from chat lists, never from Observer. */
+  archived?: boolean | null;
 };
 
 /** Run-listing view shapes (moved from app.tsx, slice 4a): the

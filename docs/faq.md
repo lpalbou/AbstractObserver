@@ -176,6 +176,11 @@ An automation between runs is not a run you can act on, so it lives on the
 Automations page. Its occurrences are Board cards (tag `occurrence #N`) with
 an **Automation** button back to it.
 
+## I archived a conversation in AbstractCode — is it gone from Observer?
+No. Archiving only hides a conversation from chat lists; nothing is deleted.
+The Board keeps its runs, with an **Archived** tag on the card, and the run view
+and ledger read as before. Unarchive it from AbstractCode's **Archived · N** line.
+
 ## What happens to my legacy schedules?
 They keep running with their controls (Suspend / Resume / Run now / Open run,
 Edit schedule in the run view). **Recreate as automation** prefills Launch →

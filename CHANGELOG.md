@@ -4,6 +4,8 @@
 
 ### Changed
 
+- **Archived conversations stay on the Board.** A conversation archived in AbstractCode leaves the gateway's `root_only` runs listing; Observer also asks for `archived_only=true` and appends those runs, each tagged **Archived**. Nothing is hidden from the audit view. (Observer lists runs, not sessions, so it has no Archive button.)
+
 - **About is the shared compact card** (ui-kit 0.7.0 `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
 - **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog, instead of the browser's bare audio controls.
 - Requires `@abstractframework/ui-kit` 0.7.0 and `@abstractframework/panel-chat` 0.3.1 (unreleased; pins move at release).
