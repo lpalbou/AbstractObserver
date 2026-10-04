@@ -134,13 +134,20 @@ dialog.
 - the skills picker (the gateway resolves the selected skills through its
   trust gate), the workspace, and bundle upload / reload.
 
-**Workspaces** is the same chooser as the gateway console, AbstractCode and the
-AbstractAssistant: the gateway's posture, the shared workspace (always on, Read &
-write) and your account's workspaces as switches with their mode. Until you change
-a switch the automation follows your account's workspaces; a change stores the
-chosen set in the definition (`workspace_allowed_paths`), and the gateway refuses
-a workspace outside your account's workspaces. Leave **Run workspace** empty: the
-gateway then creates a workspace of its own for the automation. A folder the gateway made for another conversation, run or
+**Workspaces** is the same chooser as the gateway console, AbstractCode, Flow and
+the AbstractAssistant, for this run or automation: the gateway's line on top
+("Gateway: …", the eligible workspaces), **Use my default** (on: your account's
+default workspaces apply), the posture, each workspace with Read & write /
+Read-only / Refused (a mode above the gateway's cap is disabled), **Add a
+workspace path** and the effective line. Each change is checked by the gateway
+(`POST /api/gateway/workspace/effective/me`, nothing stored); a refused one shows
+the gateway's sentence with "Not saved.". The choice is kept as
+`input_data.workspace` (`{posture, default_mode, folders}`): **Run once** sends it
+as the run-start body's `workspace`, **Create automation** stores it in the
+definition (`target.input_data.workspace`), applied at each run. With **Use my
+default** on nothing is stored and each run uses your default at that time. Leave
+**Run workspace** empty: the gateway then creates a private workspace for the run
+or automation. A workspace the gateway made for another conversation, run or
 automation is refused, and the Observer never copies one into a new form.
 
 ### Create

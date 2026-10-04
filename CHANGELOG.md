@@ -4,7 +4,8 @@
 
 ### Changed
 
-- Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.1), the same model and words as the gateway console, AbstractCode and the AbstractAssistant: the gateway's posture, the shared workspace (always on, Read & write) and your account's workspaces with their mode (`GET /api/gateway/workspace/policy/me`), plus the gateway's line. The run (or the automation being created) follows your account's workspaces until you change a switch; the chosen set rides as `input_data.workspace_allowed_paths` and the gateway refuses a workspace outside them. **Workspace Root** is now **Run workspace**. Requires the gateway's round-9 workspace model.
+- Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.2) at the run level: "Gateway: <the admin's eligible workspaces>" on top, **Use my default** (on by default), the posture, each workspace with Read-only / Read & write / Refused (a mode above the gateway's cap disabled), **Add a workspace path** and the effective line — the same words as the gateway console, AbstractCode, Flow and the AbstractAssistant. Each change is checked by the gateway (`POST /api/gateway/workspace/effective/me`, nothing stored); a refusal shows its sentence with "Not saved.". The choice is kept as `input_data.workspace` in the form: **Run once** sends it as the run-start body's `workspace`, **Create automation** stores it in the definition (`target.input_data.workspace`). Requires the AbstractGateway round-11 workspace model.
+- A refused run start shows the gateway's sentence verbatim (was "start_run failed: 400").
 
 ### Removed
 
