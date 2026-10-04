@@ -91,6 +91,8 @@ describe("An existing automation's workspaces", () => {
     expect(automation_workspace(definition)).toEqual(VALUE);
     expect(automation_workspace({ target: { flow_id: "f", bundle_ref: "b", input_data: { prompt: "x" } } } as any)).toBeNull();
     expect(automation_workspace(null)).toBeNull();
+    // The gateway's "follow my default at each run" marker reads as Use my default.
+    expect(automation_workspace({ target: { flow_id: "f", bundle_ref: "b", input_data: { workspace: { configured: false } } } } as any)).toBeNull();
   });
 
   it("a change is the target with the new payload; the gateway's derived keys are dropped so it derives them again; null removes it", () => {
