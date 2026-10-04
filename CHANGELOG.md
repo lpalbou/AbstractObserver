@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.2) at the run level: "Gateway: <the admin's eligible workspaces>" on top, **Use my default** (on by default), the posture, each workspace with Read-only / Read & write / Refused (a mode above the gateway's cap disabled), **Add a workspace path** and the effective line — the same words as the gateway console, AbstractCode, Flow and the AbstractAssistant. Each change is checked by the gateway (`POST /api/gateway/workspace/effective/me`, nothing stored); a refusal shows its sentence with "Not saved.". The choice is kept as `input_data.workspace` in the form: **Run once** sends it as the run-start body's `workspace`, **Create automation** stores it in the definition (`target.input_data.workspace`). Requires the AbstractGateway round-11 workspace model.
+- Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.3) at the run level: "Gateway: <the admin's eligible workspaces>" on top, **Use my default** (on by default), the posture, each workspace with Read-only / Read & write / Refused (a mode above the gateway's cap disabled), **Add a workspace path** and the effective line — the same words as the gateway console, AbstractCode, Flow and the AbstractAssistant. Each change is checked by the gateway (`POST /api/gateway/workspace/effective/me`, nothing stored); a refusal shows its sentence with "Not saved.". The choice is kept as `input_data.workspace` in the form: **Run once** sends it as the run-start body's `workspace`, **Create automation** stores it in the definition (`target.input_data.workspace`). Requires the AbstractGateway round-11 workspace model.
 - A refused run start shows the gateway's sentence verbatim (was "start_run failed: 400").
 
 ### Removed
