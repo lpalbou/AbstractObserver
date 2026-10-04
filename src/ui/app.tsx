@@ -1900,7 +1900,7 @@ export function App(): React.ReactElement {
   async function reveal_run_workspace(): Promise<void> {
     const ws = run_workspace_root.trim();
     if (!ws) {
-      set_status("This run recorded no workspace folder", 2);
+      set_status("This run recorded no workspace", 2);
       return;
     }
     try {
