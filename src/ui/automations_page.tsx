@@ -543,6 +543,8 @@ export function AutomationsPage(props: {
   available: { available: boolean; reason: string };
   host: PanelHostHandlers;
   h: AutomationsHandlers;
+  /** This Observer's own session: its media run holds dictation before a discussion exists. */
+  voice_session_id?: string;
 }): React.ReactElement {
   const ctl = props.ctl;
   const [list_open, toggle_list] = useListOpen("automations");
@@ -622,6 +624,7 @@ export function AutomationsPage(props: {
           gateway={props.gateway}
           discussion={discussion}
           connected={props.active}
+          voice_session_id={props.voice_session_id || ""}
           on_fork={async (automation_id, index, prompt) => {
             const r = await ctl.discuss(automation_id, index, prompt);
             props.host.on_open_session(r, discussion_notice(index, r), index);

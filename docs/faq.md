@@ -202,16 +202,18 @@ Evidence:
 Security guidance: `security.md`.
 
 ## Does it support voice (PTT / TTS)?
-Yes — in **Observe → Chat**, the UI can:
-- record audio in the browser, upload it to the gateway, and request transcription (push-to-talk)
-- request gateway-based text-to-speech audio and play it back (TTS)
+Yes, through the gateway's voice routes and the kit's shared voice components (the same ones AbstractCode uses):
+- **Read aloud**: every reply in **Observe → Ask** and in an **Automations → Discuss** chat has a speaker button, and a run's outcome has **Read aloud**. Speech streams sentence by sentence (the first sentence plays while the next is synthesised); **Stop** ends it.
+- **Dictation**: the microphone in the Ask and Discuss composers. Hold it, or tap to start and tap again to stop. While the gateway transcribes, the line under the composer says `Transcribing… 4 s · faster-whisper / large-v3` (the route that will run). Failures read as a sentence.
+- **Settings → Voice** is the kit's Voice section: engines show "Gateway default · supertonic / supertonic-3" from `GET /voice/defaults` (override per browser), output device + Test + volume, microphone + level meter + Test, spoken language, and **Read aloud** (speak each new reply).
 
 Gateway endpoints: `api.md` (Voice section).
 
 Evidence:
-- voice hook: `src/ui/use_gateway_voice.ts`
-- UI wiring: `src/ui/app.tsx`
-- gateway client: `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`)
+- voice wiring: `src/ui/observer_voice.tsx` (`use_observer_voice`, `VoiceDictate`, `SpeakButton`, `ObserverVoiceSettings`)
+- UI: `src/ui/app.tsx` (Ask, outcome, Settings), `src/ui/automation_discussion.tsx` (Discuss)
+- gateway client: `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_defaults()`, `voice_catalog()`)
+- tests: `src/ui/observer_voice.test.tsx`; end to end: `scripts/voice_e2e.mjs` against `scripts/fake_voice_proxy.mjs`
 
 ## What is “monitor-gpu” and how do I enable it?
 It’s an optional GPU usage widget in the header. Enable it by starting the CLI with:

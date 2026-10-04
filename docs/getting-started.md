@@ -54,7 +54,8 @@ Go to **Observe** (or click a Board card):
 - inspect:
   - **Ledger** (the run view, opened by default; replay-first + streaming)
   - **Flow** (flow visualization from bundle/workflow flow data)
-  - **Ask** (ask about this run; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
+  - **Ask** (ask about this run; optional voice: dictation and a speaker on each reply, configured in **Settings → Voice**; see `faq.md` → "Does it support voice")
+  - the run's outcome paragraph has **Read aloud** (the gateway's voice, sentence by sentence; **Stop** ends it)
 
 ### The run view
 

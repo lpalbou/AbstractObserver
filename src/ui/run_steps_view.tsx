@@ -364,6 +364,8 @@ export function RunOutcome(props: {
   workspace_root: string;
   on_reveal_workspace: () => void;
   on_open_artifacts: () => void;
+  /** Read the outcome aloud (the host's speaker control; absent = no voice). */
+  speak?: React.ReactNode;
 }): React.ReactElement {
   const [more, set_more] = useState(false);
   const long = props.answer.length > OUTCOME_PREVIEW_CHARS;
@@ -389,6 +391,7 @@ export function RunOutcome(props: {
         {props.waiting_for_user && props.on_answer_wait ? (
           <button type="button" className="btn primary" onClick={props.on_answer_wait}>Answer</button>
         ) : null}
+        {props.speak}
         <button type="button" className="btn" onClick={props.on_open_artifacts} title="This run's artifacts in System">Artifacts</button>
         {props.workspace_root ? (
           <button type="button" className="btn" onClick={props.on_reveal_workspace} title={props.workspace_root}>Folder</button>

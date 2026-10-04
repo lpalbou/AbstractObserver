@@ -1,4 +1,4 @@
-import { createAutomationsClient, gatewayApiPath, joinBaseUrl, type AutomationsClient } from "@abstractframework/ui-kit";
+import { createAutomationsClient, gatewayApiPath, joinBaseUrl, type AutomationsClient, type VoiceDefaults } from "@abstractframework/ui-kit";
 
 import { LedgerStreamEvent, type RunChatHistoryReport } from "./types";
 import { SseParser } from "./sse_parser";
@@ -693,14 +693,21 @@ export class GatewayClient {
     return await r.json();
   }
 
+  /**
+   * Transcribe an uploaded recording. No `provider`/`model` = the gateway's
+   * default speech-to-text route (`input.voice`); the answer names the route
+   * that ran (`provider`, `model`) and how long it took (`duration_ms`).
+   */
   async audio_transcribe(
     run_id: string,
     req: {
       audio_artifact: AttachmentRef;
       language?: string;
+      provider?: string;
+      model?: string;
       request_id?: string;
     }
-  ): Promise<{ ok: boolean; run_id: string; request_id: string; text: string; transcript_artifact: any }> {
+  ): Promise<{ ok: boolean; run_id: string; request_id: string; text: string; transcript_artifact: any; provider: string | null; model: string | null; duration_ms: number | null }> {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("audio_transcribe: run_id is required");
     const audio_artifact = req?.audio_artifact;
@@ -709,10 +716,10 @@ export class GatewayClient {
     if (!aid) throw new Error("audio_transcribe: audio_artifact.$artifact is required");
 
     const body: any = { audio_artifact };
-    const lang = String(req?.language || "").trim();
-    if (lang) body.language = lang;
-    const req_id = String(req?.request_id || "").trim();
-    if (req_id) body.request_id = req_id;
+    for (const key of ["language", "provider", "model", "request_id"] as const) {
+      const v = String(req?.[key] || "").trim();
+      if (v) body[key] = v;
+    }
 
     const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/audio/transcribe`)), {
       method: "POST",
@@ -722,7 +729,7 @@ export class GatewayClient {
       },
       body: JSON.stringify(body),
     });
-    if (!r.ok) throw new Error(`audio_transcribe failed: ${await _read_error(r)}`);
+    if (!r.ok) throw await gateway_error(r, "The gateway refused the transcription");
     const out: any = await r.json();
     const text = String(out?.text || "");
     return {
@@ -731,7 +738,36 @@ export class GatewayClient {
       request_id: String(out?.request_id || ""),
       text,
       transcript_artifact: out?.transcript_artifact,
+      provider: out?.provider ? String(out.provider) : null,
+      model: out?.model ? String(out.model) : null,
+      duration_ms: Number.isFinite(Number(out?.duration_ms)) ? Number(out.duration_ms) : null,
     };
+  }
+
+  /** `GET /voice/defaults`: the gateway's default speech routes (`output.voice` / `input.voice`) — what "Gateway default" names. */
+  async voice_defaults(): Promise<VoiceDefaults> {
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath("voice/defaults")), { headers: { ..._auth_headers(this._cfg.auth_token) }, signal: _deadline() });
+    if (!r.ok) throw await gateway_error(r, "The gateway could not list its voice defaults");
+    return (await r.json()) as VoiceDefaults;
+  }
+
+  /** `GET /voice/voices?compact=true[&provider&model]`: engines, models and voices to pick an override from. */
+  async voice_catalog(provider?: string, model?: string): Promise<Record<string, any>> {
+    const q = new URLSearchParams({ compact: "true" });
+    if (provider) q.set("provider", provider);
+    if (model) q.set("model", model);
+    const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(`voice/voices?${q.toString()}`)), { headers: { ..._auth_headers(this._cfg.auth_token) }, signal: _deadline() });
+    if (!r.ok) throw await gateway_error(r, "The gateway could not list its voices");
+    return await r.json();
+  }
+
+  /** This connection's URL for a gateway path (`api/gateway/...`) and its credentials (bearer or session CSRF) — for streaming transports such as the kit's `streamTtsJsonl`. */
+  gateway_url(path: string): string {
+    return _join(this._cfg.base_url, path);
+  }
+
+  auth_headers(): Record<string, string> {
+    return _auth_headers(this._cfg.auth_token);
   }
 
   async voice_tts(

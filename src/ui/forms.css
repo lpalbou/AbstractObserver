@@ -774,3 +774,28 @@ details.form_subdisclosure[open] > summary::before {
   white-space: nowrap;
   min-width: 0;
 }
+
+/* Voice controls (round 7): composer microphone + Stop + one status line that
+ * wraps instead of widening the composer; errors read as a sentence. */
+.voice_tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.voice_status {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted, inherit);
+  overflow-wrap: anywhere;
+}
+.voice_error {
+  font-size: var(--font-size-sm);
+  color: var(--danger, #c0392b);
+  overflow-wrap: anywhere;
+  flex-basis: 100%;
+}
+.rs_outcome_actions .voice_error {
+  flex-basis: auto;
+}

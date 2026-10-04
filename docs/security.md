@@ -61,11 +61,12 @@ Operational guidance:
 - Prefer same-origin deployments and HTTPS to reduce leakage risk.
 
 ## Voice features (microphone + uploads)
-If you use voice push-to-talk (PTT) or TTS:
-- the UI may request **microphone permissions** (PTT) and upload audio recordings to the gateway
-- generated TTS audio is downloaded from the gateway as a run artifact
+If you use dictation or reading aloud:
+- the UI may request **microphone permission** and uploads each recording to the gateway (your session's media run), which transcribes it
+- spoken replies stream from the gateway (`voice/tts/stream`) and play in the browser; nothing is synthesised or transcribed in the browser
+- voice preferences (engine overrides, devices, volume, Read aloud) stay in this browser (`localStorage` key `abstractobserver_voice`)
 
-Evidence: `src/ui/use_gateway_voice.ts` and related endpoints in `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`).
+Evidence: `src/ui/observer_voice.tsx` and the endpoints in `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_defaults()`, `voice_catalog()`).
 
 ## Process manager
 

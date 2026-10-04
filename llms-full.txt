@@ -36,6 +36,7 @@ Notes:
 - `@abstractframework/ui-kit` and `@abstractframework/panel-chat` are npm dependencies; the monitor packages are Vite aliases to sibling `../abstractuic/*/src` (see `vite.config.ts` and `docs/development.md`).
 - Responsive layout (phones, tablets, small windows): `docs/getting-started.md` → "Responsive layout"; rules in `src/ui/responsive.css`.
 - On/off switches and opening the Observer over plain http from another computer (voice needs https): `docs/getting-started.md` → "Switches", "Open the Observer from another computer over http"; fallbacks in `src/lib/secure-context.ts`.
+- Voice (Read aloud streamed per sentence, dictation in Ask/Discuss, Settings → Voice = the kit section with the gateway's default routes from `GET /voice/defaults`): `docs/faq.md` → "Does it support voice", routes in `docs/api.md` → Voice; code `src/ui/observer_voice.tsx`; tests `src/ui/observer_voice.test.tsx` + `scripts/voice_e2e.mjs` (fake routes: `scripts/fake_voice_proxy.mjs`).
 - `llms.txt` format reference: https://llmstxt.org/
 
 ## Documentation (start here)
@@ -96,7 +97,7 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Observe** runs and subruns by replaying + streaming the durable **ledger** (replay-first + SSE)
 - **Inspect runtime state** across active runs, generated artifacts, provider calls, and gateway audit logs
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
-- (Optional) **Voice** in run chat: gateway-based TTS + push-to-talk transcription (`src/ui/use_gateway_voice.ts`)
+- (Optional) **Voice**: Read aloud (streamed sentence by sentence) and dictation in Ask, run outcomes and Automations → Discuss; Settings → Voice is the kit's shared section showing the gateway's default routes (`src/ui/observer_voice.tsx`)
 
 ## Watching entities (the entity app)
 
@@ -499,7 +500,17 @@ export default defineConfig({
 
 ## [Unreleased]
 
+### Added
+
+- **Voice everywhere through the gateway's voice routes** (round 7), with the kit's shared stack — no voice code of its own:
+  - **Read aloud**: a run's outcome has **Read aloud** / **Stop**; every reply in Observe → Ask and in Automations → Discuss has a speaker. Speech streams sentence by sentence from `POST /runs/{id}/voice/tts/stream` (the kit's `useGatewayVoice` + `streamTtsJsonl`), so a long answer starts speaking on its first sentence. Requests ride the session's media run, never the run being watched.
+  - **Dictation** in Ask and in **Discuss** (also before the discussion's first message): hold the microphone, or tap to start and tap again to stop; the status line reads `Recording… 3 s`, then `Transcribing… 4 s · faster-whisper / large-v3` (the override, else the gateway default `input.voice` route). A transcription that has not answered after 180 s fails as a sentence.
+  - **Settings → Voice** is the kit's `AfVoiceSection`: "Gateway default · supertonic / supertonic-3" from `GET /voice/defaults` (never from the voice catalog), output device + Test + reply volume, microphone + level meter + Test + input level, spoken language, and **Read aloud** (speak each new reply). Preferences stay in this browser.
+
 ### Changed
+
+- The local copy of the voice hook (`src/ui/use_gateway_voice.ts`, non-streaming, synthesised the whole reply before playing) is removed.
+- Requires `@abstractframework/ui-kit` 0.7.1 (voice defaults, devices; unreleased; pin moves at release).
 
 - **Archived conversations stay on the Board.** A conversation archived in AbstractCode leaves the gateway's `root_only` runs listing; Observer also asks for `archived_only=true` and appends those runs, each tagged **Archived**. Nothing is hidden from the audit view. (Observer lists runs, not sessions, so it has no Archive button.)
 
@@ -1292,7 +1303,8 @@ Go to **Observe** (or click a Board card):
 - inspect:
   - **Ledger** (the run view, opened by default; replay-first + streaming)
   - **Flow** (flow visualization from bundle/workflow flow data)
-  - **Ask** (ask about this run; optional voice PTT + TTS when the gateway exposes the endpoints in `api.md`)
+  - **Ask** (ask about this run; optional voice: dictation and a speaker on each reply, configured in **Settings → Voice**; see `faq.md` → "Does it support voice")
+  - the run's outcome paragraph has **Read aloud** (the gateway's voice, sentence by sentence; **Stop** ends it)
 
 ### The run view
 
@@ -1645,16 +1657,18 @@ Evidence:
 Security guidance: `security.md`.
 
 ## Does it support voice (PTT / TTS)?
-Yes — in **Observe → Chat**, the UI can:
-- record audio in the browser, upload it to the gateway, and request transcription (push-to-talk)
-- request gateway-based text-to-speech audio and play it back (TTS)
+Yes, through the gateway's voice routes and the kit's shared voice components (the same ones AbstractCode uses):
+- **Read aloud**: every reply in **Observe → Ask** and in an **Automations → Discuss** chat has a speaker button, and a run's outcome has **Read aloud**. Speech streams sentence by sentence (the first sentence plays while the next is synthesised); **Stop** ends it.
+- **Dictation**: the microphone in the Ask and Discuss composers. Hold it, or tap to start and tap again to stop. While the gateway transcribes, the line under the composer says `Transcribing… 4 s · faster-whisper / large-v3` (the route that will run). Failures read as a sentence.
+- **Settings → Voice** is the kit's Voice section: engines show "Gateway default · supertonic / supertonic-3" from `GET /voice/defaults` (override per browser), output device + Test + volume, microphone + level meter + Test, spoken language, and **Read aloud** (speak each new reply).
 
 Gateway endpoints: `api.md` (Voice section).
 
 Evidence:
-- voice hook: `src/ui/use_gateway_voice.ts`
-- UI wiring: `src/ui/app.tsx`
-- gateway client: `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`)
+- voice wiring: `src/ui/observer_voice.tsx` (`use_observer_voice`, `VoiceDictate`, `SpeakButton`, `ObserverVoiceSettings`)
+- UI: `src/ui/app.tsx` (Ask, outcome, Settings), `src/ui/automation_discussion.tsx` (Discuss)
+- gateway client: `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_defaults()`, `voice_catalog()`)
+- tests: `src/ui/observer_voice.test.tsx`; end to end: `scripts/voice_e2e.mjs` against `scripts/fake_voice_proxy.mjs`
 
 ## What is “monitor-gpu” and how do I enable it?
 It’s an optional GPU usage widget in the header. Enable it by starting the CLI with:
@@ -1990,10 +2004,12 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/runs/{run_id}/summary`
   - `POST /api/gateway/runs/{run_id}/chat`
   - `POST /api/gateway/runs/{run_id}/chat_threads` — persist a discussion as an artifact
-- **Voice (Observe → Chat; optional)**
-  - `POST /api/gateway/attachments/upload` — upload an attachment (used for voice recordings; multipart form with `session_id` + `file`)
-  - `POST /api/gateway/runs/{run_id}/audio/transcribe` — transcribe an uploaded audio artifact
-  - `POST /api/gateway/runs/{run_id}/voice/tts` — text-to-speech (returns an audio artifact)
+- **Voice (Observe → Ask, a run's outcome, Automations → Discuss, Settings → Voice; optional)** — the kit's shared voice stack (`useGatewayVoice`, `streamTtsJsonl`, `AfVoiceSection`), no engine in the browser. Requests ride the session's media run (`session_memory_<session_id>`), so the runs you watch never gain child runs from being read aloud.
+  - `GET /api/gateway/voice/defaults` — the gateway's default routes (`output.voice`, `input.voice`): the only source of "Gateway default · supertonic / supertonic-3" in Settings → Voice
+  - `GET /api/gateway/voice/voices?compact=true[&provider&model]` — engines, models and voices to pick an override from
+  - `POST /api/gateway/runs/{run_id}/voice/tts/stream` — streaming text-to-speech (JSON Lines; one WAV per sentence, played as it arrives); the body carries only the speech fields of your override (`provider`, `model`, `voice`, …; none = the gateway default route)
+  - `POST /api/gateway/attachments/upload` — upload a recording (multipart form with `session_id` + `file`)
+  - `POST /api/gateway/runs/{run_id}/audio/transcribe` — transcribe it; no `provider`/`model` = the gateway default `input.voice` route; the answer's `provider`/`model` name the route that ran. A transcription that has not answered after 180 s is reported as failed.
 - **Bug/feature inbox + triage**
   - `GET /api/gateway/reports/bugs` / `GET /api/gateway/reports/features`
   - `GET /api/gateway/reports/bugs/{filename}/content` / `…/features/{filename}/content`
@@ -2747,11 +2763,12 @@ Operational guidance:
 - Prefer same-origin deployments and HTTPS to reduce leakage risk.
 
 ## Voice features (microphone + uploads)
-If you use voice push-to-talk (PTT) or TTS:
-- the UI may request **microphone permissions** (PTT) and upload audio recordings to the gateway
-- generated TTS audio is downloaded from the gateway as a run artifact
+If you use dictation or reading aloud:
+- the UI may request **microphone permission** and uploads each recording to the gateway (your session's media run), which transcribes it
+- spoken replies stream from the gateway (`voice/tts/stream`) and play in the browser; nothing is synthesised or transcribed in the browser
+- voice preferences (engine overrides, devices, volume, Read aloud) stay in this browser (`localStorage` key `abstractobserver_voice`)
 
-Evidence: `src/ui/use_gateway_voice.ts` and related endpoints in `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_tts()`).
+Evidence: `src/ui/observer_voice.tsx` and the endpoints in `src/lib/gateway_client.ts` (`attachments_upload()`, `audio_transcribe()`, `voice_defaults()`, `voice_catalog()`).
 
 ## Process manager
 

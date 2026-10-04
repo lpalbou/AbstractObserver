@@ -84,10 +84,12 @@ These power additional pages/drawers. If your gateway does not expose them, the 
   - `POST /api/gateway/runs/{run_id}/summary`
   - `POST /api/gateway/runs/{run_id}/chat`
   - `POST /api/gateway/runs/{run_id}/chat_threads` — persist a discussion as an artifact
-- **Voice (Observe → Chat; optional)**
-  - `POST /api/gateway/attachments/upload` — upload an attachment (used for voice recordings; multipart form with `session_id` + `file`)
-  - `POST /api/gateway/runs/{run_id}/audio/transcribe` — transcribe an uploaded audio artifact
-  - `POST /api/gateway/runs/{run_id}/voice/tts` — text-to-speech (returns an audio artifact)
+- **Voice (Observe → Ask, a run's outcome, Automations → Discuss, Settings → Voice; optional)** — the kit's shared voice stack (`useGatewayVoice`, `streamTtsJsonl`, `AfVoiceSection`), no engine in the browser. Requests ride the session's media run (`session_memory_<session_id>`), so the runs you watch never gain child runs from being read aloud.
+  - `GET /api/gateway/voice/defaults` — the gateway's default routes (`output.voice`, `input.voice`): the only source of "Gateway default · supertonic / supertonic-3" in Settings → Voice
+  - `GET /api/gateway/voice/voices?compact=true[&provider&model]` — engines, models and voices to pick an override from
+  - `POST /api/gateway/runs/{run_id}/voice/tts/stream` — streaming text-to-speech (JSON Lines; one WAV per sentence, played as it arrives); the body carries only the speech fields of your override (`provider`, `model`, `voice`, …; none = the gateway default route)
+  - `POST /api/gateway/attachments/upload` — upload a recording (multipart form with `session_id` + `file`)
+  - `POST /api/gateway/runs/{run_id}/audio/transcribe` — transcribe it; no `provider`/`model` = the gateway default `input.voice` route; the answer's `provider`/`model` name the route that ran. A transcription that has not answered after 180 s is reported as failed.
 - **Bug/feature inbox + triage**
   - `GET /api/gateway/reports/bugs` / `GET /api/gateway/reports/features`
   - `GET /api/gateway/reports/bugs/{filename}/content` / `…/features/{filename}/content`

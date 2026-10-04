@@ -8,7 +8,7 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Observe** runs and subruns by replaying + streaming the durable **ledger** (replay-first + SSE)
 - **Inspect runtime state** across active runs, generated artifacts, provider calls, and gateway audit logs
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
-- (Optional) **Voice** in run chat: gateway-based TTS + push-to-talk transcription (`src/ui/use_gateway_voice.ts`)
+- (Optional) **Voice**: Read aloud (streamed sentence by sentence) and dictation in Ask, run outcomes and Automations → Discuss; Settings → Voice is the kit's shared section showing the gateway's default routes (`src/ui/observer_voice.tsx`)
 
 ## Watching entities (the entity app)
 

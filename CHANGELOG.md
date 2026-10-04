@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Voice everywhere through the gateway's voice routes** (round 7), with the kit's shared stack — no voice code of its own:
+  - **Read aloud**: a run's outcome has **Read aloud** / **Stop**; every reply in Observe → Ask and in Automations → Discuss has a speaker. Speech streams sentence by sentence from `POST /runs/{id}/voice/tts/stream` (the kit's `useGatewayVoice` + `streamTtsJsonl`), so a long answer starts speaking on its first sentence. Requests ride the session's media run, never the run being watched.
+  - **Dictation** in Ask and in **Discuss** (also before the discussion's first message): hold the microphone, or tap to start and tap again to stop; the status line reads `Recording… 3 s`, then `Transcribing… 4 s · faster-whisper / large-v3` (the override, else the gateway default `input.voice` route). A transcription that has not answered after 180 s fails as a sentence.
+  - **Settings → Voice** is the kit's `AfVoiceSection`: "Gateway default · supertonic / supertonic-3" from `GET /voice/defaults` (never from the voice catalog), output device + Test + reply volume, microphone + level meter + Test + input level, spoken language, and **Read aloud** (speak each new reply). Preferences stay in this browser.
+
 ### Changed
+
+- The local copy of the voice hook (`src/ui/use_gateway_voice.ts`, non-streaming, synthesised the whole reply before playing) is removed.
+- Requires `@abstractframework/ui-kit` 0.7.1 (voice defaults, devices; unreleased; pin moves at release).
 
 - **Archived conversations stay on the Board.** A conversation archived in AbstractCode leaves the gateway's `root_only` runs listing; Observer also asks for `archived_only=true` and appends those runs, each tagged **Archived**. Nothing is hidden from the audit view. (Observer lists runs, not sessions, so it has no Archive button.)
 

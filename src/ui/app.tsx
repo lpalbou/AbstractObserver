@@ -131,7 +131,7 @@ import {
 } from "./run_panels";
 import { GatewayClient, csrf_headers } from "../lib/gateway_client";
 import { random_id } from "../lib/ids";
-import { clipboardWrite, COPY_FAILED, MEDIA_NEEDS_HTTPS, mediaAvailable, sha256Hex } from "../lib/secure-context";
+import { clipboardWrite, COPY_FAILED, MEDIA_NEEDS_HTTPS, mediaAvailable } from "../lib/secure-context";
 import { McpWorkerClient } from "../lib/mcp_worker_client";
 import { extract_emit_event, extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
 import { LedgerStreamEvent, StepRecord, ToolCall, ToolResult, WaitState } from "../lib/types";
@@ -149,7 +149,7 @@ import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
 import { type RuntimeMetadata } from "./runtime_metadata";
 import { run_status_class, run_status_word, stop_reason_of, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
-import { useGatewayVoice } from "./use_gateway_voice";
+import { ObserverVoiceSettings, SpeakButton, VoiceDictate, use_observer_voice, use_read_aloud, use_voice_defaults, use_voice_prefs } from "./observer_voice";
 import { useListOpen } from "./list_disclosure";
 import "./system.css";
 // Usability layer LAST: it corrects actionable-information presentation and
@@ -319,28 +319,8 @@ function gateway_connect_error_message(value: any, settings: Settings): string {
 }
 
 
-const _SAFE_RUN_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
-
-function _is_safe_run_id(value: string): boolean {
-  return _SAFE_RUN_ID_PATTERN.test(String(value || "").trim());
-}
-
-async function _sha256_hex(text: string): Promise<string> {
-  const payload = String(text || "");
-  // crypto.subtle exists only on https/localhost; sha256Hex falls back to a plain SHA-256 over http.
-  return sha256Hex(payload);
-}
-
-export async function session_memory_run_id(session_id: string): Promise<string> {
-  const sid = String(session_id || "").trim();
-  if (!sid) throw new Error("session_id is required");
-  if (_is_safe_run_id(sid)) {
-    const rid = `session_memory_${sid}`;
-    if (_is_safe_run_id(rid)) return rid;
-  }
-  const digest = await _sha256_hex(sid);
-  return `session_memory_sha_${digest.slice(0, 32)}`;
-}
+// The voice store of a session (moved to lib/session_memory.ts so the Automations discussion shares it).
+export { session_memory_run_id } from "../lib/session_memory";
 
 
 
@@ -611,7 +591,6 @@ export function App(): React.ReactElement {
   const [chat_input, set_chat_input] = useState<string>("");
   const [chat_error, set_chat_error] = useState<string>("");
   const [chat_voice_error, set_chat_voice_error] = useState<string>("");
-  const [chat_voice_run_id, set_chat_voice_run_id] = useState<string>("");
   const [chat_sending, set_chat_sending] = useState<boolean>(false);
   const [chat_export_state, set_chat_export_state] = useState<"idle" | "copied" | "failed">("idle");
   // `local_error`: the chat's own "(error: …)" card, never sent back to the model (run_chat_history).
@@ -1870,25 +1849,15 @@ export function App(): React.ReactElement {
   }, [session_id_for_run, start_session_id]);
 
   useEffect(() => {
-    if (!gateway_connected || !chat_voice_session_id) {
-      set_chat_voice_run_id("");
-      set_chat_voice_error("");
-      return;
-    }
-    void (async () => {
-      try {
-        const rid = await session_memory_run_id(chat_voice_session_id);
-        set_chat_voice_run_id(rid);
-      } catch {
-        set_chat_voice_run_id("");
-      }
-    })();
-  }, [gateway_connected, chat_voice_session_id]);
+    if (!gateway_connected) set_chat_voice_error("");
+  }, [gateway_connected]);
 
-  const chat_voice = useGatewayVoice({
+  const [voice_prefs, set_voice_prefs] = use_voice_prefs();
+  const voice_defaults = use_voice_defaults(gateway_connected ? gateway : null, gateway_connected);
+  const chat_voice = use_observer_voice({
     gateway: gateway_connected ? gateway : null,
     session_id: chat_voice_session_id,
-    run_id: chat_voice_run_id,
+    prefs: voice_prefs,
     on_error: set_chat_voice_error,
     on_transcript: (text) => {
       const t = String(text || "").trim();
@@ -1901,6 +1870,16 @@ export function App(): React.ReactElement {
       window.setTimeout(() => chat_input_ref.current?.focus(), 0);
     },
   });
+  // Settings → Voice → Read aloud: speak each new answer of the run chat.
+  const chat_latest_answer = useMemo(() => {
+    for (let i = chat_messages.length - 1; i >= 0; i -= 1) {
+      const m = chat_messages[i];
+      if (m.role !== "assistant") continue;
+      return m.local_error ? null : { key: String(m.id || m.ts || ""), text: String(m.content || "") };
+    }
+    return null;
+  }, [chat_messages]);
+  use_read_aloud(chat_voice, voice_prefs.read_aloud === true, chat_latest_answer);
 
   function _download_blob(blob: Blob, filename: string): void {
     try {
@@ -5002,6 +4981,22 @@ export function App(): React.ReactElement {
                 </div>
               </section>
 
+              {/* ── Voice (the kit's shared section; defaults from GET /voice/defaults) ── */}
+              <section className="pane" data-settings-section="voice">
+                <div className="pane_header">
+                  <span className="pane_title">Voice</span>
+                </div>
+                <div className="pane_body settings_body">
+                  <ObserverVoiceSettings
+                    gateway={gateway_connected ? gateway : null}
+                    connected={gateway_connected}
+                    defaults={voice_defaults}
+                    value={voice_prefs}
+                    onChange={set_voice_prefs}
+                  />
+                </div>
+              </section>
+
             </div>
           </div>
         ) : null}
@@ -5336,6 +5331,7 @@ export function App(): React.ReactElement {
             active={page === "automations" && gateway_connected}
             available={automations_cap}
             h={automations_handlers}
+            voice_session_id={start_session_id}
             host={{
               on_open_run: (rid) => open_run_in_observe(rid),
               ...(open_my_email ? { on_open_my_email: open_my_email } : {}),
@@ -5778,6 +5774,16 @@ export function App(): React.ReactElement {
                         on_answer_wait={() => set_dismissed_wait_key("")}
                         workspace_root={run_workspace_root}
                         on_reveal_workspace={() => void reveal_run_workspace()}
+                        speak={
+                          gateway_connected ? (
+                            <SpeakButton
+                              voice={chat_voice}
+                              speak_key={`outcome:${run_id.trim()}`}
+                              text={run_error_label(selected_run_summary) || String(run_state?.error || "").trim() || run_outcome_text || String(latest_run_summary?.text || "").trim()}
+                              error={chat_voice_error}
+                            />
+                          ) : null
+                        }
                         on_open_artifacts={() => {
                           const rid = String(run_id || "").trim();
                           if (rid) {
@@ -5997,7 +6003,7 @@ export function App(): React.ReactElement {
                         after={<RunChatReplayNote history={chat_replay_history} />}
                         afterKey={chat_replay_history ? `${chat_replay_history.replayed_messages}:${chat_replay_history.dropped_messages}` : null}
                         messageProps={
-                          chat_voice.tts_supported && gateway_connected && Boolean(chat_voice_run_id.trim())
+                          chat_voice.tts_supported && gateway_connected
                             ? {
                                 onSpeakToggle: toggle_chat_tts,
                                 getSpeakState: chat_tts_state_for,
@@ -6022,59 +6028,12 @@ export function App(): React.ReactElement {
                         rows={3}
                         sendButtonClassName="btn primary"
                         actions={
-                          <button
-                            className={`btn btn_icon voice_btn${chat_voice.voice_ptt_recording ? " danger" : ""}`}
-                            type="button"
-                            disabled={
-                              !gateway_connected ||
-                              !chat_voice_session_id.trim() ||
-                              !chat_voice_run_id.trim() ||
-                              chat_sending ||
-                              chat_voice.voice_ptt_busy ||
-                              !chat_voice.voice_ptt_supported
-                            }
-                            title={
-                              !chat_voice.voice_ptt_supported
-                                ? mediaAvailable()
-                                  ? "Voice recording is not supported in this browser"
-                                  : MEDIA_NEEDS_HTTPS
-                                : chat_voice.voice_ptt_busy
-                                  ? "Transcribing…"
-                                  : chat_voice.voice_ptt_recording
-                                    ? "Recording… release to transcribe"
-                                    : "Hold to talk (record + transcribe)"
-                            }
-                            aria-label="Voice input"
-                            onPointerDown={(e) => {
-                              if (
-                                !gateway_connected ||
-                                !chat_voice_session_id.trim() ||
-                                !chat_voice_run_id.trim() ||
-                                chat_sending ||
-                                chat_voice.voice_ptt_busy ||
-                                !chat_voice.voice_ptt_supported
-                              )
-                                return;
-                              e.preventDefault();
-                              try {
-                                (e.currentTarget as any)?.setPointerCapture?.(e.pointerId);
-                              } catch {
-                                // ignore
-                              }
-                              void chat_voice.start_voice_ptt_recording();
-                            }}
-                            onPointerUp={(e) => {
-                              e.preventDefault();
-                              chat_voice.stop_voice_ptt_recording();
-                            }}
-                            onPointerCancel={(e) => {
-                              e.preventDefault();
-                              chat_voice.stop_voice_ptt_recording();
-                            }}
-                          >
-                            <Icon name={chat_voice.voice_ptt_recording ? "x" : "mic"} size={16} />
-                            {chat_voice.voice_ptt_busy ? "Transcribing…" : chat_voice.voice_ptt_recording ? "Recording…" : "Voice"}
-                          </button>
+                          <VoiceDictate
+                            voice={chat_voice}
+                            defaults={voice_defaults.value}
+                            prefs={voice_prefs}
+                            blocked={!gateway_connected ? "Connect to the gateway first." : chat_sending ? "Wait for the answer." : null}
+                          />
                         }
                       />
                       {!mediaAvailable() ? (

@@ -26,6 +26,7 @@ import {
 import { Icon, type DiscussResponse } from "@abstractframework/ui-kit";
 
 import type { GatewayClient } from "../lib/gateway_client";
+import { VoiceDictate, use_observer_voice, use_read_aloud, use_voice_defaults, use_voice_prefs } from "./observer_voice";
 
 export const OBSERVER_CLIENT_ID = "abstractobserver";
 
@@ -67,6 +68,8 @@ export function AutomationDiscussion(props: {
   on_fork(automation_id: string, occurrence_index: number, prompt: string): Promise<DiscussResponse>;
   on_close(): void;
   connected: boolean;
+  /** The session whose media run holds dictation until the discussion's own session exists. */
+  voice_session_id?: string;
 }): React.ReactElement {
   const { gateway, discussion } = props;
   const transport = useMemo(() => observer_workflow_transport(gateway), [gateway]);
@@ -78,6 +81,29 @@ export function AutomationDiscussion(props: {
   const session = discussion.session;
   const running = Boolean(run_id) && !TERMINAL.has(snapshot.status) && snapshot.status !== "idle";
   const pending = workflowPendingInteraction(snapshot);
+
+  // Voice: the kit stack over this connection — dictation fills the draft, each
+  // reply has a speaker (sentence-chunked streaming), Read aloud speaks new replies.
+  const [voice_prefs] = use_voice_prefs();
+  const voice_defaults = use_voice_defaults(props.connected ? gateway : null, props.connected);
+  const [voice_error, set_voice_error] = useState("");
+  const voice = use_observer_voice({
+    gateway: props.connected ? gateway : null,
+    session_id: session?.session_id || props.voice_session_id || "",
+    prefs: voice_prefs,
+    on_error: set_voice_error,
+    on_transcript: (text) => set_draft((prev) => (prev.trim() ? `${prev.trimEnd()}\n${text}` : text)),
+  });
+  const latest_reply = useMemo(() => {
+    for (let i = snapshot.messages.length - 1; i >= 0; i -= 1) {
+      const m = snapshot.messages[i];
+      if (m.role !== "assistant") continue;
+      return m.live ? null : { key: String(m.id || ""), text: String(m.content || "") };
+    }
+    return null;
+  }, [snapshot.messages]);
+  use_read_aloud(voice, voice_prefs.read_aloud === true, latest_reply);
+  const speak_state = (m: { id?: string }) => (voice.tts_playback.key && voice.tts_playback.key === String(m.id || "") ? voice.tts_playback.status : "idle");
 
   const send = async (text: string) => {
     const prompt = text.trim();
@@ -152,6 +178,26 @@ export function AutomationDiscussion(props: {
             workspace; the automation's files are mounted read-only for the file tools (shell commands are not sandboxed), and nothing is written back into the
             automation.
           </div>
+        }
+        composerExtras={
+          <VoiceDictate
+            voice={voice}
+            defaults={voice_defaults.value}
+            prefs={voice_prefs}
+            blocked={!props.connected ? "Connect to the gateway first." : null}
+            error={voice_error}
+          />
+        }
+        messageProps={
+          voice.tts_supported
+            ? {
+                onSpeakToggle: (m) => {
+                  set_voice_error("");
+                  void voice.toggle_tts(String(m.id || ""), String(m.content || ""));
+                },
+                getSpeakState: speak_state,
+              }
+            : undefined
         }
         footer={snapshot.error ? <div className="observe_context_card error" role="alert">{snapshot.error}</div> : null}
       />
