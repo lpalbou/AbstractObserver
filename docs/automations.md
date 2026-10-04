@@ -126,29 +126,40 @@ The fields and their words are the kit's (`AfEmailTriggerFields`,
 `AfEmailOptionsFields`, `AfEmailSetupNotice`), the same as in AbstractCode's
 dialog.
 
-### Advanced
+### Workspaces
 
-- **Title** (at most 120 characters; defaults to the prompt's first line);
+Visible in the form, after Tools (no disclosure). It is the same chooser as
+the gateway console, AbstractCode, Flow and the AbstractAssistant, at the run
+level: the gateway's line on top ("Gateway: …", the eligible workspaces), **Use
+my default** (on: your account's default workspaces apply), the posture, each
+workspace with Read & write / Read-only / Refused (a mode above the gateway's
+cap is disabled, with "The gateway allows this workspace read-only" as its
+tooltip), **Add a workspace path** and the effective line. Each change is checked
+by the gateway (`POST /api/gateway/workspace/effective/me`, nothing stored); a
+refused one shows the gateway's sentence with "Not saved." and the choice stays
+as it was. **Create automation** stores the choice in the definition
+(`target.input_data.workspace`, `{posture, default_mode, folders}`); the gateway
+clamps it to the eligible workspaces at each run. With **Use my default** on,
+nothing is stored and each run uses your default at that time.
+
+In **Run once** mode the same chooser is shown as a visible **Workspaces**
+section: **Launch now** sends the choice as the run-start body's `workspace`.
+**Run workspace** (Run once only) sets the run's working folder; leave it empty
+and the gateway creates a private workspace for the run. An automation always
+works in its own private workspace, so this field never rides an automation. A
+workspace the gateway made for another conversation, run or automation is
+refused, and the Observer never copies one into a new form.
+
+### Title and limits
+
+A visible section (the kit dialog's words):
+
+- **Title** (at most 120 characters; defaults to the task's first line);
 - for a repeating automation: **First run at (UTC; empty = now)**, **Stop
-  after this many runs**, **Stop at (UTC)**;
-- the skills picker (the gateway resolves the selected skills through its
-  trust gate), the workspace, and bundle upload / reload.
+  after this many runs**, **Stop at (UTC)**.
 
-**Workspaces** is the same chooser as the gateway console, AbstractCode, Flow and
-the AbstractAssistant, for this run or automation: the gateway's line on top
-("Gateway: …", the eligible workspaces), **Use my default** (on: your account's
-default workspaces apply), the posture, each workspace with Read & write /
-Read-only / Refused (a mode above the gateway's cap is disabled), **Add a
-workspace path** and the effective line. Each change is checked by the gateway
-(`POST /api/gateway/workspace/effective/me`, nothing stored); a refused one shows
-the gateway's sentence with "Not saved.". The choice is kept as
-`input_data.workspace` (`{posture, default_mode, folders}`): **Run once** sends it
-as the run-start body's `workspace`, **Create automation** stores it in the
-definition (`target.input_data.workspace`), applied at each run. With **Use my
-default** on nothing is stored and each run uses your default at that time. Leave
-**Run workspace** empty: the gateway then creates a private workspace for the run
-or automation. A workspace the gateway made for another conversation, run or
-automation is refused, and the Observer never copies one into a new form.
+The skills picker (**Capabilities**) and **Workflow bundles** follow, as in Run
+once mode.
 
 ### Create
 
@@ -187,6 +198,10 @@ Each row shows:
   while a run is in progress; "none while paused" when paused), and the last
   finished run's number and status ("#3 completed", "#2 failed after 3
   attempts", or "no runs yet");
+- **Workspaces: <summary>**, the automation's workspaces in one line: the
+  gateway's summary for the stored choice (or for your default, when it uses
+  your default), verbatim, for example "Workspaces: Deny everything, allow
+  listed workspaces · /Users/me/Pictures (rw)";
 - an excerpt of the last answer.
 
 Row controls, each an icon then its name. Hovering a control shows what it
@@ -270,6 +285,17 @@ title field focused:
 | **Context** | Independent (each run starts fresh) or growing (each run sees the previous runs). |
 | **Tools** | Select the available tools, then choose whether to run without asking or ask before each tool call. |
 | **Email** | **Email result** and **Recipients** (with a usable account; an option already on can always be turned off). |
+
+Above the panel, while the Edit form is open, the automation's **Workspaces**
+show as the same chooser as in Launch → Automate, with the stored choice. Each
+change there is checked by the gateway first and then saved at once as one
+revision (`PATCH /api/gateway/automations/{id}` with `expected_revision`;
+"Each change is saved at once as a new revision; it applies from the next
+run."); a refused change shows the gateway's sentence with "Not saved." and
+nothing is stored. **Use my default** removes the stored choice. The Edit form
+can still be saved after such a change: it moves past the revisions this page
+made itself, never past another client's. With the form closed, the detail
+shows the one line **Workspaces: <summary>**.
 
 **Save changes** sends only what changed, once (`PATCH
 /api/gateway/automations/{id}` with `expected_revision`), closes the form and
@@ -419,8 +445,10 @@ See [development.md](development.md).
 
 ## Where the code lives
 
-- `src/ui/automate_form.tsx`: the When, Context and Tools fields and the
-  Advanced schedule fields;
+- `src/ui/automate_form.tsx`: the When, Context, Tools, Workspaces (slot) and
+  Email fields and the Title and limits section;
+- `src/ui/automation_workspaces.tsx`: an automation's Workspaces (the run-level
+  chooser, the revision for a change, the one line);
 - `src/ui/automations.ts`: the rules (workflow choice incl. `@default`, the
   create body, row controls, run tags, the capability gate, the legacy
   prefill, typed wait answers) and the page controller;

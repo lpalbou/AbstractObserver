@@ -472,8 +472,13 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     // The panel mints one id per user action and reuses it on retry: forward
     // it so a retried command/discussion is idempotent at the gateway.
     // The Edit form saves after this page's own Workspaces revisions (never past another client's).
-    onRevise: (changes, expected, meta) =>
-      revisions ? ctl.revise(id, revisions.changes(id, changes), revisions.expected(id, expected), meta?.command_id) : ctl.revise(id, changes, expected, meta?.command_id),
+    onRevise: async (changes, expected, meta) => {
+      if (!revisions) return ctl.revise(id, changes, expected, meta?.command_id);
+      const rev = revisions.expected(id, expected);
+      const receipt = await ctl.revise(id, revisions.changes(id, changes), rev, meta?.command_id);
+      revisions.note(id, rev);
+      return receipt;
+    },
     onCommand: (type, payload, meta) => ctl.command(id, type as AutomationCommandType, payload as Record<string, any> | undefined, meta?.command_id),
     onDiscuss: async (index, prompt, meta) => {
       const r = await ctl.discuss(id, index, prompt, meta?.request_id);

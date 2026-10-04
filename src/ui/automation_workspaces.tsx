@@ -192,6 +192,13 @@ export class WorkspaceRevisions {
     if (!set) this.made.set(automation_id, (set = new Set()));
     set.add(expected + 1);
   }
+  /** Another save of this page (the Edit form) succeeded with `expected`: its next revision is this page's too. */
+  note(automation_id: string, expected: number | null): void {
+    if (expected === null) return;
+    let set = this.made.get(automation_id);
+    if (!set) this.made.set(automation_id, (set = new Set()));
+    set.add(expected + 1);
+  }
   /** The expected_revision for a save based on `expected`. */
   expected(automation_id: string, expected: number | null): number | null {
     if (expected === null) return null;

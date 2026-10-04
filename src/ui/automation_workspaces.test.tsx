@@ -138,6 +138,11 @@ describe("An existing automation's workspaces", () => {
     expect(revisions.changes("a1", form_target).target.input_data).toEqual({ prompt: "x" });
     expect(revisions.changes("a1", { title: "t" })).toEqual({ title: "t" });
     expect(new WorkspaceRevisions().changes("a1", form_target)).toBe(form_target);
+    // The Edit form's own save (this page) is noted: a workspace change after it expects the revision it made.
+    const r2 = new WorkspaceRevisions();
+    r2.record("a1", 3, VALUE);
+    r2.note("a1", 4);
+    expect(r2.expected("a1", 3)).toBe(5);
   });
 });
 
