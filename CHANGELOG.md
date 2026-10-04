@@ -1,26 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.0] - 2026-10-05
 
 ### Added
 
 - Run view: each command call's result shows the sandbox it ran under, from the ledger's `output.sandbox` (AbstractGateway round 12): one line `Sandbox: macOS sandbox-exec · 4 workspaces enforced` (the recorded label and the number of workspaces enforced) with the enforced paths and their mode, or `Sandbox: none — refused`. Uses panel-chat 0.4.1's `ToolSandboxLine` (the same line as AbstractCode); needs `@abstractframework/panel-chat` 0.4.1 and ui-kit 0.8.5.
-
-### Changed
-
-- Launch → **Automate**: **Workspaces** is a visible section after Tools (no disclosure). It holds the run-level `WorkspaceChooser` (ui-kit 0.8.5), and its value is stored on the definition as `target.input_data.workspace`. The **Advanced** disclosure is gone: **Title and limits** (title, first run, stop after N runs, stop at) is a visible section with the kit dialog's words, and the skills picker and bundle tools follow as in Run once. **Run workspace** is a Run once field and never rides an automation (an automation always works in its own private workspace). In Run once mode, Workspaces is a visible section too.
-- Automations page: each row shows **Workspaces: <summary>**, the gateway's dry-run summary for the stored choice (or for your default). While an automation's Edit form is open, its **Workspaces** chooser shows above the panel. Each change is checked by the gateway, then saved as one revision (`PATCH` with `expected_revision`), and **Use my default** removes the stored choice. The kit Edit form still saves after it: it moves past this page's own revisions, never past another client's. With the form closed, the detail shows the one line.
-- Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.3) at the run level: "Gateway: <the admin's eligible workspaces>" on top, **Use my default** (on by default), the posture, each workspace with Read-only / Read & write / Refused (a mode above the gateway's cap disabled), **Add a workspace path** and the effective line — the same words as the gateway console, AbstractCode, Flow and the AbstractAssistant. Each change is checked by the gateway (`POST /api/gateway/workspace/effective/me`, nothing stored); a refusal shows its sentence with "Not saved.". The choice is kept as `input_data.workspace` in the form: **Run once** sends it as the run-start body's `workspace`, **Create automation** stores it in the definition (`target.input_data.workspace`). Requires the AbstractGateway round-11 workspace model.
-- A refused run start shows the gateway's sentence verbatim (was "start_run failed: 400").
-
-### Removed
-
-- The launch form's **Access Mode**, **Allowed Paths** and **Ignored Paths** fields (the gateway no longer has access modes; refused workspaces are set by the gateway).
-
-## [0.7.0] - 2026-10-04
-
-### Added
-
 - **Voice through the gateway's voice routes**, with the kit's shared voice stack:
   - **Read aloud**: a run's outcome has **Read aloud** / **Stop**; every reply in Observe → Ask and in Automations → Discuss has a speaker. Speech streams sentence by sentence from `POST /runs/{id}/voice/tts/stream` (the kit's `useGatewayVoice` + `streamTtsJsonl`), so a long answer starts speaking on its first sentence. Requests ride the session's media run, never the run being watched.
   - **Dictation** in Ask and in **Discuss** (also before the discussion's first message): hold the microphone, or tap to start and tap again to stop; the status line reads `Recording… 3 s`, then `Transcribing… 4 s · faster-whisper / large-v3` (your override, else the gateway default `input.voice` route). A transcription that has not answered after 180 s fails as a sentence.
@@ -29,10 +13,18 @@
 
 ### Changed
 
+- Launch → **Automate**: **Workspaces** is a visible section after Tools (no disclosure). It holds the run-level `WorkspaceChooser` (ui-kit 0.8.5), and its value is stored on the definition as `target.input_data.workspace`. The **Advanced** disclosure is gone: **Title and limits** (title, first run, stop after N runs, stop at) is a visible section with the kit dialog's words, and the skills picker and bundle tools follow as in Run once. **Run workspace** is a Run once field and never rides an automation (an automation always works in its own private workspace). In Run once mode, Workspaces is a visible section too.
+- Automations page: each row shows **Workspaces: <summary>**, the gateway's dry-run summary for the stored choice (or for your default). While an automation's Edit form is open, its **Workspaces** chooser shows above the panel. Each change is checked by the gateway, then saved as one revision (`PATCH` with `expected_revision`), and **Use my default** removes the stored choice. The kit Edit form still saves after it: it moves past this page's own revisions, never past another client's. With the form closed, the detail shows the one line.
+- Launch → **Workspace** is the kit `WorkspaceChooser` (ui-kit 0.8.3) at the run level: "Gateway: <the admin's eligible workspaces>" on top, **Use my default** (on by default), the posture, each workspace with Read-only / Read & write / Refused (a mode above the gateway's cap disabled), **Add a workspace path** and the effective line — the same words as the gateway console, AbstractCode, Flow and the AbstractAssistant. Each change is checked by the gateway (`POST /api/gateway/workspace/effective/me`, nothing stored); a refusal shows its sentence with "Not saved.". The choice is kept as `input_data.workspace` in the form: **Run once** sends it as the run-start body's `workspace`, **Create automation** stores it in the definition (`target.input_data.workspace`). Requires the AbstractGateway round-11 workspace model.
+- A refused run start shows the gateway's sentence verbatim (was "start_run failed: 400").
 - **About is the shared compact card** (ui-kit `AfAboutDialog`): the app name and version, the AbstractFramework and AbstractGateway versions, links to the website, source, docs, issues, feedback and contact, and one author/licence line. The gateway's package list is no longer shown.
 - **Audio artifacts play in the kit's waveform player** (`AfAudioPlayer`) in the Artifact Explorer inline preview and the preview dialog.
 - **Docs assistant is the kit's shared `DocsAssistantDrawer`** (panel-chat 0.4.0; the book icon in the top bar, the same drawer as the console and the other apps): your question on the right, the answer on the left with markdown, code, JSON and links rendered, streaming, copy, attachments, an icon-only New conversation and a one-line grounding footer. It answers from this app's `llms.txt` through the gateway's docs-qa workflow (`GET /docs/corpus?app=observer`), one gateway session per conversation. The build ships `llms.txt` in `dist/` and the app server serves it as `text/plain`. The basic-agent transport and its inlined docs index are gone.
 - Dependencies: `@abstractframework/ui-kit` ^0.8.0 and `@abstractframework/panel-chat` ^0.4.0. Voice and archived runs need AbstractGateway 0.13.0 or later; with an older gateway the Board shows only active runs.
+
+### Removed
+
+- The launch form's **Access Mode**, **Allowed Paths** and **Ignored Paths** fields (the gateway no longer has access modes; refused workspaces are set by the gateway).
 
 ## [0.6.2] - 2026-10-03
 
