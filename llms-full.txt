@@ -279,11 +279,12 @@ See `docs/development.md` for details.
     "preview": "vite preview",
     "start": "node ./bin/cli.js",
     "test": "vitest run",
+    "check:lock": "node scripts/check_lock.mjs",
     "llms:full": "node ./scripts/generate-llms-full.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@abstractframework/app-server": "^0.1.11",
+    "@abstractframework/app-server": "^0.1.12",
     "@abstractframework/panel-chat": "^0.4.1",
     "@abstractframework/ui-kit": "^0.8.5",
     "react": "^18.2.0",
@@ -519,6 +520,12 @@ export default defineConfig({
 ## CHANGELOG.md
 
 # Changelog
+
+## [Unreleased]
+
+### Changed
+
+- CI: `npm run check:lock` (also a CI step, before `npm ci`) fails when `package-lock.json` lags `package.json` or resolves an `@abstractframework/*` dependency below its floor, in another major.minor or from a local tarball; `--latest` also catches a published patch the lock has not taken. The lock now resolves `@abstractframework/app-server` 0.1.12 (floor `^0.1.12`). See [CONTRIBUTING](CONTRIBUTING.md#lockfile-check).
 
 ## [0.7.0] - 2026-10-05
 
@@ -1096,6 +1103,24 @@ npm run build
 
 Details: `docs/development.md`.
 
+## Lockfile check
+
+`npm run check:lock` runs `scripts/check_lock.mjs`, and CI runs it before `npm ci`. It
+fails when `package-lock.json` lags `package.json` (the lock's root entry records a different
+dependency spec: `package.json` was edited without `npm install`), and when an
+`@abstractframework/*` dependency (`ui-kit`, `panel-chat`, `app-server`, `monitor-*`) is missing
+from the lock, resolves below the `package.json` floor or to another major.minor, comes from a
+local `file:` tarball, or has a nested copy that differs from the top-level one. Fix it with
+`npm install` (or `npm install @abstractframework/<name>@^<version>` to raise a floor) and commit
+both files.
+
+At release time, `npm run check:lock -- --latest` also fails when npm has a newer patch of an
+`@abstractframework/*` dependency than the lock resolves (needs the network).
+
+```bash
+npm run check:lock
+```
+
 ## Documentation changes
 We treat docs as user-facing product surface.
 When you change behavior or configuration:
@@ -1109,6 +1134,7 @@ Docs entrypoint: `README.md` → `docs/getting-started.md` → `docs/README.md`.
 ## Pull request checklist
 - Scope: small and focused (avoid drive-by refactors)
 - Quality: `npm test` passes
+- Lockfile: `npm run check:lock` passes (see [Lockfile check](#lockfile-check))
 - Release readiness (if applicable): `npm run build` passes
 - Docs: updated if you changed UX, config, or API usage
 

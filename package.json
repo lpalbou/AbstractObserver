@@ -39,11 +39,12 @@
     "preview": "vite preview",
     "start": "node ./bin/cli.js",
     "test": "vitest run",
+    "check:lock": "node scripts/check_lock.mjs",
     "llms:full": "node ./scripts/generate-llms-full.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@abstractframework/app-server": "^0.1.11",
+    "@abstractframework/app-server": "^0.1.12",
     "@abstractframework/panel-chat": "^0.4.1",
     "@abstractframework/ui-kit": "^0.8.5",
     "react": "^18.2.0",
