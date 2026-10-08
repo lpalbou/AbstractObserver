@@ -214,26 +214,29 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
   });
 
   it("R16.1: Daily / Weekly / Monthly write schedule@2 calendar rules (no zone sent: the gateway fills the account's)", async () => {
-    await automate({ when: "daily", calendar: { kind: "daily", at: "07:45" } }, news, { prompt: "Morning digest" }, "req-daily");
+    await automate({ when: "daily", calendar: { ...DEFAULT_AUTOMATE_FORM.calendar, at: "07:45" } }, news, { prompt: "Morning digest" }, "req-daily");
     expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "daily", at: "07:45" } });
-    await automate({ when: "weekly", calendar: { kind: "weekly", days: ["fri", "mon"], at: "09:00" }, count: "4" }, news, { prompt: "Weekly report" }, "req-weekly");
+    await automate({ when: "weekly", calendar: { at: "09:00", days: ["fri", "mon"], day: 1 }, count: "4" }, news, { prompt: "Weekly report" }, "req-weekly");
     expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "weekly", days: ["mon", "fri"], at: "09:00", count: 4 } });
-    await automate({ when: "monthly", calendar: { kind: "monthly", day: "last", at: "18:00" } }, news, { prompt: "Month-end close" }, "req-monthly");
+    await automate({ when: "monthly", calendar: { at: "18:00", days: ["mon"], day: "last" } }, news, { prompt: "Month-end close" }, "req-monthly");
     expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "monthly", day: "last", at: "18:00" } });
-    // Switching kind keeps the time; the weekly day set starts at Monday.
-    expect(schedule_form({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { kind: "daily", at: "06:30" } }, "x").when).toEqual({ kind: "weekly", at: "06:30", days: ["mon"] });
+    // Switching kind keeps what was picked (Weekly Mon+Fri → Monthly → Weekly is still Mon+Fri).
+    const kept = { ...DEFAULT_AUTOMATE_FORM, calendar: { at: "06:30", days: ["mon", "fri"] as any, day: "last" as const } };
+    expect(schedule_form({ ...kept, when: "monthly" }, "x").when).toEqual({ kind: "monthly", at: "06:30", day: "last" });
+    expect(schedule_form({ ...kept, when: "weekly" }, "x").when).toEqual({ kind: "weekly", at: "06:30", days: ["mon", "fri"] });
   });
 
   it("R16.1: the line under When for Once/Daily/Weekly/Monthly is the gateway's (schedule-preview), verbatim, with the account zone", async () => {
     expect(automate_preview_trigger(DEFAULT_AUTOMATE_FORM)).toBeNull(); // Repeat: the kit's own sentence
     expect(automate_preview({ ...DEFAULT_AUTOMATE_FORM, when: "daily" })).toBe("");
-    const trig = automate_preview_trigger({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { kind: "weekly", days: ["wed"], at: "10:00" } });
+    const wed = { at: "10:00", days: ["wed"] as any, day: 1 };
+    const trig = automate_preview_trigger({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: wed });
     expect(trig).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "weekly", days: ["wed"], at: "10:00" } });
-    expect(automate_preview_trigger({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { kind: "weekly", days: [], at: "10:00" } })).toBeNull(); // incomplete: nothing asked
+    expect(automate_preview_trigger({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { ...wed, days: [] } })).toBeNull(); // incomplete: nothing asked
     const preview = await ctl.preview_schedule(trig!);
     expect(stub.requests.at(-1)).toMatchObject({ method: "POST", path: "/api/gateway/automations/schedule-preview", body: { trigger: trig } });
     const served = { phase: "ok" as const, description: { ...preview, first_run_sentence: "Runs every Wed at 10:00 (Europe/Paris), first run Wed 30 Sep 10:00.", time_zone: "Europe/Paris" } };
-    const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={{ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { kind: "weekly", days: ["wed"], at: "10:00" } }} served={served} on_open_preferences={() => {}} on_change={() => {}} />));
+    const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={{ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: wed }} served={served} on_open_preferences={() => {}} on_change={() => {}} />));
     expect(html).toContain("Runs every Wed at 10:00 (Europe/Paris), first run Wed 30 Sep 10:00.");
     expect(html).toContain("in Europe/Paris (your account's time zone)");
     expect(html).toContain(">Change in preferences</button>");

@@ -18,7 +18,8 @@ import {
   AfEmailTriggerFields,
   AfCalendarRuleFields,
   AfServedSchedule,
-  calendarWhenOf,
+  calendarRuleOf,
+  withCalendarRule,
   DEFAULT_EMAIL_RECIPIENTS,
   SCHEDULE_TEXT,
   type PreviewState,
@@ -104,7 +105,7 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
           </label>
           {(["daily", "weekly", "monthly"] as const).map((k) => (
             <label key={k}>
-              <input type="radio" name="automate_when" value={k} checked={when === k} disabled={p.disabled} onChange={() => p.on_change({ when: k, calendar: calendarWhenOf(k, f.calendar) })} /> {SCHEDULE_TEXT[`kind_${k}`]}
+              <input type="radio" name="automate_when" value={k} checked={when === k} disabled={p.disabled} onChange={() => p.on_change({ when: k })} /> {SCHEDULE_TEXT[`kind_${k}`]}
             </label>
           ))}
           <label>
@@ -118,7 +119,7 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
         {when === "email" ? (
           <AfEmailTriggerFields value={f.email} onChange={(email) => p.on_change({ email })} disabled={p.disabled} idBase="automate" />
         ) : when === "daily" || when === "weekly" || when === "monthly" ? (
-          <AfCalendarRuleFields value={calendarWhenOf(when, f.calendar)} onChange={(calendar) => p.on_change({ calendar })} idBase="automate" disabled={p.disabled} />
+          <AfCalendarRuleFields value={calendarRuleOf(when, f.calendar)} onChange={(rule) => p.on_change({ calendar: withCalendarRule(f.calendar, rule) })} idBase="automate" disabled={p.disabled} />
         ) : when === "every" ? (
           <>
             <div className="automate_row" role="group" aria-label="Presets">

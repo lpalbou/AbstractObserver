@@ -24,7 +24,8 @@ import {
   automationControls,
   currentOccurrenceLabel,
   buildCreateRequest,
-  calendarWhenOf,
+  calendarRuleOf,
+  DEFAULT_CALENDAR_STATE,
   isServedPreviewWhen,
   nextRunLabel,
   scheduleTriggerFrom,
@@ -36,7 +37,7 @@ import {
   emailUsable,
   formatUtc,
   isApiError,
-  type CalendarWhen,
+  type CalendarRuleState,
   type SchedulePreview,
   type TriggerSpec,
   scheduleLabel,
@@ -223,8 +224,8 @@ export type AutomateForm = {
    * usable account, GET /me/email). Every schedule is written as `schedule@2` (the kit builds it).
    */
   when: "every" | "daily" | "weekly" | "monthly" | "once" | "email";
-  /** The calendar rule (its `kind` follows `when` for daily / weekly / monthly). */
-  calendar: CalendarWhen;
+  /** The calendar fields (time, days, day of month), kept across kind switches; the rule is built from `when`. */
+  calendar: CalendarRuleState;
   /** The "When an email arrives" fields (the kit's `EmailTriggerForm`). */
   email: EmailTriggerForm;
   /** "Email me the result" → `notify.channels: ["console", "email"]`. */
@@ -249,7 +250,7 @@ export type AutomateForm = {
 
 export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
   when: "every",
-  calendar: calendarWhenOf("daily", {}),
+  calendar: DEFAULT_CALENDAR_STATE,
   email: DEFAULT_EMAIL_TRIGGER_FORM,
   notify_email: false,
   email_recipients: DEFAULT_EMAIL_RECIPIENTS,
@@ -294,8 +295,8 @@ export function schedule_form(form: AutomateForm, prompt: string, email_usable =
   const calendar = form.when === "daily" || form.when === "weekly" || form.when === "monthly";
   return {
     prompt,
-    // The rule as chosen (an emptied day set stays empty: the kit then says "Pick at least one day.").
-    when: form.when === "once" ? { kind: "once", at: form.once_at } : calendar ? (form.calendar.kind === form.when ? form.calendar : calendarWhenOf(form.when as CalendarWhen["kind"], form.calendar)) : { kind: "every", amount: Number(form.amount), unit: form.unit },
+    // The rule of the chosen kind from the kept fields (an emptied day set stays empty: the kit then says why).
+    when: form.when === "once" ? { kind: "once", at: form.once_at } : calendar ? calendarRuleOf(form.when as "daily" | "weekly" | "monthly", form.calendar) : { kind: "every", amount: Number(form.amount), unit: form.unit },
     ...(email_usable && form.when === "email" ? { trigger: "email" as const, email: form.email } : {}),
     ...(email_usable && form.notify_email ? { notifyEmail: true } : {}),
     ...(email_usable && form.email_recipients.mode === "list" ? { emailRecipients: form.email_recipients } : {}),
