@@ -227,7 +227,9 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
   });
 
   it("R16.1: the line under When for Once/Daily/Weekly/Monthly is the gateway's (schedule-preview), verbatim, with the account zone", async () => {
-    expect(automate_preview_trigger(DEFAULT_AUTOMATE_FORM)).toBeNull(); // Repeat: the kit's own sentence
+    // Repeat (gate finding 2): its line is the gateway's too, bounds included.
+    expect(automate_preview_trigger({ ...DEFAULT_AUTOMATE_FORM, count: "3" })).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "every", every: "24h", count: 3 } });
+    expect(automate_preview(DEFAULT_AUTOMATE_FORM)).toBe("");
     expect(automate_preview({ ...DEFAULT_AUTOMATE_FORM, when: "daily" })).toBe("");
     const wed = { at: "10:00", days: ["wed"] as any, day: 1 };
     const trig = automate_preview_trigger({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: wed });
@@ -314,7 +316,11 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     // R16.1: the six kinds, the kit's words, in order.
     expect(html).toMatch(/value="every"\/> Repeat<.*value="daily"\/> Daily<.*value="weekly"\/> Weekly<.*value="monthly"\/> Monthly<.*value="once"\/> Once at…<.*value="email"\/> When an email arrives</);
     for (const p of SCHEDULE_PRESETS) expect(html).toContain(`data-preset="${p.label}"`);
-    expect(html).toContain("Runs every 24 hours (UTC), first run now.");
+    // Repeat's line is the gateway's (schedule-preview); the form composes none.
+    expect(html).not.toContain("Runs every 24 hours (UTC)");
+    const rep = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} served={{ phase: "ok", description: { trigger: { source_id: "schedule", source_version: 2, config: {} }, time_zone: "Europe/Paris", schedule_rule_text: "Every 24 hours (UTC)", schedule_text: "Every 24 hours (UTC)", next_run_at: null, next_run_local: null, first_run_sentence: "Runs every 24 hours (UTC), first run now." } }} on_change={() => {}} />));
+    expect(rep).toContain(">Runs every 24 hours (UTC), first run now.</p>");
+    expect(rep).not.toContain("your account's time zone"); // a UTC interval: no account zone line
     expect(html).toContain("The most recent whole turns are replayed within your token budget");
     // One history control: the Context choice says it owns the flow's Use Context input.
     expect(html).toContain('data-context-owns="use_context"');
@@ -759,9 +765,9 @@ describe("operator scenarios (walked against the stub gateway)", () => {
     const c = await automate({ amount: "24", unit: "h", context: "growing" }, news, { prompt: "Space industry news" }, "req-n3");
     await ctl.refresh();
     const html = list_html();
-    expect(html).toContain("every 8 hours (UTC)");
-    expect(html).toContain("every 12 hours (UTC)");
-    expect(html).toContain("every 24 hours (UTC)");
+    expect(html).toContain("Every 8 hours (UTC)");
+    expect(html).toContain("Every 12 hours (UTC)");
+    expect(html).toContain("Every 24 hours (UTC)");
     // The stub gateway serves the created rows' next run in its own zone (UTC).
     expect(html).toMatch(/next: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
     for (const x of [a, b]) expect(summary_of(x.res.automation_id).context_mode).toBe("independent");
@@ -782,7 +788,7 @@ describe("operator scenarios (walked against the stub gateway)", () => {
     await p.onRevise({ trigger: { source_id: "schedule", source_version: 2, config: { ...summary_of(id).trigger.config, every: "6h" } } }, summary_of(id).revision, { command_id: "cmd-s1-rev" });
     expect(summary_of(id).trigger.config.every).toBe("6h");
     expect(summary_of(id).next_fire_at).not.toBe(before_next);
-    expect(list_html()).toContain("every 6 hours (UTC)");
+    expect(list_html()).toContain("Every 6 hours (UTC)");
 
     stub.fire(id, { answer: "Two model releases today." });
     await ctl.refresh();

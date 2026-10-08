@@ -35,12 +35,10 @@ import {
   EMAIL_TEXT,
   emailTriggerLabel,
   emailUsable,
-  formatUtc,
   isApiError,
   type CalendarRuleState,
   type SchedulePreview,
   type TriggerSpec,
-  scheduleLabel,
   triggerSummary,
   type ApiError,
   type EmailRecipientsForm,
@@ -318,7 +316,7 @@ export function schedule_form(form: AutomateForm, prompt: string, email_usable =
  * `useSchedulePreview` with the controller's `preview_schedule`.
  */
 export function automate_preview_trigger(form: AutomateForm): TriggerSpec | null {
-  if (form.when === "email" || form.when === "every") return null;
+  if (form.when === "email") return null;
   const sf = schedule_form(form, "preview");
   if (!isServedPreviewWhen(sf.when)) return null;
   return scheduleTriggerFrom(sf).trigger;
@@ -366,16 +364,8 @@ export function automate_preview(form: AutomateForm, email_usable = false): stri
     const built = buildCreateRequest(schedule_form(form, "preview", true), { target: { flow_id: "@default", interface: CODE_AGENT_INTERFACE }, requestId: "preview" });
     return built.ok ? `Runs ${emailTriggerLabel(built.body.trigger.config)}.` : "";
   }
-  const built = buildCreateRequest(schedule_form(form, "preview"), {
-    target: { flow_id: "@default", interface: CODE_AGENT_INTERFACE },
-    requestId: "preview",
-  });
-  if (!built.ok) return "";
-  // Once / Daily / Weekly / Monthly: the line is the GATEWAY's (schedule-preview), never composed here.
-  if (form.when !== "every") return "";
-  const config = built.body.trigger.config as { start_at?: string; every?: string };
-  const label = scheduleLabel(config);
-  return `Runs ${label}, first run ${config.start_at ? `at ${formatUtc(config.start_at)}` : "now"}.`;
+  // Every schedule kind (Repeat with its bounds too): the line is the GATEWAY's (schedule-preview), never composed here.
+  return "";
 }
 
 /**

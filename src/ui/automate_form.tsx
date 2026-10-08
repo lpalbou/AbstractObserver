@@ -158,13 +158,14 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
             <input type="datetime-local" value={f.once_at} disabled={p.disabled} onChange={(e) => p.on_change({ once_at: e.target.value })} />
           </label>
         )}
-        {when === "every" || when === "email" ? (
+        {when === "email" ? (
           <div className="automate_preview" aria-live="polite" data-preview="true">
-            {preview || (when === "email" ? "Incomplete email trigger." : SCHEDULE_TEXT.incomplete)}
+            {preview || "Incomplete email trigger."}
           </div>
         ) : (
           <div className="automate_preview automate_preview--served">
-            <AfServedSchedule state={p.served} onOpenPreferences={p.on_open_preferences} />
+            {/* Repeat is a fixed UTC interval: no account time-zone line for it. */}
+            <AfServedSchedule state={p.served} onOpenPreferences={p.on_open_preferences} showZone={when !== "every"} />
           </div>
         )}
       </fieldset>

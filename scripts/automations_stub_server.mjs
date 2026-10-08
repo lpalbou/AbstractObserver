@@ -216,7 +216,7 @@ export function createAutomationsStub(options = {}) {
                 fired_at: s.last_occurrence.fired_at,
                 ...(s.last_occurrence.finished_at ? { finished_at: s.last_occurrence.finished_at } : {}),
                 status: s.last_occurrence.status,
-                trigger: { source_id: "schedule", summary: `schedule: ${intervalLabel(s.trigger.config.every)} (UTC), tick ${s.last_occurrence.index}` },
+                trigger: { source_id: "schedule", summary: `schedule: ${s.schedule_rule_text ?? stubRuleText(s.trigger)}, tick ${s.last_occurrence.index}` },
                 user_turn: `[Trigger schedule@1 · occurrence ${s.last_occurrence.index} · fired ${s.last_occurrence.fired_at}]\n${s.title}`,
                 answer: s.last_occurrence.excerpt,
                 notify: s.last_occurrence.notify,
@@ -515,7 +515,8 @@ export function createAutomationsStub(options = {}) {
     const firedAt = spec.fired_at ?? nowIso();
     const manual = spec.manual;
     const every = a.summary.trigger.config.every;
-    const summary = manual ? `manual: run now (${manual})` : `schedule: ${every ? intervalLabel(every) : "once"} (UTC), tick ${index - 1}`;
+    // The gateway's occurrence line shares the summary's rule sentence (round 16).
+    const summary = manual ? `manual: run now (${manual})` : `schedule: ${a.summary._served === servedKey(a.summary) && a.summary.schedule_rule_text ? a.summary.schedule_rule_text : stubRuleText(a.summary.trigger)}, tick ${index - 1}`;
     const status = spec.status ?? (spec.wait ? "waiting" : "completed");
     const row = {
       run_id,
