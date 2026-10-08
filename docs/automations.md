@@ -72,8 +72,9 @@ text inputs are left out, as in **Run once**.
   gateway account has a working mailbox).
 
 Repeat is a fixed interval in UTC: "every 24 hours" means 24 hours after the
-previous tick, whatever your time zone or daylight saving time; the line under
-the field reads, for example, "Runs every 24 hours (UTC), first run now.".
+previous tick, whatever your time zone or daylight saving time. Its line under
+the field is the gateway's own sentence too, for example "Runs every 24 hours
+(UTC), first run now." (with its first run, max runs and stop at).
 
 Daily, Weekly, Monthly and Once run on your account's time zone, at the same
 wall-clock time across daylight-saving changes. The line under the field is the
@@ -208,8 +209,8 @@ Each row shows:
 - the run in progress, when there is one ("Run #7 running", "Run #7
   starting", "Run #7 waiting to retry (attempt 2)"), from the gateway's
   current occurrence;
-- the cadence ("every 8 hours (UTC)", "Every day at 08:00 (Europe/Paris)" —
-  the gateway's words for a calendar rule — or "manual runs only"), the next
+- the cadence ("Every 8 hours (UTC)", "Every day at 08:00 (Europe/Paris)" —
+  the gateway's words for every schedule — or "manual runs only"), the next
   run with how far away it is ("2026-10-09 08:00 Europe/Paris (in 13 h)": the
   gateway's own next run, in the automation's time zone, never computed by the
   Observer; shown also while a run is in progress; "none while paused" when
