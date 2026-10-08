@@ -13,6 +13,7 @@
 //   POST      /api/gateway/automations/{id}/commands|discuss|seen
 //   GET       /api/gateway/automations/{id}/occurrences|attention
 //   GET       /api/gateway/trigger-sources
+//   POST      /api/gateway/automations/schedule-preview (round 16; nothing stored)
 //   GET       /api/gateway/discovery/capabilities   (contracts.common.automations)
 //   POST      /api/gateway/commands                 (legacy types + wait resume)
 //   GET       /api/gateway/runs/{id}, /runs/{id}/input_data (legacy rows only)
@@ -36,6 +37,8 @@ export function loadFixture(name) {
 const DURATION_RE = /^[1-9][0-9]*[smhd]$/;
 const UNIT_S = { s: 1, m: 60, h: 3600, d: 86400 };
 const clone = (v) => JSON.parse(JSON.stringify(v));
+/** A fixture row's copy that keeps the gateway's captured served fields until its trigger or next run changes (round 16). */
+const fixtureRow = (s) => Object.defineProperty(clone(s), "_served", { value: servedKey(s), writable: true, enumerable: false });
 
 class ApiFailure extends Error {
   constructor(status, reason_code, message, extra = {}) {
@@ -51,6 +54,69 @@ function intervalLabel(every) {
   if (!m) return `every ${every}`;
   const [one, many] = words[m[2]];
   return Number(m[1]) === 1 ? `every ${one}` : `every ${m[1]} ${many}`;
+}
+
+// --- round 16 (R16.1): the served schedule facts ------------------------------------------------
+// The real gateway computes them (abstractgateway automation_schedule.py) in the owner's zone; this
+// stub's "host" zone is UTC, so a row it creates or changes is described in UTC — no zone arithmetic
+// here. Fixture rows keep their captured values until their trigger or next run changes.
+const STUB_ZONE = "UTC";
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const DAY_SHORT = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+const DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function shortUtc(iso) {
+  const d = new Date(Date.parse(iso));
+  const p = (n) => String(n).padStart(2, "0");
+  return `${DAY_ABBR[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH_ABBR[d.getUTCMonth()]} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+function cap(t) {
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+/** The gateway's rule_text wording (automation_schedule.rule_text), for this stub's UTC rows. */
+function stubRuleText(trigger) {
+  const c = trigger.config || {};
+  if (trigger.source_id === "manual") return "Manual runs only";
+  if (trigger.source_id === "email.received") return "When an email arrives";
+  const kind = trigger.source_version === 2 ? c.kind : c.every ? "every" : "once";
+  const bounds = `${typeof c.count === "number" ? ` · ${c.count} ${c.count === 1 ? "run" : "runs"} max` : ""}${c.until ? ` · until ${shortUtc(c.until)}` : ""}`;
+  if (kind === "every") return `${cap(intervalLabel(c.every))} (UTC)${bounds}`;
+  if (kind === "once") return c.start_at ? `Once at ${shortUtc(c.start_at)} (${STUB_ZONE})` : c.at ? `Once at ${c.at.replace("T", " ")} (${STUB_ZONE})` : "Once, now";
+  const zone = c.time_zone || STUB_ZONE;
+  const head =
+    kind === "daily"
+      ? "Every day"
+      : kind === "weekly"
+        ? (() => {
+            const n = WEEKDAYS.filter((d) => (c.days || []).includes(d)).map((d) => DAY_SHORT[d]);
+            return `Every ${n.length === 1 ? n[0] : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`}`;
+          })()
+        : c.day === "last"
+          ? "Monthly on the last day"
+          : c.day > 28
+            ? `Monthly on day ${c.day} (or the last day)`
+            : `Monthly on day ${c.day}`;
+  return `${head} at ${c.at} (${zone})${bounds}`;
+}
+function servedKey(s) {
+  return JSON.stringify([s.trigger, s.next_fire_at ?? null]);
+}
+/** The summary as the gateway serves it: time_zone, schedule_rule_text, schedule_text, next_run_at?, next_run_local?. */
+function served(s) {
+  const out = clone(s);
+  delete out._served;
+  if (s._served === servedKey(s)) return out;
+  for (const k of ["time_zone", "schedule_rule_text", "schedule_text", "next_run_at", "next_run_local"]) delete out[k];
+  const rule = stubRuleText(s.trigger);
+  out.time_zone = (s.trigger.source_version === 2 && s.trigger.config?.time_zone) || STUB_ZONE;
+  out.schedule_rule_text = rule;
+  out.schedule_text = rule;
+  if (s.next_fire_at) {
+    out.next_run_at = s.next_fire_at;
+    out.next_run_local = new Date(Date.parse(s.next_fire_at)).toISOString().replace(/\.000Z$|Z$/, "+00:00");
+    out.schedule_text = `${rule} · next ${shortUtc(s.next_fire_at)}`;
+  }
+  return out;
 }
 
 function seqOf(cursor) {
@@ -134,7 +200,7 @@ export function createAutomationsStub(options = {}) {
   for (const s of list.items) {
     if (s.legacy) {
       // Legacy rows have no occurrences on the automation routes.
-      autos.set(s.automation_id, { summary: clone(s), definition: null, occurrences: [], attention: [], seen_seq: 0, discussions: [], prompt: "" });
+      autos.set(s.automation_id, { summary: fixtureRow(s), definition: null, occurrences: [], attention: [], seen_seq: 0, discussions: [], prompt: "" });
       legacyRuns.set(s.automation_id, legacyRunSeed(s));
       continue;
     }
@@ -161,7 +227,7 @@ export function createAutomationsStub(options = {}) {
             ]
           : [];
     autos.set(s.automation_id, {
-      summary: clone(s),
+      summary: fixtureRow(s),
       definition: null,
       occurrences: occ,
       attention: s.automation_id === inboxId ? clone(attention.items) : [],
@@ -266,15 +332,23 @@ export function createAutomationsStub(options = {}) {
     const known = triggerSources.items.find((x) => x.id === tr.source_id && x.version === tr.source_version);
     if (!known) throw new ApiFailure(422, "unknown_trigger_source", `No trigger source ${tr.source_id}@${tr.source_version}.`, { field: `${field}.source_id` });
     const c = tr.config || {};
-    const allowed = new Set(["start_at", "every", "until", "count", "anchor"]);
+    const v2 = tr.source_id === "schedule" && tr.source_version === 2;
+    const allowed = new Set(v2 ? ["kind", "at", "days", "day", "time_zone", "start_at", "every", "until", "count", "anchor"] : ["start_at", "every", "until", "count", "anchor"]);
     for (const k of Object.keys(c)) if (!allowed.has(k)) throw new ApiFailure(422, "invalid_definition", `Unknown schedule field ${k}.`, { field: `${field}.config.${k}` });
+    if (v2 && !["every", "once", "daily", "weekly", "monthly"].includes(c.kind)) throw new ApiFailure(422, "invalid_definition", "kind must be every, once, daily, weekly or monthly.", { field: `${field}.config.kind` });
+    if (v2 && ["daily", "weekly", "monthly"].includes(c.kind) && !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(String(c.at))) throw new ApiFailure(422, "invalid_definition", "at must be HH:MM.", { field: `${field}.config.at` });
+    if (v2 && c.kind === "weekly" && (!Array.isArray(c.days) || !c.days.length || c.days.some((d) => !WEEKDAYS.includes(d)))) throw new ApiFailure(422, "invalid_definition", "days must name at least one weekday (mon…sun).", { field: `${field}.config.days` });
+    if (v2 && c.kind === "monthly" && !(c.day === "last" || (Number.isInteger(c.day) && c.day >= 1 && c.day <= 31))) throw new ApiFailure(422, "invalid_definition", "day must be 1..31 or last.", { field: `${field}.config.day` });
+    if (v2 && c.time_zone !== undefined && !/^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(String(c.time_zone))) throw new ApiFailure(422, "invalid_definition", `time_zone '${c.time_zone}' is not an IANA time zone.`, { field: `${field}.config.time_zone` });
     if (c.every !== undefined && !DURATION_RE.test(c.every)) throw new ApiFailure(422, "invalid_definition", "every must match ^[1-9][0-9]*[smhd]$.", { field: `${field}.config.every` });
     if (c.count !== undefined && (!Number.isInteger(c.count) || c.count < 1)) throw new ApiFailure(422, "invalid_definition", "count must be an integer >= 1.", { field: `${field}.config.count` });
-    if (c.count > 1 && c.every === undefined) throw new ApiFailure(422, "invalid_definition", "count > 1 requires every.", { field: `${field}.config.count` });
+    if (c.count > 1 && c.every === undefined && !(v2 && ["daily", "weekly", "monthly"].includes(c.kind))) throw new ApiFailure(422, "invalid_definition", "count > 1 requires every.", { field: `${field}.config.count` });
     for (const k of ["start_at", "until", "anchor"]) if (c[k] !== undefined && Number.isNaN(Date.parse(c[k]))) throw new ApiFailure(422, "invalid_definition", `${k} must be an RFC3339 timestamp.`, { field: `${field}.config.${k}` });
   }
 
   function nextFire(config, now) {
+    // Calendar and wall-time once rules are projected by the real gateway only (this stub has no zone arithmetic).
+    if (config.kind && config.kind !== "every") return undefined;
     if (!config.every) return config.start_at && Date.parse(config.start_at) > now ? config.start_at : undefined;
     const m = /^([1-9][0-9]*)([smhd])$/.exec(config.every);
     const step = Number(m[1]) * UNIT_S[m[2]] * 1000;
@@ -316,6 +390,7 @@ export function createAutomationsStub(options = {}) {
     }
     const id = mint("automation");
     const config = { ...body.trigger.config };
+    if (body.trigger.source_version === 2 && !config.time_zone) config.time_zone = STUB_ZONE;
     if (!config.start_at) config.start_at = nowIso();
     if (!config.anchor) config.anchor = config.start_at;
     const summary = {
@@ -342,7 +417,7 @@ export function createAutomationsStub(options = {}) {
         : { workflow_id: `${t.bundle_ref}:${t.flow_id}`, bundle_ref: t.bundle_ref, flow_id: t.flow_id, input_data: t.input_data ?? {} };
     const a = { summary, target: resolved, occurrences: [], attention: [], seen_seq: 0, discussions: [], prompt: String(resolved.input_data.prompt ?? "") };
     autos.set(id, a);
-    const response = { automation_id: id, revision: 1, summary: clone(summary) };
+    const response = { automation_id: id, revision: 1, summary: served(summary) };
     creates.set(body.request_id, { digest, response });
     return response;
   }
@@ -523,7 +598,7 @@ export function createAutomationsStub(options = {}) {
     if (!Number.isInteger(start) || start < 0 || start > items.length) throw new ApiFailure(422, "invalid_request", "Unknown cursor.", { field: "cursor" });
     const slice = items.slice(start, start + limit);
     const next = start + limit < items.length ? `p${start + limit}` : null;
-    return { items: clone(slice), next_cursor: next };
+    return { items: slice.map((x) => (x && x.trigger && x.session_kind === "automation" ? served(x) : clone(x))), next_cursor: next };
   }
 
   async function route(method, url, body) {
@@ -555,6 +630,16 @@ export function createAutomationsStub(options = {}) {
       if (!l) throw new ApiFailure(404, "run_not_found", "Run not found.");
       return clone(m[2] ? l.input_data : l.run);
     }
+    if (path === "/api/gateway/automations/schedule-preview" && method === "POST") {
+      const tr = body?.trigger;
+      validateTrigger(tr);
+      const config = { ...(tr.config || {}), ...(tr.source_version === 2 && !tr.config?.time_zone ? { time_zone: STUB_ZONE } : {}) };
+      const trigger = { source_id: tr.source_id, source_version: tr.source_version, config };
+      const nf = nextFire({ ...config, start_at: config.start_at ?? nowIso() }, now());
+      const s = served({ trigger, ...(nf ? { next_fire_at: nf } : {}) });
+      const rule = s.schedule_rule_text;
+      return { trigger, time_zone: s.time_zone, schedule_rule_text: rule, schedule_text: s.schedule_text, next_run_at: s.next_run_at ?? null, next_run_local: s.next_run_local ?? null, first_run_sentence: `Runs ${rule.charAt(0).toLowerCase()}${rule.slice(1)}${nf ? `, first run ${shortUtc(nf)}` : ""}.` };
+    }
     if (path === "/api/gateway/automations") {
       if (method === "GET") {
         if (url.searchParams.has("changed_since")) throw new ApiFailure(422, "unsupported_feature", "changed_since is not supported in v1.", { field: "changed_since" });
@@ -570,7 +655,7 @@ export function createAutomationsStub(options = {}) {
       const sub = m[2] || "";
       if (!sub && method === "GET") {
         if (a.summary.legacy) throw new ApiFailure(404, "automation_not_found", "Legacy schedules have no automation definition.");
-        return { definition: definitionOf(a), active_revision: a.summary.revision, summary: clone(a.summary) };
+        return { definition: definitionOf(a), active_revision: a.summary.revision, summary: served(a.summary) };
       }
       if (!sub && method === "PATCH") return revise(a, body);
       if (sub === "commands" && method === "POST") return applyCommand(a, body);
@@ -641,7 +726,7 @@ export function createAutomationsStub(options = {}) {
     autos,
     errors,
     fire: (id, spec) => fire(get(id), spec),
-    summary: (id) => clone(get(id).summary),
+    summary: (id) => served(get(id).summary),
     discussions: (id) => clone(get(id).discussions),
     occurrences: (id) => clone(get(id).occurrences),
   };

@@ -21,6 +21,12 @@ function summary(over: Partial<AutomationSummary> = {}): AutomationSummary {
     trigger: { binding_id: "b", source_id: "schedule", source_version: 1, config: { start_at: "2026-09-28T06:00:00Z", every: "1d" } },
     context_mode: "growing",
     next_fire_at: "2026-09-29T06:00:00+00:00",
+    // Round 16: the served next run (the hint reads next_run_local, never next_fire_at).
+    next_run_at: "2026-09-29T06:00:00+00:00",
+    next_run_local: "2026-09-29T08:00:00+02:00",
+    time_zone: "Europe/Paris",
+    schedule_rule_text: "Every day (UTC)",
+    schedule_text: "Every day (UTC) · next Tue 29 Sep 08:00",
     current_occurrence: null,
     occurrence_count: 3,
     attention: { pending_waits: 0, unread: false, unseen_count: 0, cursor: "att1:0", items: [], waits: [] },
@@ -48,7 +54,7 @@ describe("Run now: the kit's icon and hint", () => {
     const b = row_button(s, "run_now");
     const hint = controlHint("run_now", s);
     expect(hint.startsWith(CONTROL_HINTS.run_now)).toBe(true);
-    expect(hint).toContain("Next scheduled run: 2026-09-29 06:00 UTC.");
+    expect(hint).toContain("Next scheduled run: 2026-09-29 08:00 Europe/Paris.");
     expect(hint).toContain("Growing context: later runs see this run in their history.");
     expect(b).toContain(`title="${hint}"`);
     expect(b).toContain(`aria-description="${hint}"`);

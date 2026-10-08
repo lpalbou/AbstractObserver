@@ -23,8 +23,11 @@ import {
   attentionLabel,
   automationControls,
   currentOccurrenceLabel,
-  relativeIn,
   buildCreateRequest,
+  calendarWhenOf,
+  isServedPreviewWhen,
+  nextRunLabel,
+  scheduleTriggerFrom,
   DEFAULT_EMAIL_RECIPIENTS,
   DEFAULT_GROWING_MAX_TOKENS,
   DEFAULT_EMAIL_TRIGGER_FORM,
@@ -33,6 +36,9 @@ import {
   emailUsable,
   formatUtc,
   isApiError,
+  type CalendarWhen,
+  type SchedulePreview,
+  type TriggerSpec,
   scheduleLabel,
   triggerSummary,
   type ApiError,
@@ -210,8 +216,15 @@ export type IntervalUnit = "m" | "h" | "d";
 
 /** The Automate-mode form (raw input values; the kit validates them). */
 export type AutomateForm = {
-  /** "email": `email.received@1` from `email` (offered only with a usable account, GET /me/email). */
-  when: "every" | "once" | "email";
+  /**
+   * Repeat (`every`), the calendar rules (`daily` / `weekly` / `monthly`, round 16: a wall-clock
+   * time in the account's time zone, the rule in `calendar`), Once at (`once_at`, a wall time in
+   * the account's time zone), or "email": `email.received@1` from `email` (offered only with a
+   * usable account, GET /me/email). Every schedule is written as `schedule@2` (the kit builds it).
+   */
+  when: "every" | "daily" | "weekly" | "monthly" | "once" | "email";
+  /** The calendar rule (its `kind` follows `when` for daily / weekly / monthly). */
+  calendar: CalendarWhen;
   /** The "When an email arrives" fields (the kit's `EmailTriggerForm`). */
   email: EmailTriggerForm;
   /** "Email me the result" → `notify.channels: ["console", "email"]`. */
@@ -220,7 +233,7 @@ export type AutomateForm = {
   email_recipients: EmailRecipientsForm;
   amount: string;
   unit: IntervalUnit;
-  /** `YYYY-MM-DDTHH:MM`, read as UTC. */
+  /** `YYYY-MM-DDTHH:MM`, a wall time in the account's time zone (the gateway converts it). */
   once_at: string;
   context: ContextMode;
   growing_max_tokens: string;
@@ -236,6 +249,7 @@ export type AutomateForm = {
 
 export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
   when: "every",
+  calendar: calendarWhenOf("daily", {}),
   email: DEFAULT_EMAIL_TRIGGER_FORM,
   notify_email: false,
   email_recipients: DEFAULT_EMAIL_RECIPIENTS,
@@ -277,9 +291,11 @@ export const CONTEXT_OWNS_HISTORY = "This choice also sets the workflow's Use Co
  */
 export function schedule_form(form: AutomateForm, prompt: string, email_usable = false): ScheduleForm {
   const every = form.when === "every";
+  const calendar = form.when === "daily" || form.when === "weekly" || form.when === "monthly";
   return {
     prompt,
-    when: form.when === "once" ? { kind: "once", at: form.once_at } : { kind: "every", amount: Number(form.amount), unit: form.unit },
+    // The rule as chosen (an emptied day set stays empty: the kit then says "Pick at least one day.").
+    when: form.when === "once" ? { kind: "once", at: form.once_at } : calendar ? (form.calendar.kind === form.when ? form.calendar : calendarWhenOf(form.when as CalendarWhen["kind"], form.calendar)) : { kind: "every", amount: Number(form.amount), unit: form.unit },
     ...(email_usable && form.when === "email" ? { trigger: "email" as const, email: form.email } : {}),
     ...(email_usable && form.notify_email ? { notifyEmail: true } : {}),
     ...(email_usable && form.email_recipients.mode === "list" ? { emailRecipients: form.email_recipients } : {}),
@@ -288,9 +304,23 @@ export function schedule_form(form: AutomateForm, prompt: string, email_usable =
     toolApproval: form.tool_approval,
     title: form.title,
     ...(every && form.start_at ? { startAt: form.start_at } : {}),
-    ...(every && form.count.trim() ? { count: Number(form.count) } : {}),
-    ...(every && form.until ? { until: form.until } : {}),
+    // Max runs and stop at apply to Repeat and the calendar rules.
+    ...((every || calendar) && form.count.trim() ? { count: Number(form.count) } : {}),
+    ...((every || calendar) && form.until ? { until: form.until } : {}),
   };
+}
+
+/**
+ * The trigger the gateway previews for the line under When (round 16): Once / Daily / Weekly /
+ * Monthly only (they depend on the account's time zone); null for Repeat and email (their line
+ * is the kit's) and while the rule is incomplete. The Launch page feeds it to the kit's
+ * `useSchedulePreview` with the controller's `preview_schedule`.
+ */
+export function automate_preview_trigger(form: AutomateForm): TriggerSpec | null {
+  if (form.when === "email" || form.when === "every") return null;
+  const sf = schedule_form(form, "preview");
+  if (!isServedPreviewWhen(sf.when)) return null;
+  return scheduleTriggerFrom(sf).trigger;
 }
 
 /**
@@ -340,9 +370,10 @@ export function automate_preview(form: AutomateForm, email_usable = false): stri
     requestId: "preview",
   });
   if (!built.ok) return "";
+  // Once / Daily / Weekly / Monthly: the line is the GATEWAY's (schedule-preview), never composed here.
+  if (form.when !== "every") return "";
   const config = built.body.trigger.config as { start_at?: string; every?: string };
   const label = scheduleLabel(config);
-  if (form.when === "once") return `Runs ${label}.`;
   return `Runs ${label}, first run ${config.start_at ? `at ${formatUtc(config.start_at)}` : "now"}.`;
 }
 
@@ -510,7 +541,7 @@ export type AutomationRowView = {
 
 /**
  * Two facts, two fields (never inferred from `last_occurrence`): what runs now
- * comes from `current_occurrence`, when it runs next from `next_fire_at`
+ * comes from `current_occurrence`, when it runs next from the served `next_run_at` / `next_run_local`
  * (present exactly while active and scheduled, also during a run).
  */
 export function automation_row_view(s: AutomationSummary, now_ms: number = Date.now()): AutomationRowView {
@@ -521,8 +552,9 @@ export function automation_row_view(s: AutomationSummary, now_ms: number = Date.
   return {
     id: s.automation_id,
     title: s.title,
-    cadence: triggerSummary(s.trigger),
-    next_run: s.next_fire_at ? `${formatUtc(s.next_fire_at)} (${relativeIn(s.next_fire_at, now_ms)})` : s.status === "paused" ? "none while paused" : "none scheduled",
+    cadence: triggerSummary(s.trigger, s),
+    // The SERVED next run (round 16): next_run_local cut + relative from next_run_at; never computed here.
+    next_run: nextRunLabel(s, now_ms),
     current: currentOccurrenceLabel(s),
     state: s.status,
     last: last ? last.excerpt : "",
@@ -630,7 +662,7 @@ export function legacy_recreate_prefill(run: any, input: any): LegacyPrefill {
   const interval = typeof schedule.interval === "string" ? schedule.interval.trim() : "";
   if (!interval) {
     form.when = "once";
-    notes.push("The legacy schedule ran once; pick the date and time (UTC) to run.");
+    notes.push("The legacy schedule ran once; pick the date and time to run.");
   } else {
     const m = LEGACY_INTERVAL_RE.exec(interval);
     let amount = m ? Number(m[1]) : 0;
@@ -861,6 +893,12 @@ export class AutomationsController {
   }
 
   /** GET /me/email → `state.email_status` (null when it cannot be read; never an automations error). */
+  /**
+   * `POST /automations/schedule-preview` (round 16): the gateway's line, next run and time zone
+   * for a trigger, nothing stored — the Automate form and the Edit form show them verbatim.
+   */
+  readonly preview_schedule = (trigger: TriggerSpec): Promise<SchedulePreview> => this.client.previewSchedule(trigger);
+
   async load_email_status(): Promise<void> {
     try {
       const status = await this.client.getMyEmail();

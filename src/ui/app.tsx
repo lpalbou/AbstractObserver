@@ -30,6 +30,7 @@ import {
   useAppearanceSettings,
   useGatewayConnection,
   useExecutableWorkflows,
+  useSchedulePreview,
   WorkflowPicker,
   type AfSelectOption,
   type GatewayConnectionState,
@@ -50,6 +51,7 @@ import {
   DEFAULT_AUTOMATE_FORM,
   RequestIdMemo,
   automations_capability,
+  automate_preview_trigger,
   build_automate_request_memo,
   my_email_console_url,
   CODE_AGENT_INTERFACE,
@@ -794,6 +796,13 @@ export function App(): React.ReactElement {
         window.open(my_email_url, "_blank", "noopener,noreferrer");
       }
     : undefined;
+  // Round 16: the line under When for Once / Daily / Weekly / Monthly is the GATEWAY's
+  // (schedule-preview, debounced, latest wins); "Change in preferences" opens the console's
+  // Accounts (Preferences → Time zone), like My email.
+  const automate_served = useSchedulePreview(
+    page === "launch" && launch_mode === "automate" && gateway_connected ? automate_preview_trigger(automate_form) : null,
+    automations_ctl.preview_schedule,
+  );
   // Fresh email status whenever Launch → Automate is shown (the user may have just connected their mailbox).
   useEffect(() => {
     if (page === "launch" && launch_mode === "automate" && gateway_connected) void automations_ctl.load_email_status();
@@ -5227,6 +5236,8 @@ export function App(): React.ReactElement {
                       form={automate_form}
                       email_status={automations_state.email_status}
                       on_open_my_email={open_my_email}
+                      served={automate_served}
+                      on_open_preferences={open_my_email}
                       tools={automationToolSelection(input_data_obj || {}) ?? undefined}
                       available_tools={available_tool_names}
                       on_tools_change={(tools) => set_input_data_text(JSON.stringify(withAutomationTools(input_data_obj || {}, tools), null, 2))}

@@ -3,10 +3,11 @@
  * Email, and Title and limits — every section visible, no disclosure (the
  * same sections as the kit's AfScheduleDialog in AbstractCode and the
  * AbstractAssistant's schedule sheet). Hook-free (the Launch page owns the state); the rules — presets,
- * `schedule@1` config, UTC wording, validation — are the kit's
- * (`SCHEDULE_PRESETS`, `buildCreateRequest`, `scheduleLabel`) through
- * ./automations.ts. Wording is fixed-interval UTC ("every 24 hours (UTC)"),
- * never calendar wording: `schedule@1` has no time zone.
+ * the `schedule@2` config, validation — are the kit's (`SCHEDULE_PRESETS`, `buildCreateRequest`,
+ * `scheduleLabel`, `AfCalendarRuleFields`) through ./automations.ts. Repeat keeps the
+ * fixed-interval UTC sentence ("every 24 hours (UTC)"); Once / Daily / Weekly / Monthly show the
+ * GATEWAY's line (schedule-preview `first_run_sentence`) and the account's time zone (round 16):
+ * nothing calendar-shaped is composed or computed here.
  */
 import React from "react";
 
@@ -15,7 +16,12 @@ import {
   AfEmailOptionsFields,
   AfEmailSetupNotice,
   AfEmailTriggerFields,
+  AfCalendarRuleFields,
+  AfServedSchedule,
+  calendarWhenOf,
   DEFAULT_EMAIL_RECIPIENTS,
+  SCHEDULE_TEXT,
+  type PreviewState,
   EMAIL_TEXT,
   SCHEDULE_PRESETS,
   TOOL_APPROVAL_CONSENT,
@@ -72,6 +78,14 @@ export type AutomateFieldsProps = {
   on_open_my_email?: () => void;
   /** The Workspaces section's content (the run-level WorkspaceChooser), shown after Tools. */
   workspaces?: React.ReactNode;
+  /**
+   * The gateway's preview of the Once / Daily / Weekly / Monthly rule (the Launch page runs the
+   * kit's `useSchedulePreview` over `automate_preview_trigger(form)`). Required: the form has no
+   * calendar wording of its own.
+   */
+  served: PreviewState;
+  /** Opens the gateway console's Accounts (Preferences: the time zone); absent = no link. */
+  on_open_preferences?: () => void;
 };
 
 export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement {
@@ -83,13 +97,18 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
   return (
     <div className="automate_fields">
       <fieldset data-section="when">
-        <legend>When (UTC)</legend>
+        <legend>{SCHEDULE_TEXT.legend}</legend>
         <div className="automate_row" role="radiogroup" aria-label="Schedule kind">
           <label>
-            <input type="radio" name="automate_when" value="every" checked={when === "every"} disabled={p.disabled} onChange={() => p.on_change({ when: "every" })} /> Repeat
+            <input type="radio" name="automate_when" value="every" checked={when === "every"} disabled={p.disabled} onChange={() => p.on_change({ when: "every" })} /> {SCHEDULE_TEXT.kind_every}
           </label>
+          {(["daily", "weekly", "monthly"] as const).map((k) => (
+            <label key={k}>
+              <input type="radio" name="automate_when" value={k} checked={when === k} disabled={p.disabled} onChange={() => p.on_change({ when: k, calendar: calendarWhenOf(k, f.calendar) })} /> {SCHEDULE_TEXT[`kind_${k}`]}
+            </label>
+          ))}
           <label>
-            <input type="radio" name="automate_when" value="once" checked={when === "once"} disabled={p.disabled} onChange={() => p.on_change({ when: "once" })} /> Once at…
+            <input type="radio" name="automate_when" value="once" checked={when === "once"} disabled={p.disabled} onChange={() => p.on_change({ when: "once" })} /> {SCHEDULE_TEXT.kind_once}
           </label>
           <label>
             <input type="radio" name="automate_when" value="email" checked={when === "email"} disabled={p.disabled || !usable} onChange={() => p.on_change({ when: "email" })} /> {EMAIL_TEXT.trigger_label}
@@ -98,6 +117,8 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
         {!usable ? <AfEmailSetupNotice status={p.email_status} onOpenMyEmail={p.on_open_my_email} /> : null}
         {when === "email" ? (
           <AfEmailTriggerFields value={f.email} onChange={(email) => p.on_change({ email })} disabled={p.disabled} idBase="automate" />
+        ) : when === "daily" || when === "weekly" || when === "monthly" ? (
+          <AfCalendarRuleFields value={calendarWhenOf(when, f.calendar)} onChange={(calendar) => p.on_change({ calendar })} idBase="automate" disabled={p.disabled} />
         ) : when === "every" ? (
           <>
             <div className="automate_row" role="group" aria-label="Presets">
@@ -121,7 +142,7 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
               )}
             </div>
             <div className="automate_row">
-              <span>Every</span>
+              <span>{SCHEDULE_TEXT.every_label}</span>
               <input type="number" min={1} step={1} value={f.amount} disabled={p.disabled} aria-label="Interval amount" onChange={(e) => p.on_change({ amount: e.target.value })} />
               <select value={f.unit} disabled={p.disabled} aria-label="Interval unit" onChange={(e) => p.on_change({ unit: e.target.value as IntervalUnit })}>
                 <option value="m">minutes</option>
@@ -132,13 +153,19 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
           </>
         ) : (
           <label className="automate_row">
-            <span>Run once at (UTC)</span>
+            <span>{SCHEDULE_TEXT.once_label}</span>
             <input type="datetime-local" value={f.once_at} disabled={p.disabled} onChange={(e) => p.on_change({ once_at: e.target.value })} />
           </label>
         )}
-        <div className="automate_preview" aria-live="polite" data-preview="true">
-          {preview || (when === "email" ? "Incomplete email trigger." : "Incomplete schedule.")}
-        </div>
+        {when === "every" || when === "email" ? (
+          <div className="automate_preview" aria-live="polite" data-preview="true">
+            {preview || (when === "email" ? "Incomplete email trigger." : SCHEDULE_TEXT.incomplete)}
+          </div>
+        ) : (
+          <div className="automate_preview automate_preview--served">
+            <AfServedSchedule state={p.served} onOpenPreferences={p.on_open_preferences} />
+          </div>
+        )}
       </fieldset>
       <fieldset data-section="context">
         <legend>Context</legend>
@@ -198,8 +225,8 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
   );
 }
 
-/** Title and limits: title, and for Repeat the first run, max runs and stop at (UTC) — a visible section (the kit dialog's words). */
-export function AutomateTitleLimits(p: AutomateFieldsProps): React.ReactElement {
+/** Title and limits: title; for Repeat the first run; for Repeat and the calendar rules max runs and stop at (UTC) — a visible section (the kit dialog's words). */
+export function AutomateTitleLimits(p: Omit<AutomateFieldsProps, "served">): React.ReactElement {
   const f = p.form;
   return (
     <div className="automate_fields">
@@ -210,12 +237,14 @@ export function AutomateTitleLimits(p: AutomateFieldsProps): React.ReactElement 
           <span className="launch_label">Title</span>
           <input value={f.title} maxLength={120} disabled={p.disabled} placeholder="Defaults to the task's first line" onChange={(e) => p.on_change({ title: e.target.value })} />
         </label>
-        {f.when === "every" ? (
+        {f.when === "every" || f.when === "daily" || f.when === "weekly" || f.when === "monthly" ? (
           <>
-            <label className="launch_grid_cell">
-              <span className="launch_label">First run at (UTC; empty = now)</span>
-              <input type="datetime-local" value={f.start_at} disabled={p.disabled} onChange={(e) => p.on_change({ start_at: e.target.value })} />
-            </label>
+            {f.when === "every" ? (
+              <label className="launch_grid_cell">
+                <span className="launch_label">First run at (UTC; empty = now)</span>
+                <input type="datetime-local" value={f.start_at} disabled={p.disabled} onChange={(e) => p.on_change({ start_at: e.target.value })} />
+              </label>
+            ) : null}
             <label className="launch_grid_cell">
               <span className="launch_label">Stop after this many runs</span>
               <input type="number" min={1} step={1} value={f.count} disabled={p.disabled} onChange={(e) => p.on_change({ count: e.target.value })} />

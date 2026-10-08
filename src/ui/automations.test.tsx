@@ -11,10 +11,9 @@ import {
   SCHEDULE_PRESETS,
   TOOL_APPROVAL_CONSENT,
   currentOccurrenceLabel,
-  relativeIn,
   attentionLabel,
   createAutomationsClient,
-  formatUtc,
+  nextRunLabel,
   occurrenceViews,
   triggerSummary,
   type AutomationSummary,
@@ -29,6 +28,9 @@ import { AutomateTitleLimits, AutomateWhenContext, LaunchModeSwitch } from "./au
 import {
   AutomationsController,
   DEFAULT_AUTOMATE_FORM,
+  automate_preview,
+  automate_preview_trigger,
+  schedule_form,
   RequestIdMemo,
   automation_row_controls,
   automations_capability,
@@ -184,7 +186,7 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
         request_id: `req-${every}`,
         title: "Search the AI news of the last hours",
         target: { bundle_ref: "news-agent@1.0.0", flow_id: "main", input_data: { provider: "lmstudio", prompt: "Search the AI news of the last hours" } },
-        trigger: { source_id: "schedule", source_version: 1, config: { every } },
+        trigger: { source_id: "schedule", source_version: 2, config: { kind: "every", every } },
         context: { mode: "independent" },
         // Decision D1: creating the automation is the consent; "auto" by default.
         policy: { tool_approval: "auto" },
@@ -196,9 +198,9 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(res.summary.current_occurrence).toBeNull();
   });
 
-  it("once at a UTC time, and custom count/until/first run under Title and limits", async () => {
+  it("once at a wall time in the account's zone, and custom count/until/first run under Title and limits", async () => {
     await automate({ when: "once", once_at: "2026-09-28T08:00" }, news, { prompt: "One-off check" }, "req-once");
-    expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 1, config: { start_at: "2026-09-28T08:00:00Z" } });
+    expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "once", at: "2026-09-28T08:00" } });
     await automate(
       { amount: "12", unit: "h", context: "growing", growing_max_tokens: "30000", title: "Energy watch", start_at: "2026-09-27T09:00", count: "10", until: "2026-10-31T00:00" },
       news,
@@ -208,7 +210,38 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     const body = last_request("POST", "/api/gateway/automations").body;
     expect(body.title).toBe("Energy watch");
     expect(body.context).toEqual({ mode: "growing", growing: { max_tokens: 30000 } });
-    expect(body.trigger.config).toEqual({ every: "12h", start_at: "2026-09-27T09:00:00Z", count: 10, until: "2026-10-31T00:00:00Z" });
+    expect(body.trigger.config).toEqual({ kind: "every", every: "12h", start_at: "2026-09-27T09:00:00Z", count: 10, until: "2026-10-31T00:00:00Z" });
+  });
+
+  it("R16.1: Daily / Weekly / Monthly write schedule@2 calendar rules (no zone sent: the gateway fills the account's)", async () => {
+    await automate({ when: "daily", calendar: { kind: "daily", at: "07:45" } }, news, { prompt: "Morning digest" }, "req-daily");
+    expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "daily", at: "07:45" } });
+    await automate({ when: "weekly", calendar: { kind: "weekly", days: ["fri", "mon"], at: "09:00" }, count: "4" }, news, { prompt: "Weekly report" }, "req-weekly");
+    expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "weekly", days: ["mon", "fri"], at: "09:00", count: 4 } });
+    await automate({ when: "monthly", calendar: { kind: "monthly", day: "last", at: "18:00" } }, news, { prompt: "Month-end close" }, "req-monthly");
+    expect(last_request("POST", "/api/gateway/automations").body.trigger).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "monthly", day: "last", at: "18:00" } });
+    // Switching kind keeps the time; the weekly day set starts at Monday.
+    expect(schedule_form({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { kind: "daily", at: "06:30" } }, "x").when).toEqual({ kind: "weekly", at: "06:30", days: ["mon"] });
+  });
+
+  it("R16.1: the line under When for Once/Daily/Weekly/Monthly is the gateway's (schedule-preview), verbatim, with the account zone", async () => {
+    expect(automate_preview_trigger(DEFAULT_AUTOMATE_FORM)).toBeNull(); // Repeat: the kit's own sentence
+    expect(automate_preview({ ...DEFAULT_AUTOMATE_FORM, when: "daily" })).toBe("");
+    const trig = automate_preview_trigger({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { kind: "weekly", days: ["wed"], at: "10:00" } });
+    expect(trig).toEqual({ source_id: "schedule", source_version: 2, config: { kind: "weekly", days: ["wed"], at: "10:00" } });
+    expect(automate_preview_trigger({ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { kind: "weekly", days: [], at: "10:00" } })).toBeNull(); // incomplete: nothing asked
+    const preview = await ctl.preview_schedule(trig!);
+    expect(stub.requests.at(-1)).toMatchObject({ method: "POST", path: "/api/gateway/automations/schedule-preview", body: { trigger: trig } });
+    const served = { phase: "ok" as const, description: { ...preview, first_run_sentence: "Runs every Wed at 10:00 (Europe/Paris), first run Wed 30 Sep 10:00.", time_zone: "Europe/Paris" } };
+    const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={{ ...DEFAULT_AUTOMATE_FORM, when: "weekly", calendar: { kind: "weekly", days: ["wed"], at: "10:00" } }} served={served} on_open_preferences={() => {}} on_change={() => {}} />));
+    expect(html).toContain("Runs every Wed at 10:00 (Europe/Paris), first run Wed 30 Sep 10:00.");
+    expect(html).toContain("in Europe/Paris (your account's time zone)");
+    expect(html).toContain(">Change in preferences</button>");
+    expect(html).toMatch(/aria-pressed="true"[^>]*><span class="af-chip__label"><span data-day="wed">Wed/);
+    expect(html).toMatch(/aria-pressed="false"[^>]*><span class="af-chip__label"><span data-day="mon">Mon/);
+    expect(html).not.toContain("Runs every 24 hours (UTC)");
+    const loading = unescape(renderToStaticMarkup(<AutomateWhenContext form={{ ...DEFAULT_AUTOMATE_FORM, when: "daily" }} served={{ phase: "loading" }} on_change={() => {}} />));
+    expect(loading).toContain("Checking the schedule…");
   });
 
   it("accepts the gateway default agent (@default + interface) and the gateway resolves it", async () => {
@@ -273,14 +306,16 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
   });
 
   it("When/Context speak fixed UTC intervals, Growing discloses its bounded history, Title and limits is a visible section", () => {
-    const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />));
-    expect(html).toContain("When (UTC)");
+    const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} served={{ phase: "idle" }} on_change={() => {}} />));
+    expect(html).toContain("<legend>When</legend>");
+    // R16.1: the six kinds, the kit's words, in order.
+    expect(html).toMatch(/value="every"\/> Repeat<.*value="daily"\/> Daily<.*value="weekly"\/> Weekly<.*value="monthly"\/> Monthly<.*value="once"\/> Once at…<.*value="email"\/> When an email arrives</);
     for (const p of SCHEDULE_PRESETS) expect(html).toContain(`data-preset="${p.label}"`);
     expect(html).toContain("Runs every 24 hours (UTC), first run now.");
     expect(html).toContain("The most recent whole turns are replayed within your token budget");
     // One history control: the Context choice says it owns the flow's Use Context input.
     expect(html).toContain('data-context-owns="use_context"');
-    expect(html).not.toMatch(/daily at|local time|weekly on/i);
+    expect(html).not.toMatch(/Every day at|local time|weekly on/i); // no calendar sentence composed here
     const adv = unescape(renderToStaticMarkup(<AutomateTitleLimits form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />));
     expect(adv).toContain('data-section="limits"><legend>Title and limits</legend>');
     expect(adv).not.toMatch(/<details|<summary|Advanced/);
@@ -289,7 +324,7 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(adv).toContain("Stop after this many runs");
     expect(adv).toContain("Stop at (UTC)");
     // D1: the consent line with the target's tools, and the "ask" option.
-    const tools = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} tools={["fetch_url", "execute_command"]} on_change={() => {}} />));
+    const tools = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} served={{ phase: "idle" }} tools={["fetch_url", "execute_command"]} on_change={() => {}} />));
     expect(tools).toContain(TOOL_APPROVAL_CONSENT);
     expect(tools).toContain("fetch_url, execute_command");
     expect(tools).toContain("Ask each time");
@@ -313,10 +348,13 @@ describe("Automations page", () => {
     const html = list_html();
     for (const s of LIST.items) {
       expect(html).toContain(s.title);
-      expect(html).toContain(triggerSummary(s.trigger));
+      expect(html).toContain(triggerSummary(s.trigger, s));
       if (s.last_occurrence) expect(html).toContain(s.last_occurrence.excerpt);
     }
-    expect(html).toContain(`next: ${formatUtc(NEWS.next_fire_at)}`);
+    expect(html).toContain(`next: ${nextRunLabel(NEWS, Date.now()).split(" (")[0]}`);
+    // R16.1: the schedule@2 daily row reads the gateway's words and its local next run.
+    expect(html).toContain("Every day at 08:00 (Europe/Paris)");
+    expect(html).toContain("next: 2026-09-28 08:00 Europe/Paris");
     expect(html).toContain("next: none while paused");
     const inboxRow = html.slice(html.indexOf(`data-automation-id="${INBOX_ID}"`));
     expect(field_text(inboxRow.slice(0, inboxRow.indexOf("</li>")), "attention")).toBe(attentionLabel(INBOX));
@@ -324,12 +362,15 @@ describe("Automations page", () => {
     expect(newsRow.slice(0, newsRow.indexOf("</li>"))).not.toContain('data-field="attention"'); // quiet stays quiet
   });
 
-  it("rows say what runs now from current_occurrence and when it runs next from next_fire_at — never from last_occurrence", async () => {
+  it("rows say what runs now from current_occurrence and when it runs next from the served next_run_at/next_run_local — never from last_occurrence", async () => {
     const now = Date.parse("2026-09-27T06:35:00Z");
     expect(INBOX.current_occurrence, "fixture: the inbox has a run in flight").toBeTruthy();
     const inbox = automation_row_view(INBOX, now);
     expect(inbox.current).toBe(currentOccurrenceLabel(INBOX));
-    expect(inbox.next_run).toBe(`${formatUtc(INBOX.next_fire_at)} (${relativeIn(INBOX.next_fire_at, now)})`); // next run shown while one is running
+    expect(inbox.next_run).toBe("2026-09-27 09:00 Europe/Paris (in 25 min)"); // next run shown while one is running
+    // A changed gateway value changes the row; next_fire_at alone is never read.
+    expect(automation_row_view({ ...INBOX, next_run_at: "2026-09-27T07:30:00+00:00", next_run_local: "2026-09-27T09:30:00+02:00" }, now).next_run).toBe("2026-09-27 09:30 Europe/Paris (in 55 min)");
+    expect(automation_row_view({ ...INBOX, next_run_at: undefined, next_run_local: undefined }, now).next_run).toBe("none scheduled");
     expect(automation_row_view(NEWS, now).current).toBeNull();
     // A last occurrence that reads "running" is history, not the current run.
     const stale = { ...NEWS, current_occurrence: null, last_occurrence: { ...NEWS.last_occurrence, status: "running" } };
@@ -718,6 +759,8 @@ describe("operator scenarios (walked against the stub gateway)", () => {
     expect(html).toContain("every 8 hours (UTC)");
     expect(html).toContain("every 12 hours (UTC)");
     expect(html).toContain("every 24 hours (UTC)");
+    // The stub gateway serves the created rows' next run in its own zone (UTC).
+    expect(html).toMatch(/next: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
     for (const x of [a, b]) expect(summary_of(x.res.automation_id).context_mode).toBe("independent");
     expect(summary_of(c.res.automation_id).context_mode).toBe("growing");
 
@@ -733,7 +776,7 @@ describe("operator scenarios (walked against the stub gateway)", () => {
     await ctl.select(id);
     const before_next = summary_of(id).next_fire_at;
     const p = automation_panel_props(ctl, host_handlers)!;
-    await p.onRevise({ trigger: { source_id: "schedule", source_version: 1, config: { ...summary_of(id).trigger.config, every: "6h" } } }, summary_of(id).revision, { command_id: "cmd-s1-rev" });
+    await p.onRevise({ trigger: { source_id: "schedule", source_version: 2, config: { ...summary_of(id).trigger.config, every: "6h" } } }, summary_of(id).revision, { command_id: "cmd-s1-rev" });
     expect(summary_of(id).trigger.config.every).toBe("6h");
     expect(summary_of(id).next_fire_at).not.toBe(before_next);
     expect(list_html()).toContain("every 6 hours (UTC)");
