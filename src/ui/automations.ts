@@ -173,7 +173,7 @@ export type LaunchMode = "once" | "automate";
 export const LAUNCH_MODE_HELP: Record<LaunchMode, string> = {
   once: "Run once: start this workflow now, a single run you can watch in Observe.",
   automate:
-    "Automate: create an automation that runs this workflow on a schedule (every N minutes, hours or days), when an email arrives, or when you ask; manage it on the Automations page.",
+    "Automate: create an automation that runs this workflow on a schedule (every N minutes, hours or days; daily, weekly or monthly at a time of day; or once), when an email arrives, or when you ask; manage it on the Automations page.",
 };
 
 /**

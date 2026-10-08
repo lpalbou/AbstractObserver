@@ -142,7 +142,8 @@ Go to **Launch**:
   gateway's default agent), fill its inputs, click **Launch now**
   (`POST /api/gateway/runs/start`);
 - **Automate**: the same workflow and prompt, plus **When** (every N
-  minutes/hours/days in UTC, or once at a time), **Context** (independent
+  minutes/hours/days in UTC; daily, weekly or monthly at a time of day in your
+  account's time zone; or once at a time), **Context** (independent
   or growing) and **Tools** (run without asking, which creating the
   automation approves, or ask each time); **Create automation** sends
   `POST /api/gateway/automations` and opens it on the **Automations** page.

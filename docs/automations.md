@@ -34,7 +34,8 @@ is selected:
 
 - **Run once**: start this workflow now, a single run you can watch in Observe.
 - **Automate**: create an automation that runs this workflow on a schedule
-  (every N minutes, hours or days) or when you ask; manage it on the
+  (every N minutes, hours or days; daily, weekly or monthly at a time of day;
+  or once), when an email arrives, or when you ask; manage it on the
   Automations page.
 
 Switch to **Automate**, or use **+ New automation** on the Automations page,
@@ -57,19 +58,33 @@ The prompt becomes the automation's instruction; the other inputs are passed
 to every run unchanged. Leading and trailing spaces are trimmed and empty
 text inputs are left out, as in **Run once**.
 
-### When (UTC)
+### When
 
 - **Repeat** every N minutes, hours or days. Presets: every 5 minutes,
   every 30 minutes, every hour, every 8 hours, every 24 hours, every 7 days.
+- **Daily** at a time of day.
+- **Weekly** on the days you pick (day chips: a picked day is tinted and
+  carries a check mark) at a time of day.
+- **Monthly** on day 1 to 31, or the last day, at a time of day. A day the
+  month does not have (31 in April) runs on that month's last day.
 - **Once at…** a date and time.
 - **When an email arrives** — see [Email](#email) (offered only when your
   gateway account has a working mailbox).
 
-All times are UTC. Intervals are fixed: "every 24 hours" means 24 hours after
-the previous tick, whatever your time zone or daylight saving time. The line
-under the field states the result, for example "Runs every 24 hours (UTC),
-first run now." or "Runs every minute (UTC), first run now."; it reads
-"Incomplete schedule." until the fields are valid.
+Repeat is a fixed interval in UTC: "every 24 hours" means 24 hours after the
+previous tick, whatever your time zone or daylight saving time; the line under
+the field reads, for example, "Runs every 24 hours (UTC), first run now.".
+
+Daily, Weekly, Monthly and Once run on your account's time zone, at the same
+wall-clock time across daylight-saving changes. The line under the field is the
+gateway's own sentence (`POST /api/gateway/automations/schedule-preview`), for
+example "Runs every Mon and Fri at 07:30 (Europe/Paris), first run Fri 9 Oct
+07:30.", with the zone as "in Europe/Paris (your account's time zone)" (hover
+or focus it for what it means). The zone is changed only in your account
+preferences: **Change in preferences** opens the gateway console's Accounts,
+where **Preferences** holds **Time zone**. Switching between Daily, Weekly and
+Monthly keeps what you picked. The line reads "Incomplete schedule." until the
+fields are valid.
 
 ### Context
 
@@ -155,8 +170,8 @@ refused, and the Observer never copies one into a new form.
 A visible section (the kit dialog's words):
 
 - **Title** (at most 120 characters; defaults to the task's first line);
-- for a repeating automation: **First run at (UTC; empty = now)**, **Stop
-  after this many runs**, **Stop at (UTC)**.
+- for Repeat: **First run at (UTC; empty = now)**; for Repeat, Daily, Weekly
+  and Monthly: **Stop after this many runs**, **Stop at (UTC)**.
 
 The skills picker (**Capabilities**) and **Workflow bundles** follow, as in Run
 once mode.
@@ -193,9 +208,12 @@ Each row shows:
 - the run in progress, when there is one ("Run #7 running", "Run #7
   starting", "Run #7 waiting to retry (attempt 2)"), from the gateway's
   current occurrence;
-- the cadence ("every 8 hours (UTC)", or "manual runs only"), the next run
-  with how far away it is ("2026-09-27 08:00 UTC (in 25 min)"; shown also
-  while a run is in progress; "none while paused" when paused), and the last
+- the cadence ("every 8 hours (UTC)", "Every day at 08:00 (Europe/Paris)" —
+  the gateway's words for a calendar rule — or "manual runs only"), the next
+  run with how far away it is ("2026-10-09 08:00 Europe/Paris (in 13 h)": the
+  gateway's own next run, in the automation's time zone, never computed by the
+  Observer; shown also while a run is in progress; "none while paused" when
+  paused), and the last
   finished run's number and status ("#3 completed", "#2 failed after 3
   attempts", or "no runs yet");
 - **Workspaces: <summary>**, the automation's workspaces in one line: the
@@ -282,6 +300,7 @@ title field focused:
 | **Title** | The automation's name. |
 | **Task** | The instruction every run receives (the workflow's `prompt` input). |
 | **Repeat every (UTC)** | The interval, in minutes, hours or days (interval schedules only). For an email trigger: **Check for new mail every** (never under 60 seconds). |
+| **When** (Daily · Weekly · Monthly) | A calendar automation's rule: the kind, the days or day of the month, and the time. It keeps the automation's own time zone and limits; the line under it is the gateway's sentence, "in Europe/Paris (this automation's time zone)". |
 | **Context** | Independent (each run starts fresh) or growing (each run sees the previous runs). |
 | **Tools** | Select the available tools, then choose whether to run without asking or ask before each tool call. |
 | **Email** | **Email result** and **Recipients** (with a usable account; an option already on can always be turned off). |
