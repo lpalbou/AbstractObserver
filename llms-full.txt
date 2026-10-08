@@ -240,7 +240,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -286,7 +286,7 @@ See `docs/development.md` for details.
   "dependencies": {
     "@abstractframework/app-server": "^0.1.12",
     "@abstractframework/panel-chat": "^0.4.1",
-    "@abstractframework/ui-kit": "^0.8.5",
+    "@abstractframework/ui-kit": "^0.8.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -521,7 +521,7 @@ export default defineConfig({
 
 # Changelog
 
-## [Unreleased]
+## [0.7.1] - 2026-10-09
 
 Requires AbstractGateway with `schedule@2`, the served schedule fields and `POST /api/gateway/automations/schedule-preview` (round 16) and `@abstractframework/ui-kit` 0.8.7.
 

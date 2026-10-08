@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.1] - 2026-10-09
 
 Requires AbstractGateway with `schedule@2`, the served schedule fields and `POST /api/gateway/automations/schedule-preview` (round 16) and `@abstractframework/ui-kit` 0.8.7.
 

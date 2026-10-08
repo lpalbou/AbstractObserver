@@ -1,6 +1,6 @@
 {
   "name": "@abstractframework/observer",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -46,7 +46,7 @@
   "dependencies": {
     "@abstractframework/app-server": "^0.1.12",
     "@abstractframework/panel-chat": "^0.4.1",
-    "@abstractframework/ui-kit": "^0.8.5",
+    "@abstractframework/ui-kit": "^0.8.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
