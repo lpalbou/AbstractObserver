@@ -535,6 +535,10 @@ Requires AbstractGateway with `schedule@2`, the served schedule fields and `POST
 
 - CI: `npm run check:lock` (also a CI step, before `npm ci`) fails when `package-lock.json` lags `package.json` or resolves an `@abstractframework/*` dependency below its floor, in another major.minor or from a local tarball; `--latest` also catches a published patch the lock has not taken. The lock now resolves `@abstractframework/app-server` 0.1.12 (floor `^0.1.12`). See [CONTRIBUTING](CONTRIBUTING.md#lockfile-check).
 
+### Fixed
+
+- The Automations page works with a gateway that does not serve the round-16 schedule fields (AbstractGateway 0.13.x serves only `next_fire_at`): `next_run_at`, `next_run_local`, `time_zone`, `schedule_text` and `schedule_rule_text` are optional on read (`src/ui/served_summary.ts`, applied to every summary the controller reads) — the schedule reads "—" and the next run is the gateway's `next_fire_at`, shown in UTC. A served value is always shown as served.
+
 ## [0.7.0] - 2026-10-05
 
 ### Added

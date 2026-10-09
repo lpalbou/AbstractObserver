@@ -62,6 +62,7 @@ import {
 } from "@abstractframework/ui-kit";
 
 import type { RunSummary } from "./run_status";
+import { with_served_summaries } from "./served_summary";
 import { run_id_from_run_hash } from "../lib/app_paths";
 
 // --- launch target -------------------------------------------------------------
@@ -848,11 +849,16 @@ export class AutomationsController {
    * when it is queued and the controller applies it moments later, so the
    * first re-read may still show the old state.
    */
+  /** Every summary read through it has its served schedule block made total (`served_summary.ts`). */
+  private readonly client: AutomationsClient;
+
   constructor(
-    private readonly client: AutomationsClient,
+    client: AutomationsClient,
     private readonly host: AutomationsHost,
     private readonly followups_ms: number[] = [1500, 4000],
-  ) {}
+  ) {
+    this.client = with_served_summaries(client);
+  }
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
