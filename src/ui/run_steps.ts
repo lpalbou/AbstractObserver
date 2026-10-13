@@ -222,8 +222,24 @@ export function step_failed(rec: any, kind: StepKind): boolean {
 }
 
 /**
- * One step per `step_id` (STARTED + terminal merged), in ledger order, for
- * ONE run. Records without a step_id stay one step each.
+ * Which records are one step. STARTED and the terminal record share a
+ * `step_id`. A tool call that needs approval does not: the runtime parks it
+ * (WAITING on the tool_approval wait) and, once approved, records the
+ * execution under a NEW step_id with the SAME idempotency key — grouped by
+ * step_id alone it stayed "waiting" beside a completed copy (2026-10-11, run
+ * 15dc6e47). Tool calls are keyed by their idempotency key when present.
+ * Root backlog 1016 tracks reading this state from the runtime instead.
+ */
+export function ledger_step_key(rec: any): string {
+  const idem = String(rec?.idempotency_key || "").trim();
+  if (String(rec?.effect?.type || "") === "tool_calls" && idem) return `idem:${idem}`;
+  return String(rec?.step_id || "");
+}
+
+/**
+ * One step per `step_id` (STARTED + terminal merged; an approved tool call's
+ * wait and execution merged by `ledger_step_key`), in ledger order, for ONE
+ * run. Records without a step_id stay one step each.
  */
 export function build_run_steps(items: LedgerItem[], run_id: string): RunStep[] {
   const rid = String(run_id || "").trim();
@@ -235,7 +251,7 @@ export function build_run_steps(items: LedgerItem[], run_id: string): RunStep[] 
   const order: string[] = [];
   for (const it of mine) {
     const rec = it.record;
-    const sid = String(rec.step_id || "");
+    const sid = ledger_step_key(rec);
     const key = sid || `cursor:${it.cursor}`;
     let g = groups.get(key);
     if (!g) {

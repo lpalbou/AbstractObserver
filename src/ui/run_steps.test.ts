@@ -184,3 +184,23 @@ describe("filters, search and the hash", () => {
     expect(parse_run_view_hash("#run/x?only=bogus&view=nope")).toEqual(DEFAULT_RUN_VIEW_STATE);
   });
 });
+
+// Operator 2026-10-11 (run 15dc6e47): approved tool calls showed "waiting"
+// beside a completed copy. The runtime records an approved call's execution
+// under a new step_id with the same idempotency key (real records, run 615ab196).
+describe("approved tool calls", () => {
+  const APPROVED = JSON.parse(readFileSync(join(__dirname, "__fixtures__", "approved_tool_call_ledger.json"), "utf8"));
+  const RID = "615ab196-8834-4360-8e24-0a09cbe736ba";
+
+  it("are one completed step each, not a waiting step plus a copy", () => {
+    const steps = build_run_steps(items(APPROVED, RID), RID).filter((s) => s.effect_type === "tool_calls");
+    expect(steps.map((s) => [s.status, s.started?.status])).toEqual([
+      ["completed", "started"],
+      ["completed", "started"],
+    ]);
+    expect(steps.map((s) => s.record.effect.payload.tool_calls.map((c: any) => c.name).join(","))).toEqual([
+      "read_file,read_file,analyze_code,analyze_code,analyze_code",
+      "edit_file",
+    ]);
+  });
+});

@@ -148,7 +148,7 @@
    "actor_id": "gateway",
    "session_id": "fecda8e7-1924-46f7-b142-6be720db8950",
    "attempt": 1,
-   "idempotency_key": "309e0f2707e3fcf18c42e5a481f69427",
+   "idempotency_key": "309e0f2707e3fcf18c42e5a481f69427-refused",
    "prev_hash": null,
    "record_hash": null,
    "signature": null
@@ -194,7 +194,7 @@
    "actor_id": "gateway",
    "session_id": "fecda8e7-1924-46f7-b142-6be720db8950",
    "attempt": 1,
-   "idempotency_key": "309e0f2707e3fcf18c42e5a481f69427",
+   "idempotency_key": "309e0f2707e3fcf18c42e5a481f69427-plain",
    "prev_hash": null,
    "record_hash": null,
    "signature": null

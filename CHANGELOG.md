@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Run view: a tool call that needed approval showed as **waiting**, forever, beside a second, completed copy of the same call. The runtime records an approved call's execution under a new step with the same idempotency key; the steps are now merged, so each call is one step with its real status (root backlog 1016 tracks reading step state from the runtime instead).
+
 ### Changed
 
 - CI: `npm run check:lock` (also a CI step, before `npm ci`) fails when `package-lock.json` lags `package.json` or resolves an `@abstractframework/*` dependency below its floor, in another major.minor or from a local tarball; `--latest` also catches a published patch the lock has not taken. The lock now resolves `@abstractframework/app-server` 0.1.12 (floor `^0.1.12`). See [CONTRIBUTING](CONTRIBUTING.md#lockfile-check).
