@@ -566,7 +566,9 @@ export function fold_automation_brief(body: any): AutomationBrief | null {
     title: String(summary?.title || definition?.title || "").trim(),
     status: String(summary?.status || "").trim(),
     cadence: trigger_words(summary?.trigger || definition?.trigger),
-    next_fire_ms: parse_iso_ms(summary?.next_fire_at || ""),
+    // The gateway's served `next_run_at` (round 16) is the one truth; a 0.13.x gateway serves only the
+    // runtime's `next_fire_at` (the same fallback `served_summary.ts` makes on the Automations page).
+    next_fire_ms: parse_iso_ms(summary?.next_run_at || summary?.next_fire_at || ""),
     last: last
       ? {
           index: Number(last.index || 0),

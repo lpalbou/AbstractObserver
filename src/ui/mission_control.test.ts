@@ -1182,6 +1182,10 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     const served = fold_automation_brief({ ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, schedule_rule_text: "Every 24 hours (UTC)", next_run_local: "2026-10-14T03:02:00+02:00" } })!;
     const c3 = build_board({ active: [ctl], done: [], automations: new Map([["auto1", served]]), now_ms: NOW_MS }).scheduled[0];
     expect(html_of(c3)).toContain(`title="Every 24 hours (UTC) · next run ${next_abs} · 2026-10-14T03:02:00+02:00 (owner&#x27;s zone)">Every 24 hours (UTC) · next in 1h 12m</span>`);
+    // The served `next_run_at` (round 16) is the next run; the runtime's `next_fire_at` only when nothing else is served.
+    const served_next = fold_automation_brief({ ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, next_run_at: new Date(NOW_MS + 102 * 60_000).toISOString() } })!;
+    const c4 = build_board({ active: [ctl], done: [], automations: new Map([["auto1", served_next]]), now_ms: NOW_MS }).scheduled[0];
+    expect(plain(html_of(c4))).toContain("every 24h · next in 1h 42m");
   });
 
   it("the (i) of a RUN: Run · Spend · Where sections; sources as tags, never parentheticals; long text folds by size; no '…'", () => {

@@ -114,7 +114,8 @@ For the authoritative list grouped by feature, see `api.md` (grounded in `src/li
 
 ## What is an automation, and who runs it?
 A workflow the gateway runs for you on a schedule (every N minutes, hours or
-days in UTC, or once at a time). The gateway and AbstractRuntime run it and
+days in UTC; daily, weekly or monthly at a time of day in your account's time
+zone; or once at a time). The gateway and AbstractRuntime run it and
 keep every run; the Observer creates it (**Launch → Automate**), manages it
 (**Automations**) and reads its runs. Closing the browser changes nothing.
 Guide: `automations.md`.
@@ -145,9 +146,12 @@ approves its tool calls. Choose **Ask each time** in Launch → Automate to make
 each tool call wait for your approval on the Automations page. Questions a
 workflow asks you always wait. See `automations.md` → "Tools".
 
-## Why is there no time zone or calendar schedule (for example "every day at 9:00 local")?
-Schedules are fixed UTC intervals: "every 24 hours" is 24 hours after the
-previous tick. Set **First run at (UTC)** under Advanced to choose the anchor.
+## How do I run something every day at 9:00 my time?
+Choose **Daily** at 09:00 in Launch → Automate. Daily, weekly, monthly and
+one-time schedules run on your account's time zone (the gateway console's
+Accounts → **Preferences** → **Time zone**; by default the gateway computer's
+zone) and stay at 09:00 when daylight saving time changes. **Repeat** stays a
+fixed UTC interval: "every 24 hours" is 24 hours after the previous tick.
 
 ## Does "Run now" resume a paused automation?
 No. Run now starts one occurrence and the automation stays paused. It is

@@ -49,7 +49,7 @@ Notes:
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): launch flags, serving under the gateway at /apps/observer/, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
-- [Automations](docs/automations.md): configurable growing-context budgets and result email; Launch → Automate (what, when in UTC intervals, independent/growing context, tool approval), the Automations page (icon controls, Edit: the row's Edit opens the form — title, task, interval, context, tools —, 409 conflicts), runs as a conversation, answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
+- [Automations](docs/automations.md): configurable growing-context budgets and result email; Launch → Automate (what; when: Repeat in UTC intervals, Daily / Weekly / Monthly / Once on the account's time zone with the gateway's own sentence; independent/growing context, tool approval), the Automations page (icon controls, Edit: the row's Edit opens the form — title, task, interval, context, tools —, 409 conflicts), runs as a conversation, answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
 - [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations)
@@ -198,7 +198,7 @@ All pages share the same gateway connection settings.
 - **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, the run view (a one-paragraph summary, then the steps grouped by agent cycle as collapsed cards that expand to the full prompt and answer; LLM calls / Tools / Failed filters, an All steps switch for housekeeping, search), graph, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS) The **Agent** view (where a board card opens) profiles the agent — who it is, what it may use and did use, what it does, for how long, what comes after — every value complete (collapsed by size, never clipped) with copy on hover, its inputs and outputs as AbstractFlow pins with live values, its context window, run tree and spend. The **Flow** view says ongoing or finished, highlights the current node in AbstractFlow's vocabulary, and shows each node's facts on hover with copy (facts, records, the exact LLM context) and a one-click **Copy run state** for AI readers.
 - **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
-- **Launch** (a modal, not a page): **+ New automation** on the Automations page opens it in Automate mode (what, when in UTC intervals, independent or growing context, tool approval); the header's **Launch** button opens it in Run once mode; `#launch` / `#launch/automate` deep links open it over the current page; bundle upload/reload
+- **Launch** (a modal, not a page): **+ New automation** on the Automations page opens it in Automate mode (what; when: UTC intervals, or daily / weekly / monthly / once on your account's time zone, worded by the gateway; independent or growing context; tool approval); the header's **Launch** button opens it in Run once mode; `#launch` / `#launch/automate` deep links open it over the current page; bundle upload/reload
 - **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/edit (task, interval, context, tools — the row's Edit opens the form at once)/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
@@ -240,7 +240,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -286,7 +286,7 @@ See `docs/development.md` for details.
   "dependencies": {
     "@abstractframework/app-server": "^0.1.12",
     "@abstractframework/panel-chat": "^0.4.1",
-    "@abstractframework/ui-kit": "^0.8.5",
+    "@abstractframework/ui-kit": "^0.8.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -530,6 +530,8 @@ export default defineConfig({
 - **Agent profile** (Observe → Agent, operator 2026-10-14 11:13): "Can do" became a profile in five groups — **Who** (workflow, subject, role, model · provider, system prompt, the task), **Access** (tools it may call vs tools it did call, with counts and "called outside the declared list"; tool approval; untrusted-input tools; email recipients; workspace mode, root, allowed and ignored paths), **Does** (the state sentence, LLM/tool/subrun counts, delegated subruns, the outcome), **How long** (started, finished, duration, iterations used of max, token limit, cadence · next run · count, retry policy) and **After** (notify channels, context mode and growth, next occurrence or why none). Every row names its source — **used** (the ledger), **run** (the inputs), **flow default**, **automation** — and absent facts say why ("not on this wire", "not provided, no default").
 - **No "…" anywhere on the Agent view** (operator 2026-10-14 11:11): every value — provided, flow default, output, "also sent" — renders through one value component: short scalars inline, long strings collapsed by size with **show all (N chars)** / **show less**, arrays and objects as a complete key/item list with the full JSON behind a disclosure. Every field has a **copy** button on hover or focus (the full raw value; JSON pretty-printed), as cards and messages do.
 - **Flow tab** (operator 2026-10-14 11:15): a run-state banner (**ongoing** with the state sentence and "at <node>", or **finished** with the sentence and "N nodes visited in D"), AbstractFlow's run-status vocabulary on every node (running ring and pulse, waiting dashed ring, failed ring, done check; one **here** chip on the current node), a facts panel on hover or keyboard focus (visits, first/last, time in steps, the LLM line, the tools table, waits, subruns, the last result and error) with **Copy facts (JSON)**, **Copy records (JSONL)** and **Copy context** (the exact messages of the last LLM call), and a toolbar **Copy run state** that hands an AI one JSON document: where the run is and why.
+- **No duplicate blockers** (operator 2026-10-15): a parent run that waits on a subrun which itself needs you is blocked by nothing else, so it no longer gets its own card in Waiting on…; the Needs-you card says **blocks <parent>** (a link) and, when the child's own name is a generated id, takes the nearest titled ancestor's title with "subrun · <workflow>" as its secondary line. Waiting on… now holds only runs blocked by something other than you.
+- **Board actions on one line** (operator 2026-10-15): Open in Code and Cancel are kit icon buttons on the footer row of EVERY ongoing card (Needs you, Working, Waiting on…), next to copy and (i); a Needs-you card's act zone keeps its one primary move.
 - **Board polish** (operator 2026-10-14 11:33–11:41): lanes are always open (the fold chevron is gone) and their counts are readable pills; copy affordances appear only on hover or focus and are legible when they do; a Needs-you card reads **asks since Mar 29, 19:47 (198d 17h)** (or **needs approval for web_search since …**, **paused since …**) with the request quoted under it, names the person when the wire names one and nobody otherwise, and offers **Review & answer**, **Open in Code** (deep link `#session=…&run=…` into the AbstractCode web app when the gateway's app registry says it is installed and running; greyed out with an install hint otherwise) and **Cancel** with an inline two-step confirm; plain-run cards no longer print "session"; automation cards carry a trigger chip (**every 24h** / **on email** / **manual**) instead of "clock"; the (i) panel is a sectioned grid (Run · Spend · Where, or Automation · Schedule · Policy · After · Where) with ids in monospace, sources as tags, long text collapsed by size, copy on every row and the actions at the bottom; Done cards show the outcome glimpse and **24m · 99,921 tk · 11 tools · 3 artifacts** (answer and artifact count fetched once per terminal run).
 - `src/ui/state_line.ts`: one vocabulary for what a run is doing (sentence, lane, subject, title order, pill word, automation brief and pulse folds), shared by the board and the Agent view and tested per wait kind × lane.
 
@@ -546,9 +548,23 @@ export default defineConfig({
 - Run view: a long outcome expanded with **More** grew past the viewport with no way to scroll back to **Less** — the run panel clips and its Ledger page was not a scrolling child. The Ledger page (and the new Agent view) now scroll inside the run panel; the toolbar and tabs stay put.
 - Run view: a tool call that needed approval showed as **waiting**, forever, beside a second, completed copy of the same call. The runtime records an approved call's execution under a new step with the same idempotency key; the steps are now merged, so each call is one step with its real status (root backlog 1016 tracks reading step state from the runtime instead).
 
+## [0.7.1] - 2026-10-15
+
+Requires AbstractGateway with `schedule@2`, the served schedule fields and `POST /api/gateway/automations/schedule-preview` (round 16) and `@abstractframework/ui-kit` 0.8.7.
+
+### Added
+
+- Launch → Automate: calendar schedules. **When** offers **Repeat** (fixed UTC interval, as before), **Daily**, **Weekly** (day chips that show their state), **Monthly** (day 1–31 or the last day) at a time of day, and **Once at**; every schedule is written as `schedule@2`. For every schedule (Repeat with its bounds too) the line under **When** is the gateway's own sentence; for Daily, Weekly, Monthly and Once the time zone reads "in Europe/Paris (your account's time zone)" with **Change in preferences** (the console's Accounts). Switching kinds keeps the picked days. The Edit form edits a calendar rule, keeping its time zone and limits.
+
 ### Changed
 
+- The Automations page shows the gateway's served next run (`next_run_local`, cut to "2026-10-09 08:00 Europe/Paris", plus the relative time to `next_run_at`) and every schedule's `schedule_rule_text`; the Observer no longer reads `next_fire_at` or computes a next run. The stub gateway (`scripts/automations_stub_server.mjs`) accepts `schedule@2`, serves the schedule fields and `schedule-preview`.
+
 - CI: `npm run check:lock` (also a CI step, before `npm ci`) fails when `package-lock.json` lags `package.json` or resolves an `@abstractframework/*` dependency below its floor, in another major.minor or from a local tarball; `--latest` also catches a published patch the lock has not taken. The lock now resolves `@abstractframework/app-server` 0.1.12 (floor `^0.1.12`). See [CONTRIBUTING](CONTRIBUTING.md#lockfile-check).
+
+### Fixed
+
+- The Automations page works with a gateway that does not serve the round-16 schedule fields (AbstractGateway 0.13.x serves only `next_fire_at`): `next_run_at`, `next_run_local`, `time_zone`, `schedule_text` and `schedule_rule_text` are optional on read (`src/ui/served_summary.ts`, applied to every summary the controller reads) — the schedule reads "—" and the next run is the gateway's `next_fire_at`, shown in UTC. A served value is always shown as served.
 
 ## [0.7.0] - 2026-10-05
 
@@ -1472,7 +1488,8 @@ Go to **Launch** (a modal: the header's Launch button, or **+ New automation** o
   gateway's default agent), fill its inputs, click **Launch now**
   (`POST /api/gateway/runs/start`);
 - **Automate**: the same workflow and prompt, plus **When** (every N
-  minutes/hours/days in UTC, or once at a time), **Context** (independent
+  minutes/hours/days in UTC; daily, weekly or monthly at a time of day in your
+  account's time zone; or once at a time), **Context** (independent
   or growing) and **Tools** (run without asking, which creating the
   automation approves, or ask each time); **Create automation** sends
   `POST /api/gateway/automations` and opens it on the **Automations** page.
@@ -1654,7 +1671,8 @@ For the authoritative list grouped by feature, see `api.md` (grounded in `src/li
 
 ## What is an automation, and who runs it?
 A workflow the gateway runs for you on a schedule (every N minutes, hours or
-days in UTC, or once at a time). The gateway and AbstractRuntime run it and
+days in UTC; daily, weekly or monthly at a time of day in your account's time
+zone; or once at a time). The gateway and AbstractRuntime run it and
 keep every run; the Observer creates it (**Launch → Automate**), manages it
 (**Automations**) and reads its runs. Closing the browser changes nothing.
 Guide: `automations.md`.
@@ -1685,9 +1703,12 @@ approves its tool calls. Choose **Ask each time** in Launch → Automate to make
 each tool call wait for your approval on the Automations page. Questions a
 workflow asks you always wait. See `automations.md` → "Tools".
 
-## Why is there no time zone or calendar schedule (for example "every day at 9:00 local")?
-Schedules are fixed UTC intervals: "every 24 hours" is 24 hours after the
-previous tick. Set **First run at (UTC)** under Advanced to choose the anchor.
+## How do I run something every day at 9:00 my time?
+Choose **Daily** at 09:00 in Launch → Automate. Daily, weekly, monthly and
+one-time schedules run on your account's time zone (the gateway console's
+Accounts → **Preferences** → **Time zone**; by default the gateway computer's
+zone) and stay at 09:00 when daylight saving time changes. **Repeat** stays a
+fixed UTC interval: "every 24 hours" is 24 hours after the previous tick.
 
 ## Does "Run now" resume a paused automation?
 No. Run now starts one occurrence and the automation stays paused. It is
@@ -2182,7 +2203,8 @@ is selected:
 
 - **Run once**: start this workflow now, a single run you can watch in Observe.
 - **Automate**: create an automation that runs this workflow on a schedule
-  (every N minutes, hours or days) or when you ask; manage it on the
+  (every N minutes, hours or days; daily, weekly or monthly at a time of day;
+  or once), when an email arrives, or when you ask; manage it on the
   Automations page.
 
 Switch to **Automate**, or use **+ New automation** on the Automations page,
@@ -2205,19 +2227,34 @@ The prompt becomes the automation's instruction; the other inputs are passed
 to every run unchanged. Leading and trailing spaces are trimmed and empty
 text inputs are left out, as in **Run once**.
 
-### When (UTC)
+### When
 
 - **Repeat** every N minutes, hours or days. Presets: every 5 minutes,
   every 30 minutes, every hour, every 8 hours, every 24 hours, every 7 days.
+- **Daily** at a time of day.
+- **Weekly** on the days you pick (day chips: a picked day is tinted and
+  carries a check mark) at a time of day.
+- **Monthly** on day 1 to 31, or the last day, at a time of day. A day the
+  month does not have (31 in April) runs on that month's last day.
 - **Once at…** a date and time.
 - **When an email arrives** — see [Email](#email) (offered only when your
   gateway account has a working mailbox).
 
-All times are UTC. Intervals are fixed: "every 24 hours" means 24 hours after
-the previous tick, whatever your time zone or daylight saving time. The line
-under the field states the result, for example "Runs every 24 hours (UTC),
-first run now." or "Runs every minute (UTC), first run now."; it reads
-"Incomplete schedule." until the fields are valid.
+Repeat is a fixed interval in UTC: "every 24 hours" means 24 hours after the
+previous tick, whatever your time zone or daylight saving time. Its line under
+the field is the gateway's own sentence too, for example "Runs every 24 hours
+(UTC), first run now." (with its first run, max runs and stop at).
+
+Daily, Weekly, Monthly and Once run on your account's time zone, at the same
+wall-clock time across daylight-saving changes. The line under the field is the
+gateway's own sentence (`POST /api/gateway/automations/schedule-preview`), for
+example "Runs every Mon and Fri at 07:30 (Europe/Paris), first run Fri 9 Oct
+07:30.", with the zone as "in Europe/Paris (your account's time zone)" (hover
+or focus it for what it means). The zone is changed only in your account
+preferences: **Change in preferences** opens the gateway console's Accounts,
+where **Preferences** holds **Time zone**. Switching between Daily, Weekly and
+Monthly keeps what you picked. The line reads "Incomplete schedule." until the
+fields are valid.
 
 ### Context
 
@@ -2303,8 +2340,8 @@ refused, and the Observer never copies one into a new form.
 A visible section (the kit dialog's words):
 
 - **Title** (at most 120 characters; defaults to the task's first line);
-- for a repeating automation: **First run at (UTC; empty = now)**, **Stop
-  after this many runs**, **Stop at (UTC)**.
+- for Repeat: **First run at (UTC; empty = now)**; for Repeat, Daily, Weekly
+  and Monthly: **Stop after this many runs**, **Stop at (UTC)**.
 
 The skills picker (**Capabilities**) and **Workflow bundles** follow, as in Run
 once mode.
@@ -2341,9 +2378,12 @@ Each row shows:
 - the run in progress, when there is one ("Run #7 running", "Run #7
   starting", "Run #7 waiting to retry (attempt 2)"), from the gateway's
   current occurrence;
-- the cadence ("every 8 hours (UTC)", or "manual runs only"), the next run
-  with how far away it is ("2026-09-27 08:00 UTC (in 25 min)"; shown also
-  while a run is in progress; "none while paused" when paused), and the last
+- the cadence ("Every 8 hours (UTC)", "Every day at 08:00 (Europe/Paris)" —
+  the gateway's words for every schedule — or "manual runs only"), the next
+  run with how far away it is ("2026-10-09 08:00 Europe/Paris (in 13 h)": the
+  gateway's own next run, in the automation's time zone, never computed by the
+  Observer; shown also while a run is in progress; "none while paused" when
+  paused), and the last
   finished run's number and status ("#3 completed", "#2 failed after 3
   attempts", or "no runs yet");
 - **Workspaces: <summary>**, the automation's workspaces in one line: the
@@ -2430,6 +2470,7 @@ title field focused:
 | **Title** | The automation's name. |
 | **Task** | The instruction every run receives (the workflow's `prompt` input). |
 | **Repeat every (UTC)** | The interval, in minutes, hours or days (interval schedules only). For an email trigger: **Check for new mail every** (never under 60 seconds). |
+| **When** (Daily · Weekly · Monthly) | A calendar automation's rule: the kind, the days or day of the month, and the time. It keeps the automation's own time zone and limits; the line under it is the gateway's sentence, "in Europe/Paris (this automation's time zone)". |
 | **Context** | Independent (each run starts fresh) or growing (each run sees the previous runs). |
 | **Tools** | Select the available tools, then choose whether to run without asking or ask before each tool call. |
 | **Email** | **Email result** and **Recipients** (with a usable account; an option already on can always be turned off). |

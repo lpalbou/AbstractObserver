@@ -27,9 +27,23 @@
 - Run view: a long outcome expanded with **More** grew past the viewport with no way to scroll back to **Less** — the run panel clips and its Ledger page was not a scrolling child. The Ledger page (and the new Agent view) now scroll inside the run panel; the toolbar and tabs stay put.
 - Run view: a tool call that needed approval showed as **waiting**, forever, beside a second, completed copy of the same call. The runtime records an approved call's execution under a new step with the same idempotency key; the steps are now merged, so each call is one step with its real status (root backlog 1016 tracks reading step state from the runtime instead).
 
+## [0.7.1] - 2026-10-15
+
+Requires AbstractGateway with `schedule@2`, the served schedule fields and `POST /api/gateway/automations/schedule-preview` (round 16) and `@abstractframework/ui-kit` 0.8.7.
+
+### Added
+
+- Launch → Automate: calendar schedules. **When** offers **Repeat** (fixed UTC interval, as before), **Daily**, **Weekly** (day chips that show their state), **Monthly** (day 1–31 or the last day) at a time of day, and **Once at**; every schedule is written as `schedule@2`. For every schedule (Repeat with its bounds too) the line under **When** is the gateway's own sentence; for Daily, Weekly, Monthly and Once the time zone reads "in Europe/Paris (your account's time zone)" with **Change in preferences** (the console's Accounts). Switching kinds keeps the picked days. The Edit form edits a calendar rule, keeping its time zone and limits.
+
 ### Changed
 
+- The Automations page shows the gateway's served next run (`next_run_local`, cut to "2026-10-09 08:00 Europe/Paris", plus the relative time to `next_run_at`) and every schedule's `schedule_rule_text`; the Observer no longer reads `next_fire_at` or computes a next run. The stub gateway (`scripts/automations_stub_server.mjs`) accepts `schedule@2`, serves the schedule fields and `schedule-preview`.
+
 - CI: `npm run check:lock` (also a CI step, before `npm ci`) fails when `package-lock.json` lags `package.json` or resolves an `@abstractframework/*` dependency below its floor, in another major.minor or from a local tarball; `--latest` also catches a published patch the lock has not taken. The lock now resolves `@abstractframework/app-server` 0.1.12 (floor `^0.1.12`). See [CONTRIBUTING](CONTRIBUTING.md#lockfile-check).
+
+### Fixed
+
+- The Automations page works with a gateway that does not serve the round-16 schedule fields (AbstractGateway 0.13.x serves only `next_fire_at`): `next_run_at`, `next_run_local`, `time_zone`, `schedule_text` and `schedule_rule_text` are optional on read (`src/ui/served_summary.ts`, applied to every summary the controller reads) — the schedule reads "—" and the next run is the gateway's `next_fire_at`, shown in UTC. A served value is always shown as served.
 
 ## [0.7.0] - 2026-10-05
 

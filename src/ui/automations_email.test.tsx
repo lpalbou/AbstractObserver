@@ -59,7 +59,7 @@ describe("Launch → Automate: email", () => {
   });
 
   const render = (status: MyEmailStatus | null, form: AutomateForm = DEFAULT_AUTOMATE_FORM) =>
-    renderToStaticMarkup(<AutomateWhenContext form={form} on_change={() => {}} email_status={status} on_open_my_email={() => {}} />);
+    renderToStaticMarkup(<AutomateWhenContext served={{ phase: "idle" }} form={form} on_change={() => {}} email_status={status} on_open_my_email={() => {}} />);
 
   it("disables the email options and says why without a usable account", () => {
     for (const status of [null, NOT_SET_UP]) {

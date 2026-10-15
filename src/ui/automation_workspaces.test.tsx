@@ -41,7 +41,7 @@ const unescape = (h: string) => h.replace(/&amp;/g, "&").replace(/&#x27;/g, "'")
 
 describe("Automate form: a visible Workspaces section, no Advanced disclosure (R13.2)", () => {
   it("Workspaces is its own group after Tools and before Email, with the host's chooser inside (one heading)", () => {
-    const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} workspaces={<div id="chooser">chooser</div>} />));
+    const html = unescape(renderToStaticMarkup(<AutomateWhenContext served={{ phase: "idle" }} form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} workspaces={<div id="chooser">chooser</div>} />));
     expect(html).toContain('<div class="automate_workspaces" data-section="workspaces" role="group" aria-label="Workspaces"><div id="chooser">chooser</div></div>');
     // One heading: the chooser's own ("Workspaces"), never a second legend around it.
     expect(html).not.toContain("<legend>Workspaces</legend>");

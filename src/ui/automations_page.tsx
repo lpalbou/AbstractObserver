@@ -493,6 +493,8 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     ...(edit ? { editOpen: edit.open, onEditOpenChange: edit.on_change } : {}),
     // The Edit form offers the email options only with a usable account.
     emailStatus: st.email_status,
+    // Round 16: the Edit form's calendar line is the gateway's schedule-preview.
+    previewSchedule: ctl.preview_schedule,
     ...(host.on_open_my_email ? { onOpenMyEmail: () => host.on_open_my_email?.() } : {}),
   };
 }
