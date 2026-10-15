@@ -49,7 +49,7 @@ import {
   type WorkflowChoice,
 } from "./automations";
 import { AutomationDetailView, AutomationsListView, automation_panel_props, type AutomationsHandlers, type PanelHostHandlers } from "./automations_page";
-import { board_card, board_columns } from "./mission_control";
+import { LANE_ORDER, board_card, build_board, split_board_rows } from "./mission_control";
 import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
 import { build_run_tree_sections } from "./run_tree";
 import { build_runtime_activity_views, count_runtime_activity_queues } from "./runtime_activity";
@@ -554,7 +554,7 @@ describe("Automations page", () => {
     expect(extract_tool_calls_from_wait(wait as any).map((c: any) => c.name)).toEqual(["send_email"]);
     expect(extract_tool_calls_from_wait({ reason: "user", details: { tool_calls: [{ name: "fetch_url", arguments: {} }] } } as any).map((c: any) => c.name)).toEqual(["fetch_url"]);
     const card = board_card(normalize_run_summary({ run_id: "r", status: "waiting", waiting: wait }));
-    expect(card).toMatchObject({ column: "review", tool_names: ["send_email"] });
+    expect(card).toMatchObject({ lane: "needs_you", tool_names: ["send_email"] });
   });
 
   it("Discuss posts {request_id, occurrence_index, prompt} and opens the returned session", async () => {
@@ -666,10 +666,11 @@ describe("run attribution tags", () => {
     expect(rows.map(run_session_tag)).toEqual(["automation", "occurrence", "occurrence", "discussion", "legacy", null]);
   });
 
-  it("the board carries no controller card and links occurrences to their automation", () => {
-    const cols = board_columns(rows, rows);
-    const all = [...cols.pending, ...cols.working, ...cols.review, ...cols.done];
-    expect(all.map((c) => c.run_id)).not.toContain("ctl-1");
+  it("the controller IS the automation's Scheduled card (backlog 0003); occurrences link to their automation", () => {
+    const split = split_board_rows([], rows);
+    const lanes = build_board({ active: split.active, done: split.done, now_ms: Date.now() });
+    expect(lanes.scheduled.map((c) => c.run_id)).toContain("ctl-1");
+    const all = LANE_ORDER.flatMap((l) => lanes[l]);
     const occ = all.find((c) => c.run_id === "occ-3")!;
     expect(occ).toMatchObject({ tag: "occurrence", tag_label: "occurrence #3", automation_id: "ctl-1" });
     expect(all.find((c) => c.run_id === "prefix-only")!.tag).toBeNull();

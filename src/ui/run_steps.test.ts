@@ -204,3 +204,28 @@ describe("approved tool calls", () => {
     ]);
   });
 });
+
+describe("llm_detail — provider and model of a call on the runtime's defaults", () => {
+  it("falls back to the request as sent (result.metadata._provider_request) when payload and result name none (LANE-C finding)", () => {
+    const run = "r-defaults";
+    const recs = [
+      { run_id: run, step_id: "s1", node_id: "n1", status: "started", effect: { type: "llm_call", payload: { messages: [{ role: "user", content: "hi" }] } }, started_at: "2026-10-14T10:00:00Z", ended_at: null },
+      {
+        run_id: run,
+        step_id: "s1",
+        node_id: "n1",
+        status: "completed",
+        effect: { type: "llm_call", payload: { messages: [{ role: "user", content: "hi" }] } },
+        result: { content: "hello", metadata: { _provider_request: { provider: "mlx", model: "Jundot/Qwen3.8-27B-oQ4e-mtp", payload: { messages: [{ role: "user", content: "hi" }] } } } },
+        started_at: "2026-10-14T10:00:00Z",
+        ended_at: "2026-10-14T10:00:02Z",
+      },
+    ];
+    const steps = build_run_steps(items(recs, run), run).filter((s) => s.kind === "llm_call");
+    expect(steps.length).toBe(1);
+    const d = llm_detail(steps[0]);
+    expect(d.provider).toBe("mlx");
+    expect(d.model).toBe("Jundot/Qwen3.8-27B-oQ4e-mtp");
+  });
+});
+

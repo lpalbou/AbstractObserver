@@ -1,0 +1,815 @@
+/* THE AGENT PAGE (agent_page.tsx, pins.tsx) — component stylesheet.
+ *
+ * Discipline (same as board.css):
+ * - Every colour derives from the shipped tokens (:root in styles.css + the
+ *   kit theme) via var()/color-mix. NO colour literal lives in this file:
+ *   the only literal colours on the page are the pin palette, which is DATA
+ *   (pin_palette.ts, a verbatim mirror of AbstractFlow) applied inline.
+ * - Surfaces ride the pane/raised recipes; type rides the --t-* scale.
+ * - Phones (~400px): blocks stack, the pins' two columns stack, a pin's value
+ *   drops under its name, the spend table scrolls inside its own wrapper,
+ *   profile groups stack and a fact's value drops under its label.
+ * - Copy: every field row is `.ap_copyable`; its `.ap_copy_btn` shows on
+ *   hover and on keyboard focus (`:focus-within`), always on touch screens.
+ *   Same look and states as the board's `.mc_copy` (board.css).
+ */
+
+.ap_page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  min-width: 0;
+  /* Same rule as .rs_page: the run panel clips, this page scrolls inside it. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--text-primary);
+  font-size: var(--t-body);
+}
+
+/* ---------- blocks ---------- */
+
+.ap_block,
+.ap_header {
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--pane-bg);
+  box-shadow: var(--shadow-pane);
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.ap_block_head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ap_block_title {
+  margin: 0;
+  font-size: var(--t-section);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.ap_block_meta,
+.ap_io_meta {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.ap_note {
+  margin: 4px 0 8px;
+  font-size: var(--t-small);
+  color: var(--text-secondary);
+}
+
+.ap_note_loading {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ap_note_error {
+  color: var(--error);
+}
+
+.ap_note_absent {
+  color: var(--text-muted);
+}
+
+.ap_note_info {
+  color: var(--text-muted);
+  font-size: var(--t-micro);
+}
+
+.ap_muted,
+.ap_pin_muted {
+  color: var(--text-muted);
+}
+
+.ap_link_btn {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  margin-left: 6px;
+  font: inherit;
+  font-size: var(--t-micro);
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------- header ---------- */
+
+.ap_header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--raised-bg);
+}
+
+.ap_title_row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ap_mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 999px;
+  border: 1px solid var(--pane-border-strong);
+  color: var(--text-secondary);
+  font-size: var(--t-section);
+  flex: none;
+}
+
+.ap_mark_automation {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.ap_mark_agent {
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+}
+
+.ap_mark_entity {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+}
+
+.ap_title {
+  margin: 0;
+  font-size: var(--t-page);
+  font-weight: 650;
+  line-height: 1.3;
+  min-width: 0;
+  flex: 1 1 16rem;
+  overflow-wrap: anywhere;
+}
+
+.ap_untitled {
+  color: var(--text-secondary);
+  font-weight: 550;
+}
+
+.ap_untitled_tag,
+.ap_source {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  border: 1px solid var(--pane-border);
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.ap_copy {
+  padding: 4px 8px;
+  font-size: var(--t-small);
+}
+
+.ap_subject_line {
+  font-size: var(--t-small);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ap_state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: var(--t-body);
+}
+
+.ap_state_text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ap_verb_needs_you .ap_state_text,
+.ap_verb_paused .ap_state_text {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.ap_verb_running .ap_state_text {
+  color: var(--info);
+}
+
+.ap_stalled .ap_state_text,
+.ap_tree_line.ap_stalled {
+  color: var(--warning);
+}
+
+.ap_actor {
+  font-size: var(--t-micro);
+  border-radius: 999px;
+  padding: 1px 8px;
+  border: 1px solid var(--pane-border-strong);
+  color: var(--text-secondary);
+  background: none;
+  white-space: nowrap;
+}
+
+.ap_actor_you {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-weight: 600;
+}
+
+.ap_actor_run {
+  cursor: pointer;
+  color: var(--info);
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  font: inherit;
+  font-size: var(--t-micro);
+}
+
+.ap_actor_unknown {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+}
+
+.ap_action {
+  padding: 4px 12px;
+}
+
+/* ---------- fact chips and paths (profile, context) ---------- */
+
+.ap_tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ap_tag {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--pane-border);
+  background: var(--pane-bg-2);
+}
+
+.ap_workspace {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ap_path {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ap_window_note {
+  margin: 0 0 8px;
+}
+
+.ap_warnings {
+  margin: 0;
+  padding-left: 1.1em;
+  color: var(--warning);
+}
+
+/* token gauge */
+.ap_gauge_wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: min(100%, 16rem);
+}
+
+.ap_gauge {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pane-bg-2);
+  border: 1px solid var(--pane-border);
+  overflow: visible;
+}
+
+.ap_gauge_fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--info);
+}
+
+.ap_gauge_over .ap_gauge_fill {
+  background: var(--warning);
+}
+
+.ap_gauge_warn {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--warning);
+}
+
+/* ---------- pins ---------- */
+
+.ap_io {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ap_io_col {
+  min-width: 0;
+}
+
+.ap_io_title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: var(--t-small);
+  font-weight: 650;
+}
+
+.ap_io_arrow {
+  color: var(--text-muted);
+  padding-top: 2px;
+}
+
+.ap_pins {
+  min-width: 0;
+}
+
+.ap_pin_list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ap_pin {
+  display: grid;
+  grid-template-columns: minmax(7rem, 38%) minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--pane-border);
+  min-width: 0;
+}
+
+.ap_pin:first-child {
+  border-top: none;
+}
+
+.ap_pin_head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ap_pin_glyph {
+  flex: none;
+}
+
+.ap_pin_name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ap_pin_type {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.ap_pin_value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--t-small);
+}
+
+.ap_pin_scalar {
+  font-family: var(--font-mono);
+}
+
+.ap_pin_text {
+  white-space: pre-wrap;
+}
+
+.ap_pin_required {
+  color: var(--warning);
+}
+
+.ap_pin_unsent,
+.ap_pin_default {
+  min-width: 0;
+}
+
+.ap_pin_default_label {
+  font-size: var(--t-micro);
+}
+
+.ap_json {
+  min-width: 0;
+}
+
+.ap_json_head {
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ap_json_shape {
+  margin-right: 4px;
+}
+
+.ap_json_list {
+  font-family: var(--font-mono);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ap_json_details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--t-micro);
+  width: fit-content;
+}
+
+.ap_json_body {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 24rem;
+  overflow: auto;
+  border-radius: 6px;
+  border: 1px solid var(--pane-border);
+  background: var(--canvas);
+  font-size: var(--t-micro);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ap_pins_also {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--pane-border-strong);
+}
+
+.ap_pins_also_label {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+
+.ap_pins_empty {
+  margin: 0;
+}
+
+/* ---------- copy affordance (same look as board.css .mc_copy) ---------- */
+
+.ap_copy_btn {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  line-height: 1.5;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ap_copyable:hover .ap_copy_btn,
+.ap_copyable:focus-within .ap_copy_btn,
+.ap_copy_btn:focus-visible,
+.ap_copy_btn.is_copied,
+.ap_copy_btn.is_failed {
+  opacity: 1;
+}
+
+.ap_copy_btn:hover {
+  color: var(--text-primary);
+  border-color: var(--pane-border);
+}
+
+.ap_copy_btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ap_copy_btn.is_copied {
+  color: var(--success);
+  font-size: var(--t-micro);
+}
+
+.ap_copy_btn.is_failed {
+  color: var(--error);
+  font-size: var(--t-micro);
+}
+
+/* No hover on touch screens: the button stays visible. */
+@media (hover: none) {
+  .ap_copy_btn {
+    opacity: 1;
+  }
+}
+
+.ap_pin_head .ap_copy_btn {
+  margin-left: auto;
+}
+
+/* ---------- agent profile ---------- */
+
+.ap_profile {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 36rem), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.ap_pgroup {
+  min-width: 0;
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  background: var(--pane-bg-2);
+  padding: 8px 10px;
+}
+
+.ap_pgroup_title {
+  margin: 0 0 4px;
+  font-size: var(--t-small);
+  font-weight: 650;
+}
+
+.ap_pgroup_q {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.ap_ptable {
+  margin: 0;
+}
+
+.ap_prow {
+  display: grid;
+  grid-template-columns: minmax(7rem, 9.5rem) minmax(0, 1fr) auto;
+  grid-template-areas: "label value meta";
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--pane-border);
+  min-width: 0;
+}
+
+.ap_prow:first-child {
+  border-top: none;
+}
+
+.ap_prow_label {
+  grid-area: label;
+  color: var(--text-muted);
+  font-size: var(--t-small);
+}
+
+.ap_prow_value {
+  grid-area: value;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--t-small);
+}
+
+.ap_prow_meta {
+  grid-area: meta;
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ap_prow_meta .ap_source {
+  margin-left: 0;
+}
+
+.ap_absent {
+  color: var(--text-muted);
+}
+
+.ap_stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ap_breakdown {
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.ap_finding {
+  font-size: var(--t-micro);
+  color: var(--warning);
+  margin-left: 4px;
+}
+
+.ap_tool_use {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.ap_tool_outside .ap_tag {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--pane-border));
+}
+
+.ap_run_link {
+  margin-left: 0;
+  text-align: left;
+}
+
+.ap_subrun {
+  overflow-wrap: anywhere;
+}
+
+.ap_stalled_text {
+  color: var(--warning);
+}
+
+.ap_spend_name {
+  margin-right: 4px;
+}
+
+/* ---------- run tree ---------- */
+
+.ap_tree,
+.ap_tree_children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ap_tree_children {
+  margin-left: 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--pane-border-strong);
+}
+
+.ap_tree_under_parent {
+  margin-left: 14px;
+  padding-left: 10px;
+  border-left: 1px solid var(--pane-border-strong);
+}
+
+.ap_tree_node,
+.ap_tree_parent {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  margin: 2px 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ap_tree_node:hover,
+.ap_tree_parent:hover {
+  background: var(--pane-bg-2);
+}
+
+.ap_tree_parent {
+  color: var(--text-secondary);
+}
+
+.ap_tree_subject {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.ap_tree_name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ap_tree_line {
+  font-size: var(--t-small);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- spend ---------- */
+
+.ap_table_wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.ap_spend {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--t-small);
+}
+
+.ap_spend caption {
+  caption-side: bottom;
+  text-align: left;
+  padding-top: 6px;
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.ap_spend th,
+.ap_spend td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--pane-border);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap_spend thead th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: var(--t-micro);
+}
+
+.ap_spend th[scope="row"],
+.ap_spend thead th:first-child {
+  text-align: left;
+}
+
+.ap_spend th[scope="row"] {
+  font-weight: 500;
+  padding-left: calc(8px + var(--ap-depth, 0) * 14px);
+}
+
+.ap_spend_subject th,
+.ap_spend_subject td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.ap_ask {
+  padding: 6px 14px;
+}
+
+/* ---------- narrow screens ---------- */
+
+@media (max-width: 767.98px) {
+  .ap_page {
+    padding: 12px 16px;
+    gap: 10px;
+  }
+
+  .ap_io {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ap_io_arrow {
+    transform: rotate(90deg);
+    justify-self: start;
+  }
+
+  .ap_pin {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ap_prow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label meta"
+      "value value";
+  }
+}

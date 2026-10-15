@@ -408,6 +408,8 @@ export function normalize_run_summary(r: any): RunSummary {
     occurrence_index: typeof r?.occurrence_index === "number" ? Number(r.occurrence_index) : null,
     is_scheduled: typeof r?.is_scheduled === "boolean" ? Boolean(r.is_scheduled) : r?.is_scheduled ?? null,
     paused: typeof r?.paused === "boolean" ? Boolean(r.paused) : r?.paused ?? null,
+    pause_reason: str_or_null(r?.pause_reason),
+    is_draft: r?.is_draft === true,
     waiting_reason: typeof r?.waiting?.reason === "string" ? String(r.waiting.reason) : r?.waiting?.reason ?? null,
     schedule_interval: typeof r?.schedule?.interval === "string" ? String(r.schedule.interval).trim() : r?.schedule?.interval ?? null,
     schedule_target_workflow_id:

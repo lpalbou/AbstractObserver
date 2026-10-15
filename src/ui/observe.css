@@ -9,7 +9,7 @@
  *      shared with other pages owned by other builders — the scope keeps
  *      this skin's blast radius at exactly the Run page.
  *
- * Design language: surfaces from --canvas/--pane-*/--raised-*, type from
+ * Design language: surfaces from --canvas/--pane-… / --raised-…, type from
  * --t-*, semantic color ONLY via var(--success/--warning/--error/--info)
  * mixes, accent as a cue (2px bars, underlines) never a flood.
  */
@@ -1011,4 +1011,429 @@
   font-size: var(--t-small);
   text-align: center;
   padding: 32px 12px;
+}
+
+/* ================= FLOW TAB — run state, node status, node facts =================
+ * (Lane D, operator 2026-10-14 11:15: "always tell clearly if it's ongoing or
+ * finished … our usual clean clear highlight (from abstractflow) on where we
+ * are … on mouse over … see / copy the state".) Classes: flow_graph.tsx.
+ *
+ * Unscoped on purpose: the facts panel is portalled to <body> (the graph
+ * panel clips), so every class here is a flow_* name no other sheet defines;
+ * the node rules outrank styles.css's `.graph_node.active` by specificity,
+ * not by load order (this sheet loads BEFORE styles.css).
+ *
+ * Status colours mirror AbstractFlow (src/styles/nodes.css, NodeStatusGlyph):
+ * running = --success ring + pulse, waiting = --warning dashed ring,
+ * failed = --error ring, done = --info check (muted). Tokens only. */
+
+.flow_banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--pane-border);
+  border-radius: 10px;
+  background: var(--raised-bg);
+  color: var(--text-primary);
+  font-size: var(--t-small);
+  line-height: 1.4;
+}
+
+.flow_banner_text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.flow_banner_at,
+.flow_banner_meta {
+  color: var(--text-secondary);
+}
+
+.flow_banner_at strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.graph_node {
+  cursor: pointer;
+}
+
+/* Node text and frame follow the theme: styles.css hard-codes light-on-dark
+ * fills, which vanished on the light theme (white text on a white card). */
+.graph_node .graph_node_label {
+  fill: var(--text-primary);
+}
+
+.graph_node .graph_node_type {
+  fill: var(--text-muted);
+}
+
+.graph_node .graph_node_bg {
+  stroke: var(--pane-border-strong);
+}
+
+.graph_node:focus {
+  outline: none;
+}
+
+.graph_node[data-run-status="running"] {
+  --flow-status: var(--success);
+}
+
+.graph_node[data-run-status="waiting"] {
+  --flow-status: var(--warning);
+}
+
+.graph_node[data-run-status="failed"] {
+  --flow-status: var(--error);
+}
+
+.graph_node[data-run-status="done"] {
+  --flow-status: var(--info);
+}
+
+.graph_node[data-run-status="none"] {
+  --flow-status: var(--success);
+}
+
+.graph_node .flow_node_ring {
+  fill: none;
+  stroke: color-mix(in srgb, var(--flow-status) 70%, transparent);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.graph_node[data-run-status="running"] .flow_node_ring {
+  animation: flow_ring_pulse 1.05s ease-in-out infinite;
+}
+
+.graph_node[data-run-status="waiting"] .flow_node_ring {
+  stroke: color-mix(in srgb, var(--flow-status) 80%, transparent);
+  stroke-dasharray: 7 5;
+}
+
+.graph_node[data-run-status="failed"] .flow_node_ring {
+  stroke: color-mix(in srgb, var(--flow-status) 85%, transparent);
+  stroke-width: 2.4;
+}
+
+@keyframes flow_ring_pulse {
+  0%,
+  100% {
+    stroke-width: 2;
+    stroke-opacity: 0.7;
+  }
+  50% {
+    stroke-width: 4;
+    stroke-opacity: 1;
+  }
+}
+
+/* The "here" node: the bloom takes the status colour (styles.css paints
+ * every active node success-green, which said "fine" on a node that waits
+ * or failed). */
+.graph_node.here[data-run-status] {
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--flow-status) 55%, transparent)) drop-shadow(0 0 40px color-mix(in srgb, var(--flow-status) 22%, transparent));
+}
+
+.graph_node.here[data-run-status] .graph_node_bg {
+  stroke: color-mix(in srgb, var(--flow-status) 70%, transparent);
+  stroke-width: 2.2;
+}
+
+.flow_status_badge {
+  pointer-events: none;
+}
+
+.flow_status_badge .flow_badge_bg {
+  fill: var(--raised-bg);
+  stroke: color-mix(in srgb, var(--flow-status) 80%, transparent);
+  stroke-width: 1.5;
+}
+
+.flow_status_badge path,
+.flow_status_badge .flow_badge_spin {
+  fill: none;
+  stroke: var(--flow-status);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.flow_status_badge .flow_badge_dot {
+  fill: var(--flow-status);
+  stroke: none;
+}
+
+.flow_status_badge .flow_badge_spin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: flow_badge_spin 1.2s linear infinite;
+}
+
+.graph_node[data-run-status="done"] .flow_status_badge {
+  opacity: 0.72;
+}
+
+@keyframes flow_badge_spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.flow_here_chip {
+  pointer-events: none;
+}
+
+.flow_here_chip rect {
+  fill: color-mix(in srgb, var(--flow-status) 24%, var(--raised-bg));
+  stroke: color-mix(in srgb, var(--flow-status) 65%, transparent);
+  stroke-width: 1;
+}
+
+.flow_here_chip text {
+  fill: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph_node[data-run-status="running"] .flow_node_ring,
+  .flow_status_badge .flow_badge_spin {
+    animation: none;
+  }
+}
+
+/* The node facts panel: the board's (i) popover recipe (board.css .mc_info_pop). */
+.flow_facts_pop {
+  position: fixed;
+  z-index: 1500; /* over the shell, under modal backdrops (2000) */
+  max-height: calc(var(--vh-full, 100vh) - 16px);
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 10px;
+  background: var(--raised-bg);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  line-height: 1.45;
+}
+
+.flow_facts_pop:focus {
+  outline: none;
+}
+
+.flow_facts_pop:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.flow_facts_head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.flow_facts_title {
+  font-size: var(--t-body);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.flow_facts_type {
+  color: var(--text-muted);
+  font-size: var(--t-micro);
+}
+
+.flow_facts_status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+
+.flow_status_chip {
+  --flow-status: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--flow-status) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--flow-status) 12%, transparent);
+  color: var(--flow-status);
+  font-size: var(--t-micro);
+  font-weight: 600;
+}
+
+.flow_status_chip[data-run-status="running"] {
+  --flow-status: var(--success);
+}
+
+.flow_status_chip[data-run-status="waiting"] {
+  --flow-status: var(--warning);
+}
+
+.flow_status_chip[data-run-status="failed"] {
+  --flow-status: var(--error);
+}
+
+.flow_status_chip[data-run-status="done"] {
+  --flow-status: var(--info);
+}
+
+.flow_facts_here {
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.flow_facts_rows {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.flow_facts_row {
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr);
+  gap: 8px;
+}
+
+.flow_facts_row dt {
+  padding-top: 2px;
+  font-size: var(--t-micro);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.flow_facts_row dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.flow_facts_error dd {
+  color: var(--error);
+}
+
+.flow_facts_text {
+  white-space: pre-wrap;
+}
+
+.flow_facts_summary {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.flow_facts_json {
+  max-height: 16em;
+  margin: 6px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--pane-border);
+  border-radius: 8px;
+  background: var(--canvas);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  white-space: pre-wrap;
+}
+
+.flow_facts_tools {
+  border-collapse: collapse;
+  font-size: var(--t-micro);
+}
+
+.flow_facts_tools th,
+.flow_facts_tools td {
+  padding: 1px 10px 1px 0;
+  text-align: left;
+}
+
+.flow_facts_tools th {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.flow_facts_tools tr[data-failed] td:last-child {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.flow_facts_list {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.flow_facts_open {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.flow_facts_subruns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.flow_link_btn {
+  padding: 0;
+  margin-left: 6px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--t-micro);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.flow_facts_subruns .flow_link_btn {
+  margin-left: 0;
+}
+
+.flow_link_btn.mono {
+  font-family: var(--font-mono);
+}
+
+.flow_link_btn:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.flow_facts_none {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.flow_facts_actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pane-border);
+}
+
+.btn.flow_copy_btn {
+  padding: 3px 9px;
+  font-size: var(--t-micro);
+}
+
+/* Last in the section: the keyboard focus ring outranks the status strokes. */
+.graph_node[data-run-status]:focus-visible .graph_node_bg {
+  stroke: var(--accent);
+  stroke-width: 2.4;
 }

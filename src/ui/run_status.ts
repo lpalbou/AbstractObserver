@@ -97,6 +97,9 @@ export type RunSummary = {
   occurrence_index?: number | null;
   is_scheduled?: boolean | null;
   paused?: boolean | null;
+  pause_reason?: string | null;
+  /** The gateway's draft flag (a run created but not started). */
+  is_draft?: boolean | null;
   waiting_reason?: string | null;
   schedule_interval?: string | null;
   schedule_target_workflow_id?: string | null;

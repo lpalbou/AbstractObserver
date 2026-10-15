@@ -161,7 +161,8 @@ describe("wiring on every list + detail screen", () => {
     expect(rt).toMatch(/useListOpen\("system_queues"\)/);
     expect(rt).toMatch(/useListOpen\("system_runs"\)/);
     expect(rt).toMatch(/id="runtime_ops_runs" hidden=\{!runs_open\}/);
-    expect(read("./mission_control.tsx")).toMatch(/useListOpen\(`board_\$\{props\.col\}`\)/);
+    // The board's lanes are always open (operator 2026-10-14: the fold chevron was useless) — no disclosure there.
+    expect(read("./mission_control.tsx")).not.toMatch(/useListOpen\(/);
   });
 });
 

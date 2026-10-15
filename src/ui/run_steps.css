@@ -9,6 +9,14 @@
   gap: 12px;
   min-width: 0;
   padding-block: 8px 24px;
+  /* The run panel (.observe_viewer_full, a flex column that clips) is the ONE
+   * scroll container: this page is its scrolling child. Without it a long
+   * outcome ("More") grew past the viewport with no way back (operator
+   * 2026-10-14 08:06). */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .rs_outcome {

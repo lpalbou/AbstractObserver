@@ -1,0 +1,2988 @@
+{
+ "bundle_id": "abstractassistant-orchestrator",
+ "bundle_version": "0.0.9",
+ "bundle_ref": "abstractassistant-orchestrator@0.0.9",
+ "flow_id": "c53b1579",
+ "workflow_id": "abstractassistant-orchestrator@0.0.9:c53b1579",
+ "flow": {
+  "id": "c53b1579",
+  "name": "AbstractAssistant Orchestrator",
+  "description": "Canonical catalog workflow for the compact AbstractAssistant tray surface. managed-by=abstractassistant;scope=tenant-catalog;workflow-revision=3",
+  "interfaces": [
+   "abstractassistant.agent.v1"
+  ],
+  "nodes": [
+   {
+    "id": "start",
+    "type": "on_flow_start",
+    "position": {
+     "x": -960.0,
+     "y": 0.0
+    },
+    "data": {
+     "nodeType": "on_flow_start",
+     "label": "On Flow Start",
+     "icon": "&#x1F3C1;",
+     "headerColor": "#C0392B",
+     "inputs": [],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "use_context",
+       "label": "use_context",
+       "type": "boolean"
+      },
+      {
+       "id": "context",
+       "label": "context",
+       "type": "object"
+      },
+      {
+       "id": "provider",
+       "label": "provider",
+       "type": "provider"
+      },
+      {
+       "id": "model",
+       "label": "model",
+       "type": "model"
+      },
+      {
+       "id": "system",
+       "label": "system",
+       "type": "string"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "tools",
+       "label": "tools",
+       "type": "tools"
+      },
+      {
+       "id": "max_iterations",
+       "label": "max_iterations",
+       "type": "number"
+      },
+      {
+       "id": "max_in_tokens",
+       "label": "max_in_tokens",
+       "type": "number"
+      },
+      {
+       "id": "temperature",
+       "label": "temperature",
+       "type": "number"
+      },
+      {
+       "id": "seed",
+       "label": "seed",
+       "type": "number"
+      },
+      {
+       "id": "resp_schema",
+       "label": "resp_schema",
+       "type": "object"
+      },
+      {
+       "id": "primary_image_artifact",
+       "label": "primary_image_artifact",
+       "type": "artifact_image"
+      },
+      {
+       "id": "has_primary_image_context",
+       "label": "has_primary_image_context",
+       "type": "boolean"
+      },
+      {
+       "id": "image_provider",
+       "label": "image_provider",
+       "type": "string"
+      },
+      {
+       "id": "image_model",
+       "label": "image_model",
+       "type": "string"
+      },
+      {
+       "id": "image_edit_provider",
+       "label": "image_edit_provider",
+       "type": "string"
+      },
+      {
+       "id": "image_edit_model",
+       "label": "image_edit_model",
+       "type": "string"
+      },
+      {
+       "id": "image_upscale_provider",
+       "label": "image_upscale_provider",
+       "type": "string"
+      },
+      {
+       "id": "image_upscale_model",
+       "label": "image_upscale_model",
+       "type": "string"
+      },
+      {
+       "id": "video_provider",
+       "label": "video_provider",
+       "type": "string"
+      },
+      {
+       "id": "video_model",
+       "label": "video_model",
+       "type": "string"
+      },
+      {
+       "id": "image_to_video_provider",
+       "label": "image_to_video_provider",
+       "type": "string"
+      },
+      {
+       "id": "image_to_video_model",
+       "label": "image_to_video_model",
+       "type": "string"
+      },
+      {
+       "id": "music_provider",
+       "label": "music_provider",
+       "type": "string"
+      },
+      {
+       "id": "music_model",
+       "label": "music_model",
+       "type": "string"
+      },
+      {
+       "id": "sound_output",
+       "label": "sound_output",
+       "type": "object"
+      }
+     ],
+     "pinDefaults": {
+      "use_context": true,
+      "system": "You are AbstractAssistant, a concise desktop assistant running through AbstractGateway. Use tools when the request needs live information, web access, files, repositories, or device actions. Use the gateway-provided defaults instead of inventing providers or models. When you use web tools, summarize with direct source references. Do not claim you cannot browse if web_search or fetch_url are available. If the user asks for generated media, the workflow will route the request to the proper gateway media capability.",
+      "tools": [
+       "edit_file",
+       "analyze_code",
+       "execute_command",
+       "fetch_url",
+       "list_files",
+       "read_file",
+       "search_files",
+       "web_search",
+       "write_file"
+      ],
+      "max_iterations": 24,
+      "temperature": 0.2,
+      "seed": -1,
+      "has_primary_image_context": false,
+      "sound_output": {
+       "modality": "sound",
+       "task": "text_to_audio",
+       "format": "wav"
+      }
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "route_vars",
+    "type": "make_object",
+    "position": {
+     "x": -640.0,
+     "y": -120.0
+    },
+    "data": {
+     "nodeType": "make_object",
+     "label": "Build Route Vars",
+     "icon": "{}",
+     "headerColor": "#3498DB",
+     "inputs": [
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "has_primary_image_context",
+       "label": "has_primary_image_context",
+       "type": "boolean"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "result",
+       "label": "result",
+       "type": "object"
+      }
+     ]
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "route_prompt",
+    "type": "string_template",
+    "position": {
+     "x": -360.0,
+     "y": -120.0
+    },
+    "data": {
+     "nodeType": "string_template",
+     "label": "Route Prompt",
+     "icon": "&#x1F9FE;",
+     "headerColor": "#E74C3C",
+     "inputs": [
+      {
+       "id": "template",
+       "label": "template",
+       "type": "string"
+      },
+      {
+       "id": "vars",
+       "label": "vars",
+       "type": "object"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "result",
+       "label": "result",
+       "type": "string"
+      }
+     ],
+     "pinDefaults": {
+      "template": "Route this request for AbstractAssistant.\nUser prompt:\n{{ prompt }}\n\nPrimary image available: {{ has_primary_image_context }}\n"
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "route_call",
+    "type": "llm_call",
+    "position": {
+     "x": -80.0,
+     "y": -120.0
+    },
+    "data": {
+     "nodeType": "llm_call",
+     "label": "Route Request",
+     "icon": "&#x1F4AD;",
+     "headerColor": "#3498DB",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "provider",
+       "label": "provider",
+       "type": "provider_text"
+      },
+      {
+       "id": "model",
+       "label": "model",
+       "type": "model"
+      },
+      {
+       "id": "system",
+       "label": "system",
+       "type": "string"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "resp_schema",
+       "label": "resp_schema",
+       "type": "object"
+      },
+      {
+       "id": "tools",
+       "label": "tools",
+       "type": "tools"
+      },
+      {
+       "id": "temperature",
+       "label": "temperature",
+       "type": "number"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "data",
+       "label": "data",
+       "type": "object"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ],
+     "pinDefaults": {
+      "system": "You are routing a single assistant request. Choose the smallest correct execution mode. Return JSON only. Use mode=chat for ordinary answers, reasoning, browsing, tools, files, coding, or anything that should stay in the assistant agent. Use image, edit_image, upscale_image, video, image_to_video, music, or sound only for explicit media generation or transformation requests. If the request needs a source image for editing, upscaling, or image-to-video and no primary image is available, use mode=need_source_image. For chat, leave media_prompt empty and assistant_message empty. For media modes, assistant_message must be a short user-facing confirmation sentence and media_prompt must be the literal prompt to send to the media model. Do not use a top-level prompt key in place of media_prompt.",
+      "resp_schema": {
+       "type": "object",
+       "properties": {
+        "mode": {
+         "type": "string",
+         "enum": [
+          "chat",
+          "image",
+          "edit_image",
+          "upscale_image",
+          "video",
+          "image_to_video",
+          "music",
+          "sound",
+          "need_source_image"
+         ]
+        },
+        "assistant_message": {
+         "type": "string"
+        },
+        "media_prompt": {
+         "type": "string"
+        },
+        "prompt": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "mode",
+        "assistant_message",
+        "media_prompt"
+       ]
+      },
+      "tools": [],
+      "temperature": 0.0
+     },
+     "effectConfig": {
+      "provider": "",
+      "model": "",
+      "temperature": 0.0,
+      "structured_output_fallback": true
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "route_break",
+    "type": "break_object",
+    "position": {
+     "x": 220.0,
+     "y": -120.0
+    },
+    "data": {
+     "nodeType": "break_object",
+     "label": "Split Route",
+     "icon": "&#x1F9E9;",
+     "headerColor": "#3498DB",
+     "inputs": [
+      {
+       "id": "object",
+       "label": "object",
+       "type": "object"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "mode",
+       "label": "mode",
+       "type": "string"
+      },
+      {
+       "id": "assistant_message",
+       "label": "assistant_message",
+       "type": "string"
+      },
+      {
+       "id": "media_prompt",
+       "label": "media_prompt",
+       "type": "string"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      }
+     ],
+     "breakConfig": {
+      "selectedPaths": [
+       "mode",
+       "assistant_message",
+       "media_prompt",
+       "prompt"
+      ]
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "route_media_prompt",
+    "type": "coalesce",
+    "position": {
+     "x": 500.0,
+     "y": 40.0
+    },
+    "data": {
+     "nodeType": "coalesce",
+     "label": "Resolve Media Prompt",
+     "icon": "&#x21C4;",
+     "headerColor": "#3498DB",
+     "inputs": [
+      {
+       "id": "a",
+       "label": "a",
+       "type": "any"
+      },
+      {
+       "id": "b",
+       "label": "b",
+       "type": "any"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "result",
+       "label": "result",
+       "type": "any"
+      }
+     ]
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "route_switch",
+    "type": "switch",
+    "position": {
+     "x": 500.0,
+     "y": -120.0
+    },
+    "data": {
+     "nodeType": "switch",
+     "label": "Route Mode",
+     "icon": "&#x1F500;",
+     "headerColor": "#F39C12",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "value",
+       "label": "value",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "case:chat",
+       "label": "chat",
+       "type": "execution"
+      },
+      {
+       "id": "case:image",
+       "label": "image",
+       "type": "execution"
+      },
+      {
+       "id": "case:edit_image",
+       "label": "edit_image",
+       "type": "execution"
+      },
+      {
+       "id": "case:upscale_image",
+       "label": "upscale_image",
+       "type": "execution"
+      },
+      {
+       "id": "case:video",
+       "label": "video",
+       "type": "execution"
+      },
+      {
+       "id": "case:image_to_video",
+       "label": "image_to_video",
+       "type": "execution"
+      },
+      {
+       "id": "case:music",
+       "label": "music",
+       "type": "execution"
+      },
+      {
+       "id": "case:sound",
+       "label": "sound",
+       "type": "execution"
+      },
+      {
+       "id": "case:need_source_image",
+       "label": "need_source_image",
+       "type": "execution"
+      },
+      {
+       "id": "default",
+       "label": "default",
+       "type": "execution"
+      }
+     ],
+     "switchConfig": {
+      "cases": [
+       {
+        "id": "chat",
+        "value": "chat"
+       },
+       {
+        "id": "image",
+        "value": "image"
+       },
+       {
+        "id": "edit_image",
+        "value": "edit_image"
+       },
+       {
+        "id": "upscale_image",
+        "value": "upscale_image"
+       },
+       {
+        "id": "video",
+        "value": "video"
+       },
+       {
+        "id": "image_to_video",
+        "value": "image_to_video"
+       },
+       {
+        "id": "music",
+        "value": "music"
+       },
+       {
+        "id": "sound",
+        "value": "sound"
+       },
+       {
+        "id": "need_source_image",
+        "value": "need_source_image"
+       }
+      ]
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "assistant_agent",
+    "type": "agent",
+    "position": {
+     "x": 820.0,
+     "y": -360.0
+    },
+    "data": {
+     "nodeType": "agent",
+     "label": "Assistant Agent",
+     "icon": "&#x1F916;",
+     "headerColor": "#4488FF",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "use_context",
+       "label": "use_context",
+       "type": "boolean"
+      },
+      {
+       "id": "context",
+       "label": "context",
+       "type": "object"
+      },
+      {
+       "id": "provider",
+       "label": "provider",
+       "type": "provider"
+      },
+      {
+       "id": "model",
+       "label": "model",
+       "type": "model"
+      },
+      {
+       "id": "system",
+       "label": "system",
+       "type": "string"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "tools",
+       "label": "tools",
+       "type": "tools"
+      },
+      {
+       "id": "max_iterations",
+       "label": "max_iterations",
+       "type": "number"
+      },
+      {
+       "id": "max_in_tokens",
+       "label": "max_in_tokens",
+       "type": "number"
+      },
+      {
+       "id": "temperature",
+       "label": "temperature",
+       "type": "number"
+      },
+      {
+       "id": "seed",
+       "label": "seed",
+       "type": "number"
+      },
+      {
+       "id": "resp_schema",
+       "label": "resp_schema",
+       "type": "object"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "scratchpad",
+       "label": "scratchpad",
+       "type": "object"
+      }
+     ],
+     "pinDefaults": {
+      "use_context": true,
+      "system": "You are AbstractAssistant, a concise desktop assistant running through AbstractGateway. Use tools when the request needs live information, web access, files, repositories, or device actions. Use the gateway-provided defaults instead of inventing providers or models. When you use web tools, summarize with direct source references. Do not claim you cannot browse if web_search or fetch_url are available. If the user asks for generated media, the workflow will route the request to the proper gateway media capability.",
+      "max_iterations": 24,
+      "temperature": 0.2,
+      "seed": -1
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "generate_image",
+    "type": "generate_image",
+    "position": {
+     "x": 820.0,
+     "y": -120.0
+    },
+    "data": {
+     "nodeType": "generate_image",
+     "label": "Generate Image",
+     "icon": "&#x1F5BC;",
+     "headerColor": "#0EA5A4",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "image_provider",
+       "label": "image_provider",
+       "type": "string"
+      },
+      {
+       "id": "image_model",
+       "label": "image_model",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "image_artifact",
+       "label": "image_artifact",
+       "type": "artifact_image"
+      },
+      {
+       "id": "artifact_ref",
+       "label": "artifact_ref",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ]
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "edit_image",
+    "type": "edit_image",
+    "position": {
+     "x": 820.0,
+     "y": 120.0
+    },
+    "data": {
+     "nodeType": "edit_image",
+     "label": "Edit Image",
+     "icon": "&#x1F58C;",
+     "headerColor": "#0EA5A4",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "image_artifact",
+       "label": "image_artifact",
+       "type": "artifact_image"
+      },
+      {
+       "id": "image_provider",
+       "label": "image_provider",
+       "type": "string"
+      },
+      {
+       "id": "image_model",
+       "label": "image_model",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "image_artifact",
+       "label": "image_artifact",
+       "type": "artifact_image"
+      },
+      {
+       "id": "artifact_ref",
+       "label": "artifact_ref",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ]
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "upscale_image",
+    "type": "upscale_image",
+    "position": {
+     "x": 820.0,
+     "y": 360.0
+    },
+    "data": {
+     "nodeType": "upscale_image",
+     "label": "Restore / Upscale Image",
+     "icon": "&#x1F50D;",
+     "headerColor": "#0EA5A4",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "image_artifact",
+       "label": "image_artifact",
+       "type": "artifact_image"
+      },
+      {
+       "id": "image_provider",
+       "label": "image_provider",
+       "type": "string"
+      },
+      {
+       "id": "image_model",
+       "label": "image_model",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "image_artifact",
+       "label": "image_artifact",
+       "type": "artifact_image"
+      },
+      {
+       "id": "artifact_ref",
+       "label": "artifact_ref",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ]
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "generate_video",
+    "type": "generate_video",
+    "position": {
+     "x": 820.0,
+     "y": 600.0
+    },
+    "data": {
+     "nodeType": "generate_video",
+     "label": "Generate Video",
+     "icon": "&#x1F3AC;",
+     "headerColor": "#0EA5A4",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "video_provider",
+       "label": "video_provider",
+       "type": "string"
+      },
+      {
+       "id": "video_model",
+       "label": "video_model",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "video_artifact",
+       "label": "video_artifact",
+       "type": "artifact_video"
+      },
+      {
+       "id": "artifact_ref",
+       "label": "artifact_ref",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ]
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "image_to_video",
+    "type": "image_to_video",
+    "position": {
+     "x": 820.0,
+     "y": 840.0
+    },
+    "data": {
+     "nodeType": "image_to_video",
+     "label": "Image To Video",
+     "icon": "&#x1F39E;",
+     "headerColor": "#0EA5A4",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "source_image",
+       "label": "source_image",
+       "type": "artifact_image"
+      },
+      {
+       "id": "video_provider",
+       "label": "video_provider",
+       "type": "string"
+      },
+      {
+       "id": "video_model",
+       "label": "video_model",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "video_artifact",
+       "label": "video_artifact",
+       "type": "artifact_video"
+      },
+      {
+       "id": "artifact_ref",
+       "label": "artifact_ref",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ]
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "generate_music",
+    "type": "generate_music",
+    "position": {
+     "x": 820.0,
+     "y": 1080.0
+    },
+    "data": {
+     "nodeType": "generate_music",
+     "label": "Generate Music",
+     "icon": "&#x1F3B5;",
+     "headerColor": "#0EA5A4",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "music_provider",
+       "label": "music_provider",
+       "type": "string"
+      },
+      {
+       "id": "music_model",
+       "label": "music_model",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "music_artifact",
+       "label": "music_artifact",
+       "type": "artifact_audio"
+      },
+      {
+       "id": "audio_artifact",
+       "label": "audio_artifact",
+       "type": "artifact_audio"
+      },
+      {
+       "id": "artifact_ref",
+       "label": "artifact_ref",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ]
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "generate_sound",
+    "type": "llm_call",
+    "position": {
+     "x": 820.0,
+     "y": 1320.0
+    },
+    "data": {
+     "nodeType": "llm_call",
+     "label": "Generate Sound",
+     "icon": "&#x1F50A;",
+     "headerColor": "#3498DB",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "prompt",
+       "label": "prompt",
+       "type": "string"
+      },
+      {
+       "id": "output",
+       "label": "output",
+       "type": "object"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "exec-out",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "artifact_ref",
+       "label": "artifact_ref",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "audio_artifact",
+       "label": "audio_artifact",
+       "type": "artifact_audio"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "resources",
+       "label": "resources",
+       "type": "object"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ],
+     "pinDefaults": {
+      "output": {
+       "modality": "sound",
+       "task": "text_to_audio",
+       "format": "wav"
+      }
+     },
+     "effectConfig": {
+      "provider": "",
+      "model": "",
+      "temperature": 0.2
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "need_image_message",
+    "type": "string_template",
+    "position": {
+     "x": 820.0,
+     "y": 1560.0
+    },
+    "data": {
+     "nodeType": "string_template",
+     "label": "Need Source Image",
+     "icon": "&#x1F9FE;",
+     "headerColor": "#E74C3C",
+     "inputs": [
+      {
+       "id": "template",
+       "label": "template",
+       "type": "string"
+      }
+     ],
+     "outputs": [
+      {
+       "id": "result",
+       "label": "result",
+       "type": "string"
+      }
+     ],
+     "pinDefaults": {
+      "template": "Attach an image, then ask again. This request needs a source image for editing, upscaling, or image-to-video."
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_chat",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": -360.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "scratchpad",
+       "label": "scratchpad",
+       "type": "object"
+      }
+     ],
+     "outputs": []
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_image",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": -120.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "artifact",
+       "label": "artifact",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "resources",
+       "label": "resources",
+       "type": "object"
+      },
+      {
+       "id": "image_artifact",
+       "label": "image_artifact",
+       "type": "artifact_image"
+      }
+     ],
+     "outputs": []
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_edit",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": 120.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "artifact",
+       "label": "artifact",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "resources",
+       "label": "resources",
+       "type": "object"
+      },
+      {
+       "id": "image_artifact",
+       "label": "image_artifact",
+       "type": "artifact_image"
+      }
+     ],
+     "outputs": []
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_upscale",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": 360.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "artifact",
+       "label": "artifact",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "resources",
+       "label": "resources",
+       "type": "object"
+      },
+      {
+       "id": "image_artifact",
+       "label": "image_artifact",
+       "type": "artifact_image"
+      }
+     ],
+     "outputs": []
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_video",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": 600.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "artifact",
+       "label": "artifact",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "resources",
+       "label": "resources",
+       "type": "object"
+      },
+      {
+       "id": "video_artifact",
+       "label": "video_artifact",
+       "type": "artifact_video"
+      }
+     ],
+     "outputs": []
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_image_to_video",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": 840.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "artifact",
+       "label": "artifact",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "resources",
+       "label": "resources",
+       "type": "object"
+      },
+      {
+       "id": "video_artifact",
+       "label": "video_artifact",
+       "type": "artifact_video"
+      }
+     ],
+     "outputs": []
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_music",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": 1080.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "artifact",
+       "label": "artifact",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "resources",
+       "label": "resources",
+       "type": "object"
+      },
+      {
+       "id": "music_artifact",
+       "label": "music_artifact",
+       "type": "artifact_audio"
+      },
+      {
+       "id": "audio_artifact",
+       "label": "audio_artifact",
+       "type": "artifact_audio"
+      }
+     ],
+     "outputs": []
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_sound",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": 1320.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      },
+      {
+       "id": "meta",
+       "label": "meta",
+       "type": "object"
+      },
+      {
+       "id": "artifact",
+       "label": "artifact",
+       "type": "artifact"
+      },
+      {
+       "id": "artifact_id",
+       "label": "artifact_id",
+       "type": "string"
+      },
+      {
+       "id": "content_type",
+       "label": "content_type",
+       "type": "string"
+      },
+      {
+       "id": "outputs",
+       "label": "outputs",
+       "type": "object"
+      },
+      {
+       "id": "resources",
+       "label": "resources",
+       "type": "object"
+      },
+      {
+       "id": "audio_artifact",
+       "label": "audio_artifact",
+       "type": "artifact_audio"
+      }
+     ],
+     "outputs": []
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   },
+   {
+    "id": "end_need_image",
+    "type": "on_flow_end",
+    "position": {
+     "x": 1180.0,
+     "y": 1560.0
+    },
+    "data": {
+     "nodeType": "on_flow_end",
+     "label": "On Flow End",
+     "icon": "&#x23F9;",
+     "headerColor": "#C0392B",
+     "inputs": [
+      {
+       "id": "exec-in",
+       "label": "",
+       "type": "execution"
+      },
+      {
+       "id": "response",
+       "label": "response",
+       "type": "string"
+      },
+      {
+       "id": "success",
+       "label": "success",
+       "type": "boolean"
+      }
+     ],
+     "outputs": [],
+     "pinDefaults": {
+      "success": true
+     }
+    },
+    "label": null,
+    "icon": null,
+    "headerColor": null,
+    "inputs": [],
+    "outputs": []
+   }
+  ],
+  "edges": [
+   {
+    "id": "start-route-vars-prompt",
+    "source": "start",
+    "sourceHandle": "prompt",
+    "target": "route_vars",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-route-vars-image",
+    "source": "start",
+    "sourceHandle": "has_primary_image_context",
+    "target": "route_vars",
+    "targetHandle": "has_primary_image_context",
+    "animated": false
+   },
+   {
+    "id": "route-vars-prompt-vars",
+    "source": "route_vars",
+    "sourceHandle": "result",
+    "target": "route_prompt",
+    "targetHandle": "vars",
+    "animated": false
+   },
+   {
+    "id": "route-prompt-to-call",
+    "source": "route_prompt",
+    "sourceHandle": "result",
+    "target": "route_call",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-to-route-call",
+    "source": "start",
+    "sourceHandle": "exec-out",
+    "target": "route_call",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-call-to-break",
+    "source": "route_call",
+    "sourceHandle": "data",
+    "target": "route_break",
+    "targetHandle": "object",
+    "animated": false
+   },
+   {
+    "id": "route-call-to-switch-exec",
+    "source": "route_call",
+    "sourceHandle": "exec-out",
+    "target": "route_switch",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-to-switch-value",
+    "source": "route_break",
+    "sourceHandle": "mode",
+    "target": "route_switch",
+    "targetHandle": "value",
+    "animated": false
+   },
+   {
+    "id": "route-break-media-prompt-primary",
+    "source": "route_break",
+    "sourceHandle": "media_prompt",
+    "target": "route_media_prompt",
+    "targetHandle": "a",
+    "animated": false
+   },
+   {
+    "id": "route-break-media-prompt-fallback",
+    "source": "route_break",
+    "sourceHandle": "prompt",
+    "target": "route_media_prompt",
+    "targetHandle": "b",
+    "animated": false
+   },
+   {
+    "id": "switch-chat",
+    "source": "route_switch",
+    "sourceHandle": "case:chat",
+    "target": "assistant_agent",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "start-agent-use-context",
+    "source": "start",
+    "sourceHandle": "use_context",
+    "target": "assistant_agent",
+    "targetHandle": "use_context",
+    "animated": false
+   },
+   {
+    "id": "start-agent-context",
+    "source": "start",
+    "sourceHandle": "context",
+    "target": "assistant_agent",
+    "targetHandle": "context",
+    "animated": false
+   },
+   {
+    "id": "start-agent-provider",
+    "source": "start",
+    "sourceHandle": "provider",
+    "target": "assistant_agent",
+    "targetHandle": "provider",
+    "animated": false
+   },
+   {
+    "id": "start-agent-model",
+    "source": "start",
+    "sourceHandle": "model",
+    "target": "assistant_agent",
+    "targetHandle": "model",
+    "animated": false
+   },
+   {
+    "id": "start-agent-system",
+    "source": "start",
+    "sourceHandle": "system",
+    "target": "assistant_agent",
+    "targetHandle": "system",
+    "animated": false
+   },
+   {
+    "id": "start-agent-prompt",
+    "source": "start",
+    "sourceHandle": "prompt",
+    "target": "assistant_agent",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-agent-tools",
+    "source": "start",
+    "sourceHandle": "tools",
+    "target": "assistant_agent",
+    "targetHandle": "tools",
+    "animated": false
+   },
+   {
+    "id": "start-agent-max-iterations",
+    "source": "start",
+    "sourceHandle": "max_iterations",
+    "target": "assistant_agent",
+    "targetHandle": "max_iterations",
+    "animated": false
+   },
+   {
+    "id": "start-agent-max-in-tokens",
+    "source": "start",
+    "sourceHandle": "max_in_tokens",
+    "target": "assistant_agent",
+    "targetHandle": "max_in_tokens",
+    "animated": false
+   },
+   {
+    "id": "start-agent-temperature",
+    "source": "start",
+    "sourceHandle": "temperature",
+    "target": "assistant_agent",
+    "targetHandle": "temperature",
+    "animated": false
+   },
+   {
+    "id": "start-agent-seed",
+    "source": "start",
+    "sourceHandle": "seed",
+    "target": "assistant_agent",
+    "targetHandle": "seed",
+    "animated": false
+   },
+   {
+    "id": "start-agent-resp-schema",
+    "source": "start",
+    "sourceHandle": "resp_schema",
+    "target": "assistant_agent",
+    "targetHandle": "resp_schema",
+    "animated": false
+   },
+   {
+    "id": "agent-end-exec",
+    "source": "assistant_agent",
+    "sourceHandle": "exec-out",
+    "target": "end_chat",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "agent-end-response",
+    "source": "assistant_agent",
+    "sourceHandle": "response",
+    "target": "end_chat",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "agent-end-success",
+    "source": "assistant_agent",
+    "sourceHandle": "success",
+    "target": "end_chat",
+    "targetHandle": "success",
+    "animated": false
+   },
+   {
+    "id": "agent-end-meta",
+    "source": "assistant_agent",
+    "sourceHandle": "meta",
+    "target": "end_chat",
+    "targetHandle": "meta",
+    "animated": false
+   },
+   {
+    "id": "agent-end-scratchpad",
+    "source": "assistant_agent",
+    "sourceHandle": "scratchpad",
+    "target": "end_chat",
+    "targetHandle": "scratchpad",
+    "animated": false
+   },
+   {
+    "id": "switch-image",
+    "source": "route_switch",
+    "sourceHandle": "case:image",
+    "target": "generate_image",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-image-prompt",
+    "source": "route_media_prompt",
+    "sourceHandle": "result",
+    "target": "generate_image",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-image-provider",
+    "source": "start",
+    "sourceHandle": "image_provider",
+    "target": "generate_image",
+    "targetHandle": "image_provider",
+    "animated": false
+   },
+   {
+    "id": "start-image-model",
+    "source": "start",
+    "sourceHandle": "image_model",
+    "target": "generate_image",
+    "targetHandle": "image_model",
+    "animated": false
+   },
+   {
+    "id": "image-end-exec",
+    "source": "generate_image",
+    "sourceHandle": "exec-out",
+    "target": "end_image",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-image-response",
+    "source": "route_break",
+    "sourceHandle": "assistant_message",
+    "target": "end_image",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "image-end-success",
+    "source": "generate_image",
+    "sourceHandle": "success",
+    "target": "end_image",
+    "targetHandle": "success",
+    "animated": false
+   },
+   {
+    "id": "image-end-meta",
+    "source": "generate_image",
+    "sourceHandle": "meta",
+    "target": "end_image",
+    "targetHandle": "meta",
+    "animated": false
+   },
+   {
+    "id": "image-end-artifact",
+    "source": "generate_image",
+    "sourceHandle": "artifact_ref",
+    "target": "end_image",
+    "targetHandle": "artifact",
+    "animated": false
+   },
+   {
+    "id": "image-end-image-artifact",
+    "source": "generate_image",
+    "sourceHandle": "image_artifact",
+    "target": "end_image",
+    "targetHandle": "image_artifact",
+    "animated": false
+   },
+   {
+    "id": "image-end-artifact-id",
+    "source": "generate_image",
+    "sourceHandle": "artifact_id",
+    "target": "end_image",
+    "targetHandle": "artifact_id",
+    "animated": false
+   },
+   {
+    "id": "image-end-content-type",
+    "source": "generate_image",
+    "sourceHandle": "content_type",
+    "target": "end_image",
+    "targetHandle": "content_type",
+    "animated": false
+   },
+   {
+    "id": "image-end-outputs",
+    "source": "generate_image",
+    "sourceHandle": "outputs",
+    "target": "end_image",
+    "targetHandle": "outputs",
+    "animated": false
+   },
+   {
+    "id": "switch-edit",
+    "source": "route_switch",
+    "sourceHandle": "case:edit_image",
+    "target": "edit_image",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-edit-prompt",
+    "source": "route_media_prompt",
+    "sourceHandle": "result",
+    "target": "edit_image",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-edit-source",
+    "source": "start",
+    "sourceHandle": "primary_image_artifact",
+    "target": "edit_image",
+    "targetHandle": "image_artifact",
+    "animated": false
+   },
+   {
+    "id": "start-edit-provider",
+    "source": "start",
+    "sourceHandle": "image_edit_provider",
+    "target": "edit_image",
+    "targetHandle": "image_provider",
+    "animated": false
+   },
+   {
+    "id": "start-edit-model",
+    "source": "start",
+    "sourceHandle": "image_edit_model",
+    "target": "edit_image",
+    "targetHandle": "image_model",
+    "animated": false
+   },
+   {
+    "id": "edit-end-exec",
+    "source": "edit_image",
+    "sourceHandle": "exec-out",
+    "target": "end_edit",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-edit-response",
+    "source": "route_break",
+    "sourceHandle": "assistant_message",
+    "target": "end_edit",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "edit-end-success",
+    "source": "edit_image",
+    "sourceHandle": "success",
+    "target": "end_edit",
+    "targetHandle": "success",
+    "animated": false
+   },
+   {
+    "id": "edit-end-meta",
+    "source": "edit_image",
+    "sourceHandle": "meta",
+    "target": "end_edit",
+    "targetHandle": "meta",
+    "animated": false
+   },
+   {
+    "id": "edit-end-artifact",
+    "source": "edit_image",
+    "sourceHandle": "artifact_ref",
+    "target": "end_edit",
+    "targetHandle": "artifact",
+    "animated": false
+   },
+   {
+    "id": "edit-end-image-artifact",
+    "source": "edit_image",
+    "sourceHandle": "image_artifact",
+    "target": "end_edit",
+    "targetHandle": "image_artifact",
+    "animated": false
+   },
+   {
+    "id": "edit-end-artifact-id",
+    "source": "edit_image",
+    "sourceHandle": "artifact_id",
+    "target": "end_edit",
+    "targetHandle": "artifact_id",
+    "animated": false
+   },
+   {
+    "id": "edit-end-content-type",
+    "source": "edit_image",
+    "sourceHandle": "content_type",
+    "target": "end_edit",
+    "targetHandle": "content_type",
+    "animated": false
+   },
+   {
+    "id": "edit-end-outputs",
+    "source": "edit_image",
+    "sourceHandle": "outputs",
+    "target": "end_edit",
+    "targetHandle": "outputs",
+    "animated": false
+   },
+   {
+    "id": "switch-upscale",
+    "source": "route_switch",
+    "sourceHandle": "case:upscale_image",
+    "target": "upscale_image",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "start-upscale-source",
+    "source": "start",
+    "sourceHandle": "primary_image_artifact",
+    "target": "upscale_image",
+    "targetHandle": "image_artifact",
+    "animated": false
+   },
+   {
+    "id": "start-upscale-provider",
+    "source": "start",
+    "sourceHandle": "image_upscale_provider",
+    "target": "upscale_image",
+    "targetHandle": "image_provider",
+    "animated": false
+   },
+   {
+    "id": "start-upscale-model",
+    "source": "start",
+    "sourceHandle": "image_upscale_model",
+    "target": "upscale_image",
+    "targetHandle": "image_model",
+    "animated": false
+   },
+   {
+    "id": "upscale-end-exec",
+    "source": "upscale_image",
+    "sourceHandle": "exec-out",
+    "target": "end_upscale",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-upscale-response",
+    "source": "route_break",
+    "sourceHandle": "assistant_message",
+    "target": "end_upscale",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "upscale-end-success",
+    "source": "upscale_image",
+    "sourceHandle": "success",
+    "target": "end_upscale",
+    "targetHandle": "success",
+    "animated": false
+   },
+   {
+    "id": "upscale-end-meta",
+    "source": "upscale_image",
+    "sourceHandle": "meta",
+    "target": "end_upscale",
+    "targetHandle": "meta",
+    "animated": false
+   },
+   {
+    "id": "upscale-end-artifact",
+    "source": "upscale_image",
+    "sourceHandle": "artifact_ref",
+    "target": "end_upscale",
+    "targetHandle": "artifact",
+    "animated": false
+   },
+   {
+    "id": "upscale-end-image-artifact",
+    "source": "upscale_image",
+    "sourceHandle": "image_artifact",
+    "target": "end_upscale",
+    "targetHandle": "image_artifact",
+    "animated": false
+   },
+   {
+    "id": "upscale-end-artifact-id",
+    "source": "upscale_image",
+    "sourceHandle": "artifact_id",
+    "target": "end_upscale",
+    "targetHandle": "artifact_id",
+    "animated": false
+   },
+   {
+    "id": "upscale-end-content-type",
+    "source": "upscale_image",
+    "sourceHandle": "content_type",
+    "target": "end_upscale",
+    "targetHandle": "content_type",
+    "animated": false
+   },
+   {
+    "id": "upscale-end-outputs",
+    "source": "upscale_image",
+    "sourceHandle": "outputs",
+    "target": "end_upscale",
+    "targetHandle": "outputs",
+    "animated": false
+   },
+   {
+    "id": "switch-video",
+    "source": "route_switch",
+    "sourceHandle": "case:video",
+    "target": "generate_video",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-video-prompt",
+    "source": "route_media_prompt",
+    "sourceHandle": "result",
+    "target": "generate_video",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-video-provider",
+    "source": "start",
+    "sourceHandle": "video_provider",
+    "target": "generate_video",
+    "targetHandle": "video_provider",
+    "animated": false
+   },
+   {
+    "id": "start-video-model",
+    "source": "start",
+    "sourceHandle": "video_model",
+    "target": "generate_video",
+    "targetHandle": "video_model",
+    "animated": false
+   },
+   {
+    "id": "video-end-exec",
+    "source": "generate_video",
+    "sourceHandle": "exec-out",
+    "target": "end_video",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-video-response",
+    "source": "route_break",
+    "sourceHandle": "assistant_message",
+    "target": "end_video",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "video-end-success",
+    "source": "generate_video",
+    "sourceHandle": "success",
+    "target": "end_video",
+    "targetHandle": "success",
+    "animated": false
+   },
+   {
+    "id": "video-end-meta",
+    "source": "generate_video",
+    "sourceHandle": "meta",
+    "target": "end_video",
+    "targetHandle": "meta",
+    "animated": false
+   },
+   {
+    "id": "video-end-artifact",
+    "source": "generate_video",
+    "sourceHandle": "artifact_ref",
+    "target": "end_video",
+    "targetHandle": "artifact",
+    "animated": false
+   },
+   {
+    "id": "video-end-video-artifact",
+    "source": "generate_video",
+    "sourceHandle": "video_artifact",
+    "target": "end_video",
+    "targetHandle": "video_artifact",
+    "animated": false
+   },
+   {
+    "id": "video-end-artifact-id",
+    "source": "generate_video",
+    "sourceHandle": "artifact_id",
+    "target": "end_video",
+    "targetHandle": "artifact_id",
+    "animated": false
+   },
+   {
+    "id": "video-end-content-type",
+    "source": "generate_video",
+    "sourceHandle": "content_type",
+    "target": "end_video",
+    "targetHandle": "content_type",
+    "animated": false
+   },
+   {
+    "id": "video-end-outputs",
+    "source": "generate_video",
+    "sourceHandle": "outputs",
+    "target": "end_video",
+    "targetHandle": "outputs",
+    "animated": false
+   },
+   {
+    "id": "switch-image-to-video",
+    "source": "route_switch",
+    "sourceHandle": "case:image_to_video",
+    "target": "image_to_video",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-image-to-video-prompt",
+    "source": "route_media_prompt",
+    "sourceHandle": "result",
+    "target": "image_to_video",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-image-to-video-source",
+    "source": "start",
+    "sourceHandle": "primary_image_artifact",
+    "target": "image_to_video",
+    "targetHandle": "source_image",
+    "animated": false
+   },
+   {
+    "id": "start-image-to-video-provider",
+    "source": "start",
+    "sourceHandle": "image_to_video_provider",
+    "target": "image_to_video",
+    "targetHandle": "video_provider",
+    "animated": false
+   },
+   {
+    "id": "start-image-to-video-model",
+    "source": "start",
+    "sourceHandle": "image_to_video_model",
+    "target": "image_to_video",
+    "targetHandle": "video_model",
+    "animated": false
+   },
+   {
+    "id": "image-to-video-end-exec",
+    "source": "image_to_video",
+    "sourceHandle": "exec-out",
+    "target": "end_image_to_video",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-image-to-video-response",
+    "source": "route_break",
+    "sourceHandle": "assistant_message",
+    "target": "end_image_to_video",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "image-to-video-end-success",
+    "source": "image_to_video",
+    "sourceHandle": "success",
+    "target": "end_image_to_video",
+    "targetHandle": "success",
+    "animated": false
+   },
+   {
+    "id": "image-to-video-end-meta",
+    "source": "image_to_video",
+    "sourceHandle": "meta",
+    "target": "end_image_to_video",
+    "targetHandle": "meta",
+    "animated": false
+   },
+   {
+    "id": "image-to-video-end-artifact",
+    "source": "image_to_video",
+    "sourceHandle": "artifact_ref",
+    "target": "end_image_to_video",
+    "targetHandle": "artifact",
+    "animated": false
+   },
+   {
+    "id": "image-to-video-end-video-artifact",
+    "source": "image_to_video",
+    "sourceHandle": "video_artifact",
+    "target": "end_image_to_video",
+    "targetHandle": "video_artifact",
+    "animated": false
+   },
+   {
+    "id": "image-to-video-end-artifact-id",
+    "source": "image_to_video",
+    "sourceHandle": "artifact_id",
+    "target": "end_image_to_video",
+    "targetHandle": "artifact_id",
+    "animated": false
+   },
+   {
+    "id": "image-to-video-end-content-type",
+    "source": "image_to_video",
+    "sourceHandle": "content_type",
+    "target": "end_image_to_video",
+    "targetHandle": "content_type",
+    "animated": false
+   },
+   {
+    "id": "image-to-video-end-outputs",
+    "source": "image_to_video",
+    "sourceHandle": "outputs",
+    "target": "end_image_to_video",
+    "targetHandle": "outputs",
+    "animated": false
+   },
+   {
+    "id": "switch-music",
+    "source": "route_switch",
+    "sourceHandle": "case:music",
+    "target": "generate_music",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-music-prompt",
+    "source": "route_media_prompt",
+    "sourceHandle": "result",
+    "target": "generate_music",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-music-provider",
+    "source": "start",
+    "sourceHandle": "music_provider",
+    "target": "generate_music",
+    "targetHandle": "music_provider",
+    "animated": false
+   },
+   {
+    "id": "start-music-model",
+    "source": "start",
+    "sourceHandle": "music_model",
+    "target": "generate_music",
+    "targetHandle": "music_model",
+    "animated": false
+   },
+   {
+    "id": "music-end-exec",
+    "source": "generate_music",
+    "sourceHandle": "exec-out",
+    "target": "end_music",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-music-response",
+    "source": "route_break",
+    "sourceHandle": "assistant_message",
+    "target": "end_music",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "music-end-success",
+    "source": "generate_music",
+    "sourceHandle": "success",
+    "target": "end_music",
+    "targetHandle": "success",
+    "animated": false
+   },
+   {
+    "id": "music-end-meta",
+    "source": "generate_music",
+    "sourceHandle": "meta",
+    "target": "end_music",
+    "targetHandle": "meta",
+    "animated": false
+   },
+   {
+    "id": "music-end-artifact",
+    "source": "generate_music",
+    "sourceHandle": "artifact_ref",
+    "target": "end_music",
+    "targetHandle": "artifact",
+    "animated": false
+   },
+   {
+    "id": "music-end-music-artifact",
+    "source": "generate_music",
+    "sourceHandle": "music_artifact",
+    "target": "end_music",
+    "targetHandle": "music_artifact",
+    "animated": false
+   },
+   {
+    "id": "music-end-audio-artifact",
+    "source": "generate_music",
+    "sourceHandle": "audio_artifact",
+    "target": "end_music",
+    "targetHandle": "audio_artifact",
+    "animated": false
+   },
+   {
+    "id": "music-end-artifact-id",
+    "source": "generate_music",
+    "sourceHandle": "artifact_id",
+    "target": "end_music",
+    "targetHandle": "artifact_id",
+    "animated": false
+   },
+   {
+    "id": "music-end-content-type",
+    "source": "generate_music",
+    "sourceHandle": "content_type",
+    "target": "end_music",
+    "targetHandle": "content_type",
+    "animated": false
+   },
+   {
+    "id": "music-end-outputs",
+    "source": "generate_music",
+    "sourceHandle": "outputs",
+    "target": "end_music",
+    "targetHandle": "outputs",
+    "animated": false
+   },
+   {
+    "id": "switch-sound",
+    "source": "route_switch",
+    "sourceHandle": "case:sound",
+    "target": "generate_sound",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-sound-prompt",
+    "source": "route_media_prompt",
+    "sourceHandle": "result",
+    "target": "generate_sound",
+    "targetHandle": "prompt",
+    "animated": false
+   },
+   {
+    "id": "start-sound-output",
+    "source": "start",
+    "sourceHandle": "sound_output",
+    "target": "generate_sound",
+    "targetHandle": "output",
+    "animated": false
+   },
+   {
+    "id": "sound-end-exec",
+    "source": "generate_sound",
+    "sourceHandle": "exec-out",
+    "target": "end_sound",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "route-break-sound-response",
+    "source": "route_break",
+    "sourceHandle": "assistant_message",
+    "target": "end_sound",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "sound-end-success",
+    "source": "generate_sound",
+    "sourceHandle": "success",
+    "target": "end_sound",
+    "targetHandle": "success",
+    "animated": false
+   },
+   {
+    "id": "sound-end-meta",
+    "source": "generate_sound",
+    "sourceHandle": "meta",
+    "target": "end_sound",
+    "targetHandle": "meta",
+    "animated": false
+   },
+   {
+    "id": "sound-end-artifact",
+    "source": "generate_sound",
+    "sourceHandle": "artifact_ref",
+    "target": "end_sound",
+    "targetHandle": "artifact",
+    "animated": false
+   },
+   {
+    "id": "sound-end-audio-artifact",
+    "source": "generate_sound",
+    "sourceHandle": "audio_artifact",
+    "target": "end_sound",
+    "targetHandle": "audio_artifact",
+    "animated": false
+   },
+   {
+    "id": "sound-end-artifact-id",
+    "source": "generate_sound",
+    "sourceHandle": "artifact_id",
+    "target": "end_sound",
+    "targetHandle": "artifact_id",
+    "animated": false
+   },
+   {
+    "id": "sound-end-outputs",
+    "source": "generate_sound",
+    "sourceHandle": "outputs",
+    "target": "end_sound",
+    "targetHandle": "outputs",
+    "animated": false
+   },
+   {
+    "id": "sound-end-resources",
+    "source": "generate_sound",
+    "sourceHandle": "resources",
+    "target": "end_sound",
+    "targetHandle": "resources",
+    "animated": false
+   },
+   {
+    "id": "switch-need-image-default",
+    "source": "route_switch",
+    "sourceHandle": "case:need_source_image",
+    "target": "end_need_image",
+    "targetHandle": "exec-in",
+    "animated": true
+   },
+   {
+    "id": "need-image-message-end",
+    "source": "need_image_message",
+    "sourceHandle": "result",
+    "target": "end_need_image",
+    "targetHandle": "response",
+    "animated": false
+   },
+   {
+    "id": "switch-default",
+    "source": "route_switch",
+    "sourceHandle": "default",
+    "target": "assistant_agent",
+    "targetHandle": "exec-in",
+    "animated": true
+   }
+  ],
+  "entryNode": "start",
+  "created_at": "2026-07-27T23:06:16.899245+00:00",
+  "updated_at": "2026-10-02T20:27:05.687749+00:00"
+ }
+}

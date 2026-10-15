@@ -63,7 +63,8 @@ sequenceDiagram
 ## UI structure (pages → code)
 AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
-- **Board** (Mission Control landing page: Pending/Working/Review/Done kanban + entities strip + inline wait answers): `src/ui/mission_control.tsx` + `GatewayClient.list_entities()` / `get_entity_card()`
+- **Board** (Mission Control landing page: five blocker lanes Needs you / Working / Waiting on… / Scheduled / Done + entities strip + inline wait answers): `src/ui/mission_control.tsx` over `src/ui/state_line.ts` (one vocabulary: the state sentence, lane, subject and title of a run — shared with the Agent view) and `src/ui/board_data.ts` (the metric-free poll, the 60 s sweep, and the lazy session-scoped caches: automation briefs, task excerpts, last-record pulses, wait details) + `GatewayClient.list_entities()` / `get_entity_card()`
+- **Agent view** (Observe → Agent, where a board card opens): `src/ui/agent_page.tsx` + `agent_facts.ts` (pure folds: can-do, pins with values, context receipt, run tree, spend) + `pins.tsx` / `pin_palette.ts` (AbstractFlow's pin shapes and colours, mirrored)
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (Run once | Automate, bundle upload/reload): `src/ui/app.tsx`, `src/ui/automate_form.tsx` + `GatewayClient.start_run()` / the ui-kit automations client

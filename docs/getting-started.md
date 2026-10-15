@@ -42,11 +42,15 @@ Direct bearer-token mode remains available for local development when no
 Gateway user is set.
 
 ## The Board (landing page)
-You land on **Board** — Mission Control: kanban columns
-**Pending / Working / Review / Done** across every run, plus an entities
-strip. Cards move themselves as run state changes (the list polls live);
-the **Review** column is where a human is the blocker — approve/deny tool
-requests or answer questions inline, or click any card to open the run.
+You land on **Board** — Mission Control: five lanes by blocker —
+**Needs you / Working / Waiting on… / Scheduled / Done** across every run, plus an entities
+strip. Cards move themselves by state. Each card says what the run is for (its title),
+who it belongs to (its automation or session) and a state sentence with its object and
+actor: "needs your approval: web_search · 23m · you", "running subrun react loop ·
+llm_call open 38m", "sleeps until 02:00 UTC · clock", "next run in 1h 12m · last #4
+completed · 5 turns". Hover (i) for the task and an automation's parameters; ⧉ copies the
+run id. Clicking a card opens **Observe → Agent**: what the agent can do, its inputs and
+outputs as pins with their values, its context window, the run tree, spend, and **Ask**.
 
 ## Observe a run
 Go to **Observe** (or click a Board card):
@@ -137,7 +141,7 @@ Two chats, for two different questions:
   commands, whatever the gateway's default agent may do.
 
 ## Launch a run or create an automation
-Go to **Launch**:
+Go to **Launch** (a modal: the header's Launch button, or **+ New automation** on the Automations page):
 - **Run once**: select a workflow (discovered from gateway bundles, or the
   gateway's default agent), fill its inputs, click **Launch now**
   (`POST /api/gateway/runs/start`);

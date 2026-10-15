@@ -146,6 +146,11 @@ import {
 import { FlowGraph } from "./flow_graph";
 import { MindmapPanel } from "./mindmap_panel";
 import { MissionControlPage, derive_phase_graph, extract_dreams_brief, extract_open_briefs, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
+import { RUNNING_LIMIT, WAITING_LIMIT, is_current_poll, runs_poll_for, runs_poll_peek } from "./board_data";
+import { AgentPage, merged_subject } from "./agent_page";
+import { fold_node_facts } from "./flow_node_facts";
+import { fold_automation_brief, make_context, state_line, type AutomationBrief } from "./state_line";
+import { read_stall_after_ms } from "./mission_control";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
 import { type RuntimeMetadata } from "./runtime_metadata";
@@ -221,7 +226,35 @@ type WorkflowOption = {
 
 /* Observe content tabs — Ledger (the run view: summary + steps by cycle), Flow (graph), Ask (chat).
  * The Story tab was removed (operator 2026-10-01 13:05: "unreadable"); its outcome and actions live in RunOutcome. */
-type ObserveRightTab = "ledger" | "graph" | "chat";
+type ObserveRightTab = "agent" | "ledger" | "graph" | "chat";
+
+/** The Agent page's on-open facts (see `agent_facts` in App). */
+type AgentFacts = {
+  key: string;
+  loading: boolean;
+  input_data: any | null;
+  input_error: string;
+  flow: any | null;
+  flow_error: string;
+  automation_body: any | null;
+  automation: AutomationBrief | null;
+  automation_error: string;
+  runs: RunSummary[];
+  runs_error: string;
+};
+const EMPTY_AGENT_FACTS: AgentFacts = {
+  key: "",
+  loading: false,
+  input_data: null,
+  input_error: "",
+  flow: null,
+  flow_error: "",
+  automation_body: null,
+  automation: null,
+  automation_error: "",
+  runs: [],
+  runs_error: "",
+};
 
 
 const RUNTIME_ARTIFACT_PAGE_SIZE = 500;
@@ -483,6 +516,18 @@ export function App(): React.ReactElement {
   const [gateway_mcp_servers, set_gateway_mcp_servers] = useState<Array<{ name: string; url?: string; description?: string }> | null>(null);
   /** Launch mode: run the workflow once now, or create an automation. */
   const [launch_mode, set_launch_mode] = useState<"once" | "automate">("once");
+  /** Launch is a MODAL, not a page (operator 2026-10-14): "+ New automation" opens
+   * it in Automate mode, the header's Launch button in Run once; `#launch` and
+   * `#launch/automate` deep links open it over whatever page is showing. */
+  const [launch_open, set_launch_open] = useState(false);
+  /** The AbstractCode web app, when the gateway's app registry says it is installed and
+   * running (`GET /api/gateway/apps`, entry "code"): the board's "Open in Code" target.
+   * null = not installed / not running / registry unreadable → the button is greyed out. */
+  const [code_app, set_code_app] = useState<{ url: string } | null>(null);
+  function open_launch(mode: "once" | "automate"): void {
+    set_launch_mode(mode);
+    set_launch_open(true);
+  }
   /** Non-empty when the Launch target is the gateway default agent of this
    * interface (`flow_id: "@default"`); bundle_id/flow_id are empty then. */
   const [launch_default_interface, set_launch_default_interface] = useState<string>("");
@@ -588,6 +633,11 @@ export function App(): React.ReactElement {
   const [status_pulse, set_status_pulse] = useState(false);
   const dismiss_timer_ref = useRef<number | null>(null);
   const [dismissed_wait_key, set_dismissed_wait_key] = useState<string>("");
+  /** The Agent page's on-open facts (backlog 0003 §Agent page): input_data, the flow JSON,
+   * the automation record and the session's rows with metrics — fetched once per subject,
+   * never on the poll path. `key` names the subject the facts belong to. */
+  const [agent_facts, set_agent_facts] = useState<AgentFacts>(EMPTY_AGENT_FACTS);
+  const agent_facts_seq = useRef(0);
 
   const [chat_input, set_chat_input] = useState<string>("");
   const [chat_error, set_chat_error] = useState<string>("");
@@ -796,7 +846,7 @@ export function App(): React.ReactElement {
     : undefined;
   // Fresh email status whenever Launch → Automate is shown (the user may have just connected their mailbox).
   useEffect(() => {
-    if (page === "launch" && launch_mode === "automate" && gateway_connected) void automations_ctl.load_email_status();
+    if (launch_open && launch_mode === "automate" && gateway_connected) void automations_ctl.load_email_status();
   }, [page, launch_mode, gateway_connected, automations_ctl]);
   // Deep links: #launch/automate, #launch/once, #launch, #automations, #run/<run_id>.
   useEffect(() => {
@@ -809,7 +859,10 @@ export function App(): React.ReactElement {
         set_run_view_state(parse_run_view_hash(window.location.hash));
         return;
       }
-      if (target.page === "launch") set_launch_mode(target.mode);
+      if (target.page === "launch") {
+        open_launch(target.mode);
+        return;
+      }
       set_page(target.page);
     };
     apply();
@@ -1200,39 +1253,30 @@ export function App(): React.ReactElement {
     runs_inflight_ref.current = true;
     const epoch = discovery_epoch_ref.current;
     set_runs_loading(true);
-    try {
-      // One normalizer (automations.ts) keeps every listing field a view
-      // uses, including actor_id and the automation attribution.
-      const normalize_runs = (items: any[]): RunSummary[] => items.map(normalize_run_summary).filter((r) => Boolean(r.run_id));
-
-      const [root_runs, all_runs, archived_runs] = await Promise.all([
-        gateway_client.list_runs({ limit: 200, root_only: true, include_metrics: true }),
-        gateway_client.list_runs({ limit: 500, root_only: false, include_metrics: true }),
-        // Archived conversations leave the root listing; Observer still shows them (audit view).
-        gateway_client.list_runs({ limit: 200, root_only: true, archived_only: true, include_metrics: true }),
-      ]);
-      // EPOCH GUARD (adversary 2026-07-13): a sign-out during this await
-      // must not repopulate the disconnected app with late results.
-      if (epoch !== discovery_epoch_ref.current) return;
-      const root_items = with_archived_roots(
-        Array.isArray((root_runs as any)?.items) ? ((root_runs as any).items as any[]) : [],
-        Array.isArray((archived_runs as any)?.items) ? ((archived_runs as any).items as any[]) : [],
-      );
-      const all_items = Array.isArray((all_runs as any)?.items) ? ((all_runs as any).items as any[]) : [];
-      const next: RunSummary[] = normalize_runs(root_items)
-        // Observability UX: show only TURN roots — parent-less runs plus
-        // automation occurrences (the gateway's root_only=true definition);
-        // other subruns are observable via their parent's ledger.
-        .filter((r) => !String(r.parent_run_id || "").trim() || r.role === "occurrence");
-      set_run_options(next);
-      set_all_run_options(normalize_runs(all_items).filter((r) => Boolean(r.run_id)));
-      set_runs_refreshed_at(Date.now());
-      // First success clears any rate-limit backoff.
-      rate_limit_backoff_ref.current = 0;
-      rate_limited_until_ref.current = 0;
-    } catch (e: any) {
+    // One normalizer (automations.ts) keeps every listing field a view
+    // uses, including actor_id and the automation attribution.
+    const normalize_runs = (items: any[]): RunSummary[] => items.map(normalize_run_summary).filter((r) => Boolean(r.run_id));
+    const items_of = (page: any): any[] => (Array.isArray(page?.items) ? (page.items as any[]) : []);
+    // THE POLL (backlog 0003 W0, "cheap to watch"): each tick reads ONLY the
+    // active listings — running + waiting at every depth (controllers,
+    // occurrences and children; the board joins the tree by parent_run_id),
+    // no root_only, no include_metrics. The metrics sweep (roots + archived
+    // roots with include_metrics, which parses whole ledgers) runs every 60 s
+    // in the BACKGROUND: it feeds the Done lane and decorates active rows
+    // with metrics, and a slow sweep never delays the active poll (nor slows
+    // it through the poll's duration backoff). Active rows always win.
+    const poll = runs_poll_for(gateway_client, epoch);
+    const publish = () => {
+      const view = poll.view();
+      // run_options: listing roots (parent-less runs + automation
+      // occurrences, the gateway's root_only definition) for the navigator;
+      // all_run_options: every row seen (the board, the run views).
+      set_run_options(view.roots);
+      set_all_run_options(view.all);
+    };
+    const on_failure = (e: any, title: string) => {
       const msg = String(e?.message || e || "");
-      push_log({ ts: now_iso(), kind: "error", title: "Refresh runs failed", preview: clamp_preview(msg) });
+      push_log({ ts: now_iso(), kind: "error", title, preview: clamp_preview(msg) });
       // SESSION-EXPIRY HONESTY (fable5 code adversary P1): a 401/403 from
       // the heartbeat means the session died mid-use — without this, the
       // app stayed "connected" with frozen columns while every action
@@ -1251,10 +1295,55 @@ export function App(): React.ReactElement {
         rate_limited_until_ref.current = Date.now() + next;
         push_log({ ts: now_iso(), kind: "info", title: `Gateway rate-limited — pausing polls ${Math.round(next / 1000)}s` });
       }
+    };
+    try {
+      const [running, waiting] = await Promise.all([
+        gateway_client.list_runs({ status: "running", limit: RUNNING_LIMIT }),
+        gateway_client.list_runs({ status: "waiting", limit: WAITING_LIMIT }),
+      ]);
+      // EPOCH GUARD (adversary 2026-07-13): a sign-out during this await
+      // must not repopulate the disconnected app with late results.
+      if (epoch !== discovery_epoch_ref.current) return;
+      const running_items = items_of(running);
+      const waiting_items = items_of(waiting);
+      // Absence from a COMPLETE listing means "no longer active" (the run
+      // finished since the last sweep); a full page proves nothing.
+      const complete =
+        running_items.length < RUNNING_LIMIT && waiting_items.length < WAITING_LIMIT && (running as any)?.has_more !== true && (waiting as any)?.has_more !== true;
+      poll.apply_active(normalize_runs(running_items), normalize_runs(waiting_items), complete);
+      publish();
+      set_runs_refreshed_at(Date.now());
+      // First success clears any rate-limit backoff.
+      rate_limit_backoff_ref.current = 0;
+      rate_limited_until_ref.current = 0;
+    } catch (e: any) {
+      on_failure(e, "Refresh runs failed");
+      return;
     } finally {
       runs_inflight_ref.current = false;
       set_runs_loading(false);
     }
+    if (!poll.sweep_due(Date.now(), opts?.force === true)) return;
+    poll.begin_sweep(Date.now());
+    void Promise.all([
+      gateway_client.list_runs({ limit: 200, root_only: true, include_metrics: true }),
+      // Archived conversations leave the root listing; Observer still shows them (audit view).
+      gateway_client.list_runs({ limit: 200, root_only: true, archived_only: true, include_metrics: true }),
+    ]).then(
+      ([roots, archived]) => {
+        // Same epoch guard, plus: a late sweep of a replaced client never
+        // writes over the current one's rows.
+        if (epoch !== discovery_epoch_ref.current || !is_current_poll(poll)) return poll.fail_sweep();
+        const root_items = with_archived_roots(items_of(roots), items_of(archived));
+        poll.apply_sweep(normalize_runs(root_items), Date.now());
+        publish();
+      },
+      (e: any) => {
+        poll.fail_sweep();
+        if (epoch !== discovery_epoch_ref.current || !is_current_poll(poll)) return;
+        on_failure(e, "Refresh run metrics failed");
+      },
+    );
   }
 
   /** The post-auth half of connecting: discovery over an ALREADY
@@ -1274,6 +1363,19 @@ export function App(): React.ReactElement {
     set_gateway_connected(true);
     set_discovered_models_by_provider({});
 
+    // The app registry (non-blocking): which sibling apps a card may open.
+    void gateway_for_connect
+      .list_apps()
+      .then((reg: any) => {
+        if (epoch !== discovery_epoch_ref.current) return;
+        const apps = Array.isArray(reg?.apps) ? reg.apps : [];
+        const code = apps.find((a: any) => String(a?.id || "") === "code");
+        const url = code && code.installed === true && code.running === true ? String(code.url || "").trim() : "";
+        set_code_app(url ? { url } : null);
+      })
+      .catch(() => {
+        if (epoch === discovery_epoch_ref.current) set_code_app(null);
+      });
     const [bundles_res, , tools_res, providers_res, caps_res] = await Promise.allSettled([
       gateway_for_connect.list_bundles(),
       refresh_runs(gateway_for_connect),
@@ -2750,6 +2852,7 @@ export function App(): React.ReactElement {
       // A created automation must not lend its title/schedule to the next one.
       set_automate_form(DEFAULT_AUTOMATE_FORM);
       push_log({ ts: now_iso(), kind: "info", title: "Automation created", preview: clamp_preview(`${built.body.title} · ${res.automation_id}`) });
+      set_launch_open(false);
       set_page("automations");
       await automations_ctl.refresh();
       await automations_ctl.select(res.automation_id);
@@ -2777,6 +2880,7 @@ export function App(): React.ReactElement {
       return;
     }
     // Launch is not a dead end: the operator lands on the run just created.
+    set_launch_open(false);
     set_right_tab("ledger");
     set_page("observe");
   }
@@ -2810,8 +2914,7 @@ export function App(): React.ReactElement {
     set_automate_form(prefill.form);
     set_automate_notes([`Recreating the legacy schedule ${short_id(run_id_to_copy, 14)} as an automation. The legacy schedule keeps running until you suspend it.`, ...prefill.notes]);
     automate_request_ids.current.reset();
-    set_launch_mode("automate");
-    set_page("launch");
+    open_launch("automate");
   }
 
   async function attach_to_run(rid: string, opts?: { root_run_id?: string }): Promise<void> {
@@ -3542,7 +3645,14 @@ export function App(): React.ReactElement {
   // The board has its own inline answer forms — the global modal landing
   // on top of a half-typed board answer was a hijack (fable5 layout P1-6).
   const show_wait_modal =
-    is_waiting && wait_key && (is_user_wait || is_ask_event_wait || has_tool_wait) && dismissed_wait_key !== wait_key && page !== "board";
+    is_waiting &&
+    wait_key &&
+    (is_user_wait || is_ask_event_wait || has_tool_wait) &&
+    dismissed_wait_key !== wait_key &&
+    page !== "board" &&
+    // The Agent view carries the ask and its Answer action in its header; the
+    // modal would cover the evidence it exists to show (backlog 0003).
+    !(page === "observe" && right_tab === "agent");
   const sub_run_id = typeof (wait_state as any)?.details?.sub_run_id === "string" ? String((wait_state as any).details.sub_run_id) : "";
   const wait_context_run: RunSummary = {
     run_id: run_id.trim(),
@@ -4104,6 +4214,114 @@ export function App(): React.ReactElement {
     return all_run_options.find((r) => String(r.run_id || "").trim() === rid) || run_options.find((r) => String(r.run_id || "").trim() === rid) || null;
   }, [all_run_options, run_options, run_id]);
 
+  // The Agent page's subject row: the listing row when present, else the detail folded as a row.
+  const agent_row: RunSummary | null = useMemo(() => {
+    if (selected_run_summary) return selected_run_summary;
+    if (run_state && String(run_state?.run_id || "").trim()) return normalize_run_summary(run_state);
+    return null;
+  }, [selected_run_summary, run_state]);
+  const agent_key = agent_row
+    ? `${String(agent_row.run_id || "")}|${String(agent_row.workflow_id || "")}|${String(agent_row.automation_id || "")}|${String(agent_row.session_id || "")}`
+    : "";
+  // The session's rows go stale the moment a child finishes (it leaves the active
+  // listings and is never a root): re-list them whenever the subject's own row
+  // moves and once a minute while the view is open (GATE-1 finding 1).
+  const agent_session_id = String(agent_row?.session_id || "").trim();
+  const agent_moved = String(agent_row?.updated_at || "");
+  const agent_minute = Math.floor(Date.now() / 60_000);
+  useEffect(() => {
+    if (page !== "observe" || right_tab !== "agent" || !agent_session_id || !gateway_connected) return;
+    if (agent_facts.key !== agent_key || agent_facts.loading) return;
+    const seq = agent_facts_seq.current;
+    void gateway
+      .list_runs({ session_id: agent_session_id, include_metrics: true, limit: 200 })
+      .then((res) => {
+        if (seq !== agent_facts_seq.current) return;
+        const rows = Array.isArray(res?.items) ? (res.items as any[]).map(normalize_run_summary) : [];
+        set_agent_facts((prev) => (prev.key === agent_key ? { ...prev, runs: rows, runs_error: "" } : prev));
+      })
+      .catch((e: any) => {
+        if (seq !== agent_facts_seq.current) return;
+        set_agent_facts((prev) => (prev.key === agent_key ? { ...prev, runs_error: String(e?.message || e || "failed") } : prev));
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent_moved, agent_minute, agent_facts.key, agent_facts.loading]);
+  useEffect(() => {
+    if (page !== "observe" || right_tab !== "agent" || !agent_key || !gateway_connected) return;
+    if (agent_facts.key === agent_key) return;
+    const row = agent_row as RunSummary;
+    const rid = String(row.run_id || "").trim();
+    const seq = ++agent_facts_seq.current;
+    set_agent_facts({ ...EMPTY_AGENT_FACTS, key: agent_key, loading: true });
+    const wid = String(row.workflow_id || "").trim();
+    const flow_call = (): Promise<any> => {
+      // A bundle workflow id is `bundle@ver:flow`; the bundle route is the one that answers
+      // (gateway 0.13.1: `/workflows/{bundle@ver:flow}/flow` returns 500, LANE-B report).
+      const at = wid.indexOf("@");
+      const colon = at >= 0 ? wid.indexOf(":", at) : -1;
+      if (at >= 0 && colon > at) return gateway.get_bundle_flow(wid.slice(0, colon), wid.slice(colon + 1));
+      return gateway.get_workflow_flow(wid);
+    };
+    const automation_id = String(row.automation_id || "").trim();
+    const session_id = String(row.session_id || "").trim();
+    void Promise.allSettled([
+      gateway.get_run_input_data(rid),
+      wid ? flow_call() : Promise.reject(new Error("the run names no workflow")),
+      automation_id ? gateway.automations_client().getAutomation(automation_id) : Promise.resolve(null),
+      session_id ? gateway.list_runs({ session_id, include_metrics: true, limit: 200 }) : Promise.resolve({ items: [] }),
+    ]).then(([inp, flow, auto, runs_res]) => {
+      if (seq !== agent_facts_seq.current) return;
+      const err = (r: PromiseSettledResult<any>): string => (r.status === "rejected" ? String(r.reason?.message || r.reason || "failed") : "");
+      const auto_body = auto.status === "fulfilled" ? auto.value : null;
+      const rows = runs_res.status === "fulfilled" && Array.isArray(runs_res.value?.items) ? (runs_res.value.items as any[]).map(normalize_run_summary) : [];
+      set_agent_facts({
+        key: agent_key,
+        loading: false,
+        input_data: inp.status === "fulfilled" ? inp.value : null,
+        input_error: err(inp),
+        flow: flow.status === "fulfilled" ? flow.value : null,
+        flow_error: err(flow),
+        automation_body: auto_body,
+        automation: auto_body ? fold_automation_brief(auto_body) : null,
+        automation_error: err(auto),
+        runs: rows,
+        runs_error: err(runs_res),
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, right_tab, agent_key, gateway_connected, agent_facts.key]);
+  /** Rows for the Agent page's tree and spend: the session's rows (with metrics) under the live
+   * poll's rows (fresh state wins; metrics are kept from whichever row carries them). */
+  const agent_runs: RunSummary[] = useMemo(() => {
+    const by_id = new Map<string, RunSummary>();
+    for (const r of agent_facts.runs) if (String(r.run_id || "").trim()) by_id.set(String(r.run_id).trim(), r);
+    for (const r of all_run_options) {
+      const id = String(r.run_id || "").trim();
+      if (!id) continue;
+      const prev = by_id.get(id);
+      by_id.set(id, prev ? { ...prev, ...r, tokens_total: r.tokens_total ?? prev.tokens_total, llm_calls: r.llm_calls ?? prev.llm_calls, tool_calls: r.tool_calls ?? prev.tool_calls } : r);
+    }
+    if (agent_row && !by_id.has(String(agent_row.run_id || "").trim())) by_id.set(String(agent_row.run_id).trim(), agent_row);
+    return Array.from(by_id.values());
+  }, [agent_facts.runs, all_run_options, agent_row]);
+
+  // Flow tab (backlog 0003, operator 2026-10-14 11:15): per-node facts folded from the
+  // ledger, and the SAME state sentence the Agent view shows, so the banner, the header
+  // and the board never disagree. graph_node_id_for reads a ref: subrun_ids in the deps
+  // re-folds when a subrun prefix registers (same trick as graph_node_last_ms).
+  const flow_node_facts = useMemo(
+    () => fold_node_facts(ledger_record_items, run_id.trim(), graph_node_id_for),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ledger_record_items, run_id, subrun_ids],
+  );
+  const flow_run_line = useMemo(() => {
+    if (!agent_row) return null;
+    const subject = merged_subject(agent_row, run_state);
+    const details = new Map<string, any>();
+    if (run_state) details.set(String(subject.run_id || "").trim(), run_state);
+    return state_line(subject, make_context(agent_runs, { now_ms: graph_now_ms, details }));
+  }, [agent_row, run_state, agent_runs, graph_now_ms]);
+
   const selected_run_status_raw = String(run_state?.status || selected_run_summary?.status || "").trim();
   const selected_run_wait_reason = String(wait_reason || run_state?.waiting?.reason || selected_run_summary?.waiting_reason || "").trim().toLowerCase();
   const selected_run_is_scheduled = Boolean(run_state?.is_scheduled || selected_run_summary?.is_scheduled);
@@ -4437,7 +4655,6 @@ export function App(): React.ReactElement {
     { id: "board", label: "Board", icon: <Icon name="board" size={16} /> },
     { id: "observe", label: "Observe", icon: <Icon name="history" size={16} /> },
     { id: "runtime", label: "System", icon: <Icon name="server" size={16} /> },
-    { id: "launch", label: "Launch", icon: <Icon name="send" size={16} /> },
     { id: "automations", label: "Automations", icon: <Icon name="refresh" size={16} /> },
   ];
   const PAGE_TITLE: Record<string, string> = {
@@ -4591,10 +4808,7 @@ export function App(): React.ReactElement {
     on_refresh: () => void automations_ctl.refresh(),
     // "+ New automation" is a link to LAUNCH_AUTOMATE_HASH; the hash effect
     // below opens Launch in Automate mode (also from a pasted/bookmarked link).
-    on_new: () => {
-      set_launch_mode("automate");
-      set_page("launch");
-    },
+    on_new: () => open_launch("automate"),
     on_show_archived: (show) => automations_ctl.set_show_archived(show),
   };
 
@@ -4723,6 +4937,10 @@ export function App(): React.ReactElement {
                 }
               />
             ) : null}
+            <button type="button" className="btn btn_sm shell_launch_btn" onClick={() => open_launch("once")} title="Run a workflow once, or automate it">
+              <Icon name="send" size={14} />
+              <span>Launch</span>
+            </button>
             {/* The unified upper-right cluster (same order in every
               * AbstractFramework app): docs assistant → appearance → Disconnect. */}
             <AfTopBarActions
@@ -4795,17 +5013,29 @@ export function App(): React.ReactElement {
               on_refresh={() => void refresh_runs(gateway, { force: true })}
               on_open_run={(rid) => {
                 set_page("observe");
-                set_right_tab("ledger");
+                set_right_tab("agent");
                 void attach_to_run(rid);
               }}
               on_resume_wait={board_resume_wait}
               on_open_automation={(automation_id) => {
+                set_launch_open(false);
                 set_page("automations");
                 void automations_ctl.refresh().then(() => automations_ctl.select(automation_id));
               }}
               entity_app_href={entity_app_url}
               on_read_diary={(name, entry_id) => gateway.read_entity_diary_entry(name, entry_id)}
               phase_graph={phase_graph}
+              client={gateway}
+              on_rename_automation={(automation_id, title, expected_revision) => automations_ctl.revise(automation_id, { title }, expected_revision ?? null)}
+              on_revise_automation={(automation_id, changes, expected_revision) => automations_ctl.revise(automation_id, changes, expected_revision)}
+              on_automation_command={(automation_id, type) => automations_ctl.command(automation_id, type)}
+              on_resume_run={(rid) => submit_run_control_for_run(rid, "resume")}
+              on_cancel_run={(rid) => submit_run_control_for_run(rid, "cancel")}
+              code_app={code_app}
+              done_loaded={(() => {
+                const poll = runs_poll_peek(gateway);
+                return poll !== null && poll.epoch === discovery_epoch_ref.current && poll.sweep_at !== null;
+              })()}
             />
           )
         ) : null}
@@ -4985,8 +5215,8 @@ export function App(): React.ReactElement {
           </div>
         ) : null}
 
-        {page === "launch" ? (
-          <div className="page page_scroll">
+        <Modal open={launch_open} title={launch_mode === "automate" ? "New automation" : "Run once"} variant="fullscreen" onClose={() => set_launch_open(false)}>
+          <div className="launch_modal_scroll">
             <div className="page_inner constrained">
               <div className="card">
                 {/* The shell header already names the page — the card leads
@@ -5305,7 +5535,7 @@ export function App(): React.ReactElement {
               </div>
             </div>
           </div>
-        ) : null}
+        </Modal>
 
         {page === "automations" ? (
           <AutomationsPage
@@ -5679,6 +5909,9 @@ export function App(): React.ReactElement {
                   * their unique content now lives inside Story or Runtime. */}
                 <div className="tab_bar">
                   <div role="tablist" aria-label="Run views" className="observe_tablist">
+                  <button role="tab" aria-selected={right_tab === "agent"} className={`tab ${right_tab === "agent" ? "active" : ""}`} onClick={() => select_observe_tab("agent")}>
+                    Agent
+                  </button>
                   <button role="tab" aria-selected={right_tab === "ledger"} className={`tab ${right_tab === "ledger" ? "active" : ""}`} onClick={() => select_observe_tab("ledger")}>
                     Ledger
                   </button>
@@ -5746,6 +5979,45 @@ export function App(): React.ReactElement {
                   ) : null}
 
                 </div>
+
+                {right_tab === "agent" ? (
+                  run_id.trim() && agent_row ? (
+                    <AgentPage
+                      run={agent_row}
+                      detail={run_state}
+                      input_data={agent_facts.key === agent_key ? agent_facts.input_data : null}
+                      flow={agent_facts.key === agent_key ? agent_facts.flow : null}
+                      automation={agent_facts.key === agent_key ? agent_facts.automation : null}
+                      automation_body={agent_facts.key === agent_key ? agent_facts.automation_body : null}
+                      runs={agent_runs}
+                      records={ledger_record_items}
+                      stall_after_ms={read_stall_after_ms(typeof localStorage === "undefined" ? null : localStorage)}
+                      loading={{ detail: connecting && !run_state, input_data: agent_facts.key !== agent_key || agent_facts.loading, flow: agent_facts.key !== agent_key || agent_facts.loading }}
+                      errors={agent_facts.key === agent_key ? { input_data: agent_facts.input_error || undefined, flow: agent_facts.flow_error || undefined } : {}}
+                      on_open_run={(rid) => void attach_to_run(rid)}
+                      on_ask={() => select_observe_tab("chat")}
+                      on_action={(action, rid) => {
+                        if (action === "resume") {
+                          void submit_run_control_for_run(rid, "resume");
+                          return;
+                        }
+                        if (action === "open_subrun") {
+                          void attach_to_run(rid);
+                          return;
+                        }
+                        // approve / answer / inspect: the wait's own controls live on the Ledger view.
+                        set_dismissed_wait_key("");
+                        select_observe_tab("ledger");
+                      }}
+                      on_reveal_workspace={() => void reveal_run_workspace()}
+                      on_copy={(text) => void copy_to_clipboard(text)}
+                    />
+                  ) : (
+                    <div className="rs_page">
+                      <p className="rs_notice">{run_id.trim() ? "Loading the run…" : "Pick a run to see what its agent can do, what it was given, and where it stands."}</p>
+                    </div>
+                  )
+                ) : null}
 
                 {right_tab === "ledger" ? (
                   run_id.trim() ? (
@@ -5847,6 +6119,11 @@ export function App(): React.ReactElement {
                         visited_nodes={visited_nodes}
                         highlight_path={graph_highlight_path}
                         now_ms={graph_now_ms}
+                        run_id={run_id.trim()}
+                        run_line={flow_run_line}
+                        run_status={selected_run_status_label || selected_run_status_raw}
+                        node_facts={flow_node_facts}
+                        on_open_run={(rid) => void attach_to_run(rid)}
                       />
                     </div>
                   </>

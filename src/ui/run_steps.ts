@@ -475,9 +475,12 @@ export function llm_detail(step: RunStep): LlmDetail {
       const f = t.function && typeof t.function === "object" ? t.function : t;
       return { name: String(f.name || "?"), description: String(f.description || ""), schema: f.parameters ?? f.input_schema ?? null };
     });
+  // A call on the runtime's defaults names its provider/model only in the
+  // request as sent (`result.metadata._provider_request`) — LANE-C finding.
+  const sent_req = result?.metadata?._provider_request && typeof result.metadata._provider_request === "object" ? result.metadata._provider_request : {};
   return {
-    provider: String(payload.provider || result.provider || ""),
-    model: String(payload.model || result.model || ""),
+    provider: String(payload.provider || result.provider || sent_req.provider || sent?.provider || ""),
+    model: String(payload.model || result.model || sent_req.model || sent?.model || ""),
     tokens_in: num(usage.prompt_tokens ?? usage.input_tokens),
     tokens_out: num(usage.completion_tokens ?? usage.output_tokens),
     system,

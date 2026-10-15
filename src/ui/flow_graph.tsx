@@ -1,6 +1,22 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
+import { COPY_FAILED, clipboardWrite } from "../lib/secure-context";
+import {
+  build_run_state_doc,
+  node_context_copy,
+  node_facts_copy,
+  node_records_jsonl,
+  node_status_map,
+  result_needs_show_all,
+  type NodeFacts,
+  type NodeRunStatus,
+} from "./flow_node_facts";
+import { format_duration_ms } from "./format";
 import { PinLegend } from "./pin_legend";
+import { clamp_string } from "./pins";
+import { run_status_class } from "./run_status";
+import { short_run_id, type StateLine } from "./state_line";
 
 type VisualFlow = {
   id?: string;
@@ -266,6 +282,291 @@ function clamp_view(view: ViewBox, bounds: { x: number; y: number; w: number; h:
   return { x: view.x, y: view.y, w, h };
 }
 
+// --- run status on the graph (Lane D, operator 2026-10-14 11:15) -------------------
+//
+// AbstractFlow's run vocabulary (abstractflow NodeStatusGlyph.tsx, nodes.css):
+// running = --success ring + pulse, waiting = --warning dashed ring, failed =
+// --error ring, done = --info check. The colour is never the only signal: each
+// status also draws a glyph and is named in the node's accessible label.
+
+export type GraphRunStatus = NodeRunStatus | "none";
+
+const TERMINAL_WORDS = new Set(["completed", "failed", "cancelled", "stopped"]);
+
+const HERE_TEXT: Readonly<Record<GraphRunStatus, string>> = { running: "here", waiting: "waiting here", failed: "failed here", done: "here", none: "here" };
+
+const STATUS_WORD: Readonly<Record<GraphRunStatus, string>> = { running: "running", waiting: "waiting", failed: "failed", done: "done", none: "not visited" };
+
+/** The wait reason as the object of "waiting" (runtime WaitReason enum → words; never the bare word). */
+const WAIT_OBJECT: Readonly<Record<string, string>> = {
+  user: "waiting for you",
+  subworkflow: "waiting for its subrun",
+  until: "waiting for the clock",
+  event: "waiting for an event",
+  job: "waiting for a tool job",
+};
+
+function wait_words(facts: NodeFacts | null | undefined): string {
+  const open = facts?.waits.find((w) => w.open) || null;
+  if (!open) return "waiting, reason not recorded";
+  return WAIT_OBJECT[open.reason] || `waiting (${open.reason || "reason not recorded"})`;
+}
+
+function status_rank(s: GraphRunStatus): number {
+  return s === "running" ? 3 : s === "waiting" ? 2 : 0;
+}
+
+function hhmmss(ms: number | null): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((x) => String(x).padStart(2, "0")).join(":");
+}
+
+const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+function StatusGlyph(props: { status: GraphRunStatus }): React.ReactElement | null {
+  const s = props.status;
+  if (s === "none") return null;
+  let glyph: React.ReactElement;
+  if (s === "running") glyph = <circle className="flow_badge_spin" r={4} fill="none" strokeDasharray="18 8" />;
+  else if (s === "waiting") glyph = <path d="M -2 -3.5 V 3.5 M 2 -3.5 V 3.5" />;
+  else if (s === "failed")
+    glyph = (
+      <>
+        <path d="M 0 -4 V 1" />
+        <circle className="flow_badge_dot" cx={0} cy={3.6} r={0.9} />
+      </>
+    );
+  else glyph = <path d="M -3.5 0.2 L -1 2.8 L 3.6 -2.6" />;
+  return (
+    <>
+      <circle className="flow_badge_bg" r={8.5} />
+      {glyph}
+    </>
+  );
+}
+
+function CopyButton(props: {
+  label: React.ReactNode;
+  /** What the button says for 1.5 s after a copy (default "Copied" / the failure hint). */
+  copied?: React.ReactNode;
+  failed?: React.ReactNode;
+  title?: string;
+  className?: string;
+  get_text: () => string;
+  disabled?: boolean;
+}): React.ReactElement {
+  const [state, set_state] = useState<"idle" | "copied" | "failed">("idle");
+  const timer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+  return (
+    <button
+      type="button"
+      className={props.className || "btn flow_copy_btn"}
+      title={props.title}
+      aria-label={props.title}
+      disabled={props.disabled}
+      data-copy-state={state}
+      onClick={async (e) => {
+        e.stopPropagation();
+        const ok = await clipboardWrite(props.get_text());
+        set_state(ok ? "copied" : "failed");
+        if (timer.current !== null) window.clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => set_state("idle"), 1500);
+      }}
+    >
+      <span aria-live="polite">{state === "copied" ? props.copied ?? "Copied" : state === "failed" ? props.failed ?? COPY_FAILED : props.label}</span>
+    </button>
+  );
+}
+
+/** A long text: clamped the pins' way, with "show all (N chars)". */
+function LongText(props: { text: string }): React.ReactElement {
+  const [all, set_all] = useState(false);
+  const { shown, clamped } = clamp_string(props.text);
+  return (
+    <span className="flow_facts_text">
+      <span>{all || !clamped ? props.text : shown}</span>
+      {clamped ? (
+        <button type="button" className="flow_link_btn" aria-expanded={all} onClick={() => set_all((v) => !v)}>
+          {all ? "show less" : `show all (${props.text.length.toLocaleString("en-US")} chars)`}
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
+/** The result summary (every key) and, when a value is shown by its size, the complete value behind "show all". */
+function ResultCell(props: { summary: string; value: unknown }): React.ReactElement {
+  const [all, set_all] = useState(false);
+  const more = result_needs_show_all(props.value);
+  return (
+    <span className="flow_facts_text">
+      <code className="flow_facts_summary">{props.summary}</code>
+      {more ? (
+        <button type="button" className="flow_link_btn" aria-expanded={all} onClick={() => set_all((v) => !v)}>
+          {all ? "show less" : "show all"}
+        </button>
+      ) : null}
+      {more && all ? <pre className="flow_facts_json">{JSON.stringify(props.value, null, 2)}</pre> : null}
+    </span>
+  );
+}
+
+export type NodeFactsPanelProps = {
+  node: { id: string; label: string; type: string };
+  facts: NodeFacts | null;
+  status: GraphRunStatus;
+  here: boolean;
+  finished: boolean;
+  on_open_run?: (run_id: string) => void;
+};
+
+/** What one node did in this run — the hover/focus panel's body (exported for tests). */
+export function NodeFactsPanel(props: NodeFactsPanelProps): React.ReactElement {
+  const { node, facts, status } = props;
+  const word = status === "waiting" ? wait_words(facts) : STATUS_WORD[status];
+  const times = facts
+    ? [
+        `${facts.visits.toLocaleString("en-US")} visit${facts.visits === 1 ? "" : "s"}`,
+        facts.first_ms !== null ? `first ${hhmmss(facts.first_ms)}` : "",
+        facts.last_ms !== null ? `last ${hhmmss(facts.last_ms)}` : "",
+        `${format_duration_ms(facts.duration_ms)} in steps`,
+      ].filter(Boolean)
+    : [];
+  const llm = facts?.llm || null;
+  return (
+    <div className="flow_facts">
+      <div className="flow_facts_head">
+        <span className="flow_facts_title">{node.label}</span>
+        <span className="flow_facts_type">{node.type}</span>
+      </div>
+      <div className="flow_facts_status">
+        <span className="flow_status_chip" data-run-status={status}>
+          {word}
+        </span>
+        {props.here ? <span className="flow_facts_here">{HERE_TEXT[status]}</span> : null}
+      </div>
+      {facts ? (
+        <dl className="flow_facts_rows">
+          <div className="flow_facts_row">
+            <dt>Visits</dt>
+            <dd>{times.join(" · ")}</dd>
+          </div>
+          {llm ? (
+            <div className="flow_facts_row">
+              <dt>LLM</dt>
+              <dd>
+                {[
+                  llm.model || "model not recorded",
+                  llm.provider || "provider not recorded",
+                  `${llm.calls.toLocaleString("en-US")} call${llm.calls === 1 ? "" : "s"}`,
+                  llm.tokens ? `${llm.tokens.in.toLocaleString("en-US")} in · ${llm.tokens.out.toLocaleString("en-US")} out tokens` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </dd>
+            </div>
+          ) : null}
+          {facts.tools.length ? (
+            <div className="flow_facts_row">
+              <dt>Tools</dt>
+              <dd>
+                <table className="flow_facts_tools">
+                  <thead>
+                    <tr>
+                      <th scope="col">tool</th>
+                      <th scope="col">calls</th>
+                      <th scope="col">failed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {facts.tools.map((t) => (
+                      <tr key={t.name} data-failed={t.failed > 0 ? "true" : undefined}>
+                        <td>{t.name}</td>
+                        <td>{t.calls}</td>
+                        <td>{t.failed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </dd>
+            </div>
+          ) : null}
+          {facts.waits.length ? (
+            <div className="flow_facts_row">
+              <dt>Waits</dt>
+              <dd>
+                <ul className="flow_facts_list">
+                  {facts.waits.map((w, i) => (
+                    <li key={`${w.reason}|${w.wait_key}|${i}`}>
+                      <span>{WAIT_OBJECT[w.reason] || w.reason || "reason not recorded"}</span>
+                      {w.open ? <span className="flow_facts_open"> · now</span> : null}
+                      {w.prompt ? (
+                        <>
+                          {" · "}
+                          <LongText text={w.prompt} />
+                        </>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          ) : null}
+          {facts.subruns.length ? (
+            <div className="flow_facts_row">
+              <dt>Subruns</dt>
+              <dd className="flow_facts_subruns">
+                {facts.subruns.map((rid) => (
+                  <button
+                    key={rid}
+                    type="button"
+                    className="flow_link_btn mono"
+                    title={props.on_open_run ? `Open run ${rid}` : `${rid} (opening runs is not wired here)`}
+                    disabled={!props.on_open_run}
+                    onClick={() => props.on_open_run?.(rid)}
+                  >
+                    {short_run_id(rid)}
+                  </button>
+                ))}
+              </dd>
+            </div>
+          ) : null}
+          {facts.last_result_summary ? (
+            <div className="flow_facts_row">
+              <dt>Result</dt>
+              <dd>
+                <ResultCell summary={facts.last_result_summary} value={facts.last_result} />
+              </dd>
+            </div>
+          ) : null}
+          {facts.last_error ? (
+            <div className="flow_facts_row flow_facts_error">
+              <dt>Error</dt>
+              <dd>
+                <LongText text={facts.last_error} />
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : (
+        <p className="flow_facts_none">{props.finished ? "Not visited in this run." : "Not visited yet."}</p>
+      )}
+      <div className="flow_facts_actions">
+        <CopyButton label="Copy facts (JSON)" disabled={!facts} get_text={() => (facts ? node_facts_copy(facts) : "")} />
+        <CopyButton label="Copy records (JSONL)" disabled={!facts || !facts.records.length} get_text={() => (facts ? node_records_jsonl(facts) : "")} />
+        {facts?.context ? <CopyButton label="Copy context" get_text={() => node_context_copy(facts)} /> : null}
+      </div>
+    </div>
+  );
+}
+
 export function FlowGraph(props: {
   flow: VisualFlow | null;
   flow_by_id?: Record<string, any>;
@@ -281,6 +582,20 @@ export function FlowGraph(props: {
   visited_nodes?: Record<string, number>;
   highlight_path?: boolean;
   now_ms?: number;
+  /** The root run the graph shows (for "Copy run state"). */
+  run_id?: string;
+  /** The run's state sentence (state_line.ts) — the banner's text. */
+  run_line?: StateLine | null;
+  /** The run's status word (`run_status_word`): colours the banner pill, decides ongoing vs finished. */
+  run_status?: string;
+  /** Overrides the label the banner names after "at" (default: the highlighted node's label). */
+  current_node_label?: string;
+  /** graph node id → status (`node_status_map(node_facts)`); default: derived from `node_facts`. */
+  node_status?: Record<string, NodeRunStatus>;
+  /** graph node id → facts (`fold_node_facts`): the hover/focus panel and the copies. */
+  node_facts?: Record<string, NodeFacts>;
+  /** Opens a subrun listed in a node's facts. */
+  on_open_run?: (run_id: string) => void;
 }): React.ReactElement {
   const now_ms = typeof props.now_ms === "number" ? props.now_ms : Date.now();
   const flow_in = props.flow;
@@ -419,14 +734,6 @@ export function FlowGraph(props: {
     return { nodes: nodes_out, edges: edges_out, bounds: vb };
   }, [flow_in, props.flow_by_id, props.expand_subflows, props.simplify, props.prefer_vertical, active, vertical_compact]);
 
-  if (!flow_in) {
-    return (
-      <div className="graph_empty mono">
-        (no graph loaded)
-      </div>
-    );
-  }
-
   const svg_ref = useRef<SVGSVGElement | null>(null);
   const [view, set_view] = useState<ViewBox>(() => ({ x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h }));
   const view_ref = useRef<ViewBox>(view);
@@ -447,6 +754,122 @@ export function FlowGraph(props: {
         anchor_svg: { x: number; y: number };
       }
   >(null);
+
+  const edge_pair_set = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of edges) set.add(`${e.source}->${e.target}`);
+    return set;
+  }, [edges]);
+
+  // --- the node facts panel: one at a time; hover (150 ms) or focus shows it, a click or Enter pins it ---
+  const [pop, set_pop] = useState<{ id: string; mode: "hover" | "focus" | "pinned" } | null>(null);
+  const [pop_pos, set_pop_pos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const node_els = useRef<Record<string, SVGGElement | null>>({});
+  const pop_el = useRef<HTMLDivElement | null>(null);
+  const hover_timer = useRef<number | null>(null);
+  const down_ref = useRef<{ id: string; x: number; y: number } | null>(null);
+  const suppress_focus_ref = useRef(false);
+  const uid = useId();
+  const panel_dom_id = `flow_facts_${uid.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+
+  const clear_hover_timer = () => {
+    if (hover_timer.current !== null) window.clearTimeout(hover_timer.current);
+    hover_timer.current = null;
+  };
+  const place_pop = (id: string) => {
+    const el = node_els.current[id];
+    if (!el || typeof window === "undefined") return;
+    const r = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const width = Math.min(400, vw - 16);
+    let left = r.right + 10;
+    let top = r.top;
+    if (left + width > vw - 8) left = r.left - 10 - width;
+    if (left < 8) {
+      // Neither side fits (a phone): below the node.
+      left = Math.min(Math.max(8, r.left), Math.max(8, vw - width - 8));
+      top = r.bottom + 8;
+    }
+    set_pop_pos((prev) => (prev && prev.top === top && prev.left === left && prev.width === width ? prev : { top, left, width }));
+  };
+  const open_pop = (id: string, mode: "hover" | "focus") => {
+    clear_hover_timer();
+    place_pop(id);
+    set_pop({ id, mode });
+  };
+  const hide_soon = (id: string) => {
+    clear_hover_timer();
+    hover_timer.current = window.setTimeout(() => set_pop((p) => (p && p.id === id && p.mode !== "pinned" ? null : p)), 200);
+  };
+  const toggle_pin = (id: string, focus_panel: boolean) => {
+    clear_hover_timer();
+    if (pop && pop.id === id && pop.mode === "pinned") {
+      set_pop(null);
+      return;
+    }
+    place_pop(id);
+    set_pop({ id, mode: "pinned" });
+    if (focus_panel) window.setTimeout(() => pop_el.current?.focus(), 0);
+  };
+  useEffect(() => () => clear_hover_timer(), []);
+
+  // Keep the panel beside its node while the graph pans/zooms, and inside the viewport.
+  useBrowserLayoutEffect(() => {
+    if (pop) place_pop(pop.id);
+  }, [pop?.id, view.x, view.y, view.w, view.h]);
+  const clamp_pop = () => {
+    const el = pop_el.current;
+    if (!el) return;
+    const h = el.offsetHeight;
+    const vh = window.innerHeight;
+    set_pop_pos((p) => {
+      if (!p || p.top + h <= vh - 8) return p;
+      const top = Math.max(8, vh - 8 - h);
+      return top === p.top ? p : { ...p, top };
+    });
+  };
+  useBrowserLayoutEffect(() => {
+    if (pop && pop_pos) clamp_pop();
+  }, [pop?.id, pop_pos?.top, pop_pos?.left, pop_pos?.width]);
+  // A section opened inside the panel ("show all") grows it: keep it on screen.
+  const has_pop_pos = Boolean(pop_pos);
+  useEffect(() => {
+    const el = pop_el.current;
+    if (!pop || !el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => clamp_pop());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pop?.id, has_pop_pos]);
+  useEffect(() => {
+    if (!pop) return;
+    const on_key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      set_pop(null);
+      if (pop.mode !== "hover") {
+        suppress_focus_ref.current = true;
+        node_els.current[pop.id]?.focus();
+        suppress_focus_ref.current = false;
+      }
+    };
+    const on_down = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (t && pop_el.current?.contains(t)) return;
+      // A press on a node toggles that node's panel itself (svg pointerup).
+      if (t && typeof t.closest === "function" && t.closest("[data-flow-node]")) return;
+      set_pop(null);
+    };
+    const on_move = () => place_pop(pop.id);
+    document.addEventListener("keydown", on_key, true);
+    document.addEventListener("pointerdown", on_down, true);
+    window.addEventListener("resize", on_move);
+    window.addEventListener("scroll", on_move, true);
+    return () => {
+      document.removeEventListener("keydown", on_key, true);
+      document.removeEventListener("pointerdown", on_down, true);
+      window.removeEventListener("resize", on_move);
+      window.removeEventListener("scroll", on_move, true);
+    };
+  }, [pop?.id, pop?.mode]);
 
   const view_box = `${view.x} ${view.y} ${view.w} ${view.h}`;
   const node_by_id: Record<string, GraphNode> = {};
@@ -522,6 +945,134 @@ export function FlowGraph(props: {
     return { label, sub };
   };
 
+  /** The label and second line a node card shows. */
+  const display_of = (n: GraphNode, is_active: boolean): { label: string; type: string } => {
+    let label = n.label || n.id;
+    let type = n.type;
+    if (n.type === "on_schedule") type = schedule_sublabel(n, is_active);
+    else if (n.type === "subflow") {
+      const sub = subflow_label(n);
+      label = sub.label;
+      type = sub.sub;
+    }
+    return { label, type };
+  };
+
+  // --- run state: ongoing or finished, and where the highlight sits ---
+  const run_word = safe_str(props.run_status).trim().toLowerCase();
+  const line = props.run_line || null;
+  const run_id = safe_str(props.run_id).trim();
+  const has_run = Boolean(run_word || line || run_id);
+  const finished = run_word ? TERMINAL_WORDS.has(run_word) : line ? line.verb === "done" : false;
+  const run_died = run_word === "failed" || run_word === "cancelled";
+  const facts_all: Record<string, NodeFacts> = props.node_facts || {};
+  const raw_status: Record<string, NodeRunStatus> = props.node_status || node_status_map(facts_all);
+
+  // A collapsed subflow shows the status of what runs inside it: an open state
+  // (running over waiting) beats a closed one; among closed ones the latest wins.
+  const status_visible: Record<string, { s: GraphRunStatus; t: number }> = {};
+  for (const [k, s0] of Object.entries(raw_status)) {
+    const vid = to_visible_id(k);
+    if (!vid) continue;
+    let s: GraphRunStatus = s0;
+    // A finished run has no open node: what was left open ended with the run.
+    if (finished && (s === "running" || s === "waiting")) s = run_died ? "failed" : "done";
+    const t = facts_all[k]?.last_ms ?? (typeof node_last_ms[k] === "number" ? node_last_ms[k] : 0);
+    const cur = status_visible[vid];
+    if (!cur) {
+      status_visible[vid] = { s, t };
+      continue;
+    }
+    const ra = status_rank(s), rb = status_rank(cur.s);
+    const wins = ra !== rb ? ra > rb : t !== cur.t ? t > cur.t : s === "failed" && cur.s !== "failed";
+    if (wins) status_visible[vid] = { s, t };
+  }
+  const status_of = (id: string): GraphRunStatus => status_visible[id]?.s || "none";
+
+  let here = active_visible;
+  if (!here && has_run) {
+    // No live highlight (a page opened mid-run, or a run that died): the ledger says where.
+    let best: { id: string; s: GraphRunStatus; t: number } | null = null;
+    for (const [id, v] of Object.entries(status_visible)) {
+      const ok = finished ? run_died && v.s === "failed" : status_rank(v.s) > 0;
+      if (!ok) continue;
+      if (!best || status_rank(v.s) > status_rank(best.s) || (status_rank(v.s) === status_rank(best.s) && v.t > best.t)) best = { id, ...v };
+    }
+    here = best ? best.id : "";
+  }
+  const here_text = (s: GraphRunStatus): string => (finished && run_word === "cancelled" && s === "failed" ? "cancelled here" : HERE_TEXT[s]);
+
+  const visited_ids = new Set<string>();
+  let first_ms: number | null = null;
+  let last_ms: number | null = null;
+  for (const [k, f] of Object.entries(facts_all)) {
+    if (!f || f.visits <= 0) continue;
+    const vid = to_visible_id(k);
+    if (vid) visited_ids.add(vid);
+    if (f.first_ms !== null) first_ms = first_ms === null ? f.first_ms : Math.min(first_ms, f.first_ms);
+    if (f.last_ms !== null) last_ms = last_ms === null ? f.last_ms : Math.max(last_ms, f.last_ms);
+  }
+  for (const [k, t] of Object.entries(visited)) {
+    if (typeof t !== "number") continue;
+    const vid = to_visible_id(k);
+    if (vid) visited_ids.add(vid);
+  }
+  if (first_ms === null || last_ms === null) {
+    const times = Object.values(node_last_ms).filter((x) => typeof x === "number" && Number.isFinite(x));
+    if (times.length >= 2) {
+      first_ms = Math.min(...times);
+      last_ms = Math.max(...times);
+    }
+  }
+  const span_ms = first_ms !== null && last_ms !== null && last_ms >= first_ms ? last_ms - first_ms : null;
+
+  const fallback_sentence = (w: string): string => {
+    if (!w) return "state not loaded";
+    if (w === "waiting") return "waiting, reason not loaded";
+    return w;
+  };
+  const sentence = line?.text || fallback_sentence(run_word);
+  const verb_status: Record<string, string> = { running: "running", needs_you: "waiting", paused: "paused", waiting: "waiting", scheduled: "scheduled", done: "" };
+  const pill_class = run_status_class(run_word || (line ? verb_status[line.verb] ?? "" : ""));
+  const here_node = here ? node_by_id[here] : undefined;
+  const at_label = safe_str(props.current_node_label).trim() || (here_node ? display_of(here_node, here === active_visible).label : "");
+  const show_at = Boolean(at_label) && (!finished || run_died);
+  const visited_text = `${visited_ids.size.toLocaleString("en-US")} node${visited_ids.size === 1 ? "" : "s"} visited${span_ms !== null ? ` in ${format_duration_ms(span_ms)}` : ""}`;
+
+  const banner = has_run ? (
+    <div className="flow_banner" data-phase={finished ? "finished" : "ongoing"}>
+      <span className={`chip ${pill_class}`}>{finished ? "finished" : "ongoing"}</span>
+      <span className="flow_banner_text">{sentence}</span>
+      {show_at ? (
+        <span className="flow_banner_at">
+          · at <strong>{at_label}</strong>
+        </span>
+      ) : null}
+      {finished && flow_in ? <span className="flow_banner_meta">· {visited_text}</span> : null}
+    </div>
+  ) : (
+    <div className="flow_banner" data-phase="none">
+      <span className="chip muted">no run</span>
+      <span className="flow_banner_text">the workflow only — open a run to see where it is</span>
+    </div>
+  );
+
+  if (!flow_in) {
+    if (!has_run) {
+      return (
+        <div className="graph_empty mono">
+          (no graph loaded)
+        </div>
+      );
+    }
+    return (
+      <div className="graph_wrap">
+        {banner}
+        <div className="graph_empty mono">(no graph loaded)</div>
+      </div>
+    );
+  }
+
   const client_to_svg = (client_x: number, client_y: number, use_view?: ViewBox): { x: number; y: number } => {
     const vb = use_view || view_ref.current;
     const svg = svg_ref.current;
@@ -555,12 +1106,6 @@ export function FlowGraph(props: {
     set_view((prev) => clamp_view({ x: (base_view || prev).x - dx, y: (base_view || prev).y - dy, w: (base_view || prev).w, h: (base_view || prev).h }, bounds));
   };
 
-  const edge_pair_set = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of edges) set.add(`${e.source}->${e.target}`);
-    return set;
-  }, [edges]);
-
   const rect_border_point = (cx: number, cy: number, dx: number, dy: number): { x: number; y: number } => {
     const w = bounds.node_w;
     const h = bounds.node_h;
@@ -573,8 +1118,29 @@ export function FlowGraph(props: {
     return { x: cx + dx * s, y: cy + dy * s };
   };
 
+  const run_state_json = (): string =>
+    JSON.stringify(
+      build_run_state_doc({
+        run_id,
+        status: run_word,
+        state: sentence,
+        finished,
+        now_ms,
+        current_id: here,
+        nodes: nodes.map((n) => ({ id: n.id, label: display_of(n, false).label, type: n.type })),
+        edges,
+        facts: facts_all,
+        status_of,
+      }),
+      null,
+      2,
+    );
+
+  const pop_node = pop ? node_by_id[pop.id] : undefined;
+
   return (
     <div className="graph_wrap">
+      {banner}
       <div className="graph_corner">
         <div className="graph_corner_buttons">
           <button
@@ -613,6 +1179,14 @@ export function FlowGraph(props: {
           >
             −
           </button>
+          <CopyButton
+            className="btn graph_corner_btn flow_copy_state_btn"
+            title="Copy run state (JSON: where the run is and what each node did)"
+            label="⧉"
+            copied="✓"
+            failed="!"
+            get_text={run_state_json}
+          />
         </div>
         <PinLegend />
       </div>
@@ -620,7 +1194,7 @@ export function FlowGraph(props: {
         ref={svg_ref}
         className="graph_svg"
         viewBox={view_box}
-        role="img"
+        role="group"
         aria-label="Workflow execution graph"
         onWheel={(e) => {
           e.preventDefault();
@@ -642,6 +1216,7 @@ export function FlowGraph(props: {
           if (pts.length === 1) {
             gesture_ref.current = { mode: "pan", start_view: view_ref.current, start_client: { x: e.clientX, y: e.clientY }, start_dist: 0, anchor_svg: { x: 0, y: 0 } };
           } else if (pts.length >= 2) {
+            down_ref.current = null;
             const a = pts[0];
             const b = pts[1];
             const dx = a.x - b.x;
@@ -681,10 +1256,16 @@ export function FlowGraph(props: {
         onPointerUp={(e) => {
           pointers_ref.current.delete(e.pointerId);
           if (pointers_ref.current.size === 0) gesture_ref.current = null;
+          // A press that did not pan is a click on the node it started on (pointer
+          // capture retargets the click itself to the svg).
+          const down = down_ref.current;
+          down_ref.current = null;
+          if (down && pointers_ref.current.size === 0 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5) toggle_pin(down.id, false);
         }}
         onPointerCancel={(e) => {
           pointers_ref.current.delete(e.pointerId);
           if (pointers_ref.current.size === 0) gesture_ref.current = null;
+          down_ref.current = null;
         }}
       >
         <defs>
@@ -740,20 +1321,65 @@ export function FlowGraph(props: {
           const is_recent = until > now_ms;
           const is_active = active_visible && n.id === active_visible;
           const is_visited = highlight_path && visited_visible && visited_visible[n.id] !== undefined;
-          const cls = `graph_node ${is_active ? "active" : is_recent ? "recent" : ""} ${is_visited ? "visited" : ""}`;
+          const st = status_of(n.id);
+          const is_here = Boolean(here) && n.id === here;
+          const cls = `graph_node ${is_active ? "active" : is_recent ? "recent" : ""} ${is_visited ? "visited" : ""}${is_here ? " here" : ""}`;
           const bar_color = n.color || "rgba(255,255,255,0.16)";
-          let label = n.label || n.id;
-          let type = n.type;
-          if (n.type === "on_schedule") type = schedule_sublabel(n, Boolean(is_active));
-          else if (n.type === "subflow") {
-            const sub = subflow_label(n);
-            label = sub.label;
-            type = sub.sub;
-          }
+          const { label, type } = display_of(n, Boolean(is_active));
           const label_clamped = clamp_text(label, 22);
           const type_clamped = clamp_text(type, 22);
+          const chip = is_here ? here_text(st) : "";
+          const chip_w = chip ? Math.round(chip.length * 6.2 + 14) : 0;
+          const word = st === "waiting" ? wait_words(facts_all[n.id]) : STATUS_WORD[st];
+          const open = pop?.id === n.id;
           return (
-            <g key={n.id} className={cls} transform={`translate(${n.x}, ${n.y})`}>
+            <g
+              key={n.id}
+              ref={(el) => {
+                node_els.current[n.id] = el;
+              }}
+              className={cls}
+              transform={`translate(${n.x}, ${n.y})`}
+              data-flow-node={n.id}
+              data-run-status={st}
+              tabIndex={0}
+              role="button"
+              aria-label={`${label} (${type}): ${word}${chip ? `, ${chip}` : ""}`}
+              aria-haspopup="dialog"
+              aria-expanded={open}
+              aria-describedby={open ? panel_dom_id : undefined}
+              onPointerDown={(e) => {
+                down_ref.current = { id: n.id, x: e.clientX, y: e.clientY };
+              }}
+              onMouseEnter={() => {
+                if (pop?.mode === "pinned") return;
+                clear_hover_timer();
+                if (open) return;
+                hover_timer.current = window.setTimeout(() => {
+                  if (!gesture_ref.current) open_pop(n.id, "hover");
+                }, 150);
+              }}
+              onMouseLeave={() => {
+                if (open && pop?.mode === "hover") hide_soon(n.id);
+                else if (pop?.mode !== "pinned") clear_hover_timer();
+              }}
+              onFocus={() => {
+                if (suppress_focus_ref.current) return;
+                if (open && pop?.mode === "pinned") return;
+                open_pop(n.id, "focus");
+              }}
+              onBlur={(e) => {
+                if (open && pop?.mode === "focus" && !pop_el.current?.contains(e.relatedTarget as Node | null)) hide_soon(n.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                toggle_pin(n.id, true);
+              }}
+            >
+              {st === "running" || st === "waiting" || st === "failed" || is_here ? (
+                <rect className="flow_node_ring" x={-5} y={-5} width={bounds.node_w + 10} height={bounds.node_h + 10} rx={16} ry={16} />
+              ) : null}
               <rect className="graph_node_bg" width={bounds.node_w} height={bounds.node_h} rx={12} ry={12} />
               <rect className="graph_node_bar" width={bounds.node_w} height={6} rx={12} ry={12} fill={bar_color} />
               <text className="graph_node_label" x={12} y={28}>
@@ -767,10 +1393,51 @@ export function FlowGraph(props: {
                   ⏰
                 </text>
               ) : null}
+              {st !== "none" ? (
+                <g className="flow_status_badge" transform={`translate(${bounds.node_w - 12}, 0)`} aria-hidden="true">
+                  <StatusGlyph status={st} />
+                </g>
+              ) : null}
+              {chip ? (
+                <g className="flow_here_chip" transform={`translate(${bounds.node_w - 26 - chip_w}, -9)`} aria-hidden="true">
+                  <rect width={chip_w} height={18} rx={9} ry={9} />
+                  <text x={7} y={12.5}>
+                    {chip}
+                  </text>
+                </g>
+              ) : null}
             </g>
           );
         })}
       </svg>
+      {pop && pop_node && pop_pos && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={pop_el}
+              id={panel_dom_id}
+              className="flow_facts_pop"
+              role="dialog"
+              aria-label={`About the node ${display_of(pop_node, pop_node.id === active_visible).label}`}
+              tabIndex={-1}
+              style={{ top: pop_pos.top, left: pop_pos.left, width: pop_pos.width }}
+              onMouseEnter={clear_hover_timer}
+              onMouseLeave={() => (pop.mode === "hover" ? hide_soon(pop.id) : undefined)}
+              onBlur={(e) => {
+                if (pop.mode === "focus" && !e.currentTarget.contains(e.relatedTarget as Node | null)) hide_soon(pop.id);
+              }}
+            >
+              <NodeFactsPanel
+                node={{ id: pop_node.id, ...display_of(pop_node, pop_node.id === active_visible) }}
+                facts={facts_all[pop_node.id] || null}
+                status={status_of(pop_node.id)}
+                here={pop_node.id === here}
+                finished={finished}
+                on_open_run={props.on_open_run}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

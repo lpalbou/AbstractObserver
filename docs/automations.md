@@ -406,7 +406,7 @@ only; a workflow name never makes a run an automation run.
   **Automation** button that opens its automation on the Automations page. An
   automation between runs is not a card; it lives on the Automations page.
   Waits of an occurrence (questions, tool approvals with their tool calls)
-  can be answered from the Review column as for any run.
+  can be answered from the Board's **Needs you** lane as for any run.
 - **Observe**: in the run navigator, occurrences are grouped under their
   automation, which reads as its title (tag `automation`); discussions are
   tagged `discussion` and legacy schedules `legacy schedule`.

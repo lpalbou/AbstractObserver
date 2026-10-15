@@ -122,14 +122,18 @@ describe("AbstractObserver styles", () => {
     expect(css).toMatch(/\.mc_status\s*\{[^}]*padding:\s*2px 8px/);
   });
 
-  it("observe ships exactly THREE content tabs (Ledger/Flow/Ask): Story is gone, the run opens on the Ledger", () => {
+  it("observe ships exactly FOUR content tabs (Agent/Ledger/Flow/Ask): Story is gone; a run opens on the Ledger, a board card on the Agent view", () => {
     // The nine-tab strip was the operator's core "not simple enough"
     // complaint (collapsed to four); 2026-10-01 13:05 the Story went too
-    // ("unreadable"): the run opens on the Ledger's cycles view.
+    // ("unreadable"): the run opens on the Ledger's cycles view. Backlog
+    // 0003 (2026-10-14) adds the Agent view — what the agent can do, what
+    // it was given (pins), its context, tree and spend — and the board
+    // opens a card there.
     const app = readFileSync(new URL("./app.tsx", import.meta.url), "utf8");
-    expect(app).toMatch(/type ObserveRightTab = "ledger" \| "graph" \| "chat";/);
+    expect(app).toMatch(/type ObserveRightTab = "agent" \| "ledger" \| "graph" \| "chat";/);
     expect(app).toMatch(/useState<ObserveRightTab>\("ledger"\)/);
-    for (const label of [">Ledger<", ">Flow<", ">Ask<"]) {
+    expect(app.replace(/\s+/g, "")).toContain('on_open_run={(rid)=>{set_page("observe");set_right_tab("agent");');
+    for (const label of [">Agent<", ">Ledger<", ">Flow<", ">Ask<"]) {
       expect(app.replace(/\s+/g, "")).toContain(label.replace(/\s+/g, ""));
     }
     for (const dead of [">Story<", "Timeline</button>", "Replay</button>", "Digest</button>", "Attachments</button>", "Providers</button>", "RunOverviewPanel", "AgentCyclesPanel"]) {
@@ -189,3 +193,25 @@ describe("touch selects (one rule set: the kit's appearance-none select with its
     expect(bad).toEqual([]);
   });
 });
+
+describe("the run panel's tab pages scroll inside it", () => {
+  // The viewer (.panel_card.card_scroll) clips; a tab page must be the scrolling
+  // flex child, else a long outcome ("More") grows past the viewport with no
+  // way to reach "Less" (operator 2026-10-14 08:06).
+  const rule = (css: string, selector: string) => {
+    const i = css.indexOf(`${selector} {`);
+    expect(i, `${selector} rule`).toBeGreaterThanOrEqual(0);
+    return css.slice(i, css.indexOf("}", i));
+  };
+  it(".rs_page (Ledger) and .ap_page (Agent) are min-height:0 + overflow-y:auto flex children", () => {
+    const rs = readFileSync(new URL("./run_steps.css", import.meta.url), "utf8");
+    const ap = readFileSync(new URL("./agent_page.css", import.meta.url), "utf8");
+    for (const [css, sel] of [[rs, ".rs_page"], [ap, ".ap_page"]] as const) {
+      const body = rule(css, sel);
+      expect(body).toMatch(/min-height:\s*0/);
+      expect(body).toMatch(/overflow-y:\s*auto/);
+      expect(body).toMatch(/flex:\s*1 1 auto/);
+    }
+  });
+});
+

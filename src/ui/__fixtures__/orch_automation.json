@@ -1,0 +1,135 @@
+{
+ "definition": {
+  "schema_version": 2,
+  "revision": 4,
+  "title": "Evolution of prices and stock availability of new and used for:",
+  "controller": {
+   "bundle_ref": "abstractframework.automation-controller@1.0.0",
+   "flow_id": "controller"
+  },
+  "target": {
+   "workflow_id": "abstractassistant-orchestrator@0.0.9:c53b1579",
+   "bundle_ref": "abstractassistant-orchestrator@0.0.9",
+   "flow_id": "c53b1579",
+   "input_data": {
+    "prompt": "Evolution of prices and stock availability of new and used for:\n- HDD 12To (eg seagate exos)\n- HDD 16To (eg seagate exos)\n- HDD 18To (eg seagate exos)\n- HDD 24To (eg seagate exos)\n- Mac mini M6 32gb\n- Mac mini M5 pro 48gb\n- Mac Studio M5 36gb\n- Mac Studio M5 Ultra 96gb\n- Mac Studio M5 256gb",
+    "use_context": true,
+    "_runtime": {
+     "operator_email": "test@abstractframework.ai"
+    },
+    "workspace_root": "/home/operator/tmp/abstractframework/runtime/workspaces/session-automation-d18e1757-58ae-5e22-a61e-7b84f-5ab0009d3378",
+    "workspace_builtin_deny_prefixes": [
+     "/home/operator/tmp/abstractframework/runtime",
+     "/home/operator/.ssh",
+     "/home/operator/.aws",
+     "/home/operator/.gnupg",
+     "/home/operator/.config/gcloud",
+     "/home/operator/.kube",
+     "/home/operator/Library/Keychains",
+     "/home/operator/.abstractgateway",
+     "/home/operator/.abstractcode",
+     "/home/operator/.abstractassistant",
+     "/home/operator/.abstractcontinuum",
+     "/home/operator/.abstractcore"
+    ],
+    "workspace_builtin_allow": [
+     "/home/operator/tmp/abstractframework/runtime/workspaces/session-automation-d18e1757-58ae-5e22-a61e-7b84f-5ab0009d3378"
+    ]
+   }
+  },
+  "trigger": {
+   "binding_id": "ec8f10c9-69a9-5e2b-941f-8988aaeb4eee",
+   "source_id": "schedule",
+   "source_version": 1,
+   "config": {
+    "start_at": "2026-10-02T19:53:29.622724+00:00",
+    "anchor": "2026-10-02T19:53:29.622724+00:00",
+    "every": "24h"
+   }
+  },
+  "context": {
+   "mode": "growing",
+   "growing": {}
+  },
+  "policy": {
+   "serial": true,
+   "misfire": "coalesce",
+   "failure": "continue",
+   "retry": {
+    "max_attempts": 3,
+    "backoff": {
+     "initial": "30s",
+     "factor": 2,
+     "max": "10m"
+    }
+   },
+   "tool_approval": "auto",
+   "email_allowed_recipients": [
+    "self"
+   ],
+   "untrusted_input_tools": []
+  },
+  "notify": {
+   "channels": [
+    "console"
+   ]
+  },
+  "session_id": "automation:d18e1757-58ae-5e22-a61e-7b84fdee19cf",
+  "workspace_root": "/home/operator/tmp/abstractframework/runtime/workspaces/session-automation-d18e1757-58ae-5e22-a61e-7b84f-5ab0009d3378",
+  "created_at": "2026-10-02T19:53:29.622724+00:00",
+  "archived_at": null
+ },
+ "active_revision": 4,
+ "summary": {
+  "automation_id": "d18e1757-58ae-5e22-a61e-7b84fdee19cf",
+  "title": "Evolution of prices and stock availability of new and used for:",
+  "status": "active",
+  "trigger": {
+   "binding_id": "ec8f10c9-69a9-5e2b-941f-8988aaeb4eee",
+   "source_id": "schedule",
+   "source_version": 1,
+   "config": {
+    "start_at": "2026-10-02T19:53:29.622724+00:00",
+    "anchor": "2026-10-02T19:53:29.622724+00:00",
+    "every": "24h"
+   }
+  },
+  "context_mode": "growing",
+  "growing_max_tokens": 50000,
+  "workspace_root": "/home/operator/tmp/abstractframework/runtime/workspaces/session-automation-d18e1757-58ae-5e22-a61e-7b84f-5ab0009d3378",
+  "next_fire_at": "2026-10-14T19:53:29.622724+00:00",
+  "current_occurrence": null,
+  "occurrence_count": 13,
+  "attention": {
+   "pending_waits": 0,
+   "unread": false,
+   "unseen_count": 0,
+   "cursor": "att1:0",
+   "items": [],
+   "waits": []
+  },
+  "legacy": false,
+  "revision": 4,
+  "updated_at": "2026-10-13T22:58:37.437766+00:00",
+  "capabilities": [
+   "revise",
+   "pause",
+   "resume",
+   "run_now",
+   "stop_current",
+   "archive",
+   "discuss"
+  ],
+  "session_kind": "automation",
+  "last_occurrence": {
+   "run_id": "f66b78f7-8400-5d16-b8b4-2fdd75ffae0f",
+   "index": 13,
+   "status": "completed",
+   "attempts": 1,
+   "fired_at": "2026-10-13T19:53:29.622724+00:00",
+   "excerpt": "Here's the **Oct 13, 2026** update (day 22 since retail launch). All figures **live-verified today** from MacRumors, Macworld, Mazech, osxdaily, HelloExpress, Apple.com, and HDD market trackers.\n\n## 🔥 Today's headline: the 512GB M5 Ultra event is *next week*\nMazech (10/12) and Ma",
+   "notify": null,
+   "finished_at": "2026-10-13T22:58:37.054304+00:00"
+  }
+ }
+}

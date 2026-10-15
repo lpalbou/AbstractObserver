@@ -12,7 +12,9 @@
  * - Surfaces ride the pane/raised recipes; this file only refines metrics.
  * - Accent restraint: warning/error tint only where a number or the Review
  *   column demands attention; zero counts and idle surfaces stay calm.
- * - Type: sans everywhere; .mono is applied in markup ONLY to run ids.
+ * - Type: sans everywhere; .mono is applied in markup ONLY to ids and paths.
+ * - Hover moves nothing but the copy affordance (operator 2026-10-14): no
+ *   lifts, no shifts; ⧉ appears on hover / focus-within in place.
  */
 
 /* ---------- page rhythm ---------- */
@@ -257,19 +259,22 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- board columns as panes ---------- */
+/* ---------- board lanes as panes ---------- */
 
+/* Five lanes (backlog 0003): Needs you · Working · Waiting on… · Scheduled ·
+ * Done, side by side from 1440 px; three per row below that, two on
+ * tablets, one on phones (the lanes stack in reading order). */
 .mc_board {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   align-items: start;
 }
 
-/* Column = pane (overrides the flat styles.css .mc_column box). The
- * Review column's SINGLE warning cue lives on the header underline below —
- * the old treatment stacked three (column border + title color + card
- * tint). */
+/* Lane = pane (overrides the flat styles.css .mc_column box). The
+ * Needs-you lane's SINGLE warning cue lives on its border + header
+ * underline — the old treatment stacked three (column border + title
+ * color + card tint). */
 .mc_column {
   padding: 0;
   min-height: 220px;
@@ -278,7 +283,7 @@
   background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
 }
 
-.mc_column_review > .pane_header {
+.mc_column_needs_you > .pane_header {
   border-bottom-color: color-mix(in srgb, var(--warning) 55%, transparent);
 }
 
@@ -308,6 +313,10 @@
 .mc_more {
   align-self: center;
   margin: 2px 0 4px;
+}
+
+@media (max-width: 1439.98px) {
+  .mc_board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 1023.98px) {
@@ -403,7 +412,47 @@
 }
 
 .mc_card_actions {
-  gap: 8px;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Footer icon actions (Open in Code, Cancel): shared kit icons, quiet until hovered,
+ * one row with ⧉ and (i) on every ongoing card (operator 2026-10-15). */
+.mc_icon_btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.mc_icon_btn:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 9%, transparent);
+}
+
+.mc_icon_btn.mc_cancel:hover {
+  color: var(--error);
+}
+
+.mc_icon_btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mc_icon_btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* Approve / Reject / Answer share one visual weight (32px .btn recipe). */
@@ -534,9 +583,53 @@
   border-bottom: 1px solid var(--pane-border);
 }
 
-/* Title leads, count trails; the Done window select sits between. */
+/* Title leads, the count pill trails (right-aligned); the Done window
+ * select sits just before it. One head height whether or not a select is there. */
+.mc_column_head {
+  gap: 8px;
+  min-height: 46px;
+}
+
+.mc_column_head .mc_column_title {
+  margin: 0;
+  min-width: 0;
+}
+
+/* The count: a readable pill — tabular figures, primary text on a subtle raised
+ * surface; a zero is muted (operator 2026-10-14: "the number is difficult to see"). */
 .mc_column_head .mc_column_count {
   margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 7%, var(--raised-bg));
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.mc_column_head .mc_column_count.is_zero {
+  border-color: var(--pane-border);
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 550;
+}
+
+.mc_column_head .mc_window_select {
+  margin-left: auto;
+}
+
+.mc_column_head .mc_window_select + .mc_column_count {
+  margin-left: 0;
 }
 
 .mc_column_title {
@@ -552,11 +645,11 @@
   padding: 10px 12px 12px;
 }
 
-.mc_column_review {
+.mc_column_needs_you {
   border-color: color-mix(in srgb, var(--warning) 32%, var(--pane-border));
 }
 
-.mc_column_review .mc_column_head {
+.mc_column_needs_you .mc_column_head {
   border-bottom-color: color-mix(in srgb, var(--warning) 25%, var(--pane-border));
 }
 
@@ -565,18 +658,18 @@
   border: 1px solid var(--pane-border);
   border-radius: 10px;
   box-shadow: var(--shadow-raised);
-  padding: 11px 13px;
-  transition: border-color 0.15s, transform 0.12s;
+  padding: 12px 14px;
+  gap: 8px;
+  transition: border-color 0.15s;
 }
 
 .mc_card:hover {
   border-color: var(--pane-border-strong);
-  transform: translateY(-1px);
 }
 
 .mc_card_title {
   font-family: var(--font-sans);
-  font-size: var(--t-small);
+  font-size: var(--t-body);
   font-weight: 620;
 }
 
@@ -618,10 +711,11 @@
   padding-bottom: 12px;
 }
 
-/* Narrow layouts stack columns in a 2/1-wide grid; a viewport clamp
- * would crush them, so the page scroll comes back as the fallback. */
-@media (max-width: 1023.98px) {
+/* Below 1440 px the five lanes wrap onto rows (3/2/1 wide); a viewport
+ * clamp would crush them, so the page scroll comes back as the fallback. */
+@media (max-width: 1439.98px) {
   .mc_page { overflow-y: auto; }
+  .mc_page .mc_board { flex: 0 0 auto; }
   .mc_column { min-height: 220px; max-height: 60vh; }
 }
 
@@ -647,4 +741,1029 @@
   font-size: var(--t-micro);
   text-align: center;
   padding: 4px 0 2px;
+}
+
+/* ---------- card anatomy (backlog 0003): WHAT · WHO · WHY-NOW · metrics ----------
+ * Line 1: subject glyph + title (+ "untitled" chip) + the one-word pill.
+ * Line 2: the subject (automation title or session) + secondary + (i).
+ * Line 3: the state sentence + its actor badge (+ the no-progress mark).
+ * Line 4: metrics + ⧉ (the run id is never text). */
+
+.mc_card_head {
+  align-items: baseline;
+  justify-content: flex-start;
+}
+
+.mc_card_glyph {
+  flex: 0 0 auto;
+  width: 1.2em;
+  text-align: center;
+  font-size: var(--t-small);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.mc_glyph_automation {
+  color: var(--info);
+}
+
+/* Titles are sentences now (automation titles, task excerpts): two lines,
+ * then the ellipsis; the full title + its source ride the tooltip. */
+.mc_card_head .mc_card_title {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.45;
+}
+
+.mc_card_head .mc_status {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* "untitled" flows with the title text (a flex sibling squeezed the title
+ * to one word per line in a 270 px lane). */
+.mc_card_title .mc_untitled {
+  vertical-align: 1px;
+  font-weight: 500;
+}
+
+.mc_card_subject {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  min-width: 0;
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+}
+
+.mc_subject_label,
+.mc_subject_secondary {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc_subject_label {
+  font-weight: 550;
+  color: var(--text-secondary);
+}
+
+/* One line: the automation and its facts share it, the facts give way first. */
+.mc_card .mc_card_subject {
+  flex-wrap: nowrap;
+}
+
+.mc_subject_label {
+  flex: 0 1 auto;
+}
+
+.mc_subject_secondary {
+  flex: 1 1 0;
+}
+
+/* (i): a quiet round affordance at the end of the card's foot. */
+.mc_info_btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  font-style: italic;
+  font-weight: 650;
+  line-height: 1;
+  cursor: help;
+}
+
+.mc_info_btn:hover,
+.mc_info_btn[aria-expanded="true"] {
+  color: var(--text-primary);
+  border-color: var(--accent-border);
+}
+
+/* WHY-NOW: the sentence reads at body weight — it is the card's point. It is
+ * TEXT flow, not flex: a badge or trigger chip sits inline with its sentence
+ * and wraps with it, never alone on a line. */
+.mc_card_state {
+  display: block;
+  font-size: var(--t-small);
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.mc_card_state .mc_actor {
+  display: inline-block;
+  vertical-align: 1px;
+  margin-right: 6px;
+}
+
+.mc_state_text {
+  overflow-wrap: anywhere;
+}
+
+/* WHO on a Needs-you card: the person behind the request. */
+.mc_who {
+  font-weight: 650;
+}
+
+/* Actor badges: who ends the wait. `you` is the ONLY accent (and the only
+ * one that is a control); `run` is a link to the child; the rest are facts. */
+.mc_actor {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+  font-weight: 550;
+  line-height: 1.5;
+}
+
+/* An automation card's trigger (every 24h / on email / manual): a quiet fact chip. */
+.mc_trigger {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+button.mc_actor {
+  cursor: pointer;
+}
+
+.mc_actor_you {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-subtle);
+}
+
+button.mc_actor_you:hover {
+  border-color: var(--accent);
+}
+
+.mc_actor_run {
+  color: var(--info);
+  border-color: var(--info-border);
+}
+
+button.mc_actor_run:hover {
+  text-decoration: underline;
+}
+
+.mc_actor_unknown {
+  border-style: dashed;
+}
+
+/* No progress past the header threshold: ONE warning mark + a warm border;
+ * the lane's stale-first order already floats the card. */
+.mc_stall {
+  color: var(--warning);
+  font-size: var(--t-small);
+  cursor: help;
+}
+
+.mc_card.mc_card_stalled {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--pane-border));
+}
+
+.mc_inspect {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--info);
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  cursor: pointer;
+}
+
+.mc_inspect:hover {
+  text-decoration: underline;
+}
+
+/* The foot: metrics as one muted sentence of facts, then ⧉ and (i) — on the
+ * LAST line of the facts when a narrow lane wraps them (whole facts wrap,
+ * never a lone affordance). */
+.mc_card_foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  min-height: 24px;
+}
+
+.mc_fact {
+  white-space: nowrap;
+}
+
+.mc_card_metrics {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-bottom: 3px;
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.mc_sep {
+  opacity: 0.7;
+}
+
+/* ⧉ copy: hidden until its card or row is hovered or holds focus (keyboard
+ * users reach it), then clearly visible — a 15 px icon in a 24 px hit area.
+ * Opacity only: the button keeps its place, nothing moves. Always shown on
+ * touch screens (no hover there). */
+.mc_copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+}
+
+.mc_copy svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mc_card:hover .mc_copy,
+.mc_card:focus-within .mc_copy,
+.mc_info_row:hover .mc_copy,
+.mc_info_row:focus-within .mc_copy,
+.mc_copy:focus-visible,
+.mc_copy.is_copied,
+.mc_copy.is_failed {
+  opacity: 1;
+}
+
+.mc_copy:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 9%, transparent);
+}
+
+.mc_copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.mc_copy.is_copied {
+  color: var(--success);
+}
+
+.mc_copy.is_failed {
+  color: var(--error);
+}
+
+@media (hover: none) {
+  .mc_copy {
+    opacity: 1;
+  }
+}
+
+/* The quoted glimpse — the request on a Needs-you card, the answer on a Done
+ * card: ONE look, muted, three lines, the whole text in the tooltip. */
+.mc_glimpse {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--pane-border-strong);
+  color: var(--text-secondary);
+  font-size: var(--t-small);
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* A Done card's answer is markdown: rendered, then flattened to one quiet run
+ * of text the 3-line clamp can hold (headings and emphasis keep their weight;
+ * no block breaks, no images, no controls, links are text). */
+.mc_glimpse_md,
+.mc_glimpse_md * {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: normal;
+}
+
+.mc_glimpse_md :is(h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, tr, dt, dd)::after {
+  content: " ";
+}
+
+.mc_glimpse_md :is(h1, h2, h3, h4, h5, h6, strong, b, th) {
+  font-weight: 620;
+}
+
+.mc_glimpse_md :is(img, svg, hr, button, input, .pc-md_copy) {
+  display: none;
+}
+
+.mc_glimpse_md a {
+  pointer-events: none;
+  text-decoration: none;
+}
+
+/* ---------- Needs-you actions ---------- */
+
+.mc_card .mc_card_review_body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--pane-border);
+}
+
+.mc_card .mc_card_actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.mc_card .mc_card_actions .btn {
+  min-width: 0;
+}
+
+/* Open in Code · Cancel: quiet, right-aligned, wrapping as one group. */
+.mc_card_more {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.mc_card_more:has(.mc_confirm),
+.mc_card_more:has(.mc_act_error) {
+  flex-basis: 100%;
+  margin-left: 0;
+  justify-content: flex-start;
+}
+
+.btn.mc_btn_sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--t-small);
+}
+
+.btn.mc_btn_quiet {
+  background: transparent;
+  border-color: var(--pane-border-strong);
+  color: var(--text-secondary);
+}
+
+.btn.mc_btn_quiet:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+a.btn.mc_btn_quiet {
+  text-decoration: none;
+}
+
+/* A disabled control keeps its tooltip (disabled buttons swallow hover in
+ * some browsers): the wrapper carries it. */
+.mc_btn_wrap {
+  display: inline-flex;
+  cursor: not-allowed;
+}
+
+/* Nothing on a card lifts on hover. */
+.mc_card .btn:hover:not(:disabled),
+.mc_info_pop .btn:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Cancel's inline confirm: the question and its two answers, in place. */
+.mc_confirm {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 10px;
+  border-radius: 8px;
+  background: var(--error-subtle, color-mix(in srgb, var(--error) 10%, transparent));
+}
+
+.mc_confirm_q {
+  flex-basis: 100%;
+  color: var(--text-primary);
+  font-size: var(--t-small);
+  font-weight: 600;
+}
+
+.mc_cancel_sent {
+  color: var(--text-muted);
+  font-size: var(--t-small);
+}
+
+.mc_act_error {
+  flex: 1 1 100%;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--error) 60%, transparent);
+  color: var(--error);
+  font-size: var(--t-small);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* Scheduled = the automation cards: a calm accent underline, never a flood. */
+.mc_column_scheduled .mc_column_head {
+  border-bottom-color: color-mix(in srgb, var(--accent) 22%, var(--pane-border));
+}
+
+/* Header: the visible no-progress threshold (P6). */
+.mc_stall_control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mc_stall_control .mc_window_select {
+  margin-left: 0;
+}
+
+@media (max-width: 767.98px) {
+  .mc_health_side {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- the (i) popover (portalled to <body>: the lanes clip) ----------
+ * A real layout (operator 2026-10-14): 500 px wide (the viewport minus its
+ * gutters on phones), at most 70 % of the viewport tall with its own scroll,
+ * sections with a heading and a hairline, two-column rows (a fixed 112 px
+ * label column), an 8 / 12 px rhythm, mono for ids and paths only, sources as
+ * small tags, a copy on every row, the actions pinned at the bottom. */
+
+.mc_info_pop {
+  position: fixed;
+  z-index: 1500; /* over the shell, under modal backdrops (2000) */
+  max-height: min(70vh, calc(var(--vh-full, 100vh) - 16px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 12px;
+  background: var(--raised-bg);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: 1.5;
+}
+
+.mc_info_section {
+  padding: 12px 16px;
+}
+
+.mc_info_section + .mc_info_section {
+  border-top: 1px solid var(--pane-border);
+}
+
+.mc_info_section_title {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: var(--t-small);
+  font-weight: 650;
+}
+
+.mc_info_rows {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.mc_info_row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 24px;
+  column-gap: 12px;
+  align-items: baseline;
+}
+
+.mc_info_label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.7;
+  text-transform: uppercase;
+}
+
+/* The source tag sits under its label: lower case, no tracking. */
+.mc_info_label .mc_source {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.mc_info_value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.mc_info_text {
+  min-width: 0;
+}
+
+.mc_info_text.mono,
+.mc_info_aside.mono {
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+}
+
+.mc_info_aside {
+  color: var(--text-muted);
+  font-size: var(--t-small);
+}
+
+.mc_info_copy {
+  align-self: start;
+  margin: 0;
+}
+
+/* Where a value came from: a small tag, never a parenthetical. */
+.mc_source {
+  padding: 0 7px;
+  border: 1px solid var(--pane-border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--t-micro);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.mc_tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mc_tag {
+  padding: 1px 7px;
+  border: 1px solid var(--pane-border);
+  border-radius: 6px;
+  background: var(--pane-bg-2);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  line-height: 1.5;
+}
+
+/* Long prose folds by size (never cut): the whole text is there, faded out
+ * past five lines until "show all (N chars)". */
+.mc_long {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.mc_long_text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mc_long.is_folded .mc_long_text {
+  max-height: calc(1.5em * 5);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent);
+  mask-image: linear-gradient(to bottom, black 55%, transparent);
+}
+
+.mc_long_toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--info);
+  font: inherit;
+  font-size: var(--t-small);
+  cursor: pointer;
+}
+
+.mc_long_toggle:hover {
+  text-decoration: underline;
+}
+
+.mc_info_note {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: var(--text-muted);
+  font-size: var(--t-small);
+}
+
+/* Name it: one compact row — the input and Save. */
+.mc_name_it {
+  display: flex;
+  flex: 1 1 100%;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mc_name_it_input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: var(--t-small);
+}
+
+.mc_name_it_msg {
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: var(--t-small);
+}
+
+.mc_info_actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--pane-border);
+  background: var(--raised-bg);
+}
+
+/* Phones: the label (and its source tag) above its value. */
+@media (max-width: 479.98px) {
+  .mc_info_row {
+    grid-template-columns: minmax(0, 1fr) 24px;
+  }
+
+  .mc_info_label {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+}
+
+/* "blocks <parent>" on a Needs-you card: the parents that wait on this run and on nothing
+ * else (they are not carded in Waiting on…). */
+.mc_card_blocks {
+  font-size: var(--t-small);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.mc_blocks_word {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: var(--t-micro);
+}
+
+.mc_link_btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.mc_link_btn:hover {
+  color: var(--text-primary);
+}
+
+
+/* ---------- loading state + spacing pass (operator 2026-10-15) ----------
+ * Before the first runs poll the lanes hold card-shaped skeletons and the count
+ * pill says "…"; a card whose own detail is still loading shows a shimmering
+ * line where the detail will land. Cards are tighter: title + pill on one row,
+ * facts as a compact two-column grid, metrics as one muted line, no empty rows. */
+
+.mc_loading::before {
+  content: "";
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  border: 2px solid var(--pane-border-strong);
+  border-top-color: var(--info);
+  border-radius: 50%;
+  animation: mc_spin 0.9s linear infinite;
+}
+
+@keyframes mc_spin {
+  to { transform: rotate(360deg); }
+}
+
+.mc_column_head .mc_column_count.is_loading {
+  border-color: var(--pane-border);
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 550;
+  letter-spacing: 0.08em;
+}
+
+.mc_sk {
+  display: inline-block;
+  height: 0.85em;
+  width: 70%;
+  max-width: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--text-primary) 7%, transparent) 25%, color-mix(in srgb, var(--text-primary) 14%, transparent) 50%, color-mix(in srgb, var(--text-primary) 7%, transparent) 75%);
+  background-size: 200% 100%;
+  animation: mc_shimmer 1.3s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+.mc_sk_title {
+  height: 1em;
+}
+
+.mc_sk_pill {
+  width: 54px;
+  height: 18px;
+  margin-left: auto;
+  border-radius: 999px;
+}
+
+.mc_sk_row {
+  display: flex;
+  align-items: center;
+  min-height: 1.2em;
+}
+
+.mc_card_skeleton {
+  pointer-events: none;
+  cursor: default;
+  gap: 8px;
+}
+
+.mc_card_skeleton .mc_card_head {
+  align-items: center;
+}
+
+@keyframes mc_shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc_sk { animation: none; }
+  .mc_loading::before { animation-duration: 2s; }
+}
+
+/* Tighter cards: the same facts in less height. */
+.mc_column_cards {
+  gap: 7px;
+}
+
+.mc_card {
+  gap: 5px;
+  padding: 9px 11px 8px;
+}
+
+.mc_card_head .mc_card_title {
+  line-height: 1.35;
+}
+
+.mc_card_state {
+  line-height: 1.4;
+}
+
+.mc_card_foot {
+  min-height: 22px;
+  gap: 3px;
+}
+
+.mc_card_metrics {
+  padding-bottom: 2px;
+  line-height: 1.4;
+}
+
+.mc_card .mc_card_review_body {
+  padding-top: 8px;
+  gap: 6px;
+}
+
+/* Nothing renders as an empty row (a subject with no words, a glimpse with none). */
+.mc_card > :empty:not(.mc_sk) {
+  display: none;
+}
+
+/* Facts: a compact two-column grid, each cell one fact on one line (ellipsis;
+ * the whole fact + its absolute time in the tooltip); the columns stack by
+ * themselves in a lane too narrow for two (auto-fit, no media query). */
+.mc_facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 2px 10px;
+  font-size: var(--t-micro);
+  line-height: 1.45;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc_fact_cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc_fact_cell.is_failed {
+  color: var(--error);
+}
+
+/* The context row: a thin bar (used over budget) that IS the chooser's button,
+ * or the "independent context" chip. */
+.mc_ctx {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.mc_ctx_bar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--t-micro);
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mc_ctx_bar:hover:not(:disabled) .mc_ctx_label,
+.mc_ctx_bar[aria-expanded="true"] .mc_ctx_label {
+  color: var(--text-primary);
+}
+
+.mc_ctx_bar:disabled {
+  cursor: default;
+}
+
+.mc_ctx_bar.is_saving {
+  opacity: 0.7;
+}
+
+.mc_ctx_track {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  overflow: hidden;
+}
+
+.mc_ctx_fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--info);
+  transition: width 0.3s;
+}
+
+.mc_ctx_label {
+  font-variant-numeric: tabular-nums;
+}
+
+.mc_ctx_chooser {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.mc_ctx_chooser .btn.is_current {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.mc_ctx_custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mc_ctx_input {
+  width: 84px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+}
+
+.mc_ctx_close {
+  padding: 0 8px;
+}
+
+.mc_ctx_chip {
+  align-self: flex-start;
+  padding: 0 8px;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: var(--t-micro);
+  line-height: 1.6;
+}
+
+/* The automation card's footer: Open · Run now · Pause/Resume schedule · (i),
+ * revealed on hover or focus (its space is kept, nothing jumps); always shown on
+ * touch screens. */
+.mc_auto_foot {
+  align-items: center;
+}
+
+.mc_auto_foot > .btn,
+.mc_auto_foot > .mc_btn_wrap {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.mc_card:hover .mc_auto_foot > .btn,
+.mc_card:hover .mc_auto_foot > .mc_btn_wrap,
+.mc_card:focus-within .mc_auto_foot > .btn,
+.mc_card:focus-within .mc_auto_foot > .mc_btn_wrap {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .mc_auto_foot > .btn,
+  .mc_auto_foot > .mc_btn_wrap {
+    opacity: 1;
+  }
+}
+
+.mc_auto_foot .mc_spacer {
+  flex: 1 1 auto;
+}
+
+.mc_auto_foot .btn.mc_btn_sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--t-micro);
 }

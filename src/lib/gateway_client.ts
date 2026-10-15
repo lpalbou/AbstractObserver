@@ -898,6 +898,13 @@ export class GatewayClient {
    * for the signed-in person (the gateway applies availability + ownership).
    * `path` comes from the kit's executableWorkflowsPath(); the answer is parsed
    * (and contract-checked) by the kit's parseExecutableWorkflows(). */
+  /** `GET /api/gateway/apps` — the gateway's app registry (installed browser apps,
+   * each with `id`, `installed`, `running`, `url`; the Observer reads the "code"
+   * entry to offer "Open in Code" on a conversation). */
+  async list_apps(): Promise<any> {
+    return await this.get_gateway_json("apps");
+  }
+
   async get_gateway_json(path: string, signal?: AbortSignal): Promise<any> {
     const r = await fetch(_join(this._cfg.base_url, gatewayApiPath(path)), {
       headers: { ..._auth_headers(this._cfg.auth_token) },

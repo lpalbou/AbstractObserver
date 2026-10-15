@@ -1955,6 +1955,21 @@ button.primary:hover:not(:disabled) {
   overflow: hidden;
 }
 
+/* Launch as a modal (2026-10-14): the form card scrolls inside the fullscreen body. */
+.launch_modal_scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding: 4px 0 24px;
+}
+
+.shell_launch_btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .modal_footer {
   position: sticky;
   bottom: 0;
