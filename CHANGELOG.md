@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.8.0] - 2026-10-16
+
+Requires AbstractGateway 0.15.0 (`GET /runs` coalesced per plane + query; `/host/runs` titles and waits) over AbstractRuntime 0.10.1 (the active-run index), and `@abstractframework/ui-kit` 0.8.7.
 
 ### Added
 
