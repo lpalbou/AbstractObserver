@@ -2313,7 +2313,8 @@ describe("a stuck parent is a Needs-you card that names the subrun and its end (
     // facts, Cancel task and Open the run. No hardcoded band.
     expect(html).not.toContain("mc_stuck_band");
     expect(html).toContain('class="mc_ask mc_ask_stuck" data-run-id="child" role="group" aria-label="stuck"');
-    expect(html.replace(/\u00a0/g, " ")).toContain('<span class="mc_ask_words">stuck since Oct 14, 00:50 (1h 0m)</span>');
+    // "since <when>" renders in the viewer's time zone: build the expectation the same way.
+    expect(html.replace(/\u00a0/g, " ")).toContain(`<span class="mc_ask_words">stuck since ${format_when(NOW - 60 * 60_000, NOW)} (1h 0m)</span>`);
     expect(html).toContain('<div class="mc_stuck_why">Its subrun x was cancelled 30m ago and this run was not resumed.</div>');
     expect(html).toContain(">Cancel task</button>");
     expect(html).toContain(">Open the run →</button>");
