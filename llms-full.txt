@@ -194,7 +194,7 @@ See `docs/configuration.md` for the full list.
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
-- **Board** (Mission Control, the landing page): five lanes by *blocker* — **Needs you** (only you can move these: inline Approve/Reject/Answer/Resume), **Working** (an agent is on it: the open step and how long it has been open, stale-first, a mark past the "no progress after" threshold you set), **Waiting on…** (something else must happen first: a subrun, an event, the clock, a delegated job), **Scheduled** (automations as their own cards: next run, last run, number of turns) and **Done** (a time window). Every card reads title first (the automation's title, else the task's first line, else the workflow marked *untitled*), then who it belongs to, then a state *sentence with its object and actor* — never a bare "waiting" — and an (i) popover with the task and the automation's parameters (cadence, context mode, tools, model, policy, workspace; **Name it** renames an automation in place). Run ids never print; ⧉ copies them. An entities strip shows each entity's phase and links into the entity app; archived conversations stay, tagged **Archived**. The board polls only the running and waiting rows (no metrics) every 5 s and sweeps terminal rows with metrics every 60 s in the background
+- **Board** (Mission Control, the landing page): one card per **task** — a run you started, or an automation's turn — in the lane of whatever blocks it: **Needs you** (only you can move these: the asking subrun's request with inline Approve/Reject/Answer/Resume; a run that waits on a subrun that already ended is marked **stuck** and says so), **Working** (an agent is on it: the open step, how long ago it moved, a ⚠ past the no-progress threshold you pick in the lane head), **Waiting on…** (something else must happen first: a subrun, an event, the clock), **Scheduled** (automations: next run, last run, turns, cadence), **Done** (the outcome glimpse, time, tokens, tools, artifacts). A task card shows its chain of subruns inside — each with its own words, a link to that run and a stop control for that subrun alone — and every lane head has a cancel-all for its tasks (a cancel reaches the task's parents and subruns, never an automation's schedule). The last known board paints at once on reload and refreshes behind it; the (i) carries the full task and an automation's parameters; ⧉ copies the run id.
 - **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, the run view (a one-paragraph summary, then the steps grouped by agent cycle as collapsed cards that expand to the full prompt and answer; LLM calls / Tools / Failed filters, an All steps switch for housekeeping, search), graph, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS) The **Agent** view (where a board card opens) profiles the agent — who it is, what it may use and did use, what it does, for how long, what comes after — every value complete (collapsed by size, never clipped) with copy on hover, its inputs and outputs as AbstractFlow pins with live values, its context window, run tree and spend. The **Flow** view says ongoing or finished, highlights the current node in AbstractFlow's vocabulary, and shows each node's facts on hover with copy (facts, records, the exact LLM context) and a one-click **Copy run state** for AI readers.
 - **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
@@ -1402,15 +1402,23 @@ Direct bearer-token mode remains available for local development when no
 Gateway user is set.
 
 ## The Board (landing page)
-You land on **Board** — Mission Control: five lanes by blocker —
-**Needs you / Working / Waiting on… / Scheduled / Done** across every run, plus an entities
-strip. Cards move themselves by state. Each card says what the run is for (its title),
-who it belongs to (its automation or session) and a state sentence with its object and
-actor: "needs your approval: web_search · 23m · you", "running subrun react loop ·
-llm_call open 38m", "sleeps until 02:00 UTC · clock", "next run in 1h 12m · last #4
-completed · 5 turns". Hover (i) for the task and an automation's parameters; ⧉ copies the
-run id. Clicking a card opens **Observe → Agent**: what the agent can do, its inputs and
-outputs as pins with their values, its context window, the run tree, spend, and **Ask**.
+You land on **Board** — Mission Control: one card per **task** (a run you started, or an
+automation's turn) in the lane of whatever blocks it — **Needs you / Working / Waiting on… /
+Scheduled / Done** — plus an entities strip. Cards move themselves by state. A card reads
+the task first (its text, or its automation's title), then who it belongs to, then its
+chain: the root run and every live subrun under it, one row each with its own words —
+"waits at build ↓", "running · llm_call open 38s", "asks a question · 6m", "stuck: its
+subrun builder was cancelled 3h ago and the gateway did not resume this run". The asking
+subrun's request sits under the chain with **Approve / Reject** or **Review & answer**; a
+stuck task says what clears it. Each subrun row has a stop control for that subrun alone;
+the card's ✕ cancels the task (its parents and subruns, never an automation's schedule), and
+every lane head has a cancel-all for the lane's tasks with a two-step confirm. Scheduled
+cards show an automation's next run, last run, turns and cadence. On reload the board paints
+the last rows it knew at once ("board as of hh:mm:ss — refreshing…") and replaces them with
+the first poll. Hover a title for the full task text, (i) for an automation's parameters;
+⧉ copies the run id. Clicking a card opens **Observe → Agent**: what the agent can do, its
+inputs and outputs as pins with their values, its context window, the run tree, spend, and
+**Ask**.
 
 ## Observe a run
 Go to **Observe** (or click a Board card):
@@ -1903,7 +1911,7 @@ sequenceDiagram
 ## UI structure (pages → code)
 AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
-- **Board** (Mission Control landing page: five blocker lanes Needs you / Working / Waiting on… / Scheduled / Done + entities strip + inline wait answers): `src/ui/mission_control.tsx` over `src/ui/state_line.ts` (one vocabulary: the state sentence, lane, subject and title of a run — shared with the Agent view) and `src/ui/board_data.ts` (the metric-free poll, the 60 s sweep, and the lazy session-scoped caches: automation briefs, task excerpts, last-record pulses, wait details) + `GatewayClient.list_entities()` / `get_entity_card()`
+- **Board** (Mission Control landing page: one card per task — root run or automation turn — in one of five blocker lanes Needs you / Working / Waiting on… / Scheduled / Done, the chain of subruns inside each card, inline wait answers, per-lane cancel-all, the persisted last known board): `src/ui/mission_control.tsx` over `src/ui/state_line.ts` (one vocabulary: the state sentence, lane, subject and title of a run — shared with the Agent view) and `src/ui/board_data.ts` (the metric-free poll, the 60 s sweep, and the lazy session-scoped caches: automation briefs, task excerpts, last-record pulses, wait details) + `GatewayClient.list_entities()` / `get_entity_card()`
 - **Agent view** (Observe → Agent, where a board card opens): `src/ui/agent_page.tsx` + `agent_facts.ts` (pure folds: can-do, pins with values, context receipt, run tree, spend) + `pins.tsx` / `pin_palette.ts` (AbstractFlow's pin shapes and colours, mirrored)
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`

@@ -42,15 +42,23 @@ Direct bearer-token mode remains available for local development when no
 Gateway user is set.
 
 ## The Board (landing page)
-You land on **Board** — Mission Control: five lanes by blocker —
-**Needs you / Working / Waiting on… / Scheduled / Done** across every run, plus an entities
-strip. Cards move themselves by state. Each card says what the run is for (its title),
-who it belongs to (its automation or session) and a state sentence with its object and
-actor: "needs your approval: web_search · 23m · you", "running subrun react loop ·
-llm_call open 38m", "sleeps until 02:00 UTC · clock", "next run in 1h 12m · last #4
-completed · 5 turns". Hover (i) for the task and an automation's parameters; ⧉ copies the
-run id. Clicking a card opens **Observe → Agent**: what the agent can do, its inputs and
-outputs as pins with their values, its context window, the run tree, spend, and **Ask**.
+You land on **Board** — Mission Control: one card per **task** (a run you started, or an
+automation's turn) in the lane of whatever blocks it — **Needs you / Working / Waiting on… /
+Scheduled / Done** — plus an entities strip. Cards move themselves by state. A card reads
+the task first (its text, or its automation's title), then who it belongs to, then its
+chain: the root run and every live subrun under it, one row each with its own words —
+"waits at build ↓", "running · llm_call open 38s", "asks a question · 6m", "stuck: its
+subrun builder was cancelled 3h ago and the gateway did not resume this run". The asking
+subrun's request sits under the chain with **Approve / Reject** or **Review & answer**; a
+stuck task says what clears it. Each subrun row has a stop control for that subrun alone;
+the card's ✕ cancels the task (its parents and subruns, never an automation's schedule), and
+every lane head has a cancel-all for the lane's tasks with a two-step confirm. Scheduled
+cards show an automation's next run, last run, turns and cadence. On reload the board paints
+the last rows it knew at once ("board as of hh:mm:ss — refreshing…") and replaces them with
+the first poll. Hover a title for the full task text, (i) for an automation's parameters;
+⧉ copies the run id. Clicking a card opens **Observe → Agent**: what the agent can do, its
+inputs and outputs as pins with their values, its context window, the run tree, spend, and
+**Ask**.
 
 ## Observe a run
 Go to **Observe** (or click a Board card):
