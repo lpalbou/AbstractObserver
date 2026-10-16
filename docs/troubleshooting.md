@@ -121,3 +121,17 @@ above the form names the original value.
 - Automations: `automations.md`
 - Configuration & deployment: `configuration.md`
 - Security & trust boundaries: `security.md`
+
+## The Board is slow to load
+
+The Board polls the gateway's running and waiting listings every few seconds. With
+AbstractGateway 0.15.0 over AbstractRuntime 0.10.1 those listings are served from the
+runtime's active-run index and answer in milliseconds; on reload the Board paints the last
+rows it knew at once ("board as of hh:mm:ss — refreshing…") and replaces them with the
+first poll. If every lane stays on "loading runs…" for long:
+
+- check the gateway and runtime versions on the About card; older versions scan every run
+  file on every listing, which slows down while a local model generates;
+- a connection notice beside the connection label ("Refresh runs failed: … no answer within
+  30 s") means the gateway did not answer in time — the Board keeps the last rows it read
+  and retries by itself.
