@@ -1408,10 +1408,11 @@ automation's turn) in the lane of whatever blocks it — **Needs you / Working /
 Scheduled / Done** — plus an entities strip. Cards move themselves by state. A card reads
 the task first (its text, or its automation's title), then who it belongs to, then its
 chain: the root run and every live subrun under it, one row each with its own words —
-"waits at build ↓", "running · llm_call open 38s", "asks a question · 6m", "stuck: its
-subrun builder was cancelled 3h ago and the gateway did not resume this run". The asking
-subrun's request sits under the chain with **Approve / Reject** or **Review & answer**; a
-stuck task says what clears it. Each subrun row has a stop control for that subrun alone;
+"waits at build ↓", "running · llm_call open 38s", "asks a question · 6m", "stuck: subrun
+builder was cancelled 3h ago, this run was not resumed". The asking subrun's request sits
+under the chain with **Approve / Reject** or **Review & answer**; a stuck task shows an
+attention block instead: which run is stuck since when, one sentence built from the facts
+(which subrun ended how, and when), then **Cancel task** and **Open the run →**. Each subrun row has a stop control for that subrun alone;
 the card's ✕ cancels the task (its parents and subruns, never an automation's schedule), and
 every lane head has a cancel-all for the lane's tasks with a two-step confirm. Scheduled
 cards show an automation's next run, last run, turns and cadence. On reload the board paints
