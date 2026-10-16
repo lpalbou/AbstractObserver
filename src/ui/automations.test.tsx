@@ -401,7 +401,7 @@ describe("Automations page", () => {
     await ctl.refresh();
     await ctl.select(NEWS_ID);
     const pending = ctl.select(INBOX_ID);
-    expect(detail_html()).toContain("Loading…"); // never the previous automation's panel
+    expect(detail_html()).toContain("Loading automation…"); // never the previous automation's panel
     expect(detail_html()).not.toContain(NEWS.title);
     await pending;
     expect(ctl.state.detail?.definition?.revision).toBe(1);

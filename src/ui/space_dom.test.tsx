@@ -22,7 +22,7 @@ import { AfSwitch, type AutomationSummary } from "@abstractframework/ui-kit";
 import { GatewayClient } from "../lib/gateway_client";
 import { INITIAL_AUTOMATIONS_STATE } from "./automations";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
-import { MissionControlPage } from "./mission_control";
+import { MissionControlPage, type EntityTile } from "./mission_control";
 import { WorkflowRunNavigator } from "./run_panels";
 import { RuntimeActivityConsole } from "./runtime_page";
 import type { RunSummary } from "./run_status";
@@ -193,6 +193,75 @@ async function measure(markup: string, extra_css = "") {
   await ctx.close();
   return r;
 }
+
+/** The board with the Entities strip in one state: before the roster (null), N loaded tiles, or none. */
+function board_with(entities: EntityTile[] | null, total: number): string {
+  const tile = (name: string): EntityTile => ({
+    name, state: "awake:working", age_days: 12, last_moment: "visit_closed", last_moment_at: new Date().toISOString(), working: true,
+    tokens_total: 120_000, live_visit_tokens: 3_000, spend_warning: "", live_phase: "work",
+    open_questions: [{ record_id: "q1", entry_id: "e1", title: "A question", statement: "A question" }], open_questions_total: 2,
+    open_problems: [], open_problems_total: 0, lessons: [], lessons_total: 1, dreams_brief: null, error: "",
+  } as EntityTile);
+  return shell(
+    renderToStaticMarkup(
+      <MissionControlPage
+        gateway_connected
+        runs={RUNS}
+        all_runs={RUNS}
+        runs_refreshed_at={Date.now()}
+        entities={entities === null ? null : entities.map((e) => tile(e.name))}
+        entities_total={total}
+        entities_error=""
+        refreshing={false}
+        on_refresh={noop}
+        on_open_run={noop}
+        on_resume_wait={async () => {}}
+        on_open_automation={noop}
+        entity_app_href=""
+      />,
+    ),
+  );
+}
+
+/** Desktop layout: the Entities strip's height and where the first lane starts. */
+async function measure_strip(markup: string, extra_css = "") {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  await page.setContent(`<!doctype html><html class="theme-dark"><head><style>${css}</style><style>${extra_css}</style></head><body>${markup}</body></html>`);
+  const r = await page.evaluate(() => {
+    const strip = document.querySelector(".mc_entities") as HTMLElement | null;
+    const lane = document.querySelector(".mc_column") as HTMLElement | null;
+    return { strip_h: strip ? strip.getBoundingClientRect().height : -1, lanes_top: lane ? lane.getBoundingClientRect().top : -1 };
+  });
+  await ctx.close();
+  return r;
+}
+
+describe("the Entities strip never moves the lanes (desktop, rendered DOM)", () => {
+  it("before the roster and with tiles (hints badges included) the strip is one height and the lanes start at one top; with none it collapses to its head", async () => {
+    const names = Array.from({ length: 4 }, (_, i) => ({ name: `entity-${i}` }) as EntityTile);
+    const loading = await measure_strip(board_with(null, 0));
+    const sized = await measure_strip(board_with(null, 4));
+    const loaded = await measure_strip(board_with(names, 4));
+    const none = await measure_strip(board_with([], 0));
+    // Without the floor the skeleton row is the loaded row's own height (the floor is its measure,
+    // not a blanket); a loaded row never exceeds the floor, so data landing never grows the strip.
+    const NO_FLOOR = ".mc_entities_reserved { min-height: 0; }";
+    const natural = { loading: await measure_strip(board_with(null, 4), NO_FLOOR), loaded: await measure_strip(board_with(names, 4), NO_FLOOR) };
+    expect(Math.abs(natural.loading.strip_h - natural.loaded.strip_h), JSON.stringify(natural)).toBeLessThanOrEqual(4);
+    expect(loaded.strip_h, JSON.stringify({ loaded, natural })).toBeLessThanOrEqual(natural.loaded.strip_h + 1);
+    expect(loading.strip_h).toBeGreaterThan(0);
+    expect(loaded.strip_h).toBeGreaterThan(0);
+    for (const r of [sized, loaded]) {
+      expect(Math.abs(r.strip_h - loading.strip_h), JSON.stringify({ loading, r })).toBeLessThanOrEqual(1);
+      expect(Math.abs(r.lanes_top - loading.lanes_top), JSON.stringify({ loading, r })).toBeLessThanOrEqual(1);
+    }
+    // No entities at all: the strip collapses to its head and the lanes move up — once, when the
+    // roster lands — instead of leaving the page's largest empty box.
+    expect(none.strip_h, JSON.stringify({ loading, none })).toBeLessThan(loading.strip_h / 3);
+    expect(none.lanes_top, JSON.stringify({ loading, none })).toBeLessThan(loading.lanes_top - 100);
+  }, 120_000);
+});
 
 describe("phones (390 px): one page scroll on every list + detail screen (rendered DOM)", () => {
   it("the run view skeleton uses the class names app.tsx renders", () => {

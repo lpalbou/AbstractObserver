@@ -586,14 +586,17 @@ export function step_search_text(step: RunStep, node_label: string): string {
 
 export { HOUSEKEEPING_EVENT_NAMES };
 
-export type RunFacts = { llm_calls: number; tokens: number; tool_calls: number; tool_failures: number };
+export type RunFacts = { llm_calls: number; tokens: number; tool_calls: number; tool_failures: number; failed_steps: number };
 
 /** Totals over every run in the loaded ledger (root + subruns), one count per step. */
 export function run_facts(items: LedgerItem[]): RunFacts {
   const runs = Array.from(new Set((items || []).map((x) => String(x.run_id || x.record?.run_id || "").trim()).filter(Boolean)));
-  const out: RunFacts = { llm_calls: 0, tokens: 0, tool_calls: 0, tool_failures: 0 };
+  const out: RunFacts = { llm_calls: 0, tokens: 0, tool_calls: 0, tool_failures: 0, failed_steps: 0 };
   for (const rid of runs) {
     for (const s of build_run_steps(items, rid)) {
+      // Any failed step of any kind counts (operator 2026-10-16 01:59: "apparently there are
+      // some errors and I have no easy way to check it" — only tool failures were summed).
+      if (s.failed || String(s.status || "") === "failed") out.failed_steps += 1;
       if (s.kind === "llm_call") {
         out.llm_calls += 1;
         const u = s.record?.result?.usage || {};
@@ -614,5 +617,6 @@ export function run_facts_line(f: RunFacts): string {
   if (f.llm_calls) parts.push(`${f.llm_calls} LLM call${f.llm_calls === 1 ? "" : "s"}`);
   if (f.tokens) parts.push(`${f.tokens.toLocaleString("en-US")} tokens`);
   if (f.tool_calls) parts.push(`${f.tool_calls} tool call${f.tool_calls === 1 ? "" : "s"}${f.tool_failures ? `, ${f.tool_failures} failed` : ""}`);
+  if (f.failed_steps) parts.push(`${f.failed_steps} failed step${f.failed_steps === 1 ? "" : "s"}`);
   return parts.join(" · ");
 }

@@ -7,6 +7,7 @@
  * over props; the fold/label helpers they use live in their own modules
  * (format, artifacts, run_labels, ledger_views, artifact_previews).
  */
+import { LoadingState } from "./loading";
 import React, { useMemo, useState } from "react";
 
 import { JsonViewer as SharedJsonViewer, Markdown, copyText } from "@abstractframework/panel-chat";
@@ -86,6 +87,8 @@ export type RuntimeLedgerLogItem = { cursor: number; record: StepRecord };
 
 export function RuntimeActivityConsole(props: {
   gateway_connected: boolean;
+  /** The host's run listing is in flight and nothing has landed yet: show the wait, not "No runs". */
+  loading?: boolean;
   runs: RunSummary[];
   artifacts: RuntimeArtifact[];
   selected_run_id: string;
@@ -206,7 +209,8 @@ export function RuntimeActivityConsole(props: {
           </select>
         </div>
         <div className="pane_body scroll runtime_ops_rows" id="runtime_ops_runs" hidden={!runs_open}>
-          {!rows.length ? (
+          {!rows.length && props.loading && !props.runs.length ? <LoadingState what="activity" /> : null}
+          {!rows.length && !(props.loading && !props.runs.length) ? (
             <div className="runtime_ops_empty">
               {props.gateway_connected ? "No runs match this queue." : "Gateway offline. Runtime activity cannot be loaded until the connection is restored."}
             </div>
@@ -392,6 +396,8 @@ export function RuntimeExplorerPage(props: {
   selected_artifact: RuntimeArtifact | null;
   embedded_preview: RuntimeEmbeddedPreview;
   loading: boolean;
+  /** The runs poll is in flight (Activity shows "Loading activity…" while its list is empty). */
+  runs_loading?: boolean;
   error: string;
   query: string;
   scope: "all" | "session" | "run";
@@ -665,6 +671,7 @@ export function RuntimeExplorerPage(props: {
       {props.tab === "activity" ? (
         <RuntimeActivityConsole
           gateway_connected={props.gateway_connected}
+          loading={props.runs_loading}
           runs={props.runs}
           artifacts={props.artifacts}
           selected_run_id={props.selected_run_id}
@@ -850,7 +857,8 @@ export function RuntimeExplorerPage(props: {
             ) : null}
           </div>
           <div className="pane_body scroll artifact_browser_body">
-          {!props.artifact_groups.length ? (
+          {!props.artifact_groups.length && props.loading ? <LoadingState what="artifacts" size="block" /> : null}
+          {!props.artifact_groups.length && !props.loading ? (
             <div className="empty_state_inline">
               {props.gateway_connected ? "No artifacts match the current filters." : "Gateway offline. Artifact inventory cannot be loaded until the connection is restored."}
             </div>
@@ -1097,6 +1105,7 @@ export function RuntimeExplorerPage(props: {
               </div>
               {props.runtime_ledger_log_error ? <div className="warn_callout">{props.runtime_ledger_log_error}</div> : null}
               {!props.selected_run_id ? <div className="empty_state_inline">Select a run in Activity or Artifact Explorer to inspect its runtime ledger.</div> : null}
+              {props.selected_run_id && !runtime_log_rows.length && props.runtime_ledger_log_loading ? <LoadingState what="ledger" /> : null}
               {props.selected_run_id && !runtime_log_rows.length && !props.runtime_ledger_log_loading ? <div className="empty_state_inline">No ledger records match the current search.</div> : null}
               <div className="runtime_log_event_list" aria-label="Selected run ledger records">
                 {runtime_log_rows.map((item) => {

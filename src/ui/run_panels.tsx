@@ -7,6 +7,7 @@
  * the run view (run_steps_view.tsx, 2026-10-01). All render over props; every fold/label they use lives in
  * the extracted modules.
  */
+import { LoadingState } from "./loading";
 import React, { useState } from "react";
 
 import { Icon } from "@abstractframework/ui-kit";
@@ -178,7 +179,9 @@ export function WorkflowRunNavigator(props: {
 
       <div className="run_tree" id="run_nav_tree" hidden={!open}>
         {!props.sections.length ? (
-          props.connected ? (
+          props.connected && props.loading ? (
+            <LoadingState what="runs" />
+          ) : props.connected ? (
             <div className="run_tree_empty">No runs match the current filters.</div>
           ) : (
             <div className="run_tree_empty">

@@ -260,23 +260,89 @@ export function pulse_window(ledger_len: number): { after: number; limit: number
   return { after: Math.max(0, Math.floor(ledger_len) - 1), limit: 1 };
 }
 
-/** `reason=user` waits (the unresolved class): one detail per `run_id:updated_at`. */
-export function wait_detail_wants(runs: RunSummary[]): Want[] {
+/** `reason=user` waits (the unresolved class): one detail per `run_id:updated_at` — and,
+ * given the active rows, every `subworkflow` wait with NO live child in the listing: only
+ * the detail names the subrun (`waiting.details.sub_run_id`); without it a card can say no
+ * more than "waiting for a subrun to finish" (operator 2026-10-16 01:31: "waiting on what?
+ * from what?" over four parents whose subruns had been cancelled). */
+export function wait_detail_wants(runs: RunSummary[], active?: RunSummary[]): Want[] {
   const out: Want[] = [];
+  const seen = new Set<string>();
+  const push = (r: RunSummary) => {
+    if (seen.has(rid(r))) return;
+    seen.add(rid(r));
+    out.push({ id: rid(r), version: String(r?.updated_at || "") });
+  };
   for (const r of runs || []) {
     if (!rid(r) || String(r?.status || "").trim().toLowerCase() !== "waiting") continue;
-    if (row_wait_reason(r) !== "user") continue;
-    out.push({ id: rid(r), version: String(r?.updated_at || "") });
+    const reason = row_wait_reason(r);
+    // A parked parent in view: its detail names the STEP that waits ("waits at build ↓").
+    if (reason === "user" || (active && reason === "subworkflow")) push(r);
+  }
+  if (active) {
+    // GLOBAL, not viewport-bound: a stuck parent below the fold must still land in Needs you
+    // (design adversary P1-1); capped so a pathological listing cannot fan out.
+    const parents_with_live_child = new Set<string>();
+    for (const r of active) {
+      const pid = String(r?.parent_run_id || "").trim();
+      if (pid && !terminal_run_status(String(r?.status || ""))) parents_with_live_child.add(pid);
+    }
+    let n = 0;
+    for (const r of active) {
+      if (n >= CHILDLESS_SUBWORKFLOW_WANTS_CAP) break;
+      if (!rid(r) || String(r?.status || "").trim().toLowerCase() !== "waiting") continue;
+      if (row_wait_reason(r) === "subworkflow" && !parents_with_live_child.has(rid(r))) {
+        push(r);
+        n += 1;
+      }
+    }
+  }
+  return out;
+}
+
+/** At most this many childless subworkflow parents get their detail read per plan. */
+export const CHILDLESS_SUBWORKFLOW_WANTS_CAP = 50;
+
+/** What became of a subrun a parent still waits for: read once (a terminal run never changes;
+ * a non-terminal fate is re-read when the parent's detail changes). */
+export type SubrunFate = { run_id: string; status: string; updated_at: string; workflow_id: string; error: string };
+
+/** A subrun the gateway no longer has (404): a value, never a silent miss. */
+export const MISSING_SUBRUN_FATE = (run_id: string): SubrunFate => ({ run_id, status: "missing", updated_at: "", workflow_id: "", error: "not found" });
+
+export function fold_subrun_fate(run_id: string, body: any): SubrunFate {
+  return {
+    run_id,
+    status: String(body?.status || "").trim().toLowerCase(),
+    updated_at: String(body?.updated_at || body?.created_at || "").trim(),
+    workflow_id: String(body?.workflow_id || "").trim(),
+    error: String(body?.error || "").trim(),
+  };
+}
+
+/** The subruns named by the fetched details that are NOT in the active listing. */
+export function subrun_fate_wants(details: Map<string, any>, active_ids: Set<string>): Want[] {
+  const out: Want[] = [];
+  const seen = new Set<string>();
+  for (const d of details.values()) {
+    const sub = String(d?.waiting?.details?.sub_run_id || "").trim();
+    if (!sub || active_ids.has(sub) || seen.has(sub)) continue;
+    seen.add(sub);
+    out.push({ id: sub, version: "" });
   }
   return out;
 }
 
 /** The task excerpt of a plain run: `input_data.prompt` when the flow declares a
- * `prompt` pin, else "". The full text is kept (the card clamps; the (i) shows it). */
+ * `prompt` pin — or when the gateway cannot name the flow's pins at all (`pin_ids: []`,
+ * the bundle version is gone: operator 2026-10-16 01:31, four 77-day-old runs read
+ * "untitled" with their prompt sitting in the response), else "". The full text is
+ * kept (the card clamps; the (i) shows it). */
 export function excerpt_of_input_data(run_id: string, body: any): RunBrief {
   const pins = Array.isArray(body?.pin_ids) ? body.pin_ids.map((p: any) => String(p)) : [];
   const prompt = body?.input_data?.prompt;
-  const excerpt = pins.includes("prompt") && typeof prompt === "string" ? prompt.trim() : "";
+  const prompt_is_input = pins.includes("prompt") || pins.length === 0;
+  const excerpt = prompt_is_input && typeof prompt === "string" ? prompt.trim() : "";
   return { run_id, excerpt };
 }
 
@@ -700,9 +766,28 @@ export function useRunPulses(client: BoardDataClient | null | undefined, running
 /** A detail read before the run moved must never classify its NEW wait (GATE-1 M8 pin). */
 export const WAIT_DETAILS_CURRENT_ONLY = true;
 
-export function useWaitDetails(client: BoardDataClient | null | undefined, user_wait_runs: RunSummary[]): { map: Map<string, any>; pending: number; loading: Set<string> } {
-  const wants = useMemo(() => wait_detail_wants(user_wait_runs), [user_wait_runs]);
+export function useWaitDetails(client: BoardDataClient | null | undefined, user_wait_runs: RunSummary[], active?: RunSummary[]): { map: Map<string, any>; pending: number; loading: Set<string> } {
+  const wants = useMemo(() => wait_detail_wants(user_wait_runs, active), [user_wait_runs, active]);
   const res = useLazyCache<any>(client, wants, async (c, w) => await c.get_run(w.id), { scope: "wait_detail", priority: PRIORITY.wait_detail, current_only: WAIT_DETAILS_CURRENT_ONLY });
+  return { map: res.map, pending: res.pending, loading: res.loading };
+}
+
+/** The fates of the subruns the fetched details name and the listing lacks. */
+export function useSubrunFates(client: BoardDataClient | null | undefined, details: Map<string, any>, active_ids: Set<string>): { map: Map<string, SubrunFate>; pending: number; loading: Set<string> } {
+  const wants = useMemo(() => subrun_fate_wants(details, active_ids), [details, active_ids]);
+  const res = useLazyCache<SubrunFate>(
+    client,
+    wants,
+    async (c, w) => {
+      try {
+        return fold_subrun_fate(w.id, await c.get_run(w.id));
+      } catch (e: any) {
+        if (/\b404\b|not found/i.test(String(e?.message || e || ""))) return MISSING_SUBRUN_FATE(w.id);
+        throw e;
+      }
+    },
+    { scope: "subrun_fate", priority: PRIORITY.wait_detail },
+  );
   return { map: res.map, pending: res.pending, loading: res.loading };
 }
 
@@ -899,7 +984,44 @@ export class RunsPoll {
     this.sweep_at = prev.sweep_at;
   }
 
+  /** Take over another cache's live active rows (night review 2026-10-16 P1-1: without this a
+   * second client of the same epoch started at `active_at === null` and the persisted seed
+   * painted the PREVIOUS session over live rows for one listing). */
+  adopt_active(prev: RunsPoll): void {
+    if (prev.active_at === null) return;
+    this.active_rows = prev.active_rows;
+    this.active_at = prev.active_at;
+    this.active_complete = prev.active_complete;
+    this.seeded = prev.seeded;
+  }
+
+  /** When the active rows LANDED (null = never, or seeded from a persisted snapshot's time). */
+  active_at: number | null = null;
+  /** The rows came from a persisted snapshot, not this session's poll: "as of", not now. */
+  seeded = false;
+
+  /** What survives a reload: both row sets and when they landed. */
+  snapshot(): RunsSnapshot {
+    return { active_rows: this.active_rows, sweep_rows: this.sweep_rows, active_at: this.active_at, sweep_at: this.sweep_at };
+  }
+
+  /** Paint the LAST KNOWN board before the first listing answers (design adversary
+   * 2026-10-16 R3.1: a reload started from nothing and waited 4–5 s on two scans).
+   * Never over live rows; the first real poll replaces it. */
+  seed(snap: RunsSnapshot | null): boolean {
+    if (!snap || this.active_at !== null || !Array.isArray(snap.active_rows)) return false;
+    this.active_rows = snap.active_rows.filter((r) => Boolean(rid(r)));
+    this.sweep_rows = Array.isArray(snap.sweep_rows) ? snap.sweep_rows.filter((r) => Boolean(rid(r))) : [];
+    this.active_at = typeof snap.active_at === "number" ? snap.active_at : null;
+    this.sweep_at = typeof snap.sweep_at === "number" ? snap.sweep_at : null;
+    this.active_complete = false;
+    this.seeded = true;
+    return this.active_rows.length > 0 || this.sweep_rows.length > 0;
+  }
+
   apply_active(running: RunSummary[], waiting: RunSummary[], complete: boolean): void {
+    this.active_at = Date.now();
+    this.seeded = false;
     const prev = new Set(this.active_rows.map(rid));
     const seen = new Set<string>();
     const rows: RunSummary[] = [];
@@ -946,6 +1068,51 @@ export class RunsPoll {
   }
 }
 
+export type RunsSnapshot = { active_rows: RunSummary[]; sweep_rows: RunSummary[]; active_at: number | null; sweep_at: number | null };
+
+/** The persisted board, keyed by gateway + principal (another account on the same browser
+ * must never see this one's rows, even for a second). */
+export function runs_snapshot_key(base_url: string, principal: string): string {
+  return `${PERSIST_KEY_PREFIX}runs:${String(base_url || "").trim()}:${String(principal || "").trim()}`;
+}
+
+export function read_runs_snapshot(storage: StorageLike | null | undefined, key: string): RunsSnapshot | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    if (!v || typeof v !== "object" || !Array.isArray(v.active_rows)) return null;
+    return { active_rows: v.active_rows, sweep_rows: Array.isArray(v.sweep_rows) ? v.sweep_rows : [], active_at: typeof v.active_at === "number" ? v.active_at : null, sweep_at: typeof v.sweep_at === "number" ? v.sweep_at : null };
+  } catch {
+    return null;
+  }
+}
+
+/** Bounded like the lazy caches: the sweep rows are dropped first, then the whole thing. Never throws. */
+export function write_runs_snapshot(storage: StorageLike | null | undefined, key: string, snap: RunsSnapshot): void {
+  if (!storage) return;
+  try {
+    let blob = JSON.stringify(snap);
+    if (blob.length > PERSIST_MAX_CHARS) blob = JSON.stringify({ ...snap, sweep_rows: [] });
+    if (blob.length > PERSIST_MAX_CHARS) {
+      storage.removeItem(key);
+      return;
+    }
+    storage.setItem(key, blob);
+  } catch {
+    // Quota, private mode: the in-memory poll is the truth.
+  }
+}
+
+export function local_storage(): StorageLike | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
 const polls = new WeakMap<object, RunsPoll>();
 let current_poll: RunsPoll | null = null;
 
@@ -961,7 +1128,10 @@ export function runs_poll_for(client: object, epoch: number): RunsPoll {
     // sweep so the Done lane does not blink empty while this client's own
     // first sweep (due at once) runs. A sign-out bumps the epoch: nothing
     // carries over it.
-    if (prev && prev.epoch === epoch && prev.sweep_at !== null) p.adopt_sweep(prev);
+    if (prev && prev.epoch === epoch) {
+      if (prev.sweep_at !== null) p.adopt_sweep(prev);
+      p.adopt_active(prev);
+    }
     polls.set(client, p);
   }
   current_poll = p;

@@ -546,6 +546,7 @@ export default defineConfig({
 
 - Run view: an LLM call made on the runtime's defaults showed no provider or model on its card — they are named only in the request as sent (`result.metadata._provider_request`); `llm_detail` now reads them there.
 - Run view: a long outcome expanded with **More** grew past the viewport with no way to scroll back to **Less** — the run panel clips and its Ledger page was not a scrolling child. The Ledger page (and the new Agent view) now scroll inside the run panel; the toolbar and tabs stay put.
+- Board: the **Entities** strip landed after the lanes had painted and pushed them down (operator 2026-10-15). It is now in the page at first paint, one reserved height in every state (`.mc_entities_reserved`, `flex: none` so the column flex never squeezes it): shimmering tile placeholders under its head until the roster and cards land (as many as the roster says, once known), the tiles after, and a one-line **Entities — no entities** head when the gateway has none. Measured in Chromium: the strip's height and the lanes' top are the same before and after the data.
 - Run view: a tool call that needed approval showed as **waiting**, forever, beside a second, completed copy of the same call. The runtime records an approved call's execution under a new step with the same idempotency key; the steps are now merged, so each call is one step with its real status (root backlog 1016 tracks reading step state from the runtime instead).
 
 ## [0.7.1] - 2026-10-15

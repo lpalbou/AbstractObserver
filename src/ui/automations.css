@@ -5,8 +5,8 @@
 .auto_page {
   display: grid;
   grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
-  gap: 14px;
-  padding: 16px 18px;
+  gap: 10px;
+  padding: 0; /* the page already pads (operator 2026-10-15: less dark margin around the panels) */
   min-height: 0;
   height: 100%;
 }
@@ -106,6 +106,22 @@
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+/* All controls on ONE line (operator 2026-10-15): the toolbar never wraps; buttons are
+ * compact; Archive keeps the right edge. */
+.auto_row_actions {
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.auto_row_actions > * {
+  flex: 0 0 auto;
+}
+
+.auto_row_actions .btn {
+  padding-inline: 8px;
 }
 
 .auto_row_confirm {

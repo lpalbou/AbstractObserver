@@ -102,6 +102,8 @@ export type StateContext = {
   children_of: Map<string, RunSummary[]>;
   /** `GET /runs/{id}` bodies when known (full `waiting`, `paused`, `current_node`). */
   details?: Map<string, any>;
+  /** The fates of subruns a parent waits for that the listing no longer has (board_data.useSubrunFates). */
+  fates?: Map<string, { run_id: string; status: string; updated_at: string; workflow_id: string; error: string }>;
   pulses?: Map<string, RunPulse>;
   automations?: Map<string, AutomationBrief>;
   now_ms: number;
@@ -127,6 +129,8 @@ export type StateLine = {
   open_step: string;
   /** Row-only `reason=user`: question, approval or pause — unknown until the detail is read. */
   unresolved: boolean;
+  /** The run waits on a subrun that already ended and was never resumed (only you can move it). */
+  stuck?: boolean;
   /** The rendered sentence. */
   text: string;
   /** The sentence without the quoted prompt ("asks a question · 23m") — for a
@@ -220,6 +224,11 @@ function clamp(text: string, n: number): string {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 }
 
+/** How long after a subrun's end its parent may still be waiting before the board calls it
+ * stuck: the gateway runner's repair pass resumes such parents every poll, and its apply
+ * latency reached 41 s under load (2026-10-15 cancel wave). */
+export const STUCK_GRACE_MS = 60_000;
+
 /** The most recently updated non-terminal child of a run (rows carry no `details.sub_run_id`). */
 export function live_child_of(run: RunSummary, ctx: StateContext): RunSummary | null {
   const wait = wait_of(run, ctx);
@@ -230,6 +239,51 @@ export function live_child_of(run: RunSummary, ctx: StateContext): RunSummary | 
   if (!live.length) return null;
   live.sort((a, b) => (updated_ms(b) ?? 0) - (updated_ms(a) ?? 0));
   return live[0];
+}
+
+/** The READABLE name of a run's workflow (operator 2026-10-16 02:36: "multiagent-coding 0.0.13
+ * waits for ↓ └ multiagent-coding 0.0.13 … is absolutely not readable; at least use the label of
+ * the step"): a bundle flow reads by its FLOW name ("multiagent-coder", "multiagent-coding"), a
+ * generated subworkflow id by the NODE it was spawned from ("builder" out of
+ * `visual_react_agent_<bundle>_<v>_<v>_<v>_<flow>_<node>`); the version and the raw id stay in
+ * `run_display_title` for the tooltip. */
+export function run_display_name(workflow_id: string): string {
+  const wf = String(workflow_id || "").trim();
+  if (!wf) return "";
+  const gen = wf.match(/^visual_react_agent_(.+)$/);
+  if (gen) {
+    const rest = gen[1];
+    const m = rest.match(/^(.+?)_(\d+)_(\d+)_(\d+)_(.+)$/);
+    if (m) {
+      const bundle = m[1];
+      let tail = m[5];
+      if (tail.startsWith(`${bundle}_`)) tail = tail.slice(bundle.length + 1);
+      else tail = tail.replace(/^[^_]+_/, "");
+      return tail || rest;
+    }
+    return rest;
+  }
+  const at = wf.indexOf("@");
+  const colon = wf.indexOf(":", at < 0 ? 0 : at);
+  const bundle = at >= 0 ? wf.slice(0, at) : colon >= 0 ? wf.slice(0, colon) : wf;
+  const flow = colon >= 0 ? wf.slice(colon + 1) : "";
+  // A hash-like flow id names nothing: the bundle does.
+  if (flow && !/^[0-9a-f]{8,}$/i.test(flow)) return flow;
+  return bundle || workflow_short(wf);
+}
+
+/** The tooltip behind a display name: the whole id, with the version spelled out. */
+export function run_display_title(workflow_id: string): string {
+  const wf = String(workflow_id || "").trim();
+  const short = workflow_short(wf);
+  return short && short !== wf ? `${short} — ${wf}` : wf;
+}
+
+/** The step of a parked parent that waits on its subrun: the detail's `current_node`
+ * (the row's is cleared while parked), else "". */
+export function waiting_step_of(run: RunSummary, ctx: StateContext): string {
+  const rid = String(run?.run_id || "");
+  return String(ctx.details?.get(rid)?.current_node || run?.current_node || "").trim();
 }
 
 /** Mechanical shortening of a workflow id: "basic-agent@0.0.5:81795ea9" → "basic-agent 0.0.5". Not prose. */
@@ -392,6 +446,39 @@ function state_line_raw(run: RunSummary, ctx: StateContext, depth = 0): StateLin
   if (reason === "subworkflow") {
     const child = depth < 4 ? live_child_of(run, ctx) : null;
     if (!child) {
+      // No live child in the listing: the detail names the subrun, and its fate says whether
+      // this run is STUCK — the subrun ended and this run was never resumed (the gateway
+      // resumes a parent when a child ends through its own tick; a cancelled child, or a
+      // parent whose workflow version is gone, leaves the parent parked for good).
+      const sub = String((wait?.details as any)?.sub_run_id || "").trim();
+      const fate = sub ? ctx.fates?.get(sub) : undefined;
+      // The subrun's name is the STEP of this run that waits on it ("builder"), else the
+      // subrun's own readable name, else its id.
+      const step = waiting_step_of(run, ctx);
+      const sub_name = step || (fate && run_display_name(fate.workflow_id)) || short_run_id(sub);
+      if (fate && fate.status === "missing") {
+        // The gateway has no such run any more: nothing can end this wait but a cancel.
+        const text = `stuck: its subrun ${sub_name} no longer exists and the gateway cannot resume this run${tail}`;
+        return { ...base, verb: "needs_you", lane: "needs_you", object: `subrun ${sub_name} (missing)`, actor: "you", action: "open_run", stuck: true, text };
+      }
+      if (fate && terminal_run_status(fate.status)) {
+        const ended = parse_iso_ms(fate.updated_at);
+        const since_ms = ended !== null ? Math.max(0, ctx.now_ms - ended) : null;
+        // The runner repairs such waits every poll: give it STUCK_GRACE_MS before calling the
+        // run stuck (design adversary P0-2: apply latency reached 41 s during the cancel wave).
+        if (since_ms !== null && since_ms <= STUCK_GRACE_MS) {
+          const text = `its subrun ${sub_name} ${fate.status} ${compact_duration(since_ms)} ago · resuming${tail}`;
+          return { ...base, verb: "running", lane: "working", object: `subrun ${sub_name}`, actor: "runtime", action: "open_run", text };
+        }
+        const ago = since_ms !== null ? ` ${compact_duration(since_ms)} ago` : "";
+        const was = fate.status === "cancelled" ? "was cancelled" : fate.status === "failed" ? "failed" : `ended ${fate.status}`;
+        const text = `stuck: its subrun ${sub_name} ${was}${ago} and the gateway did not resume this run${tail}`;
+        return { ...base, verb: "needs_you", lane: "needs_you", object: `subrun ${sub_name} (${fate.status})`, actor: "you", action: "open_run", stuck: true, text };
+      }
+      if (sub) {
+        const text = `waiting for its subrun ${sub_name} to finish${tail}`;
+        return { ...base, object: `subrun ${sub_name}`, actor: "run", actor_run_id: sub, action: "open_subrun", text };
+      }
       const text = `waiting for a subrun to finish${tail}`;
       return { ...base, object: "a subrun", actor: "run", action: "open_run", text };
     }
@@ -472,6 +559,7 @@ export function board_lane(run: RunSummary, ctx: StateContext): BoardLane {
  * automation's own card is the word P3 forbids. */
 export function pill_word(run: RunSummary, line: StateLine, stop_reason?: StopReason | null, automation?: AutomationBrief | null): string {
   if (String(run?.role || "").trim() === "controller") return automation?.status === "paused" ? "paused" : "scheduled";
+  if (line.stuck) return "stuck";
   const word = run_status_word({ status: run?.status, paused: run?.paused === true || line.verb === "paused", stop_reason: stop_reason ?? null });
   return line.verb === "running" && word === "waiting" ? "running" : word;
 }

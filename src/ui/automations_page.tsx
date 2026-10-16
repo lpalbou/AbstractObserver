@@ -8,6 +8,7 @@
  * state and call their handlers without a DOM; `AutomationsPage` only
  * subscribes to the controller and runs the poll timer.
  */
+import { LoadingState } from "./loading";
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
@@ -411,6 +412,7 @@ export function AutomationsListView(props: {
             </>
           ) : null}
         </div>
+        {props.available.available && !st.loaded && st.loading ? <LoadingState what="automations" /> : null}
         {props.available.available && st.loaded && !st.items.length ? (
           <div className="help_text muted">No automations yet. Create one from Launch → Automate.</div>
         ) : null}
@@ -517,7 +519,7 @@ export function AutomationDetailView(props: {
   if (!d && props.ctl.state.selected_id) {
     return (
       <section className="pane auto_detail auto_detail_empty" aria-busy="true">
-        <div className="help_text muted">Loading…</div>
+        <LoadingState what="automation" size="block" />
       </section>
     );
   }

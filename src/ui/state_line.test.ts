@@ -257,3 +257,62 @@ describe("fold_automation_brief", () => {
     expect(full.workspace_access_mode).toBe("workspace_only");
   });
 });
+
+describe("a parent parked on a subrun the listing no longer has (operator 2026-10-16 01:31: 'waiting on what? from what?')", () => {
+  const NOW = Date.parse("2026-10-16T00:00:00Z");
+  const parent = { run_id: "p1", workflow_id: "multiagent-coding@0.0.13:abc", status: "waiting", waiting: { reason: "subworkflow" }, created_at: "2026-07-30T07:54:00Z", updated_at: "2026-07-30T07:54:00Z" } as any;
+  const detail = { waiting: { reason: "subworkflow", wait_key: "subworkflow:sub1", details: { sub_run_id: "sub1", sub_workflow_id: "coding-agent@0.2.4:x" } } };
+
+  it("without the detail it can only say a subrun; with it, the subrun; with the subrun's fate, STUCK in Needs you", () => {
+    const bare = state_line(parent, make_context([parent], { now_ms: NOW }));
+    expect(bare.text).toMatch(/^waiting for a subrun to finish/);
+    expect(bare.lane).toBe("waiting_on");
+    const named = state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", detail]]) }));
+    expect(named.text).toMatch(/^waiting for its subrun sub1 to finish/);
+    expect(named.actor_run_id).toBe("sub1");
+    expect(named.action).toBe("open_subrun");
+    const fates = new Map([["sub1", { run_id: "sub1", status: "cancelled", updated_at: "2026-10-15T22:52:45Z", workflow_id: "coding-agent@0.2.4:x", error: "Cancelled" }]]);
+    const stuck = state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", detail]]), fates }));
+    expect(stuck.text).toBe("stuck: its subrun x was cancelled 1h 7m ago and the gateway did not resume this run · 77d 16h");
+    // With the detail's current_node, the subrun is named by the STEP that waits on it.
+    const with_step = state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", { ...detail, current_node: "builder" }]]), fates }));
+    expect(with_step.text).toBe("stuck: its subrun builder was cancelled 1h 7m ago and the gateway did not resume this run · 77d 16h");
+    expect(stuck.lane).toBe("needs_you");
+    expect(stuck.verb).toBe("needs_you");
+    expect(stuck.actor).toBe("you");
+    expect(stuck.stuck).toBe(true);
+    // Within the grace window the runner is still expected to resume it: Working, the runtime's move.
+    const fresh = new Map([["sub1", { run_id: "sub1", status: "completed", updated_at: new Date(NOW - 12_000).toISOString(), workflow_id: "coding-agent@0.2.4:x", error: "" }]]);
+    const resuming = state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", detail]]), fates: fresh }));
+    expect(resuming.text).toMatch(/^its subrun x completed 12s ago · resuming/);
+    expect(resuming.lane).toBe("working");
+    expect(resuming.actor).toBe("runtime");
+    expect(resuming.stuck).toBeUndefined();
+    // A subrun the gateway no longer has (404 → fate "missing") is stuck too, and says so.
+    const missing = new Map([["sub1", { run_id: "sub1", status: "missing", updated_at: "", workflow_id: "", error: "not found" }]]);
+    const gone = state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", detail]]), fates: missing }));
+    expect(gone.text).toMatch(/^stuck: its subrun sub1 no longer exists and the gateway cannot resume this run/);
+    expect(gone.lane).toBe("needs_you");
+    // A fate that is not terminal (the subrun is alive beyond the listing's cap) is not stuck.
+    const alive = new Map([["sub1", { run_id: "sub1", status: "running", updated_at: "2026-10-15T23:59:00Z", workflow_id: "coding-agent@0.2.4:x", error: "" }]]);
+    expect(state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", detail]]), fates: alive })).text).toMatch(/^waiting for its subrun x to finish/);
+    // A live child in the listing wins over the detail (the child's own sentence).
+    const child = { run_id: "sub1", parent_run_id: "p1", workflow_id: "coding-agent@0.2.4:x", status: "running", updated_at: "2026-10-15T23:59:30Z" } as any;
+    expect(state_line(parent, make_context([parent, child], { now_ms: NOW, details: new Map([["p1", detail]]), fates })).lane).toBe("working");
+  });
+});
+
+describe("readable run names (operator 2026-10-16 02:36: 'at least use the label of the step')", () => {
+  it("a bundle flow reads by its flow, a hash-id flow by its bundle, a generated subworkflow by its node; the title keeps the whole id", async () => {
+    const { run_display_name, run_display_title } = await import("./state_line");
+    expect(run_display_name("multiagent-coding@0.0.13:multiagent-coder")).toBe("multiagent-coder");
+    expect(run_display_name("multiagent-coding@0.0.13:multiagent-coding")).toBe("multiagent-coding");
+    expect(run_display_name("basic-agent@0.0.5:81795ea9")).toBe("basic-agent");
+    expect(run_display_name("visual_react_agent_multiagent-coding_0_0_13_multiagent-coding_scout_code")).toBe("scout_code");
+    expect(run_display_name("visual_react_agent_multiagent-coding_0_0_14_multiagent-coding_builder")).toBe("builder");
+    expect(run_display_name("visual_react_agent_basic-agent_0_0_5_81795ea9_node-2")).toBe("node-2");
+    expect(run_display_name("visual_react_agent_x_node-2")).toBe("x_node-2");
+    expect(run_display_name("")).toBe("");
+    expect(run_display_title("basic-agent@0.0.5:81795ea9")).toBe("basic-agent 0.0.5 — basic-agent@0.0.5:81795ea9");
+  });
+});

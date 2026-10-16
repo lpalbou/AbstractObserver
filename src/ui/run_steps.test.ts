@@ -229,3 +229,19 @@ describe("llm_detail — provider and model of a call on the runtime's defaults"
   });
 });
 
+describe("the run header counts failed steps of every kind (operator 2026-10-16 01:59)", () => {
+  it("run_facts.failed_steps and the facts line", async () => {
+    const { run_facts, run_facts_line } = await import("./run_steps");
+    const rec = (i: number, extra: any) => ({ cursor: i, record: { run_id: "r1", node_id: `n${i}`, status: "completed", ...extra } }) as any;
+    const items = [
+      rec(1, { effect: { type: "llm_call" }, result: { usage: { total_tokens: 100 } } }),
+      rec(2, { effect: { type: "llm_call" }, status: "failed", error: "provider timeout" }),
+      rec(3, { effect: { type: "tool_calls" }, result: { results: [{ success: false, error: "boom" }] } }),
+    ];
+    const f = run_facts(items);
+    expect(f.failed_steps).toBeGreaterThanOrEqual(1);
+    expect(run_facts_line(f)).toMatch(/failed step/);
+    expect(run_facts_line({ llm_calls: 2, tokens: 10, tool_calls: 0, tool_failures: 0, failed_steps: 0 })).toBe("2 LLM calls · 10 tokens");
+    expect(run_facts_line({ llm_calls: 0, tokens: 0, tool_calls: 0, tool_failures: 0, failed_steps: 2 })).toBe("2 failed steps");
+  });
+});

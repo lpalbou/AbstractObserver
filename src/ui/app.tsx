@@ -147,8 +147,8 @@ import {
 } from "./artifact_rendering";
 import { FlowGraph } from "./flow_graph";
 import { MindmapPanel } from "./mindmap_panel";
-import { MissionControlPage, derive_phase_graph, extract_dreams_brief, extract_open_briefs, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
-import { RUNNING_LIMIT, WAITING_LIMIT, is_current_poll, runs_poll_for, runs_poll_peek } from "./board_data";
+import { ENTITY_TILES_MAX, MissionControlPage, derive_phase_graph, extract_dreams_brief, extract_open_briefs, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
+import { RUNNING_LIMIT, WAITING_LIMIT, is_current_poll, runs_poll_for, runs_poll_peek, local_storage, read_runs_snapshot, runs_snapshot_key, write_runs_snapshot } from "./board_data";
 import { AgentPage, merged_subject } from "./agent_page";
 import { fold_node_facts } from "./flow_node_facts";
 import { fold_automation_brief, make_context, state_line, type AutomationBrief } from "./state_line";
@@ -557,7 +557,9 @@ export function App(): React.ReactElement {
   const [all_run_options, set_all_run_options] = useState<RunSummary[]>([]);
   const [runs_loading, set_runs_loading] = useState(false);
   const [runs_refreshed_at, set_runs_refreshed_at] = useState<number | null>(null);
-  const [board_entities, set_board_entities] = useState<BoardEntityTile[]>([]);
+  // null until the first roster + cards read lands: the board strip shows skeleton tiles in its
+  // reserved height (never a strip that appears later and pushes the lanes down).
+  const [board_entities, set_board_entities] = useState<BoardEntityTile[] | null>(null);
   const [board_entities_total, set_board_entities_total] = useState(0);
   const [board_entities_error, set_board_entities_error] = useState("");
   // In-flight ref (not state): the poll effect captures ONE render's
@@ -712,7 +714,41 @@ export function App(): React.ReactElement {
     if (el) el.token = settings.gateway_auth_mode === "direct" ? settings.auth_token || "" : "";
   }, [monitor_gpu_enabled, settings.auth_token, settings.gateway_auth_mode]);
 
-  const [log, set_log] = useState<UiLogItem[]>([]);
+  // The UI log (push_log): the Log/notice surfaces read it through the connection notices now.
+  const [, set_log] = useState<UiLogItem[]>([]);
+  // Connection notices: app-level fetch failures (a listing timed out, a poll failed), coalesced
+  // per title with a count and the last time — shown ONCE beside the connection label and on
+  // the board's status line, never among a run's steps (operator 2026-10-16 01:59 read
+  // "Refresh runs failed: Fetch is aborted" as the run's errors). Cleared by the next success.
+  const [connection_notices, set_connection_notices] = useState<Array<{ title: string; preview: string; count: number; at: number }>>([]);
+  const note_connection = (title: string, preview: string) => {
+    const at = Date.now();
+    set_connection_notices((prev) => {
+      const i = prev.findIndex((n) => n.title === title);
+      if (i < 0) return [...prev, { title, preview, count: 1, at }].slice(-4);
+      const next = [...prev];
+      next[i] = { title, preview, count: next[i].count + 1, at };
+      return next;
+    });
+  };
+  const connection_notice_text = connection_notices.length
+    ? connection_notices
+        .map((n) => {
+          const d = new Date(n.at);
+          const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+          return `${n.title}: ${n.preview} · ${hhmm}${n.count > 1 ? ` ×${n.count}` : ""}`;
+        })
+        .join(" — ")
+    : "";
+  const [runs_stale, set_runs_stale] = useState(false);
+  // The principal for the persisted board, read through a ref: the discovery closure's
+  // `connection_status` predates the sign-in it is part of (night review P1-1).
+  const snapshot_principal_ref = useRef("");
+  const snapshot_key_ref = useRef("");
+  useEffect(() => {
+    const uid = String(connection_status?.gateway?.principal?.user_id || "").trim();
+    snapshot_principal_ref.current = uid || (gateway_connected && settings.gateway_auth_mode === "direct" ? "direct" : "");
+  }, [connection_status, gateway_connected, settings.gateway_auth_mode]);
   const [error_text, set_error_text] = useState<string>("");
 
   const [observe_search, set_observe_search] = useState("");
@@ -1284,8 +1320,11 @@ export function App(): React.ReactElement {
       set_all_run_options(view.all);
     };
     const on_failure = (e: any, title: string) => {
+      // Our own abort (a newer request replaced this one): housekeeping, never a failure.
+      if (String(e?.name || "") === "Superseded") return;
       const msg = String(e?.message || e || "");
       push_log({ ts: now_iso(), kind: "error", title, preview: clamp_preview(msg) });
+      note_connection(title, clamp_preview(msg));
       // SESSION-EXPIRY HONESTY (fable5 code adversary P1): a 401/403 from
       // the heartbeat means the session died mid-use — without this, the
       // app stayed "connected" with frozen columns while every action
@@ -1305,26 +1344,57 @@ export function App(): React.ReactElement {
         push_log({ ts: now_iso(), kind: "info", title: `Gateway rate-limited — pausing polls ${Math.round(next / 1000)}s` });
       }
     };
+    // THE LAST KNOWN BOARD FIRST (design adversary 2026-10-16 R3.1): before the first
+    // listing of this session answers (4–5 s with one active run, minutes under load),
+    // paint the persisted snapshot of this gateway + account, marked "as of".
+    const principal = snapshot_principal_ref.current;
+    const snapshot_key = principal ? runs_snapshot_key(String(settings.gateway_url || ""), principal) : "";
+    snapshot_key_ref.current = snapshot_key;
+    // Only before ANY poll of this epoch has live rows (a second client adopts the first's).
+    if (snapshot_key && poll.active_at === null) {
+      const seeded = poll.seed(read_runs_snapshot(local_storage(), snapshot_key));
+      if (seeded && poll.active_at !== null) {
+        publish();
+        set_runs_refreshed_at(poll.active_at);
+        set_runs_stale(true);
+      }
+    }
     try {
-      const [running, waiting] = await Promise.all([
+      const [running_res, waiting_res] = await Promise.allSettled([
         gateway_client.list_runs({ status: "running", limit: RUNNING_LIMIT }),
         gateway_client.list_runs({ status: "waiting", limit: WAITING_LIMIT }),
       ]);
       // EPOCH GUARD (adversary 2026-07-13): a sign-out during this await
       // must not repopulate the disconnected app with late results.
       if (epoch !== discovery_epoch_ref.current) return;
-      const running_items = items_of(running);
-      const waiting_items = items_of(waiting);
+      // One listing that landed is applied; the other's failure is a notice, not a blank board.
+      if (running_res.status === "rejected" && waiting_res.status === "rejected") throw running_res.reason;
+      if (running_res.status === "rejected") on_failure(running_res.reason, "Runs listing (running) failed");
+      if (waiting_res.status === "rejected") on_failure(waiting_res.reason, "Runs listing (waiting) failed");
+      const running = running_res.status === "fulfilled" ? running_res.value : null;
+      const waiting = waiting_res.status === "fulfilled" ? waiting_res.value : null;
+      const running_items = running ? items_of(running) : poll.active_rows.filter((r) => String(r.status || "") === "running");
+      const waiting_items = waiting ? items_of(waiting) : poll.active_rows.filter((r) => String(r.status || "") === "waiting");
       // Absence from a COMPLETE listing means "no longer active" (the run
       // finished since the last sweep); a full page proves nothing.
       const complete =
-        running_items.length < RUNNING_LIMIT && waiting_items.length < WAITING_LIMIT && (running as any)?.has_more !== true && (waiting as any)?.has_more !== true;
+        Boolean(running && waiting) &&
+        running_items.length < RUNNING_LIMIT &&
+        waiting_items.length < WAITING_LIMIT &&
+        (running as any)?.has_more !== true &&
+        (waiting as any)?.has_more !== true;
+      const was_seeded = poll.seeded;
       poll.apply_active(normalize_runs(running_items), normalize_runs(waiting_items), complete);
+      // Half a listing keeps the "as of" words: the recycled half is still the snapshot's (P1-2).
+      if (!(running && waiting) && was_seeded) poll.seeded = true;
       publish();
       set_runs_refreshed_at(Date.now());
+      set_runs_stale(!(running && waiting) && was_seeded);
+      if (running && waiting) set_connection_notices([]);
       // First success clears any rate-limit backoff.
       rate_limit_backoff_ref.current = 0;
       rate_limited_until_ref.current = 0;
+      if (snapshot_key && running && waiting) window.setTimeout(() => write_runs_snapshot(local_storage(), snapshot_key, poll.snapshot()), 0);
     } catch (e: any) {
       on_failure(e, "Refresh runs failed");
       return;
@@ -1334,11 +1404,18 @@ export function App(): React.ReactElement {
     }
     if (!poll.sweep_due(Date.now(), opts?.force === true)) return;
     poll.begin_sweep(Date.now());
-    void Promise.all([
-      gateway_client.list_runs({ limit: 200, root_only: true, include_metrics: true }),
-      // Archived conversations leave the root listing; Observer still shows them (audit view).
-      gateway_client.list_runs({ limit: 200, root_only: true, archived_only: true, include_metrics: true }),
-    ]).then(
+    // Roots first; the archived listing (a second full scan of the store, 8–10 s under
+    // contention) only when the roots page says archived conversations exist (R3.1 §5).
+    void gateway_client
+      .list_runs({ limit: 200, root_only: true, include_metrics: true })
+      .then(async (roots) => {
+        const archived_count = Number((roots as any)?.archived_sessions);
+        if (Number.isFinite(archived_count) && archived_count <= 0) return [roots, { items: [] }] as [any, any];
+        // Archived conversations leave the root listing; Observer still shows them (audit view).
+        const archived = await gateway_client.list_runs({ limit: 200, root_only: true, archived_only: true, include_metrics: true });
+        return [roots, archived] as [any, any];
+      })
+      .then(
       ([roots, archived]) => {
         // Same epoch guard, plus: a late sweep of a replaced client never
         // writes over the current one's rows.
@@ -1650,7 +1727,8 @@ export function App(): React.ReactElement {
     // clock resets with it.
     set_all_run_options([]);
     set_runs_refreshed_at(null);
-    set_board_entities([]);
+    set_board_entities(null);
+    set_board_entities_total(0);
     set_discovered_tool_specs([]);
     set_discovered_providers([]);
     set_discovered_models_by_provider({});
@@ -1819,7 +1897,8 @@ export function App(): React.ReactElement {
   // c1038 — card + as_of_seq; never whole-life replay folds). 30s cadence.
   useEffect(() => {
     if (!gateway_connected) {
-      set_board_entities([]);
+      set_board_entities(null);
+      set_board_entities_total(0);
       set_board_entities_error("");
       return;
     }
@@ -1830,10 +1909,12 @@ export function App(): React.ReactElement {
       if (rate_limited_until_ref.current > Date.now()) return;
       try {
         const roster = await gateway.list_entities();
+        // The roster's size lands before the cards: the strip's skeleton row takes its width now.
+        if (!stop) set_board_entities_total(roster.entities.length);
         const names = roster.entities
           .map((e: any) => String(e?.name || e?.slug || "").trim())
           .filter(Boolean)
-          .slice(0, 12);
+          .slice(0, ENTITY_TILES_MAX);
         const tiles: BoardEntityTile[] = await Promise.all(
           names.map(async (name): Promise<BoardEntityTile> => {
             try {
@@ -2723,12 +2804,13 @@ export function App(): React.ReactElement {
       push_log({ ts: now_iso(), kind: "info", title: `Attached to run ${rid}`, data: { run_id: rid } });
       attach_ok = true;
     } catch (e: any) {
+      if (abort.signal.aborted || String(e?.name || "") === "Superseded") return;
       const msg = String(e?.message || e || "unknown error");
       set_error_text(msg);
       push_log({ ts: now_iso(), kind: "error", title: "Connection error", preview: clamp_preview(msg), data: { error: msg } });
       set_connected(false);
     } finally {
-      set_connecting(false);
+      if (!abort.signal.aborted) set_connecting(false);
     }
 
     if (!attach_ok || abort.signal.aborted) return;
@@ -3110,6 +3192,40 @@ export function App(): React.ReactElement {
       set_error_text(msg);
       return msg;
     }
+  }
+
+  /** Cancel many runs as ONE move: a command per run, four in flight, and one listing refresh
+   * for the whole batch (plus one after the runner has had time to apply them). The per-run
+   * path above refreshes three times per call — 53 cancels queued their commands behind ~160
+   * listings in the browser (operator 2026-10-16 01:04: "EXTREMELY slow"; the gateway answered
+   * each command in 41 ms). */
+  async function submit_run_cancels(target_ids: readonly string[], on_progress?: (done: number, failed: number) => void): Promise<Array<{ run_id: string; error: string | null }>> {
+    const ids = target_ids.map((x) => String(x || "").trim()).filter(Boolean);
+    const out: Array<{ run_id: string; error: string | null }> = [];
+    let done = 0;
+    let failed = 0;
+    let next = 0;
+    const worker = async () => {
+      while (next < ids.length) {
+        const rid = ids[next++];
+        try {
+          await gateway.submit_command({ command_id: random_id(), run_id: rid, type: "cancel", payload: {}, client_id: "web_pwa" });
+          out.push({ run_id: rid, error: null });
+        } catch (e: any) {
+          failed += 1;
+          out.push({ run_id: rid, error: String(e?.message || e || "cancel failed") });
+        }
+        done += 1;
+        on_progress?.(done, failed);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+    push_log({ ts: now_iso(), kind: failed ? "error" : "info", title: `cancel submitted ×${ids.length}${failed ? ` · ${failed} failed` : ""}`, preview: "", data: { run_ids: ids, failed } });
+    if (ids.length) {
+      void refresh_runs(gateway, { force: true });
+      window.setTimeout(() => void refresh_runs(gateway, { force: true }), 2400);
+    }
+    return out;
   }
 
   async function submit_run_control(type: "pause" | "resume" | "cancel", opts?: { reason?: string }): Promise<string | null> {
@@ -4111,8 +4227,9 @@ export function App(): React.ReactElement {
           subrun_cursor_ref.current[child_id] = next_after;
         }
       } catch (e: any) {
-        if (stopped) return;
+        if (stopped || String(e?.name || "") === "Superseded") return;
         push_log({ ts: now_iso(), kind: "error", title: "Subrun digest poll failed", preview: clamp_preview(String(e?.message || e || "")) });
+        note_connection("Subrun digest poll failed", clamp_preview(String(e?.message || e || "")));
       } finally {
         subrun_poll_inflight_ref.current = false;
       }
@@ -4904,6 +5021,12 @@ export function App(): React.ReactElement {
                   ? "connecting…"
                   : "signed out"}
             </span>
+            {gateway_connected && connection_notice_text ? (
+              <span className="shell_connection_notice" role="status" title={connection_notice_text}>
+                {connection_notices[connection_notices.length - 1].title}
+                {connection_notices.reduce((n, x) => n + x.count, 0) > 1 ? ` ×${connection_notices.reduce((n, x) => n + x.count, 0)}` : ""}
+              </span>
+            ) : null}
           </div>
         </div>
       </aside>
@@ -4946,10 +5069,6 @@ export function App(): React.ReactElement {
                 }
               />
             ) : null}
-            <button type="button" className="btn btn_sm shell_launch_btn" onClick={() => open_launch("once")} title="Run a workflow once, or automate it">
-              <Icon name="send" size={14} />
-              <span>Launch</span>
-            </button>
             {/* The unified upper-right cluster (same order in every
               * AbstractFramework app): docs assistant → appearance → Disconnect. */}
             <AfTopBarActions
@@ -5015,11 +5134,11 @@ export function App(): React.ReactElement {
               runs={run_options}
               all_runs={all_run_options}
               runs_refreshed_at={runs_refreshed_at}
+              runs_stale={runs_stale}
+              notice={connection_notice_text}
               entities={board_entities}
               entities_total={board_entities_total}
               entities_error={board_entities_error}
-              refreshing={runs_loading}
-              on_refresh={() => void refresh_runs(gateway, { force: true })}
               on_open_run={(rid) => {
                 set_page("observe");
                 set_right_tab("agent");
@@ -5040,6 +5159,7 @@ export function App(): React.ReactElement {
               on_automation_command={(automation_id, type) => automations_ctl.command(automation_id, type)}
               on_resume_run={(rid) => submit_run_control_for_run(rid, "resume")}
               on_cancel_run={(rid) => submit_run_control_for_run(rid, "cancel")}
+              on_cancel_runs={submit_run_cancels}
               code_app={code_app}
               done_loaded={(() => {
                 const poll = runs_poll_peek(gateway);
@@ -5574,6 +5694,7 @@ export function App(): React.ReactElement {
 
         {page === "runtime" ? (
           <RuntimeExplorerPage
+            runs_loading={runs_loading}
             gateway_connected={gateway_connected}
             tab={runtime_tab}
             runs={runtime_run_rows}
@@ -6064,14 +6185,6 @@ export function App(): React.ReactElement {
                           set_page("runtime");
                         }}
                       />
-                      {log
-                        .filter((x) => x.kind === "error" && !x.data)
-                        .slice(0, 3)
-                        .map((x) => (
-                          <p key={x.id} className="rs_notice">
-                            {x.title}: {x.preview}
-                          </p>
-                        ))}
                       <RunStepsView
                         items={ledger_record_items}
                         run_id={cycles_run_id}

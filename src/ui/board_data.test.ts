@@ -11,6 +11,12 @@ import {
   SWEEP_FORCE_FLOOR_MS,
   automation_wants,
   excerpt_of_input_data,
+  fold_subrun_fate,
+  read_runs_snapshot,
+  runs_snapshot_key,
+  write_runs_snapshot,
+  RunsPoll,
+  subrun_fate_wants,
   fold_automation_record,
   is_current_poll,
   is_plain_run,
@@ -200,6 +206,10 @@ describe("what each cache wants", () => {
   it("the excerpt is input_data.prompt only when the flow declares a prompt pin — no other guessing", () => {
     expect(excerpt_of_input_data("r", { pin_ids: ["prompt", "tools"], input_data: { prompt: "  Summarise the inbox  " } })).toEqual({ run_id: "r", excerpt: "Summarise the inbox" });
     expect(excerpt_of_input_data("r", { pin_ids: ["task"], input_data: { prompt: "x", task: "y" } }).excerpt).toBe("");
+    // The flow's pins are unknown (the bundle version is gone → `pin_ids: []`): the prompt still titles the card.
+    expect(excerpt_of_input_data("r", { pin_ids: [], input_data: { prompt: "Reply with exactly this and nothing else: wfp-ok" } }).excerpt).toBe("Reply with exactly this and nothing else: wfp-ok");
+    expect(excerpt_of_input_data("r", { input_data: { prompt: "no pins field" } }).excerpt).toBe("no pins field");
+    expect(excerpt_of_input_data("r", { pin_ids: [], input_data: { task: "only a task" } }).excerpt).toBe("");
     expect(excerpt_of_input_data("r", { pin_ids: ["prompt"], input_data: { prompt: { text: "x" } } }).excerpt).toBe("");
     expect(excerpt_of_input_data("r", null).excerpt).toBe("");
   });
@@ -613,5 +623,86 @@ describe("the session store (immutable scopes mirrored to sessionStorage, keyed 
     write_persisted(storage, "outcome", entries);
     write_persisted(storage, "outcome", new Map());
     expect(storage.data.size).toBe(0);
+  });
+});
+
+describe("details for parked parents without a live child, and the fates of the subruns they name (2026-10-16)", () => {
+  const w = (id: string, p: any = {}) => ({ run_id: id, workflow_id: "wf@1:x", status: "waiting", updated_at: "2026-10-15T22:00:00Z", ...p }) as any;
+  it("wait_detail_wants: user waits always; subworkflow waits only when given the active rows and no live child is listed", () => {
+    const ask = w("ask", { waiting: { reason: "user" } });
+    const parent_live = w("pl", { waiting: { reason: "subworkflow" } });
+    const kid = w("kid", { parent_run_id: "pl", status: "running" });
+    const parent_orphan = w("po", { waiting: { reason: "subworkflow" } });
+    const parent_dead_kid = w("pd", { waiting: { reason: "subworkflow" } });
+    const dead = w("dead", { parent_run_id: "pd", status: "cancelled" });
+    const rows = [ask, parent_live, parent_orphan, parent_dead_kid];
+    expect(wait_detail_wants(rows).map((x) => x.id)).toEqual(["ask"]);
+    // With the active rows: every parked parent in view (its detail names the step that waits), then the childless ones globally.
+    expect(wait_detail_wants(rows, [...rows, kid, dead]).map((x) => x.id)).toEqual(["ask", "pl", "po", "pd"]);
+    // Global: a childless parent OUTSIDE the in-view rows is still wanted (it must land in Needs you when stuck).
+    expect(wait_detail_wants([ask], [...rows, kid, dead]).map((x) => x.id)).toEqual(["ask", "po", "pd"]);
+    // …capped.
+    const many = Array.from({ length: 60 }, (_, i) => w(`p${i}`, { waiting: { reason: "subworkflow" } }));
+    expect(wait_detail_wants([], many).length).toBe(50);
+    expect(wait_detail_wants([ask, ask], [ask]).length).toBe(1);
+  });
+  it("subrun_fate_wants names each subrun the details point at that the listing lacks, once; fold_subrun_fate keeps status/when/workflow/error", () => {
+    const details = new Map<string, any>([
+      ["po", { waiting: { details: { sub_run_id: "s1" } } }],
+      ["pd", { waiting: { details: { sub_run_id: "s1" } } }],
+      ["pl", { waiting: { details: { sub_run_id: "kid" } } }],
+      ["ask", { waiting: { reason: "user" } }],
+    ]);
+    expect(subrun_fate_wants(details, new Set(["kid"]))).toEqual([{ id: "s1", version: "" }]);
+    expect(fold_subrun_fate("s1", { status: "Cancelled", updated_at: "2026-10-15T22:52:45Z", workflow_id: "coding-agent@0.2.4:x", error: "Cancelled" })).toEqual({ run_id: "s1", status: "cancelled", updated_at: "2026-10-15T22:52:45Z", workflow_id: "coding-agent@0.2.4:x", error: "Cancelled" });
+  });
+});
+
+describe("the last known board (design adversary 2026-10-16 R3.1): a reload paints the persisted rows first", () => {
+  const mem = () => {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k), _m: m };
+  };
+  const r = (id: string, status = "running") => ({ run_id: id, workflow_id: "wf@1:x", status, updated_at: "2026-10-16T00:00:00Z" }) as any;
+  it("snapshot ↔ seed round-trips rows and times; a seed never overwrites live rows; a real poll clears 'seeded'", () => {
+    const a = new RunsPoll(1);
+    a.apply_active([r("x")], [r("y", "waiting")], true);
+    a.apply_sweep([r("d", "completed")], 1_000);
+    const snap = a.snapshot();
+    expect(snap.active_rows.map((x) => x.run_id)).toEqual(["x", "y"]);
+    expect(snap.sweep_rows.map((x) => x.run_id)).toEqual(["d"]);
+    expect(typeof snap.active_at).toBe("number");
+    const b = new RunsPoll(2);
+    expect(b.seed(snap)).toBe(true);
+    expect(b.seeded).toBe(true);
+    expect(b.active_at).toBe(snap.active_at);
+    expect(b.active_complete).toBe(false);
+    expect(b.view().all.map((x) => x.run_id)).toEqual(["x", "y", "d"]);
+    // Live rows are never replaced by a seed.
+    expect(b.seed({ active_rows: [r("z")], sweep_rows: [], active_at: 5, sweep_at: null })).toBe(false);
+    b.apply_active([r("z")], [], true);
+    expect(b.seeded).toBe(false);
+    expect(b.view().all.map((x) => x.run_id)).toEqual(["z", "d"]);
+    // Nothing to seed from: false, and the poll stays empty.
+    expect(new RunsPoll(3).seed(null)).toBe(false);
+    expect(new RunsPoll(3).seed({ active_rows: [], sweep_rows: [], active_at: 1, sweep_at: null })).toBe(false);
+  });
+  it("storage: keyed by gateway + principal, bounded, tolerant of garbage", () => {
+    const st = mem();
+    const key = runs_snapshot_key("http://127.0.0.1:8080", "admin");
+    expect(key).not.toBe(runs_snapshot_key("http://127.0.0.1:8080", "bob"));
+    write_runs_snapshot(st as any, key, { active_rows: [r("x")], sweep_rows: [r("d", "completed")], active_at: 7, sweep_at: 8 });
+    expect(read_runs_snapshot(st as any, key)).toEqual({ active_rows: [r("x")], sweep_rows: [r("d", "completed")], active_at: 7, sweep_at: 8 });
+    expect(read_runs_snapshot(st as any, "nope")).toBeNull();
+    st.setItem(key, "{not json");
+    expect(read_runs_snapshot(st as any, key)).toBeNull();
+    st.setItem(key, JSON.stringify({ active_rows: "x" }));
+    expect(read_runs_snapshot(st as any, key)).toBeNull();
+    // Too big: the sweep rows go first, then the whole snapshot.
+    const huge = Array.from({ length: 20_000 }, (_, i) => r(`d${i}`, "completed"));
+    write_runs_snapshot(st as any, key, { active_rows: [r("x")], sweep_rows: huge, active_at: 7, sweep_at: 8 });
+    expect(read_runs_snapshot(st as any, key)?.sweep_rows).toEqual([]);
+    expect(read_runs_snapshot(st as any, key)?.active_rows.map((x) => x.run_id)).toEqual(["x"]);
+    expect(() => write_runs_snapshot({ getItem: () => { throw new Error("private mode"); }, setItem: () => { throw new Error("quota"); }, removeItem: () => {} } as any, key, { active_rows: [], sweep_rows: [], active_at: null, sweep_at: null })).not.toThrow();
   });
 });
