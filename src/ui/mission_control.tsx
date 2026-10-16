@@ -166,7 +166,7 @@ export type BoardCard = {
 
 /** One run of a task's chain: its depth, its workflow's short name, its own words
  * ("waits for ↓" above a live child, else its state sentence), and what it is. */
-export type ChainRow = { run_id: string; depth: number; name: string; /** the whole workflow id, for the tooltip */ title: string; words: string; stuck: boolean; asks: boolean; running: boolean };
+export type ChainRow = { run_id: string; depth: number; name: string; /** the whole workflow id, for the tooltip */ title: string; words: string; stuck: boolean; asks: boolean; running: boolean; stuck_facts?: StateLine["stuck_facts"]; since_ms?: number | null };
 
 /** How many rows a task card shows of its chain before "+N more". */
 export const TASK_CHAIN_ROWS_MAX = 8;
@@ -385,6 +385,8 @@ export function build_board(input: BoardInput): BoardLanes {
           stuck: Boolean(l.stuck),
           asks: l.lane === "needs_you" && !l.stuck,
           running: l.verb === "running" && !is_parent,
+          stuck_facts: l.stuck_facts,
+          since_ms: parse_iso_ms(String(run?.updated_at || run?.created_at || "")),
         });
       }
       if (depth > 0) {
@@ -399,6 +401,7 @@ export function build_board(input: BoardInput): BoardLanes {
     };
     walk(r, 0);
     if (hidden) rows.push({ run_id: "", depth: 1, name: `+${hidden} more`, title: "", words: "", stuck: false, asks: false, running: false });
+    if (stuck && !asks.length) card.status_word = "stuck";
     card.chain = rows.length > 1 ? rows : [];
     card.asks = asks;
     card.stuck = stuck;
@@ -513,8 +516,8 @@ export function needs_you_line(card: BoardCard, now_ms: number): { who: string; 
   const since = card.since_ms !== null ? ` since ${glued(format_when(card.since_ms, now_ms))} ${glued(`(${compact_duration(Math.max(0, now_ms - card.since_ms))})`)}` : "";
   const action = card.line.action;
   if (card.line.verb === "paused") return { who: "", text: `paused${since}` };
-  // Stuck: the sentence IS the information (which subrun ended how, and when); nobody asked.
-  if (card.line.stuck) return { who: "", text: card.line.text };
+  // Stuck: the attention block below carries the facts; the line says since when.
+  if (card.line.stuck) return { who: "", text: `stuck${since}` };
   const who = person_of(card.row);
   if (action === "approve") return { who, text: `needs approval for ${tools_words(card.tool_names)}${since}` };
   if (action === "answer") return { who, text: `${card.prompt ? "asks" : "waits for an answer"}${since}` };
@@ -2730,10 +2733,45 @@ const LIVE: ControlState = { enabled: true };
 export const SUBRUN_STOP_QUESTION = "Stop this subrun and everything under it? Its parent continues and may delegate again";
 export const SUBRUN_STOP_WORDS = "Stop this subrun and everything under it: its parent continues and may delegate again";
 /** The stuck band says what happened and what to do, from the stuck row's own sentence. */
-export function stuck_band_words(rows: ChainRow[]): string {
-  const row = rows.find((r) => r.stuck);
-  const why = row ? row.words.replace(/^stuck:\s*/, "").replace(/\s*·\s*[^·]*$/, "") : "a subrun ended and the gateway did not resume this run";
-  return `Stuck: ${why}. Nothing will resume it; Cancel task clears it.`;
+/** The sentence of a stuck run, from its facts: which subrun, how it ended, how long ago. */
+export function stuck_words(facts: StateLine["stuck_facts"] | undefined): string {
+  if (!facts) return "a subrun ended and this run was not resumed";
+  if (facts.status === "missing") return `its subrun ${facts.subrun} no longer exists on the gateway, so this run cannot be resumed`;
+  const was = facts.status === "cancelled" ? "was cancelled" : facts.status === "failed" ? "failed" : `ended ${facts.status}`;
+  const ago = facts.ended_ms !== null ? ` ${compact_duration(facts.ended_ms)} ago` : "";
+  return `its subrun ${facts.subrun} ${was}${ago} and this run was not resumed`;
+}
+
+/** The attention block of a stuck task (operator 2026-10-16 10:10: the session, what it is doing,
+ * the situation in its own words, the quick option, the icons): the run that is stuck, since
+ * when, the sentence from its facts, and the two moves — Cancel task, or open the run. */
+function StuckBlock(props: { run_id: string; name: string; facts: StateLine["stuck_facts"] | undefined; since_ms: number | null | undefined; now_ms: number; on_open_run: (run_id: string) => void; on_cancel_task?: () => void }): React.ReactElement {
+  const since = typeof props.since_ms === "number" ? ` since ${glued(format_when(props.since_ms, props.now_ms))} ${glued(`(${compact_duration(Math.max(0, props.now_ms - props.since_ms))})`)}` : "";
+  return (
+    <div className="mc_ask mc_ask_stuck" data-run-id={props.run_id} role="group" aria-label="stuck">
+      <div className="mc_ask_head">
+        <button type="button" className="mc_ask_who" onClick={() => props.on_open_run(props.run_id)} onKeyDown={stop}>
+          {props.name}
+        </button>{" "}
+        <span className="mc_ask_words">stuck{since}</span>
+      </div>
+      <div className="mc_stuck_why">{capitalize(stuck_words(props.facts))}.</div>
+      <div className="mc_card_actions">
+        {props.on_cancel_task ? (
+          <button type="button" className="btn danger mc_btn_sm" onClick={props.on_cancel_task}>
+            Cancel task
+          </button>
+        ) : null}
+        <button type="button" className="btn mc_btn_sm" onClick={() => props.on_open_run(props.run_id)}>
+          Open the run →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function capitalize(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
 /** One row of a task's chain: name (opens the run), its own words, and — below the root —
@@ -2783,8 +2821,9 @@ function ChainRowView(props: { row: ChainRow; on_open_run: (run_id: string) => v
 
 /** A task card's body: the chain, then every asking subrun's ask and act zone, then the
  * stuck band when nothing asks and a row is stuck. */
-function ChainBlock(props: { card: BoardCard } & CardHandlers): React.ReactElement {
+function ChainBlock(props: { card: BoardCard; on_cancel_task?: () => void } & CardHandlers): React.ReactElement {
   const { card } = props;
+  const stuck_row = card.stuck && !card.asks.length ? card.chain.find((r) => r.stuck) : undefined;
   const loading = new Set((props.ask_loading || "").split(",").filter(Boolean));
   const busy_of = (ask: BoardCard) => Boolean(props.busy_wait) && props.busy_wait === `${ask.run_id}:${ask.wait_key}:${ask.since_ms ?? ""}`;
   return (
@@ -2818,10 +2857,8 @@ function ChainBlock(props: { card: BoardCard } & CardHandlers): React.ReactEleme
           </div>
         );
       })}
-      {card.stuck && !card.asks.length ? (
-        <div className="mc_stuck_band" role="note">
-          {stuck_band_words(card.chain)}
-        </div>
+      {stuck_row ? (
+        <StuckBlock run_id={stuck_row.run_id} name={stuck_row.name} facts={stuck_row.stuck_facts} since_ms={stuck_row.since_ms} now_ms={props.now_ms} on_open_run={props.on_open_run} on_cancel_task={props.on_cancel_task} />
       ) : null}
     </div>
   );
@@ -2945,7 +2982,7 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
       {is_automation ? (
         <AutomationCardBody {...props} />
       ) : has_chain ? (
-        <ChainBlock {...props} />
+        <ChainBlock {...props} on_cancel_task={on_cancel_run ? () => cancel_dispatch({ type: "ask" }) : undefined} />
       ) : answer_loading ? (
         <InlineSkeleton what="the answer" />
       ) : answer ? (
@@ -3013,7 +3050,11 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
           {request.text}
         </Glimpse>
       ) : null}
-      {needs ? <NeedsYouActions {...props} /> : null}
+      {needs && card.line.stuck ? (
+        <StuckBlock run_id={card.run_id} name={run_display_name(card.workflow_id) || short_run_id(card.run_id)} facts={card.line.stuck_facts} since_ms={card.since_ms} now_ms={props.now_ms} on_open_run={props.on_open_run} on_cancel_task={on_cancel_run ? () => cancel_dispatch({ type: "ask" }) : undefined} />
+      ) : needs ? (
+        <NeedsYouActions {...props} />
+      ) : null}
       {metrics_in_foot ? null : metrics_view}
       {notice ? (
         <div className="mc_card_notice" onClick={stop} onKeyDown={stop}>

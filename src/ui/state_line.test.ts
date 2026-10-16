@@ -273,10 +273,12 @@ describe("a parent parked on a subrun the listing no longer has (operator 2026-1
     expect(named.action).toBe("open_subrun");
     const fates = new Map([["sub1", { run_id: "sub1", status: "cancelled", updated_at: "2026-10-15T22:52:45Z", workflow_id: "coding-agent@0.2.4:x", error: "Cancelled" }]]);
     const stuck = state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", detail]]), fates }));
-    expect(stuck.text).toBe("stuck: its subrun x was cancelled 1h 7m ago and the gateway did not resume this run · 77d 16h");
+    expect(stuck.text).toBe("stuck: subrun x was cancelled 1h 7m ago, this run was not resumed · 77d 16h");
+    expect(stuck.stuck_facts).toMatchObject({ subrun: "x", status: "cancelled" });
+    expect(stuck.stuck_facts?.ended_ms).toBeGreaterThan(60 * 60_000);
     // With the detail's current_node, the subrun is named by the STEP that waits on it.
     const with_step = state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", { ...detail, current_node: "builder" }]]), fates }));
-    expect(with_step.text).toBe("stuck: its subrun builder was cancelled 1h 7m ago and the gateway did not resume this run · 77d 16h");
+    expect(with_step.text).toBe("stuck: subrun builder was cancelled 1h 7m ago, this run was not resumed · 77d 16h");
     expect(stuck.lane).toBe("needs_you");
     expect(stuck.verb).toBe("needs_you");
     expect(stuck.actor).toBe("you");
@@ -291,7 +293,8 @@ describe("a parent parked on a subrun the listing no longer has (operator 2026-1
     // A subrun the gateway no longer has (404 → fate "missing") is stuck too, and says so.
     const missing = new Map([["sub1", { run_id: "sub1", status: "missing", updated_at: "", workflow_id: "", error: "not found" }]]);
     const gone = state_line(parent, make_context([parent], { now_ms: NOW, details: new Map([["p1", detail]]), fates: missing }));
-    expect(gone.text).toMatch(/^stuck: its subrun sub1 no longer exists and the gateway cannot resume this run/);
+    expect(gone.text).toMatch(/^stuck: subrun sub1 no longer exists/);
+    expect(gone.stuck_facts).toEqual({ subrun: "sub1", status: "missing", ended_ms: null });
     expect(gone.lane).toBe("needs_you");
     // A fate that is not terminal (the subrun is alive beyond the listing's cap) is not stuck.
     const alive = new Map([["sub1", { run_id: "sub1", status: "running", updated_at: "2026-10-15T23:59:00Z", workflow_id: "coding-agent@0.2.4:x", error: "" }]]);

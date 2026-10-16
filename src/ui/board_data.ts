@@ -739,7 +739,7 @@ export const PERSISTED_SCOPES = ["excerpt", "outcome"] as const;
 export function useRunBriefs(client: BoardDataClient | null | undefined, runs_in_view: RunSummary[]): { map: Map<string, RunBrief>; pending: number; loading: Set<string> } {
   const wants = useMemo(() => run_brief_wants(runs_in_view), [runs_in_view]);
   const res = useLazyCache<RunBrief>(client, wants, async (c, w) => excerpt_of_input_data(w.id, await c.get_run_input_data(w.id)), {
-    scope: "excerpt",
+    scope: "excerpt_v2",
     priority: PRIORITY.run_brief,
     immutable: true,
     persist: true,

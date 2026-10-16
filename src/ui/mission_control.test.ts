@@ -2298,16 +2298,36 @@ describe("a stuck parent is a Needs-you card that names the subrun and its end (
     expect(c.asks).toEqual([]);
     expect(c.chain.map((r) => [r.depth, r.run_id, r.stuck, r.words])).toEqual([
       [0, "root", false, "waits for ↓"],
-      [1, "child", true, "stuck: its subrun x was cancelled 30m ago and the gateway did not resume this run · 1h 0m"],
+      [1, "child", true, "stuck: subrun x was cancelled 30m ago, this run was not resumed · 1h 0m"],
     ]);
     // The child's own line (the Agent view's truth) says stuck; the card's band says the one move.
     const child_line = state_line(child, make_context([root, child], { now_ms: NOW, details, fates }));
     expect(child_line.stuck).toBe(true);
     expect(pill_word(child, child_line)).toBe("stuck");
-    const html = markup(c);
-    expect(html).toContain("stuck: its subrun x was cancelled 30m ago");
-    // The band explains (operator 2026-10-16 02:36: "wtf with 'Only Cancel task moves this.'? how come? why?").
-    expect(html).toContain('<div class="mc_stuck_band" role="note">Stuck: its subrun x was cancelled 30m ago and the gateway did not resume this run. Nothing will resume it; Cancel task clears it.</div>');
+    expect(c.status_word).toBe("stuck");
+    const cancel = { on_cancel_run: async () => null };
+    const html = markup(c, cancel);
+    expect(html).toContain("stuck: subrun x was cancelled 30m ago");
+    // The attention block (operator 2026-10-16 10:10: the session, what it does, the situation in its
+    // own words, the quick option, the icons): which run is stuck since when, the sentence from the
+    // facts, Cancel task and Open the run. No hardcoded band.
+    expect(html).not.toContain("mc_stuck_band");
+    expect(html).toContain('class="mc_ask mc_ask_stuck" data-run-id="child" role="group" aria-label="stuck"');
+    expect(html.replace(/\u00a0/g, " ")).toContain('<span class="mc_ask_words">stuck since Oct 14, 00:50 (1h 0m)</span>');
+    expect(html).toContain('<div class="mc_stuck_why">Its subrun x was cancelled 30m ago and this run was not resumed.</div>');
+    expect(html).toContain(">Cancel task</button>");
+    expect(html).toContain(">Open the run →</button>");
+    // Without a cancel handler the block still opens the run; it never shows a dead button.
+    expect(markup(c)).not.toContain("Cancel task");
+    expect(markup(c)).toContain(">Open the run →</button>");
+    // A lone stuck run (no chain) gets the same block in place of the ask actions.
+    const lone = row({ run_id: "lone", status: "waiting", waiting: { reason: "subworkflow" }, updated_at: ago(60) });
+    const lone_lanes = build_board({ active: [lone], done: [], details: new Map([["lone", { waiting: { reason: "subworkflow", details: { sub_run_id: "gone" } } }]]), fates, now_ms: NOW });
+    expect(ids(lone_lanes.needs_you)).toEqual(["lone"]);
+    const lone_html = markup(lone_lanes.needs_you[0], cancel);
+    expect(lone_html).toContain('class="mc_ask mc_ask_stuck" data-run-id="lone"');
+    expect(lone_html).toContain("Its subrun x was cancelled 30m ago and this run was not resumed.");
+    expect(lone_html).toContain(">Cancel task</button>");
     // Stuck sorts LAST in Needs you: a fresh ask above 77-day-old junk (design adversary P1-2).
     const ask = row({ run_id: "ask", status: "waiting", waiting: { reason: "user" }, updated_at: ago(2) });
     expect(ids(build_board({ active: [root, child, ask], done: [], details, fates, now_ms: NOW }).needs_you)).toEqual(["ask", "root"]);

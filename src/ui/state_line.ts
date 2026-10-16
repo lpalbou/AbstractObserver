@@ -131,6 +131,9 @@ export type StateLine = {
   unresolved: boolean;
   /** The run waits on a subrun that already ended and was never resumed (only you can move it). */
   stuck?: boolean;
+  /** The facts behind `stuck`, for the card's attention block: the subrun's name (the step that
+   * waited on it), how it ended, and how long ago. */
+  stuck_facts?: { subrun: string; status: string; ended_ms: number | null };
   /** The rendered sentence. */
   text: string;
   /** The sentence without the quoted prompt ("asks a question · 23m") — for a
@@ -458,8 +461,8 @@ function state_line_raw(run: RunSummary, ctx: StateContext, depth = 0): StateLin
       const sub_name = step || (fate && run_display_name(fate.workflow_id)) || short_run_id(sub);
       if (fate && fate.status === "missing") {
         // The gateway has no such run any more: nothing can end this wait but a cancel.
-        const text = `stuck: its subrun ${sub_name} no longer exists and the gateway cannot resume this run${tail}`;
-        return { ...base, verb: "needs_you", lane: "needs_you", object: `subrun ${sub_name} (missing)`, actor: "you", action: "open_run", stuck: true, text };
+        const text = `stuck: subrun ${sub_name} no longer exists${tail}`;
+        return { ...base, verb: "needs_you", lane: "needs_you", object: `subrun ${sub_name} (missing)`, actor: "you", action: "open_run", stuck: true, stuck_facts: { subrun: sub_name, status: "missing", ended_ms: null }, text };
       }
       if (fate && terminal_run_status(fate.status)) {
         const ended = parse_iso_ms(fate.updated_at);
@@ -472,8 +475,8 @@ function state_line_raw(run: RunSummary, ctx: StateContext, depth = 0): StateLin
         }
         const ago = since_ms !== null ? ` ${compact_duration(since_ms)} ago` : "";
         const was = fate.status === "cancelled" ? "was cancelled" : fate.status === "failed" ? "failed" : `ended ${fate.status}`;
-        const text = `stuck: its subrun ${sub_name} ${was}${ago} and the gateway did not resume this run${tail}`;
-        return { ...base, verb: "needs_you", lane: "needs_you", object: `subrun ${sub_name} (${fate.status})`, actor: "you", action: "open_run", stuck: true, text };
+        const text = `stuck: subrun ${sub_name} ${was}${ago}, this run was not resumed${tail}`;
+        return { ...base, verb: "needs_you", lane: "needs_you", object: `subrun ${sub_name} (${fate.status})`, actor: "you", action: "open_run", stuck: true, stuck_facts: { subrun: sub_name, status: fate.status, ended_ms: since_ms }, text };
       }
       if (sub) {
         const text = `waiting for its subrun ${sub_name} to finish${tail}`;

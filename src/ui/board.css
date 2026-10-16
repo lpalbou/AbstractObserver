@@ -2099,12 +2099,20 @@ a.btn.mc_btn_quiet {
   text-decoration: underline;
 }
 
-.mc_stuck_band {
-  margin-top: 6px;
-  padding: 6px 8px;
+.mc_ask_stuck {
+  padding: 6px 8px 8px;
+  border-top: 0;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--error) 10%, transparent);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+}
+
+.mc_ask_stuck .mc_ask_words {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.mc_stuck_why {
   color: var(--text-primary);
   font-size: var(--t-small);
-  font-weight: 600;
+  line-height: 1.45;
 }
