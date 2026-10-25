@@ -64,4 +64,12 @@ describe("triggers in words", () => {
     expect(trigger_words({ source_id: "schedule", source_version: 2, config: {} }, "Every day at 08:00 (Europe/Paris)")).toBe("Every day at 08:00 (Europe/Paris)");
     expect(trigger_words(null)).toBe("");
   });
+
+  it("the gateway's served trigger_text wins (AbstractGateway 1613d05c); without it, our words", () => {
+    const served = summary(FEED, { trigger_text: "When Python news has a new item" } as any);
+    expect(automation_row_view(served, NOW).cadence).toBe("When Python news has a new item");
+    const b = fold_automation_brief({ summary: served, definition: null })!;
+    expect(b).toMatchObject({ cadence: "When Python news has a new item", trigger_text: "When Python news has a new item" });
+    expect(fold_automation_brief({ summary: summary(FEED), definition: null })!).toMatchObject({ cadence: "When a feed has a new item", trigger_text: "" });
+  });
 });

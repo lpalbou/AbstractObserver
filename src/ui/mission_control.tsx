@@ -669,7 +669,7 @@ export type AutomationFactsWords = {
 export function automation_facts_words(a: AutomationBrief, now_ms: number): AutomationFactsWords {
   // The trigger in words with the latest vocabulary ("When Release notes has a new item"); the
   // served sentence for a schedule (UX review 2026-10-25 #2: never "feed.item@1").
-  const rule = a.schedule_rule_text || (a.trigger ? trigger_words(a.trigger) : "") || a.cadence || "";
+  const rule = a.trigger_text || a.schedule_rule_text || (a.trigger ? trigger_words(a.trigger) : "") || a.cadence || "";
   const in_progress = a.current && !terminal_run_status(a.current.status) ? a.current : null;
   const manual = a.trigger?.source_id === "manual";
   let when = "";
@@ -980,7 +980,7 @@ export function card_info_sections(card: BoardCard, input: InfoInput): InfoSecti
     out.push({ id: "automation", title: SECTION_TITLE.automation, rows });
 
     const sched: InfoRow[] = [];
-    push(sched, { id: "trigger", label: "Trigger", value: (a.trigger ? trigger_words(a.trigger, a.schedule_rule_text) : "") || a.cadence || "not on the record", source: facts?.trigger_source || "" });
+    push(sched, { id: "trigger", label: "Trigger", value: a.trigger_text || (a.trigger ? trigger_words(a.trigger, a.schedule_rule_text) : "") || a.cadence || "not on the record", source: facts?.trigger_source || "" });
     if (a.status === "paused") push(sched, { id: "next", label: "Next run", value: "none while paused: scheduled runs are skipped" });
     else
       push(

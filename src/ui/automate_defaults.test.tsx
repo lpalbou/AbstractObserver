@@ -153,6 +153,10 @@ describe("New automation: the flow's own settings", () => {
     expect(flow_entry_detail_words(entries[0], { connections })).toBe("When Release notes has a new item · @0.0.0");
     expect(flow_entry_detail_words(entries[0], {})).toBe("When a feed has a new item · @0.0.0");
     expect(flow_entry_detail_words({ interfaces: ["abstractcode.agent.v1"], bundleVersion: "1" }, { connections })).toBeNull();
+    // The gateway's `triggerable` mark without the trigger on the row (AbstractGateway 1613d05c).
+    expect(flow_entry_detail_words({ interfaces: [], triggerable: true, bundleVersion: "0.0.0" }, {})).toBe("Runs by itself · @0.0.0");
+    const marked = parseWorkflowListing({ items: [{ ...listing.items[1], entrypoints: [{ flow_id: "dev", name: "Marked", interfaces: [], triggerable: true }] }] }, null).entries;
+    expect(marked.map((e) => e.name)).toEqual(["Marked"]);
     // Picking it reads the same defaults from /bundles/{id}: the trigger is preselected.
     const d = flow_automation_defaults({ bundle_id: "Python-digest", automation_defaults: listing.items[0].automation_defaults }, "Python-digest", "92abf314");
     expect(automate_prefill(DEFAULT_AUTOMATE_FORM, {}, d!).form.when).toBe("defaults");

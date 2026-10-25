@@ -59,6 +59,8 @@ export type AutomationBrief = {
   trigger: { source_id: string; source_version: number; config: Record<string, any> } | null;
   /** Fed by something that arrives (a mailbox, a feed, a webhook): no clock, no "next run" — it listens. */
   event_driven: boolean;
+  /** The gateway's served trigger in words (`summary.trigger_text`, AbstractGateway 1613d05c); "" when not served. */
+  trigger_text: string;
   /** The automation's served time zone (`summary.time_zone`), "" when not served. */
   time_zone: string;
   next_fire_ms: number | null;
@@ -684,7 +686,9 @@ export function fold_automation_brief(body: any): AutomationBrief | null {
     automation_id,
     title: String(summary?.title || definition?.title || "").trim(),
     status: String(summary?.status || "").trim(),
-    cadence: trigger_words(trigger_of, served_rule),
+    // The gateway's words when served (names looked up there), else our fold.
+    cadence: String(summary?.trigger_text || "").trim() || trigger_words(trigger_of, served_rule),
+    trigger_text: String(summary?.trigger_text || "").trim(),
     trigger: trigger_of,
     event_driven: isEventTrigger(trigger_of),
     time_zone: String(summary?.time_zone || "").trim(),
