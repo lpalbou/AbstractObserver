@@ -2,6 +2,8 @@
 // where automations come from; the flow is named, never "Release-digest@0.0.0:4dee0431"; no
 // workspace policy, folder path or revision on the cards or the header (they are under Details
 // and the Workspaces disclosure); "run #1", never "occurrence #1"; "conversation", never "session".
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -79,5 +81,11 @@ describe("no jargon in the person's view", () => {
     expect(titled.secondary).toBe("run #1");
     const bare = subject_of(run, { by_id: new Map(), children_of: new Map(), now_ms: 0 });
     expect(bare.secondary).toMatch(/^run #1 · Python-digest/);
+  });
+
+  it("the list's title is never cut: it keeps its width and the status filter gives way", () => {
+    const css = readFileSync(join(__dirname, "automations.css"), "utf8");
+    expect(css).toMatch(/\.auto_list \.pane_header \.list_disclosure,\s*\.auto_list \.pane_header > \.pane_title \{\s*flex: none;/);
+    expect(css).toMatch(/\.auto_list \.pane_header \.seg_select \{\s*flex: 0 1 auto;/);
   });
 });

@@ -428,3 +428,19 @@
   gap: 6px;
   min-width: 0;
 }
+
+/* The list's title is never cut ("Automati…", UX re-review #14): it keeps its width; the status
+   filter gives way first. */
+.auto_list .pane_header .list_disclosure,
+.auto_list .pane_header > .pane_title {
+  flex: none;
+}
+.auto_list .pane_header .list_disclosure .pane_title {
+  overflow: visible;
+  text-overflow: clip;
+}
+.auto_list .pane_header .seg_select {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+}
