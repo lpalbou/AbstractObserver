@@ -854,6 +854,12 @@ export type AutomationDetailState = {
   occurrences: OccurrenceRow[];
   next_cursor: string | null;
   error: ApiError | null;
+  /**
+   * What arrived for each run of an automation fed by mail, a feed or a webhook: the run's
+   * `input_data.event` (CloudEvent) by run id, read once per run (`GET /runs/{id}/input_data`);
+   * null when the run carries none or could not be read. The panel's "what arrived" card.
+   */
+  occurrence_events: Record<string, unknown>;
 };
 
 export type AutomationsState = {
@@ -914,6 +920,8 @@ export type AutomationsHost = {
   /** A legacy command against a legacy schedule root (`POST /api/gateway/commands`). */
   legacy_command(run_id: string, type: "pause" | "resume", payload: Record<string, any>): Promise<void>;
   now_iso(): string;
+  /** `GET /runs/{id}/input_data` → its `input_data` (an occurrence's `event`). Absent: no "what arrived" card. */
+  run_input_data?(run_id: string): Promise<Record<string, any> | null>;
 };
 
 /**
@@ -922,11 +930,21 @@ export type AutomationsHost = {
  * rows use the legacy command types — both through `POST /api/gateway/commands`.
  */
 export function observer_automations_host(
-  gateway: { submit_command(c: { command_id: string; run_id: string; type: string; payload: any; client_id?: string }): Promise<any> },
+  gateway: { submit_command(c: { command_id: string; run_id: string; type: string; payload: any; client_id?: string }): Promise<any>; get_run_input_data?(run_id: string): Promise<any> },
   mint: () => string,
   now_iso: () => string,
 ): AutomationsHost {
+  const read_input = gateway.get_run_input_data?.bind(gateway);
   return {
+    ...(read_input
+      ? {
+          run_input_data: async (run_id: string) => {
+            const body = await read_input(run_id);
+            const data = body && typeof body === "object" ? (body as any).input_data : null;
+            return data && typeof data === "object" && !Array.isArray(data) ? data : null;
+          },
+        }
+      : {}),
     answer_wait: async (run_id, wait_key, payload) => {
       await gateway.submit_command({ command_id: mint(), run_id, type: "resume", payload: { wait_key, payload }, client_id: "web_pwa" });
     },
@@ -1143,7 +1161,7 @@ export class AutomationsController {
       const listed = this.state.items.find((s) => s.automation_id === id);
       if (listed && is_legacy_summary(listed)) {
         // Legacy rows have no definition/occurrences on the automation routes.
-        this.set({ detail: { automation_id: id, summary: listed, definition: null, occurrences: [], next_cursor: null, error: null } });
+        this.set({ detail: { automation_id: id, summary: listed, definition: null, occurrences: [], next_cursor: null, error: null, occurrence_events: {} } });
         return;
       }
       const [detail, page] = await Promise.all([this.client.getAutomation(id), this.client.listOccurrences(id, { limit: AUTOMATIONS_PAGE_LIMIT })]);
@@ -1156,8 +1174,10 @@ export class AutomationsController {
           occurrences: merge_occurrences([], page.items),
           next_cursor: page.next_cursor,
           error: null,
+          occurrence_events: {},
         },
       });
+      void this.load_occurrence_events(id);
       await this.load_trigger_sources();
     } catch (e) {
       if (seq !== this.detail_seq) return;
@@ -1182,6 +1202,42 @@ export class AutomationsController {
         next_cursor: cur.occurrences.length > page.items.length ? cur.next_cursor : page.next_cursor,
       },
     });
+    void this.load_occurrence_events(id);
+  }
+
+  private events_inflight = new Set<string>();
+
+  /**
+   * Each run's `input_data.event` for an automation fed by what arrives (mail, a feed, a webhook),
+   * read once per run and kept for the open automation: the panel shows "Release notes · 1 new
+   * item: “…” · 15:13" above the task (UX review 2026-10-25 #3). Schedules and by-hand runs have
+   * nothing to show: no reads. A failed read leaves that run without a card (null).
+   */
+  async load_occurrence_events(id: string): Promise<void> {
+    const d = this.state.detail;
+    const read = this.host.run_input_data;
+    if (!read || !d || d.automation_id !== id || is_legacy_summary(d.summary) || !isEventTrigger(d.summary.trigger)) return;
+    const todo = d.occurrences.map((o) => o.run_id).filter((rid) => rid && !(rid in d.occurrence_events) && !this.events_inflight.has(rid));
+    if (!todo.length) return;
+    for (const rid of todo) this.events_inflight.add(rid);
+    const got: Record<string, unknown> = {};
+    try {
+      await Promise.all(
+        todo.map(async (rid) => {
+          try {
+            const input = await read(rid);
+            got[rid] = input && typeof input === "object" && "event" in input ? input.event : null;
+          } catch {
+            got[rid] = null;
+          }
+        }),
+      );
+    } finally {
+      for (const rid of todo) this.events_inflight.delete(rid);
+    }
+    const cur = this.state.detail;
+    if (!cur || cur.automation_id !== id) return;
+    this.set({ detail: { ...cur, occurrence_events: { ...cur.occurrence_events, ...got } } });
   }
 
   async load_more(): Promise<void> {
@@ -1192,6 +1248,7 @@ export class AutomationsController {
       const cur = this.state.detail;
       if (!cur || cur.automation_id !== d.automation_id) return;
       this.set({ detail: { ...cur, occurrences: merge_occurrences(cur.occurrences, page.items), next_cursor: page.next_cursor } });
+      void this.load_occurrence_events(d.automation_id);
     } catch (e) {
       this.set({ error: to_api_error(e) });
     }

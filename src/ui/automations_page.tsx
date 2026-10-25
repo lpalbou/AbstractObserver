@@ -471,6 +471,8 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     // Triggers by name: "When Release notes has a new item", "When mail arrives in me@example.org".
     triggerConnections: st.trigger_connections,
     mailboxes: st.mailboxes,
+    // What arrived, above each run's task (the runs' `input_data.event`).
+    occurrenceEvents: d.occurrence_events,
     busy: st.busy,
     ...(d.error ? { error: d.error } : {}),
     // The panel mints one id per user action and reuses it on retry: forward
