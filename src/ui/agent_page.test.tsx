@@ -354,12 +354,12 @@ describe("pin palette and stylesheet discipline", () => {
   // The sibling repo is only present in the framework checkout; CI has no abstractflow/ next to this repo.
   const FLOW_TS = join(__dirname, "..", "..", "..", "abstractflow", "src", "types", "flow.ts");
   it.skipIf(!existsSync(FLOW_TS))("the palette is a verbatim mirror of abstractflow's flow.ts", () => {
-    const flow_ts = readFileSync(FLOW_TS, "utf8").split("\n").slice(5, 85).join("\n");
+    const flow_ts = readFileSync(FLOW_TS, "utf8").split("\n").slice(5, 89).join("\n");
     const mirror = readFileSync(join(__dirname, "pin_palette.ts"), "utf8");
     const begin = mirror.indexOf("\n", mirror.indexOf("---- BEGIN verbatim copy")) + 1;
     const end = mirror.lastIndexOf("\n", mirror.indexOf("---- END verbatim copy"));
     expect(mirror.slice(begin, end)).toBe(flow_ts);
-    expect(PIN_TYPES).toHaveLength(37);
+    expect(PIN_TYPES).toHaveLength(39); // + email, emails (AbstractFlow 198cd63)
     expect(pin_shape_kind("execution")).toBe("triangle");
     expect(pin_shape_kind("assertions")).toBe("square");
     expect(pin_shape_kind("agent")).toBe("hexagon");
