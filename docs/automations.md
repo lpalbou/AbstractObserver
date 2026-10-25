@@ -32,11 +32,10 @@ Schedules created with an older gateway keep working either way (see
 **Launch** has two modes, and the sentence under the switch says which one
 is selected:
 
-- **Run once**: start this workflow now, a single run you can watch in Observe.
-- **Automate**: create an automation that runs this workflow on a schedule
-  (every N minutes, hours or days; daily, weekly or monthly at a time of day;
-  or once), when an email arrives, or when you ask; manage it on the
-  Automations page.
+- **Run once**: start this flow now, a single run you can watch in Observe.
+- **Automate**: the flow runs by itself — with its own trigger, on a
+  schedule, when something arrives (mail, a feed, a webhook), or by hand;
+  manage it on the Automations page.
 
 Switch to **Automate**, or use **+ New automation** on the Automations page,
 which opens Launch in Automate mode. The address `#launch/automate` opens it
@@ -60,6 +59,16 @@ text inputs are left out, as in **Run once**.
 
 ### When
 
+**The flow's own trigger.** When the chosen flow publishes automation
+settings (made in AbstractFlow; `automation_defaults` on `/bundles/{id}`), the
+form preselects **Use the flow's trigger: When Release notes has a new item**
+— the feed or webhook by its name, the mailbox by its address, a schedule by
+the gateway's sentence in your account's time zone — and takes Context, its
+budget, the title and the inputs from the flow (what you already typed is
+kept). The automation is then created with that trigger. **Other trigger…**
+shows the choices below. In Automate mode the flow's raw **Event** input is
+neither shown nor sent: the trigger fills it with what arrived.
+
 - **Repeat** every N minutes, hours or days. Presets: every 5 minutes,
   every 30 minutes, every hour, every 8 hours, every 24 hours, every 7 days.
 - **Daily** at a time of day.
@@ -68,8 +77,14 @@ text inputs are left out, as in **Run once**.
 - **Monthly** on day 1 to 31, or the last day, at a time of day. A day the
   month does not have (31 in April) runs on that month's last day.
 - **Once at…** a date and time.
-- **When an email arrives** — see [Email](#email) (offered only when your
-  gateway account has a working mailbox).
+- **When something arrives** — one of your mailboxes by address ("Mail
+  arrives in me@example.org", then the [Email](#email) filters) or one of your
+  feeds and webhooks by name ("Release notes has a new item", "CI hook is
+  called"; `GET /api/gateway/me/email/accounts` and
+  `GET /api/gateway/triggers/connections`). With nothing to listen to it says
+  what to add: a mailbox (My email) or a feed or webhook on the gateway
+  console's Triggers page.
+- **By hand** — runs only when someone presses Run now.
 
 Repeat is a fixed interval in UTC: "every 24 hours" means 24 hours after the
 previous tick, whatever your time zone or daylight saving time. Its line under
@@ -209,19 +224,29 @@ Each row shows:
 - the run in progress, when there is one ("Run #7 running", "Run #7
   starting", "Run #7 waiting to retry (attempt 2)"), from the gateway's
   current occurrence;
-- the cadence ("Every 8 hours (UTC)", "Every day at 08:00 (Europe/Paris)" —
-  the gateway's words for every schedule — or "manual runs only"), the next
+- the trigger in words ("Every 8 hours (UTC)", "Every day at 08:00
+  (Europe/Paris)" — the gateway's words for every schedule — "By hand",
+  "When mail arrives in me@example.org", "When Release notes has a new
+  item", "When CI hook is called"; never a source id); for an automation fed
+  by what arrives, "runs when something new arrives" and "last: today 15:13";
+  otherwise the next
   run with how far away it is ("2026-10-09 08:00 Europe/Paris (in 13 h)": the
   gateway's own next run, in the automation's time zone, never computed by the
   Observer; shown also while a run is in progress; "none while paused" when
   paused), and the last
   finished run's number and status ("#3 completed", "#2 failed after 3
   attempts", or "no runs yet");
-- **Workspaces: <summary>**, the automation's workspaces in one line: the
-  gateway's summary for the stored choice (or for your default, when it uses
-  your default), verbatim, for example "Workspaces: Deny everything, allow
-  listed workspaces · /Users/me/Pictures (rw)";
 - an excerpt of the last answer.
+
+The open automation folds its workspaces under **Workspaces** (one line: the
+gateway's summary for the stored choice, verbatim). Its header names the flow
+(**Flow: Release digest**), the trigger in words and **Browse its files**;
+the flow's id, the folder's path and the revision are under **Details**. Each
+run reads **Run #3 · on schedule · today 08:00**; a run fed by something that
+arrived shows a card above its task — **Release notes · 1 new item:
+“Release 0.13” · 15:13** (from the run's `input_data.event`) — and the whole
+text the agent received (the trigger header, the events and their JSON) is
+behind **What the agent received**.
 
 Row controls, each an icon then its name. Hovering a control shows what it
 does (the shared AbstractUIC hint, the same text in every AbstractFramework
@@ -386,11 +411,10 @@ attempts, with:
 
 ### Discuss a result
 
-**Discuss** on a row, or **Discuss — fork at this occurrence (own workspace,
-automation files read-only)** on a finished occurrence, opens a chat in place
-of the panel. Your first message creates a new session that forks the
-automation at occurrence #N with its history (runs 1 to N) in context; every
-later message is the next turn of that session, answered with the same model.
+**Discuss** on a row, or **Discuss this run** on a finished run, opens a chat
+in place of the panel. Your first message starts a new conversation from run
+#N with the automation's history (runs 1 to N) in context; every later message
+is the next turn of that conversation, answered with the same model.
 The chat is the shared AbstractUIC chat (the one AbstractCode uses): replies
 stream in, tool approvals and questions are answered in the chat, and
 **Stop** ends the turn in progress. The button with the automation's title
@@ -422,7 +446,7 @@ The gateway attributes every run it lists (`role`, `session_kind`,
 `automation_id`, `occurrence_index`). The Observer tags runs from these fields
 only; a workflow name never makes a run an automation run.
 
-- **Board**: an occurrence card carries an `occurrence #N` tag and an
+- **Board**: an automation run's card carries a `run #N` tag and an
   **Automation** button that opens its automation on the Automations page. An
   automation between runs is not a card; it lives on the Automations page.
   Waits of an occurrence (questions, tool approvals with their tool calls)

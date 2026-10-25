@@ -177,7 +177,7 @@ through the gateway and opens or downloads each file in your browser. See
 
 ## Why is my automation not on the Board?
 An automation between runs is not a run you can act on, so it lives on the
-Automations page. Its occurrences are Board cards (tag `occurrence #N`) with
+Automations page. Its runs are Board cards (tag `run #N`) with
 an **Automation** button back to it.
 
 ## I archived a conversation in AbstractCode — is it gone from Observer?
