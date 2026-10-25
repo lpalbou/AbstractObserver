@@ -5,7 +5,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { Mailbox, TriggerConnection } from "@abstractframework/ui-kit";
+import { parseWorkflowListing, type Mailbox, type TriggerConnection } from "@abstractframework/ui-kit";
 
 import { AutomateWhenContext, WHEN_TEXT, defaults_trigger_words } from "./automate_form";
 import {
@@ -18,6 +18,7 @@ import {
   build_automate_request,
   defaults_trigger_spec,
   flow_automation_defaults,
+  flow_entry_detail_words,
   type AutomateForm,
   type FlowAutomationDefaults,
 } from "./automations";
@@ -135,5 +136,24 @@ describe("New automation: the flow's own settings", () => {
     // Refusals: no connection chosen, a mailbox that cannot be read.
     expect(build({ ...DEFAULT_AUTOMATE_FORM, when: "connection", connection_id: "" }, { prompt: "x" }).ok).toBe(false);
     expect(build({ ...DEFAULT_AUTOMATE_FORM, when: "email", email_account: "sendonly" }, { prompt: "x" }).ok).toBe(false);
+  });
+
+  it("lists a flow made to run by itself (no interface) by its trigger, and preselects that trigger", () => {
+    // GET /bundles (any interface) as the gateway serves it: the triggered flow declares no interface
+    // (AbstractFlow 77b0c1d) and carries its automation defaults on the row.
+    const listing = {
+      items: [
+        { bundle_id: "Python-digest", bundle_version: "0.0.0", owner: { kind: "user" }, shipped: false, automation_defaults: { "92abf314": FEED_DEFAULTS }, entrypoints: [{ flow_id: "92abf314", name: "Python digest", interfaces: [] }] },
+        { bundle_id: "scratch", bundle_version: "0.0.1", owner: { kind: "user" }, shipped: false, automation_defaults: {}, entrypoints: [{ flow_id: "dev", name: "Scratch", interfaces: [] }] },
+      ],
+    };
+    const entries = parseWorkflowListing(listing, null).entries;
+    expect(entries.map((e) => e.name)).toEqual(["Python digest"]);
+    expect(flow_entry_detail_words(entries[0], { connections })).toBe("When Release notes has a new item · @0.0.0");
+    expect(flow_entry_detail_words(entries[0], {})).toBe("When a feed has a new item · @0.0.0");
+    expect(flow_entry_detail_words({ interfaces: ["abstractcode.agent.v1"], bundleVersion: "1" }, { connections })).toBeNull();
+    // Picking it reads the same defaults from /bundles/{id}: the trigger is preselected.
+    const d = flow_automation_defaults({ bundle_id: "Python-digest", automation_defaults: listing.items[0].automation_defaults }, "Python-digest", "92abf314");
+    expect(automate_prefill(DEFAULT_AUTOMATE_FORM, {}, d!).form.when).toBe("defaults");
   });
 });

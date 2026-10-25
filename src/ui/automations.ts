@@ -66,6 +66,7 @@ import {
   connectionKind,
   connectionSentence,
   mailboxName,
+  triggerWords,
 } from "@abstractframework/ui-kit";
 import { set_trigger_vocab } from "./trigger_vocab";
 
@@ -362,6 +363,19 @@ export function automate_prefill(form: AutomateForm, input_data: Record<string, 
   const inputs: Record<string, any> = { ...(d.input_data || {}) };
   for (const [k, v] of Object.entries(input_data || {})) if (filled(v)) inputs[k] = v;
   return { form: next, input_data: inputs };
+}
+
+/**
+ * The picker's detail line for a flow made to run by itself (no interface, its automation
+ * trigger on the `/bundles` row): "When Python news has a new item · @0.0.0", the feed by its
+ * name (UX re-review 2026-10-25 #1). Null for any other entry (the kit's own line).
+ */
+export function flow_entry_detail_words(
+  e: { automationTrigger?: { source_id: string; source_version: number; config: Record<string, unknown>; connection_id?: string }; interfaces: string[]; bundleVersion: string },
+  vocab: { connections?: readonly TriggerConnection[] | null; mailboxes?: readonly Mailbox[] | null },
+): string | null {
+  if (!e.automationTrigger || e.interfaces.length) return null;
+  return [triggerWords(e.automationTrigger as any, vocab.connections, vocab.mailboxes), e.bundleVersion ? `@${e.bundleVersion}` : ""].filter(Boolean).join(" · ");
 }
 
 /** Mailboxes "When mail arrives" can watch: connected and readable, the primary first. */

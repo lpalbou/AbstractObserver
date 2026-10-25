@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { type LedgerRecordItem } from "@abstractframework/monitor-flow";
 import {
@@ -32,6 +32,7 @@ import {
   useExecutableWorkflows,
   useSchedulePreview,
   WorkflowPicker,
+  type WorkflowPickerEntry,
   type AfSelectOption,
   type GatewayConnectionState,
   type ProviderOption,
@@ -50,6 +51,7 @@ import {
   TRIGGER_OWNED_INPUTS,
   automate_prefill,
   flow_automation_defaults,
+  flow_entry_detail_words,
   AutomationsController,
   DEFAULT_AUTOMATE_FORM,
   RequestIdMemo,
@@ -888,6 +890,14 @@ export function App(): React.ReactElement {
   // Round 16: the line under When for Once / Daily / Weekly / Monthly is the GATEWAY's
   // (schedule-preview, debounced, latest wins); "Change in preferences" opens the console's
   // Accounts (Preferences → Time zone), like My email.
+  /**
+   * A flow made to run by itself reads by its trigger in the picker, with the person's feeds and
+   * mailboxes: "Python digest · When Python news has a new item · @0.0.0" (UX re-review #1).
+   */
+  const flow_entry_detail = useCallback(
+    (e: WorkflowPickerEntry): string | null => flow_entry_detail_words(e, { connections: automations_state.trigger_connections, mailboxes: automations_state.mailboxes }),
+    [automations_state.trigger_connections, automations_state.mailboxes],
+  );
   /** The chosen flow's own automation settings (`/bundles/{id}` → `automation_defaults[flow_id]`), or null. */
   const launch_defaults = useMemo(
     () => (!launch_default_interface && bundle_id.trim() && flow_id.trim() ? flow_automation_defaults(bundle_info, bundle_id.trim(), flow_id.trim()) : null),
@@ -5430,6 +5440,7 @@ export function App(): React.ReactElement {
                     defaultInterface={CODE_AGENT_INTERFACE}
                     ariaLabel="Flow"
                     workflows={executable_workflows}
+                    entryDetail={flow_entry_detail}
                     value={launch_picker_value(launch_choice, executable_workflows.data?.entries ?? [])}
                     currentLabel={
                       launch_choice && !launch_picker_value(launch_choice, executable_workflows.data?.entries ?? [])
@@ -5719,7 +5730,7 @@ export function App(): React.ReactElement {
 
         {page === "automations" ? (
           <AutomationsPage
-            workflowPickerOptions={{ interfaceId: null, defaultInterface: CODE_AGENT_INTERFACE, workflows: executable_workflows, request: (path, init) => gateway.get_gateway_json(path, init.signal) }}
+            workflowPickerOptions={{ interfaceId: null, defaultInterface: CODE_AGENT_INTERFACE, workflows: executable_workflows, entryDetail: flow_entry_detail, request: (path, init) => gateway.get_gateway_json(path, init.signal) }}
             availableTools={available_tool_names}
             ctl={automations_ctl}
             gateway={gateway}
