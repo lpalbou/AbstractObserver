@@ -299,7 +299,7 @@ export const CONTEXT_HELP: Record<ContextMode, string> = {
 export const AUTOMATION_OWNED_INPUTS: readonly string[] = ["use_context"];
 
 /** Said under the Context choice, where the hidden input went. */
-export const CONTEXT_OWNS_HISTORY = "This choice also sets the flow's Use Context input: the flow always reads the history the automation gives it.";
+export const CONTEXT_OWNS_HISTORY = "This choice also tells the flow whether to read the earlier runs.";
 
 /**
  * Inputs the TRIGGER fills (UX review 2026-10-25 #1): an occurrence's `event` is the CloudEvent of
@@ -384,7 +384,28 @@ export function readable_mailboxes(mailboxes: readonly Mailbox[] | null | undefi
 }
 
 /** One "When something arrives" choice: a mailbox by address, a feed or webhook by name. */
-export type ArrivalChoice = { value: string; label: string; group: "mail" | "feed" | "webhook" | "other" };
+export type ArrivalChoice = {
+  value: string;
+  label: string;
+  group: "mail" | "feed" | "webhook" | "other";
+  /** Why it cannot deliver now, in words ("not working: The feed answered HTTP 404."); "" when it works. */
+  problem: string;
+};
+
+/**
+ * A connection's trouble in words, as AbstractFlow says it (`automationPicker.connectionStateWords`):
+ * its last error's cause and fix, else paused; "" when it works (UX re-review #16).
+ */
+export function connection_problem(conn: Pick<TriggerConnection, "status" | "last_error" | "paused">): string {
+  const err = conn.last_error && typeof conn.last_error === "object" ? (conn.last_error as Record<string, unknown>) : null;
+  if (err) {
+    const text = (k: string) => (typeof err[k] === "string" ? String(err[k]).trim() : "");
+    const cause = text("cause") || text("message") || text("code") || "it failed";
+    return `not working: ${cause}${text("fix") ? ` ${text("fix")}` : ""}`.trim();
+  }
+  if (conn.paused === true || conn.status === "paused") return "paused";
+  return "";
+}
 
 /**
  * The "When something arrives" list (never an id in a label): "Mail arrives in me@example.org",
@@ -393,11 +414,13 @@ export type ArrivalChoice = { value: string; label: string; group: "mail" | "fee
  */
 export function arrival_choices(mailboxes: readonly Mailbox[] | null | undefined, connections: readonly TriggerConnection[] | null | undefined): ArrivalChoice[] {
   const out: ArrivalChoice[] = [];
-  for (const m of readable_mailboxes(mailboxes)) out.push({ value: `mail:${m.account_id}`, label: `Mail arrives in ${mailboxName(m.account_id, mailboxes)}`, group: "mail" });
+  for (const m of readable_mailboxes(mailboxes)) out.push({ value: `mail:${m.account_id}`, label: `Mail arrives in ${mailboxName(m.account_id, mailboxes)}`, group: "mail", problem: "" });
   for (const c of connections || []) {
-    if (c.status && c.status !== "active") continue;
+    if (c.status && c.status !== "active" && c.status !== "paused") continue;
     const sentence = connectionSentence(c.label || "a connection", c.source_id);
-    out.push({ value: `conn:${c.connection_id}`, label: sentence.replace(/^When /, ""), group: connectionKind(c.source_id) });
+    const problem = connection_problem(c);
+    // A broken feed is flagged, never offered as working (as AbstractFlow lists it).
+    out.push({ value: `conn:${c.connection_id}`, label: `${sentence.replace(/^When /, "")}${problem ? ` — ${problem.startsWith("not working") ? "not working" : problem}` : ""}`, group: connectionKind(c.source_id), problem });
   }
   return out;
 }

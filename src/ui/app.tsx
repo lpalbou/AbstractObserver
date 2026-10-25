@@ -4943,7 +4943,7 @@ export function App(): React.ReactElement {
   const launch_bundles = (
                   <details className="launch_bundles" style={{ marginTop: "10px" }}>
                     <summary className="help_text muted" style={{ cursor: "pointer" }}>
-                      Workflow bundles
+                      Flow files
                     </summary>
                     <div className="launch_workflow_bar" style={{ marginTop: "8px" }}>
                       <input ref={bundle_upload_input_ref} type="file" accept=".flow" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files.length ? e.target.files[0] : null; if (!f) return; void upload_gateway_bundle(f); }} />
@@ -5656,8 +5656,8 @@ export function App(): React.ReactElement {
                       workspaces={launch_workspaces_chooser}
                     />
                     <AutomateTitleLimits form={automate_form} disabled={automate_submitting} on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))} />
+                    {/* No .flow upload/reload in New automation: a person picks a flow (UX re-review #16). */}
                     {launch_capabilities}
-                    {launch_bundles}
                   </>
                 ) : (
                   <>

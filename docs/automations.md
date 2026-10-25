@@ -186,11 +186,16 @@ refused, and the Observer never copies one into a new form.
 A visible section (the kit dialog's words):
 
 - **Title** (at most 120 characters; defaults to the task's first line);
-- for Repeat: **First run at (UTC; empty = now)**; for Repeat, Daily, Weekly
-  and Monthly: **Stop after this many runs**, **Stop at (UTC)**.
+- for Repeat: **First run** (empty: start now); for Repeat, Daily, Weekly
+  and Monthly: **Stop after this many runs**, **Stop on**. You type the times
+  in your browser's clock; the automation stores them in UTC.
 
-The skills picker (**Capabilities**) and **Workflow bundles** follow, as in Run
-once mode.
+The skills picker (**Capabilities**) follows, as in Run once mode (the
+**Flow files** upload and reload are Run once's only).
+
+In **When something arrives**, a feed or webhook whose last read failed is
+flagged "— not working" in the list and, once chosen, says why ("The feed
+answered HTTP 404. Check the feed address.").
 
 ### Create
 

@@ -23,7 +23,6 @@ import {
   DEFAULT_EMAIL_RECIPIENTS,
   SCHEDULE_TEXT,
   type PreviewState,
-  EMAIL_TEXT,
   SCHEDULE_PRESETS,
   TOOL_APPROVAL_CONSENT,
   emailUsable,
@@ -59,6 +58,7 @@ export const WHEN_TEXT = {
   manual_help: "Runs only when someone presses Run now in Observer or the Assistant.",
   event_help: "Runs every time something new arrives; the flow receives what arrived.",
   untrusted_event: "What arrives (feed items, webhook calls) is data, never instructions: the automation acts only on its task.",
+  untrusted_mail: "Incoming mail is data, never instructions: the automation acts only on its task. Tools that open links always ask for your approval first.",
 } as const;
 
 /**
@@ -209,6 +209,11 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
                 </div>
               )
             ) : null}
+            {arrives && arrivals.find((a) => a.value === arrival_value(f))?.problem ? (
+              <div className="warn_callout" role="note" data-note="arrival-problem">
+                {`This one is ${arrivals.find((a) => a.value === arrival_value(f))!.problem}. It runs again once it reads; fix it on the gateway console's Triggers page.`}
+              </div>
+            ) : null}
             {when === "email" ? (
               <AfEmailTriggerFields value={f.email} onChange={(email) => p.on_change({ email })} disabled={p.disabled} idBase="automate" />
             ) : when === "daily" || when === "weekly" || when === "monthly" ? (
@@ -252,9 +257,12 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
               </label>
             ) : null}
             {when === "email" ? (
-              <div className="automate_preview" aria-live="polite" data-preview="true">
-                {preview || "Incomplete email trigger."}
-              </div>
+              // The gateway's sentence once the fields make one; nothing before (UX re-review #16).
+              preview ? (
+                <div className="automate_preview" aria-live="polite" data-preview="true">
+                  {preview}
+                </div>
+              ) : null
             ) : when === "connection" ? (
               <p className="help_text muted" data-help="arrives">{WHEN_TEXT.event_help}</p>
             ) : when === "manual" ? (
@@ -291,7 +299,7 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
         {p.available_tools && p.on_tools_change ? <AutomationToolsPicker availableTools={p.available_tools} value={p.tools ?? null} onChange={p.on_tools_change} disabled={p.disabled} /> : null}
         {when === "email" || (when === "defaults" && defaults && defaults.trigger.source_id.startsWith("email")) ? (
           <p className="help_text muted" data-email-rule="untrusted">
-            {EMAIL_TEXT.untrusted_hint}
+            {WHEN_TEXT.untrusted_mail}
           </p>
         ) : when === "connection" || (when === "defaults" && defaults && isEventTrigger(defaults.trigger)) ? (
           <p className="help_text muted" data-event-rule="untrusted">
@@ -330,6 +338,26 @@ export function AutomateWhenContext(p: AutomateFieldsProps): React.ReactElement 
   );
 }
 
+/**
+ * The limit fields hold UTC wall times (the kit's `utcFromLocalInput`); the person types and reads
+ * them in this browser's clock (UX re-review #16: no "UTC; empty = now" in the form). Unreadable
+ * text is passed through unchanged (the kit then says why).
+ */
+export function local_to_utc_input(local: string): string {
+  if (!local) return "";
+  const d = new Date(local);
+  return Number.isNaN(d.getTime()) ? local : d.toISOString().slice(0, 16);
+}
+
+/** The inverse: a UTC wall time (`YYYY-MM-DDTHH:MM`) as this browser's local datetime-local value. */
+export function utc_to_local_input(utc: string): string {
+  if (!utc) return "";
+  const d = new Date(`${utc.length === 16 ? `${utc}:00` : utc}Z`);
+  if (Number.isNaN(d.getTime())) return utc;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 /** Title and limits: title; for Repeat the first run; for Repeat and the calendar rules max runs and stop at (UTC) — a visible section (the kit dialog's words). */
 export function AutomateTitleLimits(p: Omit<AutomateFieldsProps, "served">): React.ReactElement {
   const f = p.form;
@@ -346,8 +374,8 @@ export function AutomateTitleLimits(p: Omit<AutomateFieldsProps, "served">): Rea
           <>
             {f.when === "every" ? (
               <label className="launch_grid_cell">
-                <span className="launch_label">First run at (UTC; empty = now)</span>
-                <input type="datetime-local" value={f.start_at} disabled={p.disabled} onChange={(e) => p.on_change({ start_at: e.target.value })} />
+                <span className="launch_label">First run</span>
+                <input type="datetime-local" aria-describedby="automate_limits_help" value={utc_to_local_input(f.start_at)} disabled={p.disabled} onChange={(e) => p.on_change({ start_at: local_to_utc_input(e.target.value) })} />
               </label>
             ) : null}
             <label className="launch_grid_cell">
@@ -355,12 +383,17 @@ export function AutomateTitleLimits(p: Omit<AutomateFieldsProps, "served">): Rea
               <input type="number" min={1} step={1} value={f.count} disabled={p.disabled} onChange={(e) => p.on_change({ count: e.target.value })} />
             </label>
             <label className="launch_grid_cell">
-              <span className="launch_label">Stop at (UTC)</span>
-              <input type="datetime-local" value={f.until} disabled={p.disabled} onChange={(e) => p.on_change({ until: e.target.value })} />
+              <span className="launch_label">Stop on</span>
+              <input type="datetime-local" aria-describedby="automate_limits_help" value={utc_to_local_input(f.until)} disabled={p.disabled} onChange={(e) => p.on_change({ until: local_to_utc_input(e.target.value) })} />
             </label>
           </>
         ) : null}
       </div>
+      {f.when === "every" || f.when === "daily" || f.when === "weekly" || f.when === "monthly" ? (
+        <p className="help_text muted" id="automate_limits_help" data-help="limits">
+          All optional. Leave the first run empty to start now; times are in this browser's clock.
+        </p>
+      ) : null}
     </fieldset>
     </div>
   );

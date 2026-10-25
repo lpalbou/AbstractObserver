@@ -331,9 +331,10 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(adv).toContain('data-section="limits"><legend>Title and limits</legend>');
     expect(adv).not.toMatch(/<details|<summary|Advanced/);
     expect(adv).toContain("Title");
-    expect(adv).toContain("First run at (UTC; empty = now)");
+    expect(adv).toContain(">First run<");
+    expect(adv).not.toMatch(/UTC|empty = now/);
     expect(adv).toContain("Stop after this many runs");
-    expect(adv).toContain("Stop at (UTC)");
+    expect(adv).toContain(">Stop on<");
     // D1: the consent line with the target's tools, and the "ask" option.
     const tools = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} served={{ phase: "idle" }} tools={["fetch_url", "execute_command"]} on_change={() => {}} />));
     expect(tools).toContain(TOOL_APPROVAL_CONSENT);

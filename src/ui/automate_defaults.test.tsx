@@ -7,11 +7,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { parseWorkflowListing, type Mailbox, type TriggerConnection } from "@abstractframework/ui-kit";
 
-import { AutomateWhenContext, WHEN_TEXT, defaults_trigger_words } from "./automate_form";
+import { AutomateTitleLimits, AutomateWhenContext, WHEN_TEXT, defaults_trigger_words, local_to_utc_input, utc_to_local_input } from "./automate_form";
 import {
   DEFAULT_AUTOMATE_FORM,
   TRIGGER_OWNED_INPUTS,
   arrival_choices,
+  connection_problem,
   arrival_patch,
   automate_prefill,
   automate_preview_trigger,
@@ -155,5 +156,32 @@ describe("New automation: the flow's own settings", () => {
     // Picking it reads the same defaults from /bundles/{id}: the trigger is preselected.
     const d = flow_automation_defaults({ bundle_id: "Python-digest", automation_defaults: listing.items[0].automation_defaults }, "Python-digest", "92abf314");
     expect(automate_prefill(DEFAULT_AUTOMATE_FORM, {}, d!).form.when).toBe("defaults");
+  });
+
+  it("no developer words and no premature sentence in the form; a broken feed is flagged (re-review #16)", () => {
+    const status = { configured: true, enabled: true, admin_enabled: true, effective_enabled: true };
+    const mail = render({ ...DEFAULT_AUTOMATE_FORM, when: "email", email_account: "default" }, null, { email_status: status });
+    expect(mail).not.toContain("Incomplete email trigger");
+    const every = render(DEFAULT_AUTOMATE_FORM, null, { email_status: status });
+    const limits = renderToStaticMarkup(<AutomateTitleLimits form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />);
+    for (const html of [mail, every, limits]) expect(html).not.toMatch(/fetch_url|browser_probe|\(UTC; empty = now\)|Stop at \(UTC\)|Use Context input|Workflow bundles/);
+    // A feed whose last read failed: flagged in the list, and said when chosen.
+    const broken = [{ ...connections[0], last_error: { code: "http_404", cause: "The feed answered HTTP 404.", fix: "Check the feed address." } }];
+    expect(connection_problem(broken[0])).toBe("not working: The feed answered HTTP 404. Check the feed address.");
+    expect(connection_problem(connections[0])).toBe("");
+    expect(arrival_choices([], broken)[0].label).toBe("Release notes has a new item — not working");
+    const chosen = render({ ...DEFAULT_AUTOMATE_FORM, when: "connection", connection_id: "c_feed" }, null, { connections: broken });
+    expect(chosen).toContain('data-note="arrival-problem"');
+    expect(chosen).toContain("The feed answered HTTP 404.");
+    expect(render({ ...DEFAULT_AUTOMATE_FORM, when: "connection", connection_id: "c_feed" }, null)).not.toContain("arrival-problem");
+  });
+
+  it("the limits are typed in this browser's clock and kept as the UTC wall time the kit reads", () => {
+    const local = "2026-11-02T09:30";
+    const utc = local_to_utc_input(local);
+    expect(utc).toBe(new Date(local).toISOString().slice(0, 16));
+    expect(utc_to_local_input(utc)).toBe(local);
+    expect([local_to_utc_input(""), utc_to_local_input("")]).toEqual(["", ""]);
+    expect(local_to_utc_input("garbage")).toBe("garbage");
   });
 });
