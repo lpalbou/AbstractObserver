@@ -393,7 +393,7 @@ describe("live shape: the 2026-10-13 23:50 UTC listing (occurrence #5 parked on 
     expect(occ.line.text).toMatch(/^running subrun visual_react_agent_basic-agent_0_0_5_81795ea9_node-2 · last step \d+m ago · no progress$/);
     expect(occ.line.actor_run_id).toBe(CHILD);
     expect(occ.title.source).toBe("automation");
-    expect(occ.subject.secondary).toBe("run #5 · basic-agent 0.0.5");
+    expect(occ.subject.secondary).toBe("run #5");
     expect(all_ids(lanes)).not.toContain(CHILD);
   });
 
@@ -475,7 +475,7 @@ describe("card anatomy (design §Card anatomy)", () => {
     expect(html).not.toContain(">Automation<");
     expect(html).not.toContain(">subrun<");
     expect(html).toContain('data-tag="archived"');
-    expect(text_of(c)).toContain("run #3 · basic-agent 0.0.5");
+    expect(text_of(c)).toContain("run #3");
   });
 
   it("metrics render when the sweep knows them (tokens / tools / duration)", () => {

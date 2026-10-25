@@ -607,7 +607,9 @@ export function subject_of(run: RunSummary, ctx: StateContext): Subject {
     if (role === "occurrence" && typeof run?.occurrence_index === "number") bits.push(`run #${run.occurrence_index}`);
     else if (role === "descendant" && typeof run?.occurrence_index === "number") bits.push(`run #${run.occurrence_index} · subrun`);
     else if (role === "discussion") bits.push("discussion");
-    if (wf && role !== "controller") bits.push(wf);
+    // The automation's run reads "run #1" under the automation's title; the flow's id only when
+    // nothing names the automation (UX re-review #5: never "run #1 · Python-digest 0.0.0").
+    if (wf && role !== "controller" && !brief?.title) bits.push(wf);
     if (role === "controller" && brief) bits.push(brief.cadence);
     return { kind: "automation", glyph: SUBJECT_GLYPH.automation, label: brief?.title || "", secondary: bits.join(" · "), automation_id, id_hint: automation_id };
   }

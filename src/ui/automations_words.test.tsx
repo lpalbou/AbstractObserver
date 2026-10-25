@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AutomationsClient } from "@abstractframework/ui-kit";
 
 import { AutomationsController, INITIAL_AUTOMATIONS_STATE, LAUNCH_MODE_HELP, CONTEXT_HELP, run_session_tag_label, type AutomationsHost } from "./automations";
+import { subject_of } from "./state_line";
 import { AutomationDetailView, AutomationsListView, workflow_name_of, type AutomationsHandlers, type PanelHostHandlers } from "./automations_page";
 
 const h = { on_select() {}, on_row_action() {}, on_legacy_action() {}, on_confirm_archive() {}, on_cancel_archive() {}, on_status_filter() {}, on_refresh() {}, on_new() {}, on_show_archived() {} } as AutomationsHandlers;
@@ -70,5 +71,13 @@ describe("no jargon in the person's view", () => {
     expect(CONTEXT_HELP.independent).toContain("conversation");
     expect(CONTEXT_HELP.independent).not.toMatch(/\bsession\b/);
     expect(LAUNCH_MODE_HELP.once + LAUNCH_MODE_HELP.automate).not.toMatch(/workflow/);
+  });
+
+  it("a run of a titled automation reads 'run #1' (no flow id); without the title the flow says what it is", () => {
+    const run: any = { run_id: "o1", role: "occurrence", session_kind: "occurrence", automation_id: "a1", occurrence_index: 1, workflow_id: "Python-digest@0.0.0:92abf314" };
+    const titled = subject_of(run, { by_id: new Map(), children_of: new Map(), now_ms: 0, automations: new Map([["a1", { title: "Python digest" } as any]]) });
+    expect(titled.secondary).toBe("run #1");
+    const bare = subject_of(run, { by_id: new Map(), children_of: new Map(), now_ms: 0 });
+    expect(bare.secondary).toMatch(/^run #1 · Python-digest/);
   });
 });

@@ -146,7 +146,7 @@ describe("AgentPage — header, profile, context, tree, spend, ask (completed oc
     expect(head).toContain(AUTOMATION.summary.title);
     expect(head).toContain('title="Title from: automation"');
     expect(head).toContain('<span class="chip ok">completed</span>');
-    expect(head).toContain('<div class="ap_subject_line">run #5 · basic-agent 0.0.5</div>');
+    expect(head).toContain('<div class="ap_subject_line">run #5</div>');
     expect(head).toContain('<span class="ap_state_text">completed in 52m</span>');
     expect(head).toContain(`title="Copy run id ${OCC}"`);
     expect(text(m)).not.toContain(OCC);

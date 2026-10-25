@@ -576,7 +576,9 @@ export function AutomationDetailView(props: {
       {ws && definition ? (
         <div className="auto_workspaces" data-section="workspaces" data-editing={props.edit?.open ? "true" : undefined}>
           {props.edit?.open ? (
-            <>
+            // Folded while editing too (UX re-review #5): the policy is a detail, opened on purpose.
+            <details className="auto_workspaces_details" data-field="workspaces-details">
+              <summary>Workspaces</summary>
               <AutomationWorkspacesChooser
                 footer={<p className="help_text muted auto_workspaces_help">Each change is saved at once as a new revision; it applies from the next run.</p>}
                 id_prefix={`observer-automation-workspace-${d.automation_id}`}
@@ -586,7 +588,7 @@ export function AutomationDetailView(props: {
                 disabled={ctl.state.busy}
                 on_change={(next) => save_automation_workspace(ctl, ws.revisions, { automation_id: d.automation_id, summary: d.summary, definition }, next, randomId())}
               />
-            </>
+            </details>
           ) : (
             // The workspace policy is a detail (UX review 2026-10-25 #4), not the first line a person reads.
             <details className="auto_workspaces_details" data-field="workspaces-details">
