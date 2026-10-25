@@ -5417,7 +5417,7 @@ export function App(): React.ReactElement {
                     <button className="btn primary" onClick={() => gateway_connection.openModal()}>
                       Sign in
                     </button>{" "}
-                    to launch workflows on this gateway.
+                    to run flows on this gateway.
                   </div>
                 ) : null}
 
@@ -5428,7 +5428,7 @@ export function App(): React.ReactElement {
                     className="launch_workflow_picker"
                     interfaceId={null}
                     defaultInterface={CODE_AGENT_INTERFACE}
-                    ariaLabel="Workflow"
+                    ariaLabel="Flow"
                     workflows={executable_workflows}
                     value={launch_picker_value(launch_choice, executable_workflows.data?.entries ?? [])}
                     currentLabel={
@@ -5436,7 +5436,7 @@ export function App(): React.ReactElement {
                         ? { name: workflow_label_by_id[selected_workflow_value] || selected_workflow_value }
                         : null
                     }
-                    unavailableReason={!gateway_connected ? "Sign in to load workflows." : discovery_loading ? "Loading workflows…" : null}
+                    unavailableReason={!gateway_connected ? "Sign in to load flows." : discovery_loading ? "Loading flows…" : null}
                     onChange={(value, entry) => {
                       const choice = choice_from_picker(value, entry);
                       if (choice) void choose_launch_target(choice);
@@ -5451,7 +5451,7 @@ export function App(): React.ReactElement {
                   ) : null}
                   {bundle_loading ? (
                     <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                      Loading workflow…
+                      Loading flow…
                     </div>
                   ) : null}
 	                  {bundle_error ? (
@@ -5466,7 +5466,7 @@ export function App(): React.ReactElement {
 
                   {!launch_choice ? (
                     <div className="help_text muted" style={{ marginTop: "8px" }}>
-                      Select a workflow above to configure inputs.
+                      Choose a flow above to set its inputs.
                     </div>
                   ) : input_data_obj === null ? (
                     <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
@@ -5688,7 +5688,7 @@ export function App(): React.ReactElement {
                     const disabled_reason = !gateway_connected
                       ? "Sign in first"
                       : !launch_choice
-                        ? "Select a workflow"
+                        ? "Choose a flow"
                         : input_data_obj === null
                           ? "Inputs contain invalid JSON"
                           : automate && !automations_cap.available

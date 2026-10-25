@@ -624,12 +624,14 @@ describe("Automations page", () => {
     expect(Object.keys(r).sort()).toEqual(Object.keys(recorded).sort());
     expect(r.workspace_root).not.toBe(r.mounted_workspace);
     expect(r.mounted_workspace).toBe((await client.getAutomation(INBOX_ID)).definition.workspace_root);
-    // The notice names both paths, on the page and where the discussion opens.
+    // The notice says it in a person's words (UX review 2026-10-25 #4/#5): a conversation, its own
+    // folder, the automation's files readable but not changeable — no paths, no "session".
     for (const notice of [opened.notices[0], ctl.state.notice]) {
-      expect(notice).toContain(r.workspace_root);
-      expect(notice).toContain(r.mounted_workspace);
-      expect(notice).toMatch(/read-only/);
+      expect(notice).toContain("A conversation about run #6 started");
+      expect(notice).toMatch(/can read the automation's files but not change them/);
       expect(notice).toMatch(/shell commands are not sandboxed/); // the mount binds the file tools only
+      expect(notice).not.toContain(r.workspace_root);
+      expect(notice).not.toMatch(/\bsession\b/);
     }
   });
 
@@ -724,7 +726,7 @@ describe("run attribution tags", () => {
     expect(lanes.scheduled.map((c) => c.run_id)).toContain("ctl-1");
     const all = LANE_ORDER.flatMap((l) => lanes[l]);
     const occ = all.find((c) => c.run_id === "occ-3")!;
-    expect(occ).toMatchObject({ tag: "occurrence", tag_label: "occurrence #3", automation_id: "ctl-1" });
+    expect(occ).toMatchObject({ tag: "occurrence", tag_label: "run #3", automation_id: "ctl-1" });
     expect(all.find((c) => c.run_id === "prefix-only")!.tag).toBeNull();
   });
 

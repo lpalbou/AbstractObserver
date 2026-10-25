@@ -392,6 +392,16 @@
   min-width: 0;
 }
 
+/* The automation's workspace policy, folded (UX review 2026-10-25 #4: a detail, not the first line). */
+.auto_workspaces_details > summary {
+  cursor: pointer;
+  font-size: var(--t-micro);
+  color: var(--text-secondary);
+}
+.auto_workspaces_details[open] > summary {
+  margin-bottom: 4px;
+}
+
 .auto_workspaces {
   margin: 0 0 10px;
   min-width: 0;

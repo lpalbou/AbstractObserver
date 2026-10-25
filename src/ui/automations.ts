@@ -633,7 +633,7 @@ export function run_session_tag(run: Pick<RunSummary, "role" | "session_kind" | 
 
 export function run_session_tag_label(run: Pick<RunSummary, "role" | "session_kind" | "is_scheduled" | "occurrence_index">): string {
   const tag = run_session_tag(run);
-  if (tag === "occurrence") return typeof run.occurrence_index === "number" ? `occurrence #${run.occurrence_index}` : "occurrence";
+  if (tag === "occurrence") return typeof run.occurrence_index === "number" ? `run #${run.occurrence_index}` : "automation run";
   if (tag === "legacy") return "legacy schedule";
   return tag || "";
 }
@@ -995,7 +995,9 @@ export function archived_count(state: Pick<AutomationsState, "items">): number {
  * automation's folder mounted read-only.
  */
 export function discussion_notice(index: number, r: DiscussResponse): string {
-  return `Discussion started from #${index} (session ${r.session_id}). It works in its own workspace ${r.workspace_root}; the automation's files are mounted read-only at ${r.mounted_workspace} for the file tools (shell commands are not sandboxed), and nothing is written back into the automation's session.`;
+  // A person's words (UX review 2026-10-25 #4/#5): a conversation, its folder; the ids and paths are its tooltip/Details.
+  void r;
+  return `A conversation about run #${index} started. It works in its own folder; it can read the automation's files but not change them (shell commands are not sandboxed), and nothing is written back into the automation.`;
 }
 
 /** Poll interval of the Automations page while visible. */

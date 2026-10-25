@@ -174,8 +174,8 @@ export function AutomationDiscussion(props: {
         placeholder={session ? "Ask a follow-up…" : `Ask about run #${discussion.occurrence_index}…`}
         emptyState={
           <div className="help_text muted discussion_intro">
-            A new session that forks this automation at #{discussion.occurrence_index} with its history (runs 1–{discussion.occurrence_index}). It works in its own writable
-            workspace; the automation's files are mounted read-only for the file tools (shell commands are not sandboxed), and nothing is written back into the
+            A new conversation from run #{discussion.occurrence_index} with the automation's history (runs 1–{discussion.occurrence_index}). It works in its own folder;
+            it can read the automation's files but not change them (by the file tools; shell commands are not sandboxed), and nothing is written back into the
             automation.
           </div>
         }

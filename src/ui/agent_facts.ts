@@ -1048,13 +1048,13 @@ export function fold_agent_profile(
   const parent_row = parent_id ? row_of(parent_id) : undefined;
   const occ_index = num(row.occurrence_index);
   let role_text = "";
-  if (role === "occurrence") role_text = occ_index !== null ? `occurrence #${occ_index}` : "occurrence";
+  if (role === "occurrence") role_text = occ_index !== null ? `run #${occ_index}` : "automation run";
   else if (role === "controller") role_text = "automation controller (the schedule's own run)";
   else if (role === "discussion") role_text = "discussion of the automation";
   else if (parent_id) {
     const p_role = str(parent_row?.role);
     const p_idx = num(parent_row?.occurrence_index);
-    const p_name = p_role === "occurrence" && p_idx !== null ? `occurrence #${p_idx}` : workflow_short(str(parent_row?.workflow_id)) || "a parent run (row not loaded)";
+    const p_name = p_role === "occurrence" && p_idx !== null ? `run #${p_idx}` : workflow_short(str(parent_row?.workflow_id)) || "a parent run (row not loaded)";
     role_text = `subrun of ${p_name}`;
   } else role_text = str(row.session_id) ? "run in a session" : "top-level run";
   const role_fact = known({ text: role_text, parent_run_id: parent_id }, "run");
@@ -1262,7 +1262,7 @@ export function fold_agent_profile(
     else if (st === "failed") next = known({ kind: "none", at_ms: null, text: "no next run (the automation failed)" }, "automation");
     else if (brief.next_fire_ms !== null) {
       const until = format_time_until_from_ms(brief.next_fire_ms - now_ms);
-      next = known({ kind: "next_at", at_ms: brief.next_fire_ms, text: `next occurrence at ${fmt_utc(brief.next_fire_ms)}${until ? ` (in ${until})` : ""}` }, "automation");
+      next = known({ kind: "next_at", at_ms: brief.next_fire_ms, text: `next run at ${fmt_utc(brief.next_fire_ms)}${until ? ` (in ${until})` : ""}` }, "automation");
     } else if (str(trigger?.source_id) === "manual") next = known({ kind: "on_trigger", at_ms: null, text: "next run when someone runs it" }, "automation");
     // Mail, a feed, a webhook (`email.received`, `feed.item`, `webhook.received`): the next run is
     // what arrives next, named ("next run when Release notes has a new item"; UX review 2026-10-25 #2).

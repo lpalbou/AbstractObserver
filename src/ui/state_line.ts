@@ -587,7 +587,7 @@ export type Subject = {
   glyph: string;
   /** "Nightly digest" (automation title) / "session 3f2a…" / "". */
   label: string;
-  /** "occurrence #5 · basic-agent 0.0.5" — the secondary line. */
+  /** "run #5 · basic-agent 0.0.5" — the secondary line (UX review 2026-10-25 #6: "run", never "occurrence"). */
   secondary: string;
   automation_id: string;
   /** The session id behind an agent subject — for a title/copy affordance, never as text. */
@@ -604,8 +604,8 @@ export function subject_of(run: RunSummary, ctx: StateContext): Subject {
   const wf = workflow_short(String(run?.workflow_id || ""));
   if (role === "controller" || role === "occurrence" || role === "descendant" || role === "discussion" || kind_tag === "automation") {
     const bits: string[] = [];
-    if (role === "occurrence" && typeof run?.occurrence_index === "number") bits.push(`occurrence #${run.occurrence_index}`);
-    else if (role === "descendant" && typeof run?.occurrence_index === "number") bits.push(`occurrence #${run.occurrence_index} · subrun`);
+    if (role === "occurrence" && typeof run?.occurrence_index === "number") bits.push(`run #${run.occurrence_index}`);
+    else if (role === "descendant" && typeof run?.occurrence_index === "number") bits.push(`run #${run.occurrence_index} · subrun`);
     else if (role === "discussion") bits.push("discussion");
     if (wf && role !== "controller") bits.push(wf);
     if (role === "controller" && brief) bits.push(brief.cadence);
