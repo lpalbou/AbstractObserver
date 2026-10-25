@@ -29,7 +29,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useStat
 import { createPortal } from "react-dom";
 import "./board.css";
 
-import { AfChip, AfMemoryHintChip, Icon, automationControls, type AutomationChanges, type AutomationSummary, type ControlState, type IconName } from "@abstractframework/ui-kit";
+import { AfChip, AfMemoryHintChip, Icon, automationControls, whenWords, type AutomationChanges, type AutomationSummary, type ControlState, type IconName } from "@abstractframework/ui-kit";
 import { Markdown } from "@abstractframework/panel-chat";
 
 import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
@@ -62,6 +62,7 @@ import {
   run_display_title,
   short_run_id,
   subject_of,
+  trigger_words,
   waiting_step_of,
   workflow_short,
   type AutomationBrief,
@@ -666,8 +667,11 @@ export type AutomationFactsWords = {
  * with no-break spaces, so a narrow card wraps between words but never inside "22h 48m ago"
  * or "in 1h 12m"; `text` is the same words with plain spaces. */
 export function automation_facts_words(a: AutomationBrief, now_ms: number): AutomationFactsWords {
-  const rule = a.schedule_rule_text || a.cadence || "";
+  // The trigger in words with the latest vocabulary ("When Release notes has a new item"); the
+  // served sentence for a schedule (UX review 2026-10-25 #2: never "feed.item@1").
+  const rule = a.schedule_rule_text || (a.trigger ? trigger_words(a.trigger) : "") || a.cadence || "";
   const in_progress = a.current && !terminal_run_status(a.current.status) ? a.current : null;
+  const manual = a.trigger?.source_id === "manual";
   let when = "";
   let when_title = "";
   if (a.status === "paused") {
@@ -681,7 +685,12 @@ export function automation_facts_words(a: AutomationBrief, now_ms: number): Auto
     when_title = `next run ${format_when(a.next_fire_ms, now_ms)}${a.next_run_local ? ` · ${a.next_run_local} (owner's zone)` : ""}`;
   } else if (a.status === "completed" || a.status === "failed") {
     when = `${a.status}: no next run`;
-  } else if (a.cadence !== "manual") {
+  } else if (a.event_driven) {
+    // Fed by what arrives: it listens; no clock, so never "no next run".
+    const last_at = a.last && a.last.fired_ms !== null ? whenWords(new Date(a.last.fired_ms).toISOString(), { timeZone: a.time_zone || null, nowMs: now_ms, style: "day" }) : "";
+    when = last_at ? `listening · last: ${glued(last_at)}` : "listening";
+    when_title = "runs every time something new arrives";
+  } else if (!manual) {
     when = "no next run";
   }
   const schedule_parts = [rule, when].filter(Boolean);
@@ -971,9 +980,17 @@ export function card_info_sections(card: BoardCard, input: InfoInput): InfoSecti
     out.push({ id: "automation", title: SECTION_TITLE.automation, rows });
 
     const sched: InfoRow[] = [];
-    push(sched, { id: "trigger", label: "Trigger", value: a.cadence || "not on the record", source: facts?.trigger_source || "" });
+    push(sched, { id: "trigger", label: "Trigger", value: (a.trigger ? trigger_words(a.trigger, a.schedule_rule_text) : "") || a.cadence || "not on the record", source: facts?.trigger_source || "" });
     if (a.status === "paused") push(sched, { id: "next", label: "Next run", value: "none while paused: scheduled runs are skipped" });
-    else push(sched, time_row("next", "Next run", a.next_fire_ms, now_ms, true) || { id: "next", label: "Next run", value: "none scheduled" });
+    else
+      push(
+        sched,
+        time_row("next", "Next run", a.next_fire_ms, now_ms, true) || {
+          id: "next",
+          label: "Next run",
+          value: a.event_driven ? "when something new arrives" : a.trigger?.source_id === "manual" ? "when someone presses Run now" : "none scheduled",
+        },
+      );
     const in_progress = a.current && !terminal_run_status(a.current.status) ? a.current : null;
     if (in_progress) push(sched, { id: "current", label: "In progress", value: `#${in_progress.index} ${in_progress.status}` });
     if (a.last && !(in_progress && in_progress.index === a.last.index)) {

@@ -216,7 +216,7 @@ function RowWorkspacesLine(props: { summary: AutomationSummary; ws: RowWorkspace
 
 function AutomationRow(props: { summary: AutomationSummary; state: AutomationsState; h: AutomationsHandlers; ws?: RowWorkspaces }): React.ReactElement {
   const s = props.summary;
-  const v = automation_row_view(s);
+  const v = automation_row_view(s, Date.now(), { connections: props.state.trigger_connections, mailboxes: props.state.mailboxes });
   const selected = props.state.selected_id === s.automation_id;
   const busy = props.state.busy;
   // `iconOnly`: the label becomes the button's accessible name and leads its tooltip.
@@ -286,8 +286,8 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
               {v.current}
             </Fact>
           ) : null}
-          <Fact icon="clock" field="next" label="Next run">
-            next: {v.next_run}
+          <Fact icon="clock" field="next" label={v.listening ? "When it runs" : "Next run"}>
+            {v.listening ? v.next_run : `next: ${v.next_run}`}
           </Fact>
           <Fact icon="info" field="last-status" label="Last run">
             {v.last_status}
@@ -468,6 +468,9 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     ...(d.definition ? { definition: d.definition } : {}),
     occurrences: d.occurrences,
     triggerSources: st.trigger_sources,
+    // Triggers by name: "When Release notes has a new item", "When mail arrives in me@example.org".
+    triggerConnections: st.trigger_connections,
+    mailboxes: st.mailboxes,
     busy: st.busy,
     ...(d.error ? { error: d.error } : {}),
     // The panel mints one id per user action and reuses it on retry: forward

@@ -32,6 +32,7 @@
 import { format_time_until_from_ms, parse_iso_ms, run_duration_ms, terminal_run_status } from "./format";
 import type { RunSummary } from "./run_status";
 import { build_run_steps, llm_detail, subflow_child_id, tool_detail, type LedgerItem, type RunStep } from "./run_steps";
+import { isEventTrigger } from "@abstractframework/ui-kit";
 import { fold_automation_brief, workflow_short, type AutomationBrief } from "./state_line";
 
 // --- small readers -----------------------------------------------------------------
@@ -1263,8 +1264,12 @@ export function fold_agent_profile(
       const until = format_time_until_from_ms(brief.next_fire_ms - now_ms);
       next = known({ kind: "next_at", at_ms: brief.next_fire_ms, text: `next occurrence at ${fmt_utc(brief.next_fire_ms)}${until ? ` (in ${until})` : ""}` }, "automation");
     } else if (str(trigger?.source_id) === "manual") next = known({ kind: "on_trigger", at_ms: null, text: "next run when someone runs it" }, "automation");
-    else if (str(trigger?.source_id) === "email_received") next = known({ kind: "on_trigger", at_ms: null, text: "next run when a matching email arrives" }, "automation");
-    else next = absent("no next fire time on this wire", "automation");
+    // Mail, a feed, a webhook (`email.received`, `feed.item`, `webhook.received`): the next run is
+    // what arrives next, named ("next run when Release notes has a new item"; UX review 2026-10-25 #2).
+    else if (brief.event_driven || isEventTrigger(trigger as any)) {
+      const words = brief.cadence || "when something new arrives";
+      next = known({ kind: "on_trigger", at_ms: null, text: `next run ${words.charAt(0).toLowerCase()}${words.slice(1)}` }, "automation");
+    } else next = absent("no next fire time on this wire", "automation");
   }
 
   return {

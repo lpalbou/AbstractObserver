@@ -928,6 +928,11 @@ export function App(): React.ReactElement {
       void automations_ctl.load_trigger_vocab();
     }
   }, [page, launch_mode, gateway_connected, automations_ctl]);
+  // Triggers read by name on every page (Board cards, the agent page): the person's feeds,
+  // webhooks and mailboxes are read once signed in (the Automations page re-reads them).
+  useEffect(() => {
+    if (gateway_connected) void automations_ctl.load_trigger_vocab();
+  }, [gateway_connected, automations_ctl]);
   // Deep links: #launch/automate, #launch/once, #launch, #automations, #run/<run_id>.
   useEffect(() => {
     const apply = () => {

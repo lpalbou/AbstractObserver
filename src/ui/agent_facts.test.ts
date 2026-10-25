@@ -590,6 +590,9 @@ describe("fold_agent_profile — precedence and edges", () => {
     expect(next(with_summary({ status: "completed", next_fire_at: null }))).toEqual({ kind: "last", at_ms: null, text: "this was the last (stop reached)" });
     expect(next(with_summary({ status: "completed", last_occurrence: { ...O_AUTO.summary.last_occurrence, index: 14 } }))?.kind).toBe("none");
     expect(next(with_summary({ next_fire_at: null }, { source_id: "manual", config: {} }))).toEqual({ kind: "on_trigger", at_ms: null, text: "next run when someone runs it" });
+    // Mail, a feed: the next run is what arrives next, in words (the real source ids; UX review 2026-10-25 #2).
+    expect(next(with_summary({ next_fire_at: null, next_run_at: null }, { source_id: "email.received", source_version: 1, config: {} }))).toEqual({ kind: "on_trigger", at_ms: null, text: "next run when mail arrives in your main mailbox" });
+    expect(next(with_summary({ next_fire_at: null, next_run_at: null }, { source_id: "feed.item", source_version: 1, config: { connection_id: "c1" } }))).toEqual({ kind: "on_trigger", at_ms: null, text: "next run when a feed has a new item" });
     const bounded = fold_agent_profile(O_DETAIL, O_INPUT, O_FLOW, with_summary({}, { source_id: "schedule", config: { every: "24h", count: 20, until: "2026-12-31T00:00:00+00:00" } }), undefined, O_ROWS, O_NOW);
     expect(bounded.how_long.stop_after).toEqual({ value: 20, source: "automation", why: "" });
     expect(bounded.how_long.stop_at).toEqual({ value: Date.parse("2026-12-31T00:00:00Z"), source: "automation", why: "" });

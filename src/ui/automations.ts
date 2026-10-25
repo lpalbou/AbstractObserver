@@ -24,6 +24,8 @@ import {
   automationControls,
   currentOccurrenceLabel,
   buildCreateRequest,
+  isEventTrigger,
+  whenWords,
   calendarRuleOf,
   DEFAULT_CALENDAR_STATE,
   isServedPreviewWhen,
@@ -667,8 +669,12 @@ export function is_legacy_summary(s: AutomationSummary): boolean {
 export type AutomationRowView = {
   id: string;
   title: string;
+  /** The trigger in words ("Every day at 08:00 (Europe/Paris)", "When Release notes has a new item"). */
   cadence: string;
+  /** "2026-10-09 08:00 Europe/Paris (in 14 h)"; for a trigger fed by what arrives: "runs when something new arrives". */
   next_run: string;
+  /** Fed by something that arrives (mail, a feed, a webhook): it listens, it has no next run. */
+  listening: boolean;
   /** "Run #7 running" — from `current_occurrence` only; null when nothing is in flight. */
   current: string | null;
   state: AutomationStatus;
@@ -683,21 +689,29 @@ export type AutomationRowView = {
  * comes from `current_occurrence`, when it runs next from the served `next_run_at` / `next_run_local`
  * (present exactly while active and scheduled, also during a run).
  */
-export function automation_row_view(s: AutomationSummary, now_ms: number = Date.now()): AutomationRowView {
+export function automation_row_view(
+  s: AutomationSummary,
+  now_ms: number = Date.now(),
+  vocab?: { connections?: readonly TriggerConnection[] | null; mailboxes?: readonly Mailbox[] | null } | null,
+): AutomationRowView {
   const legacy = is_legacy_summary(s);
   const last = s.last_occurrence;
   const attempts = last && last.attempts > 1 ? ` after ${last.attempts} attempts` : "";
   const needs = s.attention.unread || s.attention.pending_waits > 0;
+  // UX review 2026-10-25 #2: "When Release notes has a new item · Runs when something new arrives · last: today 15:13".
+  const listening = !legacy && isEventTrigger(s.trigger) && s.status === "active" && !s.next_run_at;
+  const last_at = listening && last ? whenWords(last.fired_at, { timeZone: s.time_zone, nowMs: now_ms, style: "day" }) : "";
   return {
     id: s.automation_id,
     title: s.title,
-    cadence: triggerSummary(s.trigger, s),
+    cadence: triggerSummary(s.trigger, s, vocab ?? null),
     // The SERVED next run (round 16): next_run_local cut + relative from next_run_at; never computed here.
-    next_run: nextRunLabel(s, now_ms),
+    next_run: listening ? "runs when something new arrives" : nextRunLabel(s, now_ms),
+    listening,
     current: currentOccurrenceLabel(s),
     state: s.status,
     last: last ? last.excerpt : "",
-    last_status: last ? `#${last.index} ${last.status}${attempts}` : "no runs yet",
+    last_status: last ? `${last_at ? `last: ${last_at} · ` : ""}#${last.index} ${last.status}${attempts}` : "no runs yet",
     attention: needs ? attentionLabel(s) : null,
     legacy,
   };
