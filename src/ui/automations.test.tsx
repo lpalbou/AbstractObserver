@@ -314,7 +314,9 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} served={{ phase: "idle" }} on_change={() => {}} />));
     expect(html).toContain("<legend>When</legend>");
     // R16.1: the six kinds, the kit's words, in order.
-    expect(html).toMatch(/value="every"\/> Repeat<.*value="daily"\/> Daily<.*value="weekly"\/> Weekly<.*value="monthly"\/> Monthly<.*value="once"\/> Once at…<.*value="email"\/> When an email arrives</);
+    expect(html).toMatch(/value="every"\/> Repeat<.*value="daily"\/> Daily<.*value="weekly"\/> Weekly<.*value="monthly"\/> Monthly<.*value="once"\/> Once at…<.*value="arrives"\/> When something arrives<.*value="manual"\/> By hand</);
+    // No flow defaults: no "Use the flow's trigger" choice.
+    expect(html).not.toContain("Use the flow's trigger");
     for (const p of SCHEDULE_PRESETS) expect(html).toContain(`data-preset="${p.label}"`);
     // Repeat's line is the gateway's (schedule-preview); the form composes none.
     expect(html).not.toContain("Runs every 24 hours (UTC)");
@@ -406,7 +408,7 @@ describe("Automations page", () => {
     await pending;
     expect(ctl.state.detail?.definition?.revision).toBe(1);
     expect(ctl.state.detail!.occurrences).toHaveLength(2); // stub pages of 2, newest first
-    expect(detail_html()).toContain("Load earlier occurrences (5 more)");
+    expect(detail_html()).toContain("Load earlier runs (5 more)");
     const before = stub.requests.length;
     automation_panel_props(ctl, host_handlers)!.onLoadMore(); // the panel's button
     await vi.waitFor(() => expect(ctl.state.detail!.occurrences).toHaveLength(4));

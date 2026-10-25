@@ -47,6 +47,9 @@ import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import { ApplyImmediatelySwitch, AssistantSkillSwitch, AutoConnectSwitch, ScheduleActiveSwitch } from "./state_switches";
 import {
   AUTOMATION_OWNED_INPUTS,
+  TRIGGER_OWNED_INPUTS,
+  automate_prefill,
+  flow_automation_defaults,
   AutomationsController,
   DEFAULT_AUTOMATE_FORM,
   RequestIdMemo,
@@ -885,13 +888,45 @@ export function App(): React.ReactElement {
   // Round 16: the line under When for Once / Daily / Weekly / Monthly is the GATEWAY's
   // (schedule-preview, debounced, latest wins); "Change in preferences" opens the console's
   // Accounts (Preferences → Time zone), like My email.
+  /** The chosen flow's own automation settings (`/bundles/{id}` → `automation_defaults[flow_id]`), or null. */
+  const launch_defaults = useMemo(
+    () => (!launch_default_interface && bundle_id.trim() && flow_id.trim() ? flow_automation_defaults(bundle_info, bundle_id.trim(), flow_id.trim()) : null),
+    [bundle_info, bundle_id, flow_id, launch_default_interface],
+  );
+  /**
+   * Automate on a flow WITH defaults (UX review 2026-10-25 #1): "Use the flow's trigger" is
+   * preselected and Context / title / inputs come from the defaults — once per flow chosen, so the
+   * person's later edits stay theirs.
+   */
+  const automate_prefilled_for = useRef<string>("");
+  useEffect(() => {
+    if (!launch_open || launch_mode !== "automate" || !launch_defaults) return;
+    const key = `${bundle_id.trim()}:${flow_id.trim()}`;
+    if (automate_prefilled_for.current === key) return;
+    automate_prefilled_for.current = key;
+    let current: Record<string, any> = {};
+    try {
+      const parsed = JSON.parse(input_data_text || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) current = parsed;
+    } catch {
+      current = {};
+    }
+    const next = automate_prefill(automate_form, current, launch_defaults);
+    set_automate_form(next.form);
+    set_input_data_text(JSON.stringify(next.input_data, null, 2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launch_open, launch_mode, launch_defaults, bundle_id, flow_id]);
   const automate_served = useSchedulePreview(
-    launch_open && launch_mode === "automate" && gateway_connected ? automate_preview_trigger(automate_form) : null,
+    launch_open && launch_mode === "automate" && gateway_connected ? automate_preview_trigger(automate_form, launch_defaults) : null,
     automations_ctl.preview_schedule,
   );
   // Fresh email status whenever Launch → Automate is shown (the user may have just connected their mailbox).
   useEffect(() => {
-    if (launch_open && launch_mode === "automate" && gateway_connected) void automations_ctl.load_email_status();
+    if (launch_open && launch_mode === "automate" && gateway_connected) {
+      void automations_ctl.load_email_status();
+      // The feeds, webhooks and mailboxes offered by name under "When something arrives".
+      void automations_ctl.load_trigger_vocab();
+    }
   }, [page, launch_mode, gateway_connected, automations_ctl]);
   // Deep links: #launch/automate, #launch/once, #launch, #automations, #run/<run_id>.
   useEffect(() => {
@@ -2928,6 +2963,9 @@ export function App(): React.ReactElement {
         bundle_ref_for: (bid) => workflow_options.find((w) => w.bundle_id === bid)?.bundle_ref || "",
         input_data: input_data_obj,
         email_usable: automations_ctl.email_usable,
+        defaults: launch_defaults,
+        mailboxes: automations_state.mailboxes,
+        connections: automations_state.trigger_connections,
       },
       automate_request_ids.current,
     );
@@ -2942,6 +2980,7 @@ export function App(): React.ReactElement {
       set_automate_notes([]);
       // A created automation must not lend its title/schedule to the next one.
       set_automate_form(DEFAULT_AUTOMATE_FORM);
+      automate_prefilled_for.current = "";
       push_log({ ts: now_iso(), kind: "info", title: "Automation created", preview: clamp_preview(`${built.body.title} · ${res.automation_id}`) });
       set_launch_open(false);
       set_page("automations");
@@ -5445,6 +5484,8 @@ export function App(): React.ReactElement {
                           if (!pid) continue;
                           // The automation's Context choice owns these (one control, not two).
                           if (launch_mode === "automate" && AUTOMATION_OWNED_INPUTS.includes(pid)) continue;
+                          // The trigger fills `event` (what arrived): no raw "Event object {…}" field.
+                          if (launch_mode === "automate" && TRIGGER_OWNED_INPUTS.includes(pid)) continue;
                           const ptype = String((p as any).type || "").trim().toLowerCase();
                           const is_wide =
                             ptype === "tools" || ptype === "skills" || ptype === "mcp" || ptype === "mcp_servers" ||
@@ -5588,6 +5629,9 @@ export function App(): React.ReactElement {
                       on_open_my_email={open_my_email}
                       served={automate_served}
                       on_open_preferences={open_my_email}
+                      defaults={launch_defaults}
+                      connections={automations_state.trigger_connections}
+                      mailboxes={automations_state.mailboxes}
                       tools={automationToolSelection(input_data_obj || {}) ?? undefined}
                       available_tools={available_tool_names}
                       on_tools_change={(tools) => set_input_data_text(JSON.stringify(withAutomationTools(input_data_obj || {}, tools), null, 2))}

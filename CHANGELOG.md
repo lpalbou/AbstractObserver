@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+Requires `@abstractframework/ui-kit` 0.8.8 (`triggerWords`, the connections and mailboxes client calls, the panel's `occurrenceEvents` / `workflowName` / `triggerConnections` / `mailboxes`).
+
+### Changed
+
+- **New automation uses the flow's own settings** (UX review 2026-10-25, defect #1). When the chosen flow publishes automation defaults (`/bundles/{id}` → `automation_defaults`), Automate preselects **Use the flow's trigger: When Release notes has a new item** (the connection's name, the mailbox's address, or the schedule's sentence from the gateway's preview in the account's zone), takes Context and its budget, the title and the inputs from the defaults (what was already typed is kept), and creates with that trigger. **Other trigger…** keeps the schedule kinds and adds **When something arrives** — your mailboxes by address and your feeds and webhooks by name (`GET /triggers/connections`, `GET /me/email/accounts`), never an id — and **By hand**. The raw **Event object {…}** input is no longer shown or sent in Automate mode: the trigger fills `event`.
+
 ## [0.8.0] - 2026-10-16
 
 Requires AbstractGateway 0.15.0 (`GET /runs` coalesced per plane + query; `/host/runs` titles and waits) over AbstractRuntime 0.10.1 (the active-run index), and `@abstractframework/ui-kit` 0.8.7.

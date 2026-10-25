@@ -59,7 +59,13 @@ import {
   type ScheduleForm,
   type ToolApprovalPolicy,
   type TriggerSourceEntry,
+  type TriggerConnection,
+  type Mailbox,
+  connectionKind,
+  connectionSentence,
+  mailboxName,
 } from "@abstractframework/ui-kit";
+import { set_trigger_vocab } from "./trigger_vocab";
 
 import type { RunSummary } from "./run_status";
 import { with_served_summaries } from "./served_summary";
@@ -170,9 +176,9 @@ export type LaunchMode = "once" | "automate";
 
 /** One sentence per mode: what the Launch button will do. */
 export const LAUNCH_MODE_HELP: Record<LaunchMode, string> = {
-  once: "Run once: start this workflow now, a single run you can watch in Observe.",
+  once: "Run once: start this flow now, a single run you can watch in Observe.",
   automate:
-    "Automate: create an automation that runs this workflow on a schedule (every N minutes, hours or days; daily, weekly or monthly at a time of day; or once), when an email arrives, or when you ask; manage it on the Automations page.",
+    "Automate: the flow runs by itself — with its own trigger, on a schedule, when something arrives (mail, a feed, a webhook), or by hand; manage it on the Automations page.",
 };
 
 /**
@@ -222,7 +228,14 @@ export type AutomateForm = {
    * the account's time zone), or "email": `email.received@1` from `email` (offered only with a
    * usable account, GET /me/email). Every schedule is written as `schedule@2` (the kit builds it).
    */
-  when: "every" | "daily" | "weekly" | "monthly" | "once" | "email";
+  when: "every" | "daily" | "weekly" | "monthly" | "once" | "email" | "connection" | "manual" | "defaults";
+  /**
+   * "When something arrives" → a mailbox (`when: "email"`, the mailbox id here; "default" = the
+   * primary one) or a feed / webhook connection (`when: "connection"`, its id in `connection_id`).
+   * "defaults" = the chosen flow's own published trigger (`automation_defaults.trigger`).
+   */
+  email_account: string;
+  connection_id: string;
   /** The calendar fields (time, days, day of month), kept across kind switches; the rule is built from `when`. */
   calendar: CalendarRuleState;
   /** The "When an email arrives" fields (the kit's `EmailTriggerForm`). */
@@ -249,6 +262,8 @@ export type AutomateForm = {
 
 export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
   when: "every",
+  email_account: "default",
+  connection_id: "",
   calendar: DEFAULT_CALENDAR_STATE,
   email: DEFAULT_EMAIL_TRIGGER_FORM,
   notify_email: false,
@@ -266,7 +281,7 @@ export const DEFAULT_AUTOMATE_FORM: AutomateForm = {
 };
 
 export const CONTEXT_HELP: Record<ContextMode, string> = {
-  independent: "Each run starts fresh in its own session. Runs never see each other.",
+  independent: "Each run starts fresh in its own conversation. Runs never see each other.",
   growing:
     "Each run is a new turn of one conversation and sees the previous runs. The most recent whole turns are replayed within your token budget; older runs drop out. The newest turn is kept whole even if it exceeds the budget.",
 };
@@ -281,7 +296,109 @@ export const CONTEXT_HELP: Record<ContextMode, string> = {
 export const AUTOMATION_OWNED_INPUTS: readonly string[] = ["use_context"];
 
 /** Said under the Context choice, where the hidden input went. */
-export const CONTEXT_OWNS_HISTORY = "This choice also sets the workflow's Use Context input: the workflow always reads the history the automation gives it.";
+export const CONTEXT_OWNS_HISTORY = "This choice also sets the flow's Use Context input: the flow always reads the history the automation gives it.";
+
+/**
+ * Inputs the TRIGGER fills (UX review 2026-10-25 #1): an occurrence's `event` is the CloudEvent of
+ * what arrived (AbstractRuntime writes `input_data.event` at admission), so Automate mode neither
+ * shows the raw "Event object {…}" field nor sends it.
+ */
+export const TRIGGER_OWNED_INPUTS: readonly string[] = ["event"];
+
+// --- a flow's own automation settings (contract C6, `automation_defaults`) ----------------------
+
+/** A flow's published automation defaults (`/bundles/{id}` → `automation_defaults[flow_id]`). */
+export type FlowAutomationDefaults = {
+  schema_version: number;
+  title?: string;
+  trigger: { source_id: string; source_version: number; config: Record<string, any>; connection_id?: string };
+  context?: { mode?: ContextMode; growing?: { max_tokens?: number } };
+  input_data?: Record<string, any>;
+};
+
+/** The defaults the gateway publishes for this flow (`automation_defaults` keyed by entrypoint flow id), or null. */
+export function flow_automation_defaults(bundle_info: any, bundle_id: string, flow_id: string): FlowAutomationDefaults | null {
+  if (!bundle_info || typeof bundle_info !== "object") return null;
+  const bid = String(bundle_info.bundle_id || "").trim();
+  if (bid && bid !== String(bundle_id || "").trim()) return null;
+  const raw = bundle_info.automation_defaults && typeof bundle_info.automation_defaults === "object" ? bundle_info.automation_defaults[String(flow_id || "").trim()] : null;
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw.trigger;
+  if (!t || typeof t !== "object" || typeof t.source_id !== "string" || typeof t.source_version !== "number") return null;
+  return raw as FlowAutomationDefaults;
+}
+
+/** The defaults' trigger as the create body writes it (`connection_id` folded into the config, the gateway's own fold). */
+export function defaults_trigger_spec(d: FlowAutomationDefaults): TriggerSpec {
+  const config: Record<string, any> = { ...(d.trigger.config || {}) };
+  if (d.trigger.connection_id && !config.connection_id) config.connection_id = d.trigger.connection_id;
+  return { source_id: d.trigger.source_id, source_version: d.trigger.source_version, config };
+}
+
+function filled(v: unknown): boolean {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "string") return v.trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  return true;
+}
+
+/**
+ * Automate mode on a flow WITH defaults (UX review 2026-10-25 #1): the trigger choice becomes
+ * "Use the flow's trigger", Context and its budget come from the defaults, the title too when
+ * none is typed, and the inputs are the defaults' with what the person already typed kept.
+ */
+export function automate_prefill(form: AutomateForm, input_data: Record<string, any> | null, d: FlowAutomationDefaults): { form: AutomateForm; input_data: Record<string, any> } {
+  const mode = d.context?.mode === "growing" ? "growing" : "independent";
+  const budget = d.context?.growing?.max_tokens;
+  const next: AutomateForm = {
+    ...form,
+    when: "defaults",
+    context: mode,
+    ...(typeof budget === "number" && budget > 0 ? { growing_max_tokens: String(budget) } : {}),
+    ...(!form.title.trim() && typeof d.title === "string" && d.title.trim() ? { title: d.title.trim() } : {}),
+  };
+  const inputs: Record<string, any> = { ...(d.input_data || {}) };
+  for (const [k, v] of Object.entries(input_data || {})) if (filled(v)) inputs[k] = v;
+  return { form: next, input_data: inputs };
+}
+
+/** Mailboxes "When mail arrives" can watch: connected and readable, the primary first. */
+export function readable_mailboxes(mailboxes: readonly Mailbox[] | null | undefined): Mailbox[] {
+  return [...(mailboxes || [])].filter((m) => m.configured !== false && m.can_read !== false).sort((a, b) => Number(b.primary) - Number(a.primary));
+}
+
+/** One "When something arrives" choice: a mailbox by address, a feed or webhook by name. */
+export type ArrivalChoice = { value: string; label: string; group: "mail" | "feed" | "webhook" | "other" };
+
+/**
+ * The "When something arrives" list (never an id in a label): "Mail arrives in me@example.org",
+ * "Release notes has a new item", "CI hook is called". Values: `mail:<mailbox id>`,
+ * `conn:<connection id>`. Disabled connections are not offered.
+ */
+export function arrival_choices(mailboxes: readonly Mailbox[] | null | undefined, connections: readonly TriggerConnection[] | null | undefined): ArrivalChoice[] {
+  const out: ArrivalChoice[] = [];
+  for (const m of readable_mailboxes(mailboxes)) out.push({ value: `mail:${m.account_id}`, label: `Mail arrives in ${mailboxName(m.account_id, mailboxes)}`, group: "mail" });
+  for (const c of connections || []) {
+    if (c.status && c.status !== "active") continue;
+    const sentence = connectionSentence(c.label || "a connection", c.source_id);
+    out.push({ value: `conn:${c.connection_id}`, label: sentence.replace(/^When /, ""), group: connectionKind(c.source_id) });
+  }
+  return out;
+}
+
+/** The arrival value of the form ("" when the form is not on one). */
+export function arrival_value(form: Pick<AutomateForm, "when" | "email_account" | "connection_id">): string {
+  if (form.when === "email") return `mail:${form.email_account || "default"}`;
+  if (form.when === "connection") return form.connection_id ? `conn:${form.connection_id}` : "";
+  return "";
+}
+
+/** The form patch for an arrival value. */
+export function arrival_patch(value: string): Partial<AutomateForm> {
+  if (value.startsWith("mail:")) return { when: "email", email_account: value.slice(5) || "default" };
+  if (value.startsWith("conn:")) return { when: "connection", connection_id: value.slice(5) };
+  return {};
+}
 
 /**
  * The kit's schedule form for this Observer form and prompt. Email options
@@ -316,8 +433,10 @@ export function schedule_form(form: AutomateForm, prompt: string, email_usable =
  * is the kit's) and while the rule is incomplete. The Launch page feeds it to the kit's
  * `useSchedulePreview` with the controller's `preview_schedule`.
  */
-export function automate_preview_trigger(form: AutomateForm): TriggerSpec | null {
-  if (form.when === "email") return null;
+export function automate_preview_trigger(form: AutomateForm, defaults?: FlowAutomationDefaults | null): TriggerSpec | null {
+  // The flow's own schedule is previewed too (its words in the account's zone); its other triggers have no clock.
+  if (form.when === "defaults") return defaults && defaults.trigger.source_id === "schedule" ? defaults_trigger_spec(defaults) : null;
+  if (form.when === "email" || form.when === "connection" || form.when === "manual") return null;
   const sf = schedule_form(form, "preview");
   if (!isServedPreviewWhen(sf.when)) return null;
   return scheduleTriggerFrom(sf).trigger;
@@ -337,14 +456,29 @@ export function build_automate_request(
     request_id: string;
     /** GET /me/email → effective_enabled (see `schedule_form`). */
     email_usable?: boolean;
+    /** The chosen flow's published defaults ("Use the flow's trigger"). */
+    defaults?: FlowAutomationDefaults | null;
+    /** GET /me/email/accounts: the mailboxes "When mail arrives" may watch (null = unknown: the primary needs `email_usable`). */
+    mailboxes?: readonly Mailbox[] | null;
+    /** GET /triggers/connections: the feeds and webhooks offered by name. */
+    connections?: readonly TriggerConnection[] | null;
   },
 ): { ok: true; body: CreateAutomationRequest } | { ok: false; errors: string[] } {
   if (opts.input_data === null) return { ok: false, errors: ["The inputs are not valid JSON."] };
-  if (form.when === "email" && !opts.email_usable) return { ok: false, errors: [EMAIL_TEXT.not_set_up] };
+  const account = String(form.email_account || "default").trim() || "default";
+  const mailbox_ok = opts.mailboxes ? readable_mailboxes(opts.mailboxes).some((m) => m.account_id === account || (account === "default" && m.primary)) : account === "default" && opts.email_usable === true;
+  if (form.when === "email" && !mailbox_ok) return { ok: false, errors: [EMAIL_TEXT.not_set_up] };
+  if (form.when === "defaults" && !opts.defaults) return { ok: false, errors: ["This flow has no trigger of its own: choose Other trigger…."] };
+  let connection: TriggerConnection | null = null;
+  if (form.when === "connection") {
+    connection = (opts.connections || []).find((c) => c.connection_id === form.connection_id) ?? null;
+    if (!connection) return { ok: false, errors: ["Choose what to listen to under When something arrives."] };
+  }
   const cleaned = clean_input_data(opts.input_data);
   const prompt = typeof cleaned.prompt === "string" ? cleaned.prompt : "";
   delete cleaned.prompt;
   for (const key of AUTOMATION_OWNED_INPUTS) delete cleaned[key];
+  for (const key of TRIGGER_OWNED_INPUTS) delete cleaned[key];
   // An automation works in its own private workspace; other workspaces are
   // chosen in Workspaces (input_data.workspace). Run once's "Run workspace"
   // never rides an automation.
@@ -355,7 +489,18 @@ export function build_automate_request(
   } catch (e: any) {
     return { ok: false, errors: [String(e?.message || e)] };
   }
-  return buildCreateRequest(schedule_form(form, prompt, opts.email_usable === true), { target, requestId: opts.request_id });
+  // The kit builds the body (title, context, policy, notify); a trigger it does not build (the
+  // flow's own, a feed or webhook, by hand) replaces its schedule placeholder.
+  const own = form.when === "defaults" || form.when === "connection" || form.when === "manual";
+  const sf = schedule_form(own ? { ...form, when: "every", amount: "24", unit: "h", start_at: "", count: "", until: "" } : form, prompt, opts.email_usable === true || (form.when === "email" && mailbox_ok));
+  const built = buildCreateRequest(sf, { target, requestId: opts.request_id });
+  if (!built.ok) return built;
+  const body = built.body;
+  if (form.when === "defaults" && opts.defaults) body.trigger = defaults_trigger_spec(opts.defaults);
+  else if (form.when === "connection" && connection) body.trigger = { source_id: connection.source_id, source_version: connection.source_version, config: { connection_id: connection.connection_id } };
+  else if (form.when === "manual") body.trigger = { source_id: "manual", source_version: 1, config: {} };
+  else if (form.when === "email" && account !== "default") body.trigger = { ...body.trigger, config: { ...body.trigger.config, account } };
+  return { ok: true, body };
 }
 
 /** "Runs every 24 hours (UTC), first run now." — or "" while incomplete. */
@@ -394,7 +539,7 @@ export class RequestIdMemo {
 /** Build with a memoized request id (the id is excluded from the memo key). */
 export function build_automate_request_memo(
   form: AutomateForm,
-  opts: { choice: WorkflowChoice | null; bundle_ref_for: (bundle_id: string) => string; input_data: Record<string, any> | null; email_usable?: boolean },
+  opts: Omit<Parameters<typeof build_automate_request>[1], "request_id">,
   memo: RequestIdMemo,
 ): { ok: true; body: CreateAutomationRequest } | { ok: false; errors: string[] } {
   const probe = build_automate_request(form, { ...opts, request_id: "" });
@@ -721,6 +866,10 @@ export type AutomationsState = {
    * then say "Connect a mailbox first — open My email".
    */
   email_status: MyEmailStatus | null;
+  /** GET /triggers/connections (null = not read, or refused). */
+  trigger_connections: TriggerConnection[] | null;
+  /** GET /me/email/accounts (null = not read, or refused). */
+  mailboxes: Mailbox[] | null;
 };
 
 export const INITIAL_AUTOMATIONS_STATE: AutomationsState = {
@@ -739,6 +888,8 @@ export const INITIAL_AUTOMATIONS_STATE: AutomationsState = {
   notice: "",
   confirm_archive_id: "",
   email_status: null,
+  trigger_connections: null,
+  mailboxes: null,
 };
 
 /** What the page needs from the Observer host (existing gateway paths). */
@@ -898,6 +1049,22 @@ export class AutomationsController {
    */
   readonly preview_schedule = (trigger: TriggerSpec): Promise<SchedulePreview> => this.client.previewSchedule(trigger);
 
+  /**
+   * The user's feeds/webhooks and mailboxes (`GET /triggers/connections`, `GET /me/email/accounts`):
+   * triggers then read by name everywhere (the shared `trigger_vocab` store feeds the Board too).
+   * A list that cannot be read stays null (the words fall back to "a feed", "your main mailbox").
+   */
+  async load_trigger_vocab(): Promise<void> {
+    const [conns, boxes] = await Promise.all([
+      this.client.listTriggerConnections ? this.client.listTriggerConnections().then((r) => (Array.isArray(r?.connections) ? r.connections : null), () => null) : Promise.resolve(null),
+      this.client.listMailboxes ? this.client.listMailboxes().then((r) => (Array.isArray(r?.items) ? r.items : null), () => null) : Promise.resolve(null),
+    ]);
+    const trigger_connections = conns ?? this.state.trigger_connections;
+    const mailboxes = boxes ?? this.state.mailboxes;
+    set_trigger_vocab({ connections: trigger_connections, mailboxes });
+    this.set({ trigger_connections, mailboxes });
+  }
+
   async load_email_status(): Promise<void> {
     try {
       const status = await this.client.getMyEmail();
@@ -918,6 +1085,7 @@ export class AutomationsController {
     try {
       const items = await this.list_all();
       void this.load_email_status();
+      void this.load_trigger_vocab();
       if (seq !== this.list_seq) return;
       const detail = this.state.detail;
       const fresh = detail ? items.find((s) => s.automation_id === detail.automation_id) : undefined;

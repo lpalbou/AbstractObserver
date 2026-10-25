@@ -176,13 +176,15 @@ describe("icons on every action", () => {
     expect(list).not.toMatch(/>(active|paused)</);
   });
 
-  it("the workspace is one control: folder icon + the whole path, wrapping at its separators", async () => {
+  it("the files are one control: folder icon + 'Browse its files', the path only in its tooltip and under Details", async () => {
     await ctl.select(ID);
     const open = detail_html({ open: false, on_change: () => {} });
     const ws = buttons(open, 'data-action="open-workspace"')[0] ?? "";
     expect(ws).toMatch(/^<button\b[^>]*><svg\b/);
-    expect(ws.replace(/<[^>]+>/g, "")).toBe(INBOX.workspace_root);
-    expect(ws).toContain("/<wbr/>");
+    expect(ws.replace(/<[^>]+>/g, "")).toBe("Browse its files");
+    expect(ws).toContain(`title="Browse the automation's folder\n${INBOX.workspace_root}"`);
+    // The whole path, wrapping at its separators, is under Details (UX review 2026-10-25 #4).
+    expect(open).toMatch(/data-def="workspace"><code class="af-auto__path-text">\/<wbr\/>/);
   });
 });
 
