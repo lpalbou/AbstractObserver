@@ -49,17 +49,18 @@ Notes:
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): launch flags, serving under the gateway at /apps/observer/, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
-- [Automations](docs/automations.md): configurable growing-context budgets and result email; Launch → Automate (what; when: Repeat in UTC intervals, Daily / Weekly / Monthly / Once on the account's time zone with the gateway's own sentence; independent/growing context, tool approval), the Automations page (icon controls, Edit: the row's Edit opens the form — title, task, interval, context, tools —, 409 conflicts), runs as a conversation, answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
+- [Automations](docs/automations.md): configurable growing-context budgets and result email; Launch → Automate (what, including AbstractFlow flows that run by themselves; when: the flow's own trigger preselected from `automation_defaults`, When something arrives (mailboxes by address, feeds and webhooks by name), By hand, Repeat in UTC intervals, Daily / Weekly / Monthly / Once on the account's time zone with the gateway's own sentence; independent/growing context, tool approval), the Automations page (icon controls, Edit: the row's Edit opens the form — title, task, interval, context, tools —, 409 conflicts), triggers in words (the gateway's `trigger_text` first), runs as a conversation (what arrived above each run's task from `input_data.event`; After the run under each answer from `GET /runs/{id}/after`, framework ADR-0041), answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
-- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations)
+- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations, After the run, triggers in words)
 
 ## Key entrypoints (code)
 - [CLI](bin/cli.js) and [app server](bin/server.js): launch flags (`--gateway-url`, `--port`, `--host`, `--monitor-gpu`, `--entity-app-url`, `--gateway-dir`), mount-capable handler, session proxy, folder reveal (browsers on this machine only)
 - [App shell + pages](src/ui/app.tsx): settings, page routing, observe/launch flows, durable commands
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
 - [Automations rules + controller](src/ui/automations.ts): workflow choice (`@default`), create body, run tags, capability gate, legacy prefill, typed wait answers, page controller
-- [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring; the When/Context/Tools fields
+- [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring (`ObserverAutomationPanel`); the When/Context/Tools fields
+- [After the run](src/ui/after_the_run.tsx): the section under each run's answer (`GET /runs/{id}/after`)
 - [Discussion chat](src/ui/automation_discussion.tsx): panel-chat `WorkflowChat` + `presentInteraction` over the gateway client; folders through panel-chat `WorkspaceBrowser` (`/runs/{id}/workspace*`)
 - [Automations stub gateway](scripts/automations_stub_server.mjs): dev/test stub serving the ui-kit fixtures
 - [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy
@@ -95,7 +96,7 @@ Gateway-only observability UI (Web/PWA) for AbstractFramework runs.
 
 What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Discover** workflows/bundles exposed by an AbstractGateway
-- **Launch** runs, or create **automations** that the gateway runs on a schedule (durable)
+- **Launch** runs, or create **automations** that the gateway runs on a schedule, when something arrives (mail, a feed item, a webhook call) or by hand (durable)
 - **Observe** runs and subruns by replaying + streaming the durable **ledger** (replay-first + SSE)
 - **Inspect runtime state** across active runs, generated artifacts, provider calls, and gateway audit logs
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
@@ -198,8 +199,8 @@ All pages share the same gateway connection settings.
 - **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, the run view (a one-paragraph summary, then the steps grouped by agent cycle as collapsed cards that expand to the full prompt and answer; LLM calls / Tools / Failed filters, an All steps switch for housekeeping, search), graph, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS) The **Agent** view (where a board card opens) profiles the agent — who it is, what it may use and did use, what it does, for how long, what comes after — every value complete (collapsed by size, never clipped) with copy on hover, its inputs and outputs as AbstractFlow pins with live values, its context window, run tree and spend. The **Flow** view says ongoing or finished, highlights the current node in AbstractFlow's vocabulary, and shows each node's facts on hover with copy (facts, records, the exact LLM context) and a one-click **Copy run state** for AI readers.
 - **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
-- **Launch** (a modal, not a page): **+ New automation** on the Automations page opens it in Automate mode (what; when: UTC intervals, or daily / weekly / monthly / once on your account's time zone, worded by the gateway; independent or growing context; tool approval); the header's **Launch** button opens it in Run once mode; `#launch` / `#launch/automate` deep links open it over the current page; bundle upload/reload
-- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/edit (task, interval, context, tools — the row's Edit opens the form at once)/archive, its runs read as a conversation, answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
+- **Launch** (a modal, not a page): **+ New automation** on the Automations page opens it in Automate mode (what, including flows that run by themselves, with their own trigger preselected; when: the flow's trigger, something arriving, by hand, UTC intervals, or daily / weekly / monthly / once on your account's time zone, worded by the gateway; independent or growing context; tool approval); the header's **Launch** button opens it in Run once mode; `#launch` / `#launch/automate` deep links open it over the current page; bundle upload/reload
+- **Automations**: every automation of the signed-in user, with pause/resume/run now (also while paused)/stop current/edit (task, interval, context, tools — the row's Edit opens the form at once)/archive, triggers in words ("When mail arrives in …", "When Release notes has a new item"), its runs read as a conversation (what arrived above each run, **After the run** under each answer: the note, the alert or why nothing rang, each delivery), answers to waiting runs by kind (question, tool approval, event), its folder browsable from the browser (open or download through the gateway), and Discuss (a chat, on the same page, with a fork at an occurrence: its full history, its own workspace and the automation's files read-only); legacy schedules keep their controls and can be recreated as automations (`docs/automations.md`)
 - **System → Memory**: knowledge-graph (active memory) query UI (requires `POST /api/gateway/kg/query`)
 - **Settings**: connection status, theme and display preferences, optional remote tool worker
 - **Responsive layout**: phones, tablets and small windows get a navigation drawer, full-width lists and details with collapsible lists, bottom-sheet dialogs and touch-sized controls (`docs/getting-started.md` → "Responsive layout")
@@ -527,14 +528,16 @@ Requires `@abstractframework/ui-kit` 0.8.8 (`triggerWords`, the connections and 
 
 ### Changed
 
-- **New automation uses the flow's own settings** (UX review 2026-10-25, defect #1). When the chosen flow publishes automation defaults (`/bundles/{id}` → `automation_defaults`), Automate preselects **Use the flow's trigger: When Release notes has a new item** (the connection's name, the mailbox's address, or the schedule's sentence from the gateway's preview in the account's zone), takes Context and its budget, the title and the inputs from the defaults (what was already typed is kept), and creates with that trigger. **Other trigger…** keeps the schedule kinds and adds **When something arrives** — your mailboxes by address and your feeds and webhooks by name (`GET /triggers/connections`, `GET /me/email/accounts`), never an id — and **By hand**. The raw **Event object {…}** input is no longer shown or sent in Automate mode: the trigger fills `event`.
-- **Triggers in words everywhere** (defect #2). The Automations list, the automation's panel, the Board's automation cards and (i), the state line and the agent page read a trigger as a person set it up: the schedule's sentence, **By hand**, **When mail arrives in me@example.org**, **When Release notes has a new item**, **When CI hook is called** — never `feed.item@1` (the kit's `triggerWords` with your feeds, webhooks and mailboxes, read once signed in). An automation fed by what arrives is no longer "SCHEDULED · no next run": its card reads **listening · last: today 15:13** with a **listening** pill, its list row **runs when something new arrives · last: today 15:13**, its next run **when something new arrives**. The mail trigger is recognised by its real id (`email.received`; the old check read `email_received`), and the gateway's served `schedule_rule_text` is used for schedules only (it serves the source id for the others).
-- **What arrived, above each run's task** (defect #3). For an automation fed by mail, a feed or a webhook, the Automations page reads each run's `input_data.event` once (`GET /runs/{id}/input_data`) and the run shows a card **Release notes · 1 new item: “Release 0.13” · 15:13** above its task; the run's meta line reads **Run #1 · something arrived · today 15:13**; when the run's text is the runtime's framing of the task, the turn shows the task alone and the raw text — the `[Trigger …]` header, the framed events, their JSON — sits behind **What the agent received**. Schedules and by-hand runs are never read.
-- **No jargon in the person's view** (defects #4–#6). The empty list says **No automations yet. Make one in Flow, or press New automation.**; the empty detail **Select an automation to read its runs, change it, or talk about a result.** The automation's header names the flow (**Flow: Release digest**, from the gateway's list) instead of `Release-digest@0.0.0:4dee0431`, offers **Browse its files** instead of the folder path, and drops the revision; all three are under **Details**. The cards no longer print the workspace policy; the open automation folds it under **Workspaces**. **run #1** replaces "occurrence #1" (Board, agent page, run chips, "next run at"); **conversation** replaces "session" (Context help, the discussion's intro and notice — which no longer prints paths); **flow** replaces "workflow" in Launch (**Choose a flow**, **Choose a flow above to set its inputs.**, the mode help).
-- **New automation lists flows that run by themselves** (re-review #1). A flow made in AbstractFlow with its own trigger declares no interface (AbstractFlow 77b0c1d); the picker now lists it from its automation settings on `/bundles` as **Python digest · When Python news has a new item**, and picking it preselects **Use the flow's trigger**. The Edit form's picker names flows the same way.
-- **Edit and Board without ids** (re-review #5): the Edit form's **Flow** shows the flow's name, the workspace chooser is folded under **Workspaces** while editing too, a run of a titled automation reads **run #1** on the Board (no `Python-digest 0.0.0`), **Details** carries no revision on its title, and the Edit hint no longer says "never fires past ticks".
-- **Run card** (re-review #14): no empty Trigger bubble, the answer's time reads like the run's ("today 17:29"), a console test reads **Test event** (ui-kit 0.8.8); the list's title **Automations** is never cut (the status filter gives way).
-- **New automation form in plain words** (re-review #16): no "Incomplete email trigger." before anything is typed (the gateway's sentence shows once there is one); no "fetch_url, browser_probe", "(UTC; empty = now)", "Stop at (UTC)", "Use Context input" or "Workflow bundles" — **First run** / **Stop on** are typed in the browser's clock (stored as UTC, as before), the mail hint says "Tools that open links always ask for your approval first", and the .flow upload/reload stays in Run once (**Flow files**); a feed or webhook whose last read failed is flagged "— not working" and, once chosen, says why (as AbstractFlow does).
+- **After the run, under each run's answer** (framework ADR-0041 "No hidden effects after a flow"; AbstractGateway `GET /api/gateway/runs/{run_id}/after`). Each finished run of an automation shows what arrived ("4 new emails: “O” from … and 3 more"), the note its On Flow End recorded, the alert it raised and where it came from (Notify me, an older flow's notify, a failure, an approval waiting for you on one of its steps) and each delivery: channel, route (push notification, shown by the app, email, listed in the console), device and time, or why it was not delivered; when nothing rang, why ("Nothing to notify: the title was empty."). A spinner until the gateway answered, the reason and Retry only after 3 tries failed (ADR-0039); read again for a few seconds while deliveries are recorded. The page renders the kit's `AutomationPanel` with panel-chat's renderers and adds the section after the answer turn (`ObserverAutomationPanel`): no ui-kit change. Requires an AbstractGateway with the route; against an older one the section says it could not read it, with Retry. Docs: `docs/automations.md` → "After the run".
+- **New automation uses the flow's own settings**. When the chosen flow publishes automation defaults (`/bundles/{id}` → `automation_defaults`), Automate preselects **Use the flow's trigger: When Release notes has a new item** (the connection's name, the mailbox's address, or the schedule's sentence from the gateway's preview in the account's zone), takes Context and its budget, the title and the inputs from the defaults (what was already typed is kept), and creates with that trigger. **Other trigger…** keeps the schedule kinds and adds **When something arrives** — your mailboxes by address and your feeds and webhooks by name (`GET /triggers/connections`, `GET /me/email/accounts`), never an id — and **By hand**. The raw **Event object {…}** input is no longer shown or sent in Automate mode: the trigger fills `event`.
+- **Triggers in words everywhere**. The Automations list, the automation's panel, the Board's automation cards and (i), the state line and the agent page read a trigger as a person set it up: the schedule's sentence, **By hand**, **When mail arrives in me@example.org**, **When Release notes has a new item**, **When CI hook is called** — never `feed.item@1` (the kit's `triggerWords` with your feeds, webhooks and mailboxes, read once signed in). An automation fed by what arrives is no longer "SCHEDULED · no next run": its card reads **listening · last: today 15:13** with a **listening** pill, its list row **runs when something new arrives · last: today 15:13**, its next run **when something new arrives**. The mail trigger is recognised by its id (`email.received`), and the gateway's served `schedule_rule_text` is used for schedules only (it serves the source id for the others).
+- **What arrived, above each run's task**. For an automation fed by mail, a feed or a webhook, the Automations page reads each run's `input_data.event` once (`GET /runs/{id}/input_data`) and the run shows a card **Release notes · 1 new item: “Release 0.13” · 15:13** above its task; the run's meta line reads **Run #1 · something arrived · today 15:13**; when the run's text is the runtime's framing of the task, the turn shows the task alone and the raw text — the `[Trigger …]` header, the framed events, their JSON — sits behind **What the agent received**. Schedules and by-hand runs are never read.
+- **No jargon in the person's view**. The empty list says **No automations yet. Make one in Flow, or press New automation.**; the empty detail **Select an automation to read its runs, change it, or talk about a result.** The automation's header names the flow (**Flow: Release digest**, from the gateway's list) instead of `Release-digest@0.0.0:4dee0431`, offers **Browse its files** instead of the folder path, and drops the revision; all three are under **Details**. The cards no longer print the workspace policy; the open automation folds it under **Workspaces**. **run #1** replaces "occurrence #1" (Board, agent page, run chips, "next run at"); **conversation** replaces "session" (Context help, the discussion's intro and notice — which no longer prints paths); **flow** replaces "workflow" in Launch (**Choose a flow**, **Choose a flow above to set its inputs.**, the mode help).
+- **New automation lists flows that run by themselves**. A flow made in AbstractFlow with its own trigger declares no interface; the picker now lists it from its automation settings on `/bundles` as **Python digest · When Python news has a new item**, and picking it preselects **Use the flow's trigger**. The Edit form's picker names flows the same way.
+- **Edit and Board without ids**: the Edit form's **Flow** shows the flow's name, the workspace chooser is folded under **Workspaces** while editing too, a run of a titled automation reads **run #1** on the Board (no `Python-digest 0.0.0`), **Details** carries no revision on its title, and the Edit hint no longer says "never fires past ticks".
+- **Run card**: no empty Trigger bubble, the answer's time reads like the run's ("today 17:29"), a console test reads **Test event** (ui-kit 0.8.8); the list's title **Automations** is never cut (the status filter gives way).
+- **New automation form in plain words**: no "Incomplete email trigger." before anything is typed (the gateway's sentence shows once there is one); no "fetch_url, browser_probe", "(UTC; empty = now)", "Stop at (UTC)", "Use Context input" or "Workflow bundles" — **First run** / **Stop on** are typed in the browser's clock (stored as UTC, as before), the mail hint says "Tools that open links always ask for your approval first", and the .flow upload/reload stays in Run once (**Flow files**); a feed or webhook whose last read failed is flagged "— not working" and, once chosen, says why (as AbstractFlow does).
+- **The gateway's words first**: the list, the panel, the Board and the agent page read the summary's served `trigger_text` when the gateway sends it (our own words are the fallback); the picker also lists entrypoints the gateway marks `triggerable` ("Runs by itself" when the row carries no trigger).
 
 ## [0.8.0] - 2026-10-16
 
@@ -1319,7 +1322,8 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Deploy behind a reverse proxy (same-origin)** → `configuration.md` (recommended pattern)
 - **Connect to a remote gateway (cross-origin/CORS)** → `configuration.md` + `troubleshooting.md`
 - **Read a run: steps by agent cycle, full prompts and answers, filters, search** → `getting-started.md` → "The run view"
-- **Create and manage automations (scheduled runs)** → `automations.md`
+- **Create and manage automations (on a schedule, when something arrives, or by hand)** → `automations.md`
+- **See what an automation's run did after it ended (what arrived, the alert, each delivery, or why nothing rang)** → `automations.md` → "After the run"
 - **See which gateway endpoints are required for each UI feature** → `api.md`
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
 - **Understand Runtime Activity vs Artifact Explorer vs Observe** → `architecture.md` → "Runtime Boundary"
@@ -1339,7 +1343,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
 
 ## Topic guides
-- `automations.md` — Launch → Automate (what, when, context, tools), the Automations page (rows, controls, conflicts), the automation panel (runs as a conversation, answering waits, run details, Discuss), automation tags on Board / Observe / System, legacy schedules and Recreate, and the stub gateway for development
+- `automations.md` — Launch → Automate (what, including flows with their own trigger; when: the flow's trigger, something arriving, by hand, a schedule; context, tools), the Automations page (rows, triggers in words, controls, conflicts), the automation panel (runs as a conversation with what arrived, After the run, answering waits, run details, Discuss), automation tags on Board / Observe / System, legacy schedules and Recreate, and the stub gateway for development
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
 
 ## Artifacts, server files and local files
@@ -1358,7 +1362,7 @@ with browser-local files or arbitrary server filesystem browsing:
 ## Operate and extend
 - `configuration.md` — CLI env vars, UI settings, deployment patterns
 - `security.md` — trust boundaries (process manager, remote tool worker, cross-origin)
-- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL, About shows the gateway unavailable, automations)
+- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL, About shows the gateway unavailable, automations, After the run, triggers in words)
 - `development.md` — run from source, tests, build, the automations stub gateway (includes workspace dependency notes)
 
 ## Project meta
@@ -1530,15 +1534,17 @@ Go to **Launch** (a modal: the header's Launch button, or **+ New automation** o
 - **Run once**: select a workflow (discovered from gateway bundles, or the
   gateway's default agent), fill its inputs, click **Launch now**
   (`POST /api/gateway/runs/start`);
-- **Automate**: the same workflow and prompt, plus **When** (every N
-  minutes/hours/days in UTC; daily, weekly or monthly at a time of day in your
-  account's time zone; or once at a time), **Context** (independent
+- **Automate**: the same workflow and prompt, plus **When** (the flow's own
+  trigger when it has one; when something arrives: mail, a feed item, a webhook
+  call; by hand; every N minutes/hours/days in UTC; daily, weekly or monthly at
+  a time of day in your account's time zone; or once at a time), **Context** (independent
   or growing) and **Tools** (run without asking, which creating the
   automation approves, or ask each time); **Create automation** sends
   `POST /api/gateway/automations` and opens it on the **Automations** page.
 
 On the **Automations** page you pause, resume, run now, edit or archive an
-automation, read its runs as a conversation, answer runs that wait for you,
+automation, read its runs as a conversation (what arrived, the answer and
+**After the run**), answer runs that wait for you,
 browse its files, and discuss a result in a chat with a fork of
 the automation, on the same page. Automations need a gateway that
 advertises the Automations API; otherwise the page says so.
@@ -1715,7 +1721,10 @@ For the authoritative list grouped by feature, see `api.md` (grounded in `src/li
 ## What is an automation, and who runs it?
 A workflow the gateway runs for you on a schedule (every N minutes, hours or
 days in UTC; daily, weekly or monthly at a time of day in your account's time
-zone; or once at a time). The gateway and AbstractRuntime run it and
+zone; or once at a time), when something arrives (mail in one of your
+mailboxes, a new feed item, a webhook call), or only when you press Run now.
+A flow made in AbstractFlow with its own trigger brings it along: Automate
+preselects it. The gateway and AbstractRuntime run it and
 keep every run; the Observer creates it (**Launch → Automate**), manages it
 (**Automations**) and reads its runs. Closing the browser changes nothing.
 Guide: `automations.md`.
@@ -1761,6 +1770,15 @@ refused while an occurrence is in progress (`automation_busy`).
 No. The next scheduled run keeps its time. If that time comes while the manual
 run is still going, the scheduled run starts as soon as the manual run ends.
 A manual run does not count toward a schedule's run limit.
+
+## Why did an automation's run not notify me?
+Open the automation and read **After the run** under that run's answer. It
+says what arrived, the note the flow recorded, the alert it raised and each
+delivery, or why nothing rang: "Nothing to notify: this flow has no Notify me
+step." means the flow's end only records the outcome (add **Notify me** in
+AbstractFlow); "Nothing to notify: the title was empty." means the flow chose
+to stay quiet; "not delivered: …" names the channel's reason. See
+`automations.md` → "After the run".
 
 ## Does discussing a result change the automation?
 No. **Discuss** forks the automation at that occurrence: a new session with
@@ -1962,6 +1980,7 @@ flowchart LR
     AUTO["/automations: list, create, get,<br/>occurrences, PATCH revise,<br/>commands, discuss, seen<br/>+ /trigger-sources"]
     CMD["POST /commands<br/>resume with wait_key + payload<br/>legacy pause / resume"]
     RUNS["GET /runs, /runs/{id}/ledger"]
+    AFTER["GET /runs/{id}/after<br/>what arrived, note, alert, deliveries"]
     START["POST /runs/start<br/>session_id = the discussion"]
     WS["GET /runs/{id}/workspace,<br/>/workspace/files, /workspace/content"]
   end
@@ -1974,6 +1993,7 @@ flowchart LR
   L -->|POST /automations| AUTO
   AP --> AUTO
   AP -->|answer a wait| CMD
+  AP -->|After the run, per answer| AFTER
   L -. gate .-> CAP
   AP -. gate .-> CAP
   BV --> RUNS
@@ -1999,7 +2019,10 @@ The page lists automations in full pages every 30 seconds while visible, and
 re-reads shortly after each command because the gateway applies accepted
 commands asynchronously. Wait answers are typed by the wait's kind
 (`ask_user`, `tool_approval`, `event`) and go through the same `resume`
-command as the Board and the run view. User guide: `automations.md`.
+command as the Board and the run view. Under each run's answer the page adds
+**After the run**, read from `GET /runs/{id}/after` (framework ADR-0041: the
+flow's On Flow End records the outcome; only explicit Notify nodes reach the
+person), tried three times before it shows the reason with Retry. User guide: `automations.md`.
 
 ## Observe projections
 The raw ledger remains the authoritative record, but the default Observe experience projects it into human-readable views:
@@ -2120,6 +2143,11 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `POST /api/gateway/runs/start` with the discussion's `session_id` — a later turn of a discussion (the gateway re-stamps its workspace, mount and history); the chat reads it with `GET /api/gateway/runs/{run_id}`, `/history_bundle?include_session=true`, `/ledger` and `/ledger/stream`
 - `GET /api/gateway/runs/{run_id}/workspace`, `/workspace/files?path=`, `/workspace/content?path=` — browse a run's folder and open or download its files (an automation's id is its controller run, so the automation's folder is `runs/{automation_id}/workspace`)
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
+- `GET /api/gateway/triggers/connections` and `GET /api/gateway/me/email/accounts` — your feeds and webhooks by name and your mailboxes by address: **When something arrives** in Automate, and every trigger read in words (list, panel, Board, agent page)
+- `GET /api/gateway/bundles` / `GET /api/gateway/bundles/{bundle_id}` — a flow's `automation_defaults` (**Use the flow's trigger**, Context, budget, title, inputs) and the `triggerable` mark on its entrypoints
+- `GET /api/gateway/runs/{run_id}/input_data` — what arrived (`input_data.event`), read once per event-driven run for the card above its task
+- `GET /api/gateway/runs/{run_id}/after` — **After the run** under each run's answer: what arrived, the note, the alert and its source, each delivery, or why nothing rang (framework ADR-0041); three tries before the section shows the reason with Retry
+- Summaries' `trigger_text` (when the gateway sends it) is used as the trigger's words
 - `POST /api/gateway/commands` — answer an occurrence's wait with `type: "resume"` and `{wait_key, payload}` on the waiting run; the payload follows the wait's kind: `ask_user` → `{response}`, `tool_approval` → `{approved, tool_ids?}`, `event` → `{payload}`. Legacy schedule rows use `pause` / `resume` (run now = `resume` with `{payload: {mode: "run_now", requested_at}}`).
 - `GET /api/gateway/runs/{run_id}` + `GET /api/gateway/runs/{run_id}/input_data` — read a legacy schedule for **Recreate as automation**
 
@@ -2212,9 +2240,11 @@ These power additional pages/drawers. If your gateway does not expose them, the 
 
 # Automations
 
-An **automation** runs a workflow for you on a schedule: "search the AI news
-every 8 hours", "triage my inbox every 30 minutes", "check the machine every
-7 days". The gateway runs it and keeps every run. In the Observer you create
+An **automation** runs a workflow for you on a schedule ("search the AI news
+every 8 hours", "check the machine every 7 days"), when something arrives
+("triage each new mail", "digest each new feed item", "handle each webhook
+call"), or only when you press Run now. The gateway runs it and keeps every
+run. In the Observer you create
 it (**Launch → Automate**), watch and change it (**Automations**), answer the
 runs that wait for you, and discuss a result in a separate session. The
 Observer executes nothing itself: every action is a gateway request.
@@ -2261,8 +2291,13 @@ workflow the gateway lets you run, whatever app it is for
 (`GET /api/gateway/bundles`, filtered by the gateway): **Gateway default**
 first (the coding agent's default, with the workflow it currently resolves
 to), then **Shared** (made available by your admin) and **Mine** (your own),
-each with its interface and version in small text. There is no "show all": ask your admin when a workflow is
-missing. A default-agent automation is sent as `flow_id: "@default"` plus the
+each with its interface and version in small text. A flow made in
+AbstractFlow to run by itself declares no interface; it is listed by its
+trigger instead, "Python digest · When Python news has a new item", and an
+entrypoint the gateway marks `triggerable` without a trigger reads "Runs by
+itself". Picking such a flow preselects its trigger (see [When](#when)). The
+Edit form's **Flow** picker names flows the same way. There is no "show all":
+ask your admin when a workflow is missing. A default-agent automation is sent as `flow_id: "@default"` plus the
 interface; the gateway resolves it when the automation is created.
 
 The prompt becomes the automation's instruction; the other inputs are passed
@@ -2444,7 +2479,9 @@ Each row shows:
 - the trigger in words ("Every 8 hours (UTC)", "Every day at 08:00
   (Europe/Paris)" — the gateway's words for every schedule — "By hand",
   "When mail arrives in me@example.org", "When Release notes has a new
-  item", "When CI hook is called"; never a source id); for an automation fed
+  item", "When CI hook is called"; never a source id; the gateway's own
+  `trigger_text` when it sends one, else the Observer's words from your
+  feeds, webhooks and mailboxes); for an automation fed
   by what arrives, "runs when something new arrives" and "last: today 15:13";
   otherwise the next
   run with how far away it is ("2026-10-09 08:00 Europe/Paris (in 13 h)": the
@@ -2458,12 +2495,8 @@ Each row shows:
 The open automation folds its workspaces under **Workspaces** (one line: the
 gateway's summary for the stored choice, verbatim). Its header names the flow
 (**Flow: Release digest**), the trigger in words and **Browse its files**;
-the flow's id, the folder's path and the revision are under **Details**. Each
-run reads **Run #3 · on schedule · today 08:00**; a run fed by something that
-arrived shows a card above its task — **Release notes · 1 new item:
-“Release 0.13” · 15:13** (from the run's `input_data.event`) — and the whole
-text the agent received (the trigger header, the events and their JSON) is
-behind **What the agent received**.
+the flow's id, the folder's path and the revision are under **Details**. Its
+runs read as a conversation: see [Runs as a conversation](#runs-as-a-conversation).
 
 Row controls, each an icon then its name. Hovering a control shows what it
 does (the shared AbstractUIC hint, the same text in every AbstractFramework
@@ -2507,8 +2540,8 @@ selected automation arrives).
 
 ### The automation's files
 
-**Workspace** in the panel shows the folder's whole path (it wraps at its
-`/` and `-`); clicking it browses the automation's folder on the gateway host, from any browser, above the panel: open a
+**Files** in the panel reads **Browse its files** (hover it for the folder's
+path; the path is also under **Details**); clicking it browses the automation's folder on the gateway host, from any browser, above the panel: open a
 sub-folder, **Open** a file in a new tab, or download it. **Workspace** in a
 run's details does the same for that run's folder. HTML, SVG and other text
 files open as plain text (their source), never as a page. The folder is read through the gateway
@@ -2519,11 +2552,12 @@ never shown.
 
 ### Definition and controls
 
-The top of the panel shows **When**, **Context**, **Next run**, **Runs**,
-**Workspace**, **Attention** and **Revision**, then the **Active** switch and the controls **Run now**, **Stop current**, **Edit** and **Archive…** (each an
+The top of the panel shows **Flow** (the flow's name), **When** (the trigger
+in words), **Context**, **Now** (while a run is in progress), **Next run**,
+**Runs**, **Files** and **Attention**, then the **Active** switch and the controls **Run now**, **Stop current**, **Edit** and **Archive…** (each an
 icon then its name; the tooltip says what it does, and a disabled one first says why), then the
-**Definition** card (one click opens it: workflow, task, trigger, context,
-tools, retries). While paused, the panel reminds you: "Paused: scheduled runs
+**Details** card (one click opens it: the workflow id, task, trigger, context,
+tools, retries, the folder's path and the revision). While paused, the panel reminds you: "Paused: scheduled runs
 are skipped. Run now works and keeps it paused." What a control did ("Automation
 paused.", "Run requested.") shows next to the controls for a few seconds, with
 a dismiss button.
@@ -2539,7 +2573,7 @@ title field focused:
 
 | Field | What it changes |
 | --- | --- |
-| **Workflow** | The workflow used for future runs; the header identifies the saved workflow. |
+| **Flow** | The flow used for future runs, by its name (a flow that runs by itself by its trigger). |
 | **Title** | The automation's name. |
 | **Task** | The instruction every run receives (the workflow's `prompt` input). |
 | **Repeat every (UTC)** | The interval, in minutes, hours or days (interval schedules only). For an email trigger: **Check for new mail every** (never under 60 seconds). |
@@ -2568,14 +2602,21 @@ automation's folder is the gateway's and is not editable.
 
 ### Runs as a conversation
 
-Every run of the automation is an **occurrence**, shown as a chat pair, oldest
-first:
+Every run of the automation (an **occurrence**) is shown as a chat pair,
+oldest first:
 
-- the **trigger turn**: `#N`, what fired it (for example
-  "schedule: every 8 hours (UTC), tick 0"), when it fired, and the
-  instruction the run received;
+- the **trigger turn**: **Run #3 · on schedule · today 08:00** (or "run by
+  hand", "new mail", "something arrived"); for a run fed by mail, a feed or a
+  webhook, a card with what arrived, **Release notes · 1 new item: “Release
+  0.13” · 15:13** (read once from the run's `input_data.event`; a console test
+  reads **Test event**); then the task the run received. A flow with no task
+  (it reads only what arrived) shows no empty bubble. When the run's text is
+  the runtime's framing of what arrived, the turn shows the task alone, and
+  the whole text the agent received (the trigger header, the events and their
+  JSON) is behind **What the agent received**;
 - the **answer turn**: the status and finish time, then the answer, any
-  notification, the failure and any artifacts the run produced.
+  notification, the failure and any artifacts the run produced;
+- **After the run**, under the answer (see below).
 
 Occurrences are quiet unless they need you:
 
@@ -2592,6 +2633,33 @@ failures and waits you have not seen yet. Opening an automation marks the
 items it displays as seen (`POST /api/gateway/automations/{id}/seen` with the
 last displayed item); anything beyond the displayed items stays unseen.
 **Load earlier occurrences (N more)** pages back in time.
+
+### After the run
+
+Under each run's answer, **After the run** says what happened once the run
+ended, read from the gateway (`GET /api/gateway/runs/{run_id}/after`; framework
+[ADR-0041](https://github.com/lpalbou/AbstractFramework/blob/main/docs/adr/0041-no-hidden-effects-after-a-flow.md)):
+
+- **What arrived** ("4 new emails: “O” from … and 3 more") and the **Note**
+  its On Flow End recorded;
+- **Notified**: the alert it raised and where it came from: **Notify me**, **Publish to
+  channel, with Alert on**, an older flow's notify on On Flow End, **The run
+  failed**, **Email me when done**, or a question or approval waiting for you
+  on one of its steps;
+- each delivery: the channel (Console, Tray, Watch, Phone, Email, …), its
+  route (push notification, shown by the app, email; the console's listing is
+  its delivery) and device, "sent" or "not delivered: <reason>", and the
+  time ("No delivery recorded yet." while none is);
+- when nothing rang, why: "Nothing to notify: the title was empty.",
+  "Nothing to notify: this flow has no Notify me step.", "Still running:
+  nothing has been sent yet."
+
+A spinner shows until the gateway answered. A failed read is tried three
+times (1 s, then 3 s apart) before the section says "Could not read what
+happened after the run" with **Retry**; a gateway without the route ends
+there too. Deliveries land a few seconds after the run ends, so the section
+reads again, every 3 seconds, a few times, while they are being recorded.
+AbstractFlow's run window shows the same section.
 
 ### Answering a run that waits for you
 
@@ -2713,7 +2781,11 @@ See [development.md](development.md).
 - `src/ui/automations.ts`: the rules (workflow choice incl. `@default`, the
   create body, row controls, run tags, the capability gate, the legacy
   prefill, typed wait answers) and the page controller;
-- `src/ui/automations_page.tsx`: the page, its rows and the panel wiring;
+- `src/ui/automations_page.tsx`: the page, its rows and the panel wiring
+  (`ObserverAutomationPanel`: the kit panel with panel-chat's renderers, plus
+  After the run under each answer);
+- `src/ui/after_the_run.tsx`: **After the run** (the read with its tries and
+  re-reads, and its sentences);
 - `src/ui/automation_discussion.tsx`: the discussion chat (panel-chat's
   `WorkflowChat`, `WorkflowSessionController` and `presentInteraction` over
   the Observer's gateway client);
@@ -3153,6 +3225,19 @@ wait of another kind says "This kind of wait (…) cannot be answered here; open
 the run (**Run details → Open run ledger**) and answer it from the run view.
 For a tool approval that does not list its tool calls, open the run to see
 them before approving. An event payload must be valid JSON.
+
+### After the run says "Could not read what happened after the run: …"
+The gateway did not answer `GET /api/gateway/runs/{run_id}/after` after three
+tries, or does not serve the route (an older AbstractGateway). Press **Retry**;
+if it keeps failing, update the gateway. The run's answer above it is
+unaffected. See `automations.md` → "After the run".
+
+### A trigger reads "When a feed has a new item", or "When something arrives" lists nothing
+The trigger's words name your feeds, webhooks and mailboxes, read once
+you are signed in (`GET /api/gateway/triggers/connections`,
+`GET /api/gateway/me/email/accounts`). Sign in again, or add a mailbox (My
+email) or a feed or webhook on the gateway console's Triggers page; a feed or
+webhook whose last read failed is flagged "— not working" with the reason.
 
 ### "The gateway listed no bundle_ref for bundle …"
 Launch → Automate needs the workflow's published bundle reference from

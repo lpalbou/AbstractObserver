@@ -105,6 +105,19 @@ the run (**Run details → Open run ledger**) and answer it from the run view.
 For a tool approval that does not list its tool calls, open the run to see
 them before approving. An event payload must be valid JSON.
 
+### After the run says "Could not read what happened after the run: …"
+The gateway did not answer `GET /api/gateway/runs/{run_id}/after` after three
+tries, or does not serve the route (an older AbstractGateway). Press **Retry**;
+if it keeps failing, update the gateway. The run's answer above it is
+unaffected. See `automations.md` → "After the run".
+
+### A trigger reads "When a feed has a new item", or "When something arrives" lists nothing
+The trigger's words name your feeds, webhooks and mailboxes, read once
+you are signed in (`GET /api/gateway/triggers/connections`,
+`GET /api/gateway/me/email/accounts`). Sign in again, or add a mailbox (My
+email) or a feed or webhook on the gateway console's Triggers page; a feed or
+webhook whose last read failed is flagged "— not working" with the reason.
+
 ### "The gateway listed no bundle_ref for bundle …"
 Launch → Automate needs the workflow's published bundle reference from
 `GET /api/gateway/bundles`. Reload bundles (Launch → Advanced), then create

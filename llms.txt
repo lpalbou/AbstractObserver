@@ -33,17 +33,18 @@ Notes:
 - [Architecture](docs/architecture.md): Components, data flow, diagrams
 - [Configuration](docs/configuration.md): launch flags, serving under the gateway at /apps/observer/, UI settings, deployment patterns
 - [API](docs/api.md): Gateway endpoints used by the UI, including Runtime Activity run pages and canonical artifact envelope search/stats for Runtime Artifact Explorer
-- [Automations](docs/automations.md): configurable growing-context budgets and result email; Launch → Automate (what; when: Repeat in UTC intervals, Daily / Weekly / Monthly / Once on the account's time zone with the gateway's own sentence; independent/growing context, tool approval), the Automations page (icon controls, Edit: the row's Edit opens the form — title, task, interval, context, tools —, 409 conflicts), runs as a conversation, answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
+- [Automations](docs/automations.md): configurable growing-context budgets and result email; Launch → Automate (what, including AbstractFlow flows that run by themselves; when: the flow's own trigger preselected from `automation_defaults`, When something arrives (mailboxes by address, feeds and webhooks by name), By hand, Repeat in UTC intervals, Daily / Weekly / Monthly / Once on the account's time zone with the gateway's own sentence; independent/growing context, tool approval), the Automations page (icon controls, Edit: the row's Edit opens the form — title, task, interval, context, tools —, 409 conflicts), triggers in words (the gateway's `trigger_text` first), runs as a conversation (what arrived above each run's task from `input_data.event`; After the run under each answer from `GET /runs/{id}/after`, framework ADR-0041), answering waits by kind, the automation's files (browse, open, download through the gateway), Discuss as an in-page chat with a fork, automation tags on Board/Observe/System, legacy schedules and Recreate, the stub gateway
 - [Development](docs/development.md): Local dev, workspace deps, tests, build
 - [Security](docs/security.md): Trust boundaries and operational guidance
-- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations)
+- [Troubleshooting](docs/troubleshooting.md): Common issues and fixes (CORS, mixed content, 401 under `/api`, About shows the gateway unavailable, stale service worker, automations, After the run, triggers in words)
 
 ## Key entrypoints (code)
 - [CLI](bin/cli.js) and [app server](bin/server.js): launch flags (`--gateway-url`, `--port`, `--host`, `--monitor-gpu`, `--entity-app-url`, `--gateway-dir`), mount-capable handler, session proxy, folder reveal (browsers on this machine only)
 - [App shell + pages](src/ui/app.tsx): settings, page routing, observe/launch flows, durable commands
 - [Gateway client](src/lib/gateway_client.ts): HTTP client + SSE ledger streaming (API source of truth)
 - [Automations rules + controller](src/ui/automations.ts): workflow choice (`@default`), create body, run tags, capability gate, legacy prefill, typed wait answers, page controller
-- [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring; the When/Context/Tools fields
+- [Automations page](src/ui/automations_page.tsx) and [Automate fields](src/ui/automate_form.tsx): the page, rows and the ui-kit `AutomationPanel` wiring (`ObserverAutomationPanel`); the When/Context/Tools fields
+- [After the run](src/ui/after_the_run.tsx): the section under each run's answer (`GET /runs/{id}/after`)
 - [Discussion chat](src/ui/automation_discussion.tsx): panel-chat `WorkflowChat` + `presentInteraction` over the gateway client; folders through panel-chat `WorkspaceBrowser` (`/runs/{id}/workspace*`)
 - [Automations stub gateway](scripts/automations_stub_server.mjs): dev/test stub serving the ui-kit fixtures
 - [Vite config](vite.config.ts): workspace aliases + dev session proxy and `/api` fallback proxy

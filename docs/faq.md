@@ -115,7 +115,10 @@ For the authoritative list grouped by feature, see `api.md` (grounded in `src/li
 ## What is an automation, and who runs it?
 A workflow the gateway runs for you on a schedule (every N minutes, hours or
 days in UTC; daily, weekly or monthly at a time of day in your account's time
-zone; or once at a time). The gateway and AbstractRuntime run it and
+zone; or once at a time), when something arrives (mail in one of your
+mailboxes, a new feed item, a webhook call), or only when you press Run now.
+A flow made in AbstractFlow with its own trigger brings it along: Automate
+preselects it. The gateway and AbstractRuntime run it and
 keep every run; the Observer creates it (**Launch → Automate**), manages it
 (**Automations**) and reads its runs. Closing the browser changes nothing.
 Guide: `automations.md`.
@@ -161,6 +164,15 @@ refused while an occurrence is in progress (`automation_busy`).
 No. The next scheduled run keeps its time. If that time comes while the manual
 run is still going, the scheduled run starts as soon as the manual run ends.
 A manual run does not count toward a schedule's run limit.
+
+## Why did an automation's run not notify me?
+Open the automation and read **After the run** under that run's answer. It
+says what arrived, the note the flow recorded, the alert it raised and each
+delivery, or why nothing rang: "Nothing to notify: this flow has no Notify me
+step." means the flow's end only records the outcome (add **Notify me** in
+AbstractFlow); "Nothing to notify: the title was empty." means the flow chose
+to stay quiet; "not delivered: …" names the channel's reason. See
+`automations.md` → "After the run".
 
 ## Does discussing a result change the automation?
 No. **Discuss** forks the automation at that occurrence: a new session with

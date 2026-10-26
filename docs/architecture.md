@@ -97,6 +97,7 @@ flowchart LR
     AUTO["/automations: list, create, get,<br/>occurrences, PATCH revise,<br/>commands, discuss, seen<br/>+ /trigger-sources"]
     CMD["POST /commands<br/>resume with wait_key + payload<br/>legacy pause / resume"]
     RUNS["GET /runs, /runs/{id}/ledger"]
+    AFTER["GET /runs/{id}/after<br/>what arrived, note, alert, deliveries"]
     START["POST /runs/start<br/>session_id = the discussion"]
     WS["GET /runs/{id}/workspace,<br/>/workspace/files, /workspace/content"]
   end
@@ -109,6 +110,7 @@ flowchart LR
   L -->|POST /automations| AUTO
   AP --> AUTO
   AP -->|answer a wait| CMD
+  AP -->|After the run, per answer| AFTER
   L -. gate .-> CAP
   AP -. gate .-> CAP
   BV --> RUNS
@@ -134,7 +136,10 @@ The page lists automations in full pages every 30 seconds while visible, and
 re-reads shortly after each command because the gateway applies accepted
 commands asynchronously. Wait answers are typed by the wait's kind
 (`ask_user`, `tool_approval`, `event`) and go through the same `resume`
-command as the Board and the run view. User guide: `automations.md`.
+command as the Board and the run view. Under each run's answer the page adds
+**After the run**, read from `GET /runs/{id}/after` (framework ADR-0041: the
+flow's On Flow End records the outcome; only explicit Notify nodes reach the
+person), tried three times before it shows the reason with Retry. User guide: `automations.md`.
 
 ## Observe projections
 The raw ledger remains the authoritative record, but the default Observe experience projects it into human-readable views:
