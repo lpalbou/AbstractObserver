@@ -451,6 +451,18 @@ export class GatewayClient {
     return await r.json();
   }
 
+  /** `GET /runs/{id}/after` (framework ADR-0041): what arrived, the note, the alert it raised or
+   * why nothing rang, and each delivery with its channel and route. */
+  async get_run_after(run_id: string): Promise<any> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("get_run_after: run_id is required");
+    const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/after`)), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`get_run_after failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
   async list_run_artifacts(run_id: string, opts?: { limit?: number; offset?: number }): Promise<any> {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("list_run_artifacts: run_id is required");

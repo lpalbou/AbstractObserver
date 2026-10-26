@@ -12,14 +12,18 @@ import { LoadingState } from "./loading";
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
-  AutomationPanelWithMarkdown,
   WorkspaceBrowser,
+  openGatewayResource,
   renderAutomationText,
+  renderAutomationTurn,
   type AutomationPanelWithMarkdownProps,
   type GatewayFetch,
 } from "@abstractframework/panel-chat";
 import {
   AfSwitch,
+  AutomationPanel,
+  type AutomationTurn,
+  type GatewayResource,
   AutomationStateLabel as KitAutomationStateLabel,
   CONTROL_ICONS,
   CONTROL_LABELS,
@@ -38,6 +42,7 @@ import {
 } from "@abstractframework/ui-kit";
 
 import type { GatewayClient } from "../lib/gateway_client";
+import { AfterTheRunLoader, type RunAfter } from "./after_the_run";
 import { AutomationDiscussion, type OpenDiscussion } from "./automation_discussion";
 import {
   AutomationWorkspacesChooser,
@@ -429,6 +434,8 @@ export type PanelHostHandlers = {
   fetch_gateway?: GatewayFetch;
   /** A discussion was forked at occurrence `index` (the full gateway answer, both workspace paths included). */
   on_open_session(session: DiscussResponse, notice: string, index: number): void;
+  /** `GET /runs/{id}/after` (framework ADR-0041): each finished run's card gains "After the run". Absent: no section. */
+  read_run_after?(run_id: string): Promise<RunAfter>;
 };
 
 /**
@@ -506,6 +513,29 @@ export function workflow_name_of(
   const bundle = id.slice(0, at);
   const flow = id.slice(colon + 1);
   return entries.find((e) => e.bundleId === bundle && e.flowId === flow)?.name || undefined;
+}
+
+/**
+ * The kit panel with panel-chat's renderers (what `AutomationPanelWithMarkdown` wires), and each
+ * run's answer card followed by "After the run" (framework ADR-0041) when the host can read it:
+ * what arrived, the note, the alert or why nothing rang, every delivery. No kit change: the
+ * section rides on the kit's `renderTurn` for the answer turn.
+ */
+export function ObserverAutomationPanel(
+  props: AutomationPanelWithMarkdownProps & { readRunAfter?: (run_id: string) => Promise<RunAfter> },
+): React.ReactElement {
+  const { fetchGateway, messageProps, readRunAfter, ...rest } = props;
+  const onOpenResource = rest.onOpenResource ?? (fetchGateway ? (r: GatewayResource) => openGatewayResource(fetchGateway, r.url, { name: r.name }) : undefined);
+  const renderTurn = (turn: AutomationTurn): React.ReactNode =>
+    turn.kind === "answer" && readRunAfter ? (
+      <>
+        {renderAutomationTurn(turn, messageProps)}
+        <AfterTheRunLoader run_id={turn.runId} read={readRunAfter} />
+      </>
+    ) : (
+      renderAutomationTurn(turn, messageProps)
+    );
+  return <AutomationPanel {...rest} onOpenResource={onOpenResource} renderText={renderAutomationText} renderTurn={renderTurn} />;
 }
 
 /** The detail half: the kit panel, or the legacy explanation. Hook-free.
@@ -599,8 +629,9 @@ export function AutomationDetailView(props: {
         </div>
       ) : null}
       {p ? (
-        <AutomationPanelWithMarkdown
+        <ObserverAutomationPanel
           {...p}
+          readRunAfter={props.host.read_run_after}
           workflowName={workflow_name_of(definition?.target.workflow_id, props.workflowPickerOptions?.workflows?.data?.entries)}
           workflowPickerOptions={props.workflowPickerOptions}
           availableTools={props.availableTools}
@@ -680,10 +711,13 @@ export function AutomationsPage(props: {
   }, [ctl, notice]);
   // The kit panel's per-occurrence Discuss has already forked when this runs:
   // the chat opens on that session, here.
+  // One stable reader per connection (the loader re-reads when this identity changes).
+  const read_run_after = React.useCallback((run_id: string) => props.gateway.get_run_after(run_id) as Promise<RunAfter>, [props.gateway]);
   const host: PanelHostHandlers = {
     ...props.host,
     on_open_workspace: (run_id) => set_files_run((cur) => (cur === run_id ? "" : run_id)),
     fetch_gateway: props.gateway.fetch_gateway,
+    read_run_after: read_run_after,
     on_open_session: (session, notice, index) => {
       props.host.on_open_session(session, notice, index);
       if (!detail) return;

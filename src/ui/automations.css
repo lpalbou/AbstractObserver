@@ -444,3 +444,66 @@
   width: auto;
   min-width: 0;
 }
+
+/* After the run (framework ADR-0041), under a run's answer: what arrived, the note, the alert or why nothing rang, each delivery. */
+.after_run {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pane-border);
+  min-width: 0;
+}
+.after_run_title {
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.after_run_facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--text-primary);
+}
+.after_run_facts dt {
+  color: var(--text-secondary);
+}
+.after_run_facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.after_run_facts .muted {
+  color: var(--text-muted);
+}
+.after_run_alerts,
+.after_run_deliveries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.after_run_deliveries {
+  margin-top: 2px;
+  padding-left: 10px;
+  border-left: 2px solid var(--pane-border);
+}
+.after_run_deliveries li[data-state="failed"] {
+  color: var(--error);
+}
+.after_run_alert_title {
+  font-weight: 600;
+}
+.after_run_error {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--error);
+  font-size: var(--t-small);
+}
+@media (max-width: 479.98px) {
+  .after_run_facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
