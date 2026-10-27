@@ -29,6 +29,7 @@ import {
   voiceTtsRequest,
   type GatewayVoice,
   type VoiceClientPreferences,
+  type VoiceCreation,
   type VoiceDefaults,
 } from "@abstractframework/ui-kit";
 
@@ -96,6 +97,15 @@ export function use_voice_defaults(gateway: GatewayClient | null, connected: boo
   return state;
 }
 
+/** "Create a voice" (the gateway's voice library: `POST /voice/design`, `POST /voice/clones`) over this connection; null without one. */
+export function observer_voice_creation(gw: GatewayClient | null): VoiceCreation | undefined {
+  if (!gw) return undefined;
+  return {
+    design: (req) => gw.voice_design(req),
+    clone: (file, req) => gw.voice_clone(file, req),
+  };
+}
+
 /** Settings → Voice: the kit's shared section, fed by this gateway. */
 export function ObserverVoiceSettings(props: {
   gateway: GatewayClient | null;
@@ -114,6 +124,7 @@ export function ObserverVoiceSettings(props: {
       defaults={props.defaults.value ?? undefined}
       overrideOwner="this app"
       nested
+      createVoice={observer_voice_creation(gw)}
       unavailableReason={props.connected && gw ? null : "Connect to a gateway to configure voice."}
     />
   );
