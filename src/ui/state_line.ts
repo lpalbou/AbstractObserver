@@ -27,6 +27,8 @@ import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
 import type { WaitState } from "../lib/types";
 import { format_time_until_from_ms, parse_iso_ms, terminal_run_status } from "./format";
 import { run_status_word, type RunSummary, type StopReason } from "./run_status";
+import { isEventTrigger } from "@abstractframework/ui-kit";
+import { trigger_words as vocab_trigger_words } from "./trigger_vocab";
 
 export type SubjectKind = "automation" | "agent" | "entity" | "run";
 export type Actor = "you" | "run" | "clock" | "external" | "runtime" | "unknown" | "none";
@@ -50,8 +52,17 @@ export type AutomationBrief = {
   automation_id: string;
   title: string;
   status: string;
-  /** "every 24h" / "manual" / "on email" — the trigger as words. */
+  /** The trigger as words: the served schedule sentence ("every 24h" from the config without it), "By hand",
+   * "When mail arrives in me@example.org", "When Release notes has a new item" — never a source id. */
   cadence: string;
+  /** The binding (`summary.trigger`, else `definition.trigger`), for words that need the latest vocabulary. */
+  trigger: { source_id: string; source_version: number; config: Record<string, any> } | null;
+  /** Fed by something that arrives (a mailbox, a feed, a webhook): no clock, no "next run" — it listens. */
+  event_driven: boolean;
+  /** The gateway's served trigger in words (`summary.trigger_text`, AbstractGateway 1613d05c); "" when not served. */
+  trigger_text: string;
+  /** The automation's served time zone (`summary.time_zone`), "" when not served. */
+  time_zone: string;
   next_fire_ms: number | null;
   last: { index: number; status: string; fired_ms: number | null; finished_ms: number | null } | null;
   occurrence_count: number;
@@ -79,7 +90,8 @@ export type AutomationBrief = {
   capabilities: string[];
   /** `legacy: true` rows are managed with their own controls. */
   legacy: boolean;
-  /** The gateway's served schedule words (`schedule_rule_text`: "Every 24 hours (UTC)"); "" when not served. */
+  /** The gateway's served schedule words (`schedule_rule_text`: "Every 24 hours (UTC)"); "" when not served,
+   * and "" for a trigger that is not a schedule (the gateway serves "feed.item@1" there: an id, never shown). */
   schedule_rule_text: string;
   /** The served next run in the owner's zone (`next_run_local`, ISO); "" when none. */
   next_run_local: string;
@@ -367,6 +379,9 @@ function state_line_raw(run: RunSummary, ctx: StateContext, depth = 0): StateLin
     if (brief?.status === "paused") parts.push("paused: scheduled runs are skipped");
     else if (next_ms !== null) parts.push(`next run in ${format_time_until_from_ms(Math.max(0, next_ms - now_ms))}`);
     else if (brief?.status === "completed" || brief?.status === "failed") parts.push(`${brief.status}: no next run`);
+    // Fed by what arrives: it listens, it has no clock (UX review 2026-10-25 #2).
+    else if (brief?.event_driven) parts.push("listening");
+    else if (brief?.trigger?.source_id === "manual") parts.push("runs when someone presses Run now");
     else parts.push("next run not scheduled");
     if (brief?.last) parts.push(`last #${brief.last.index} ${brief.last.status}`);
     if (brief) parts.push(`${brief.occurrence_count} turn${brief.occurrence_count === 1 ? "" : "s"}`);
@@ -561,7 +576,7 @@ export function board_lane(run: RunSummary, ctx: StateContext): BoardLane {
  * scheduled — its row is parked on the wake wait, and a bare "waiting" pill on the
  * automation's own card is the word P3 forbids. */
 export function pill_word(run: RunSummary, line: StateLine, stop_reason?: StopReason | null, automation?: AutomationBrief | null): string {
-  if (String(run?.role || "").trim() === "controller") return automation?.status === "paused" ? "paused" : "scheduled";
+  if (String(run?.role || "").trim() === "controller") return automation?.status === "paused" ? "paused" : automation?.event_driven ? "listening" : "scheduled";
   if (line.stuck) return "stuck";
   const word = run_status_word({ status: run?.status, paused: run?.paused === true || line.verb === "paused", stop_reason: stop_reason ?? null });
   return line.verb === "running" && word === "waiting" ? "running" : word;
@@ -574,7 +589,7 @@ export type Subject = {
   glyph: string;
   /** "Nightly digest" (automation title) / "session 3f2a…" / "". */
   label: string;
-  /** "occurrence #5 · basic-agent 0.0.5" — the secondary line. */
+  /** "run #5 · basic-agent 0.0.5" — the secondary line (UX review 2026-10-25 #6: "run", never "occurrence"). */
   secondary: string;
   automation_id: string;
   /** The session id behind an agent subject — for a title/copy affordance, never as text. */
@@ -591,10 +606,12 @@ export function subject_of(run: RunSummary, ctx: StateContext): Subject {
   const wf = workflow_short(String(run?.workflow_id || ""));
   if (role === "controller" || role === "occurrence" || role === "descendant" || role === "discussion" || kind_tag === "automation") {
     const bits: string[] = [];
-    if (role === "occurrence" && typeof run?.occurrence_index === "number") bits.push(`occurrence #${run.occurrence_index}`);
-    else if (role === "descendant" && typeof run?.occurrence_index === "number") bits.push(`occurrence #${run.occurrence_index} · subrun`);
+    if (role === "occurrence" && typeof run?.occurrence_index === "number") bits.push(`run #${run.occurrence_index}`);
+    else if (role === "descendant" && typeof run?.occurrence_index === "number") bits.push(`run #${run.occurrence_index} · subrun`);
     else if (role === "discussion") bits.push("discussion");
-    if (wf && role !== "controller") bits.push(wf);
+    // The automation's run reads "run #1" under the automation's title; the flow's id only when
+    // nothing names the automation (UX re-review #5: never "run #1 · Python-digest 0.0.0").
+    if (wf && role !== "controller" && !brief?.title) bits.push(wf);
     if (role === "controller" && brief) bits.push(brief.cadence);
     return { kind: "automation", glyph: SUBJECT_GLYPH.automation, label: brief?.title || "", secondary: bits.join(" · "), automation_id, id_hint: automation_id };
   }
@@ -629,13 +646,20 @@ export function card_title(run: RunSummary, ctx: StateContext, brief?: RunBrief 
 
 // --- automation brief fold ---------------------------------------------------------
 
-function trigger_words(trigger: any): string {
+/**
+ * The trigger as words (UX review 2026-10-25 #2): a schedule reads as the served sentence, else
+ * "every 24h" from its config; everything else is the kit's `triggerWords` with the person's
+ * vocabulary ("By hand", "When mail arrives in me@example.org", "When Release notes has a new item").
+ */
+export function trigger_words(trigger: any, served_rule = ""): string {
+  if (!trigger || typeof trigger !== "object") return "";
   const source = String(trigger?.source_id || "").trim();
-  const every = String(trigger?.config?.every || "").trim();
-  if (source === "schedule") return every ? `every ${every}` : "scheduled";
-  if (source === "manual") return "manual";
-  if (source === "email_received") return "on email";
-  return source || "";
+  if (source === "schedule") {
+    if (served_rule) return served_rule;
+    const every = String(trigger?.config?.every || "").trim();
+    return every ? `every ${every}` : "scheduled";
+  }
+  return source ? vocab_trigger_words(trigger) : "";
 }
 
 /** Fold `GET /automations/{id}` (`{definition, summary, active_revision}`) into the brief. */
@@ -652,11 +676,22 @@ export function fold_automation_brief(body: any): AutomationBrief | null {
   const caps = Array.isArray(summary?.capabilities) ? summary.capabilities.map((c: any) => String(c)) : [];
   const runtime_ns = input?._runtime && typeof input._runtime === "object" ? input._runtime : {};
   const list_or_null = (v: any): string[] | null => (Array.isArray(v) ? v.map((x: any) => String(x)).filter(Boolean) : null);
+  const raw_trigger = summary?.trigger && typeof summary.trigger === "object" ? summary.trigger : definition?.trigger && typeof definition.trigger === "object" ? definition.trigger : null;
+  const trigger_of = raw_trigger
+    ? { source_id: String(raw_trigger.source_id || ""), source_version: Number(raw_trigger.source_version || 0), config: raw_trigger.config && typeof raw_trigger.config === "object" ? raw_trigger.config : {} }
+    : null;
+  // The served sentence is a schedule's; for any other trigger the gateway serves its id ("feed.item@1").
+  const served_rule = trigger_of?.source_id === "schedule" ? String(summary?.schedule_rule_text || "").trim() : "";
   return {
     automation_id,
     title: String(summary?.title || definition?.title || "").trim(),
     status: String(summary?.status || "").trim(),
-    cadence: trigger_words(summary?.trigger || definition?.trigger),
+    // The gateway's words when served (names looked up there), else our fold.
+    cadence: String(summary?.trigger_text || "").trim() || trigger_words(trigger_of, served_rule),
+    trigger_text: String(summary?.trigger_text || "").trim(),
+    trigger: trigger_of,
+    event_driven: isEventTrigger(trigger_of),
+    time_zone: String(summary?.time_zone || "").trim(),
     // The gateway's served `next_run_at` (round 16) is the one truth; a 0.13.x gateway serves only the
     // runtime's `next_fire_at` (the same fallback `served_summary.ts` makes on the Automations page).
     next_fire_ms: parse_iso_ms(summary?.next_run_at || summary?.next_fire_at || ""),
@@ -687,7 +722,7 @@ export function fold_automation_brief(body: any): AutomationBrief | null {
     can_revise: caps.includes("revise"),
     capabilities: caps,
     legacy: summary?.legacy === true,
-    schedule_rule_text: String(summary?.schedule_rule_text || "").trim(),
+    schedule_rule_text: served_rule,
     next_run_local: String(summary?.next_run_local || "").trim(),
     paused_reason: String(summary?.paused_reason || "").trim(),
     context_used_tokens: typeof summary?.context_used_tokens === "number" && Number.isFinite(summary.context_used_tokens) && summary.context_used_tokens >= 0 ? summary.context_used_tokens : null,

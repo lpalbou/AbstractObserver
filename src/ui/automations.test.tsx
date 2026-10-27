@@ -314,7 +314,9 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     const html = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} served={{ phase: "idle" }} on_change={() => {}} />));
     expect(html).toContain("<legend>When</legend>");
     // R16.1: the six kinds, the kit's words, in order.
-    expect(html).toMatch(/value="every"\/> Repeat<.*value="daily"\/> Daily<.*value="weekly"\/> Weekly<.*value="monthly"\/> Monthly<.*value="once"\/> Once at…<.*value="email"\/> When an email arrives</);
+    expect(html).toMatch(/value="every"\/> Repeat<.*value="daily"\/> Daily<.*value="weekly"\/> Weekly<.*value="monthly"\/> Monthly<.*value="once"\/> Once at…<.*value="arrives"\/> When something arrives<.*value="manual"\/> By hand</);
+    // No flow defaults: no "Use the flow's trigger" choice.
+    expect(html).not.toContain("Use the flow's trigger");
     for (const p of SCHEDULE_PRESETS) expect(html).toContain(`data-preset="${p.label}"`);
     // Repeat's line is the gateway's (schedule-preview); the form composes none.
     expect(html).not.toContain("Runs every 24 hours (UTC)");
@@ -329,9 +331,10 @@ describe("Launch → Automate builds the exact POST /api/gateway/automations bod
     expect(adv).toContain('data-section="limits"><legend>Title and limits</legend>');
     expect(adv).not.toMatch(/<details|<summary|Advanced/);
     expect(adv).toContain("Title");
-    expect(adv).toContain("First run at (UTC; empty = now)");
+    expect(adv).toContain(">First run<");
+    expect(adv).not.toMatch(/UTC|empty = now/);
     expect(adv).toContain("Stop after this many runs");
-    expect(adv).toContain("Stop at (UTC)");
+    expect(adv).toContain(">Stop on<");
     // D1: the consent line with the target's tools, and the "ask" option.
     const tools = unescape(renderToStaticMarkup(<AutomateWhenContext form={DEFAULT_AUTOMATE_FORM} served={{ phase: "idle" }} tools={["fetch_url", "execute_command"]} on_change={() => {}} />));
     expect(tools).toContain(TOOL_APPROVAL_CONSENT);
@@ -406,7 +409,7 @@ describe("Automations page", () => {
     await pending;
     expect(ctl.state.detail?.definition?.revision).toBe(1);
     expect(ctl.state.detail!.occurrences).toHaveLength(2); // stub pages of 2, newest first
-    expect(detail_html()).toContain("Load earlier occurrences (5 more)");
+    expect(detail_html()).toContain("Load earlier runs (5 more)");
     const before = stub.requests.length;
     automation_panel_props(ctl, host_handlers)!.onLoadMore(); // the panel's button
     await vi.waitFor(() => expect(ctl.state.detail!.occurrences).toHaveLength(4));
@@ -622,12 +625,14 @@ describe("Automations page", () => {
     expect(Object.keys(r).sort()).toEqual(Object.keys(recorded).sort());
     expect(r.workspace_root).not.toBe(r.mounted_workspace);
     expect(r.mounted_workspace).toBe((await client.getAutomation(INBOX_ID)).definition.workspace_root);
-    // The notice names both paths, on the page and where the discussion opens.
+    // The notice says it in a person's words (UX review 2026-10-25 #4/#5): a conversation, its own
+    // folder, the automation's files readable but not changeable — no paths, no "session".
     for (const notice of [opened.notices[0], ctl.state.notice]) {
-      expect(notice).toContain(r.workspace_root);
-      expect(notice).toContain(r.mounted_workspace);
-      expect(notice).toMatch(/read-only/);
+      expect(notice).toContain("A conversation about run #6 started");
+      expect(notice).toMatch(/can read the automation's files but not change them/);
       expect(notice).toMatch(/shell commands are not sandboxed/); // the mount binds the file tools only
+      expect(notice).not.toContain(r.workspace_root);
+      expect(notice).not.toMatch(/\bsession\b/);
     }
   });
 
@@ -722,7 +727,7 @@ describe("run attribution tags", () => {
     expect(lanes.scheduled.map((c) => c.run_id)).toContain("ctl-1");
     const all = LANE_ORDER.flatMap((l) => lanes[l]);
     const occ = all.find((c) => c.run_id === "occ-3")!;
-    expect(occ).toMatchObject({ tag: "occurrence", tag_label: "occurrence #3", automation_id: "ctl-1" });
+    expect(occ).toMatchObject({ tag: "occurrence", tag_label: "run #3", automation_id: "ctl-1" });
     expect(all.find((c) => c.run_id === "prefix-only")!.tag).toBeNull();
   });
 

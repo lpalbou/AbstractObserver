@@ -204,7 +204,7 @@ describe("subject and title", () => {
     expect(s.kind).toBe("automation");
     expect(s.glyph).toBe("⟳");
     expect(s.label).toBe("Nightly digest");
-    expect(s.secondary).toBe("occurrence #5 · basic-agent 0.0.5");
+    expect(s.secondary).toBe("run #5");
     expect(card_title(r, c)).toEqual({ text: "Nightly digest", source: "automation", untitled: false });
   });
 

@@ -451,6 +451,18 @@ export class GatewayClient {
     return await r.json();
   }
 
+  /** `GET /runs/{id}/after` (framework ADR-0041): what arrived, the note, the alert it raised or
+   * why nothing rang, and each delivery with its channel and route. */
+  async get_run_after(run_id: string): Promise<any> {
+    const rid = String(run_id || "").trim();
+    if (!rid) throw new Error("get_run_after: run_id is required");
+    const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath(`runs/${encodeURIComponent(rid)}/after`)), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+    });
+    if (!r.ok) throw new Error(`get_run_after failed: ${await _read_error(r)}`);
+    return await r.json();
+  }
+
   async list_run_artifacts(run_id: string, opts?: { limit?: number; offset?: number }): Promise<any> {
     const rid = String(run_id || "").trim();
     if (!rid) throw new Error("list_run_artifacts: run_id is required");
@@ -847,6 +859,38 @@ export class GatewayClient {
     if (model) q.set("model", model);
     const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath(`voice/voices?${q.toString()}`)), { headers: { ..._auth_headers(this._cfg.auth_token) }, signal: _deadline() });
     if (!r.ok) throw await gateway_error(r, "The gateway could not list its voices");
+    return await r.json();
+  }
+
+  /** `POST /voice/design`: a voice from a written description, stored in the gateway's voice library
+   * (AbstractGateway 0.16.0). No client deadline: the gateway may load the design engine first. A refusal
+   * (403 shared store, 501 engine missing) throws the gateway's own sentence. */
+  async voice_design(req: { description: string; name?: string; language?: string }): Promise<{ voice_id: string; name?: string; engine?: string }> {
+    const body: Record<string, string> = { description: req.description };
+    if (req.name) body.name = req.name;
+    if (req.language) body.language = req.language;
+    const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath("voice/design")), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ..._auth_headers(this._cfg.auth_token) },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new GatewayRequestError(r.status, (await _gateway_sentence(r)) || `The gateway could not create the voice (HTTP ${r.status}).`);
+    return await r.json();
+  }
+
+  /** `POST /voice/clones` (multipart): a voice from a recording, stored in the gateway's voice library. */
+  async voice_clone(file: Blob, req: { name?: string; language?: string; reference_text?: string }): Promise<{ voice_id: string; name?: string; engine?: string }> {
+    const form = new FormData();
+    form.set("file", file, (file as File).name || "recording.wav");
+    if (req.name) form.set("name", req.name);
+    if (req.language) form.set("language", req.language);
+    if (req.reference_text) form.set("reference_text", req.reference_text);
+    const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath("voice/clones")), {
+      method: "POST",
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+      body: form,
+    });
+    if (!r.ok) throw new GatewayRequestError(r.status, (await _gateway_sentence(r)) || `The gateway could not clone the voice (HTTP ${r.status}).`);
     return await r.json();
   }
 

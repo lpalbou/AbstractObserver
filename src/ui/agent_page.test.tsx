@@ -146,7 +146,7 @@ describe("AgentPage — header, profile, context, tree, spend, ask (completed oc
     expect(head).toContain(AUTOMATION.summary.title);
     expect(head).toContain('title="Title from: automation"');
     expect(head).toContain('<span class="chip ok">completed</span>');
-    expect(head).toContain('<div class="ap_subject_line">occurrence #5 · basic-agent 0.0.5</div>');
+    expect(head).toContain('<div class="ap_subject_line">run #5</div>');
     expect(head).toContain('<span class="ap_state_text">completed in 52m</span>');
     expect(head).toContain(`title="Copy run id ${OCC}"`);
     expect(text(m)).not.toContain(OCC);
@@ -186,7 +186,7 @@ describe("AgentPage — header, profile, context, tree, spend, ask (completed oc
     expect(count(b, 'class="ap_tree_node')).toBe(4);
     expect(count(b, 'aria-current="true"')).toBe(1);
     expect(b).toMatch(new RegExp(`aria-current="true" title="Open run ${OCC}"`));
-    expect(text(b)).toContain("occurrence #5 · basic-agent 0.0.5 completed in 52m");
+    expect(text(b)).toContain("run #5 · basic-agent 0.0.5 completed in 52m");
     expect(b).not.toContain('data-run-id="db080535');
     expect(m).toContain("4 runs");
   });
@@ -354,12 +354,12 @@ describe("pin palette and stylesheet discipline", () => {
   // The sibling repo is only present in the framework checkout; CI has no abstractflow/ next to this repo.
   const FLOW_TS = join(__dirname, "..", "..", "..", "abstractflow", "src", "types", "flow.ts");
   it.skipIf(!existsSync(FLOW_TS))("the palette is a verbatim mirror of abstractflow's flow.ts", () => {
-    const flow_ts = readFileSync(FLOW_TS, "utf8").split("\n").slice(5, 85).join("\n");
+    const flow_ts = readFileSync(FLOW_TS, "utf8").split("\n").slice(5, 89).join("\n");
     const mirror = readFileSync(join(__dirname, "pin_palette.ts"), "utf8");
     const begin = mirror.indexOf("\n", mirror.indexOf("---- BEGIN verbatim copy")) + 1;
     const end = mirror.lastIndexOf("\n", mirror.indexOf("---- END verbatim copy"));
     expect(mirror.slice(begin, end)).toBe(flow_ts);
-    expect(PIN_TYPES).toHaveLength(37);
+    expect(PIN_TYPES).toHaveLength(39); // + email, emails (AbstractFlow 198cd63)
     expect(pin_shape_kind("execution")).toBe("triangle");
     expect(pin_shape_kind("assertions")).toBe("square");
     expect(pin_shape_kind("agent")).toBe("hexagon");
@@ -460,7 +460,7 @@ describe("Agent profile — orchestrator occurrence #13: the facts the run was n
     const g = text(group(m, "who"));
     expect(g).toContain("Workflow abstractassistant-orchestrator 0.0.9 · flow “AbstractAssistant Orchestrator” run");
     expect(g).toContain("Subject Evolution of prices and stock availability of new and used for: automation");
-    expect(g).toContain("Role occurrence #13 of 13 so far · open parent run");
+    expect(g).toContain("Role run #13 of 13 so far · open parent run");
     expect(g).toContain("Model · provider mlx · Jundot/Qwen3.8-27B-oQ4e-mtp × 3 calls used");
     expect(g).toMatch(/System prompt You are AbstractAssistant, [^⧉]*… show all \(518 chars\) flow default/);
     expect(g).toMatch(/Task \[Trigger schedule@1 · occurrence 13 [^⧉]*… show all \(369 chars\) run/);
@@ -499,7 +499,7 @@ describe("Agent profile — orchestrator occurrence #13: the facts the run was n
     const a = text(group(m, "after"));
     expect(a).toContain("Notifies console automation");
     expect(a).toContain("Context growing (cap 50,000 tokens): each occurrence replays the session so far this run replayed 24 messages (11,953 tokens), left out 0 messages automation");
-    expect(a).toContain("Next next occurrence at 2026-10-14 19:53:29 UTC (in 10h 23m) automation");
+    expect(a).toContain("Next next run at 2026-10-14 19:53:29 UTC (in 10h 23m) automation");
   });
 
   it("every row says its source or why it is absent; no bare '—'", () => {

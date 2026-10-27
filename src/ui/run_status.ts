@@ -69,7 +69,7 @@ export function run_status_class(status: unknown, stop_reason?: StopReason | nul
   if (s === "failed" || s === "cancelled") return "danger";
   if (s === "waiting" || s === "paused" || s === "suspended") return "warn";
   if (s === "running") return "info";
-  if (s === "scheduled") return "info";
+  if (s === "scheduled" || s === "listening") return "info";
   return "muted";
 }
 

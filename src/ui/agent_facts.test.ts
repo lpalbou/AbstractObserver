@@ -487,7 +487,7 @@ describe("fold_agent_profile — orchestrator occurrence #13 (model/tools not se
       why: "",
     });
     expect(prof.who.subject.value).toMatchObject({ kind: "automation", title: "Evolution of prices and stock availability of new and used for:" });
-    expect(prof.who.role.value?.text).toBe("occurrence #13");
+    expect(prof.who.role.value?.text).toBe("run #13");
     expect(prof.who.model).toEqual({ value: [{ provider: "mlx", model: O_MODEL, calls: 3 }], source: "used", why: "" });
     expect(prof.who.model_declared).toBeNull();
     expect(prof.who.system_prompt.source).toBe("flow default");
@@ -538,7 +538,7 @@ describe("fold_agent_profile — orchestrator occurrence #13 (model/tools not se
     expect(prof.after.notify).toEqual({ value: ["console"], source: "automation", why: "" });
     expect(prof.after.context.value).toEqual({ mode: "growing", growing_max_tokens: 50000, replayed_messages: 24, replayed_tokens: 11953, dropped_messages: 0, dropped_tokens: 0 });
     expect(prof.after.outputs_to.value).toBe(O_DETAIL.workspace_root);
-    expect(prof.after.next.value).toEqual({ kind: "next_at", at_ms: Date.parse("2026-10-14T19:53:29.622Z"), text: "next occurrence at 2026-10-14 19:53:29 UTC (in 10h 23m)" });
+    expect(prof.after.next.value).toEqual({ kind: "next_at", at_ms: Date.parse("2026-10-14T19:53:29.622Z"), text: "next run at 2026-10-14 19:53:29 UTC (in 10h 23m)" });
   });
 
   it("without the ledger: model from the output meta, counts from the listing, calls unknown — never a silent '—'", () => {
@@ -590,6 +590,9 @@ describe("fold_agent_profile — precedence and edges", () => {
     expect(next(with_summary({ status: "completed", next_fire_at: null }))).toEqual({ kind: "last", at_ms: null, text: "this was the last (stop reached)" });
     expect(next(with_summary({ status: "completed", last_occurrence: { ...O_AUTO.summary.last_occurrence, index: 14 } }))?.kind).toBe("none");
     expect(next(with_summary({ next_fire_at: null }, { source_id: "manual", config: {} }))).toEqual({ kind: "on_trigger", at_ms: null, text: "next run when someone runs it" });
+    // Mail, a feed: the next run is what arrives next, in words (the real source ids; UX review 2026-10-25 #2).
+    expect(next(with_summary({ next_fire_at: null, next_run_at: null }, { source_id: "email.received", source_version: 1, config: {} }))).toEqual({ kind: "on_trigger", at_ms: null, text: "next run when mail arrives in your main mailbox" });
+    expect(next(with_summary({ next_fire_at: null, next_run_at: null }, { source_id: "feed.item", source_version: 1, config: { connection_id: "c1" } }))).toEqual({ kind: "on_trigger", at_ms: null, text: "next run when a feed has a new item" });
     const bounded = fold_agent_profile(O_DETAIL, O_INPUT, O_FLOW, with_summary({}, { source_id: "schedule", config: { every: "24h", count: 20, until: "2026-12-31T00:00:00+00:00" } }), undefined, O_ROWS, O_NOW);
     expect(bounded.how_long.stop_after).toEqual({ value: 20, source: "automation", why: "" });
     expect(bounded.how_long.stop_at).toEqual({ value: Date.parse("2026-12-31T00:00:00Z"), source: "automation", why: "" });
@@ -615,7 +618,7 @@ describe("fold_agent_profile — precedence and edges", () => {
     expect(p.how_long.iterations_used.value).toBe(3);
     expect(p.does.artifacts).toEqual([{ pin: "scratchpad", id: "6f3694a4e5a0bb029de9a3d709203962" }]);
     expect(p.after.notify.value).toEqual(["console", "email"]);
-    expect(p.after.next.value?.text).toBe("next occurrence at 2026-10-14 23:06:22 UTC (in 22h 36m)");
+    expect(p.after.next.value?.text).toBe("next run at 2026-10-14 23:06:22 UTC (in 22h 36m)");
     expect(fmt_utc(Date.parse("2026-10-14T23:06:22.996Z"))).toBe("2026-10-14 23:06:22 UTC");
   });
 });

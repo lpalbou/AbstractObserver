@@ -48,6 +48,11 @@ Enabled when `GET /api/gateway/discovery/capabilities` advertises `capabilities.
 - `POST /api/gateway/runs/start` with the discussion's `session_id` — a later turn of a discussion (the gateway re-stamps its workspace, mount and history); the chat reads it with `GET /api/gateway/runs/{run_id}`, `/history_bundle?include_session=true`, `/ledger` and `/ledger/stream`
 - `GET /api/gateway/runs/{run_id}/workspace`, `/workspace/files?path=`, `/workspace/content?path=` — browse a run's folder and open or download its files (an automation's id is its controller run, so the automation's folder is `runs/{automation_id}/workspace`)
 - `GET /api/gateway/trigger-sources` — trigger sources shown in the panel
+- `GET /api/gateway/triggers/connections` and `GET /api/gateway/me/email/accounts` — your feeds and webhooks by name and your mailboxes by address: **When something arrives** in Automate, and every trigger read in words (list, panel, Board, agent page)
+- `GET /api/gateway/bundles` / `GET /api/gateway/bundles/{bundle_id}` — a flow's `automation_defaults` (**Use the flow's trigger**, Context, budget, title, inputs) and the `triggerable` mark on its entrypoints
+- `GET /api/gateway/runs/{run_id}/input_data` — what arrived (`input_data.event`), read once per event-driven run for the card above its task
+- `GET /api/gateway/runs/{run_id}/after` — **After the run** under each run's answer: what arrived, the note, the alert and its source, each delivery, or why nothing rang (framework ADR-0041); three tries before the section shows the reason with Retry
+- Summaries' `trigger_text` (when the gateway sends it) is used as the trigger's words
 - `POST /api/gateway/commands` — answer an occurrence's wait with `type: "resume"` and `{wait_key, payload}` on the waiting run; the payload follows the wait's kind: `ask_user` → `{response}`, `tool_approval` → `{approved, tool_ids?}`, `event` → `{payload}`. Legacy schedule rows use `pause` / `resume` (run now = `resume` with `{payload: {mode: "run_now", requested_at}}`).
 - `GET /api/gateway/runs/{run_id}` + `GET /api/gateway/runs/{run_id}/input_data` — read a legacy schedule for **Recreate as automation**
 

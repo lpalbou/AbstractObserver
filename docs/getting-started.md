@@ -154,15 +154,17 @@ Go to **Launch** (a modal: the header's Launch button, or **+ New automation** o
 - **Run once**: select a workflow (discovered from gateway bundles, or the
   gateway's default agent), fill its inputs, click **Launch now**
   (`POST /api/gateway/runs/start`);
-- **Automate**: the same workflow and prompt, plus **When** (every N
-  minutes/hours/days in UTC; daily, weekly or monthly at a time of day in your
-  account's time zone; or once at a time), **Context** (independent
+- **Automate**: the same workflow and prompt, plus **When** (the flow's own
+  trigger when it has one; when something arrives: mail, a feed item, a webhook
+  call; by hand; every N minutes/hours/days in UTC; daily, weekly or monthly at
+  a time of day in your account's time zone; or once at a time), **Context** (independent
   or growing) and **Tools** (run without asking, which creating the
   automation approves, or ask each time); **Create automation** sends
   `POST /api/gateway/automations` and opens it on the **Automations** page.
 
 On the **Automations** page you pause, resume, run now, edit or archive an
-automation, read its runs as a conversation, answer runs that wait for you,
+automation, read its runs as a conversation (what arrived, the answer and
+**After the run**), answer runs that wait for you,
 browse its files, and discuss a result in a chat with a fork of
 the automation, on the same page. Automations need a gateway that
 advertises the Automations API; otherwise the page says so.

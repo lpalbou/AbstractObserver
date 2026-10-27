@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { type LedgerRecordItem } from "@abstractframework/monitor-flow";
 import {
@@ -32,6 +32,7 @@ import {
   useExecutableWorkflows,
   useSchedulePreview,
   WorkflowPicker,
+  type WorkflowPickerEntry,
   type AfSelectOption,
   type GatewayConnectionState,
   type ProviderOption,
@@ -47,6 +48,10 @@ import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
 import { ApplyImmediatelySwitch, AssistantSkillSwitch, AutoConnectSwitch, ScheduleActiveSwitch } from "./state_switches";
 import {
   AUTOMATION_OWNED_INPUTS,
+  TRIGGER_OWNED_INPUTS,
+  automate_prefill,
+  flow_automation_defaults,
+  flow_entry_detail_words,
   AutomationsController,
   DEFAULT_AUTOMATE_FORM,
   RequestIdMemo,
@@ -885,14 +890,59 @@ export function App(): React.ReactElement {
   // Round 16: the line under When for Once / Daily / Weekly / Monthly is the GATEWAY's
   // (schedule-preview, debounced, latest wins); "Change in preferences" opens the console's
   // Accounts (Preferences → Time zone), like My email.
+  /**
+   * A flow made to run by itself reads by its trigger in the picker, with the person's feeds and
+   * mailboxes: "Python digest · When Python news has a new item · @0.0.0" (UX re-review #1).
+   */
+  const flow_entry_detail = useCallback(
+    (e: WorkflowPickerEntry): string | null => flow_entry_detail_words(e, { connections: automations_state.trigger_connections, mailboxes: automations_state.mailboxes }),
+    [automations_state.trigger_connections, automations_state.mailboxes],
+  );
+  /** The chosen flow's own automation settings (`/bundles/{id}` → `automation_defaults[flow_id]`), or null. */
+  const launch_defaults = useMemo(
+    () => (!launch_default_interface && bundle_id.trim() && flow_id.trim() ? flow_automation_defaults(bundle_info, bundle_id.trim(), flow_id.trim()) : null),
+    [bundle_info, bundle_id, flow_id, launch_default_interface],
+  );
+  /**
+   * Automate on a flow WITH defaults (UX review 2026-10-25 #1): "Use the flow's trigger" is
+   * preselected and Context / title / inputs come from the defaults — once per flow chosen, so the
+   * person's later edits stay theirs.
+   */
+  const automate_prefilled_for = useRef<string>("");
+  useEffect(() => {
+    if (!launch_open || launch_mode !== "automate" || !launch_defaults) return;
+    const key = `${bundle_id.trim()}:${flow_id.trim()}`;
+    if (automate_prefilled_for.current === key) return;
+    automate_prefilled_for.current = key;
+    let current: Record<string, any> = {};
+    try {
+      const parsed = JSON.parse(input_data_text || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) current = parsed;
+    } catch {
+      current = {};
+    }
+    const next = automate_prefill(automate_form, current, launch_defaults);
+    set_automate_form(next.form);
+    set_input_data_text(JSON.stringify(next.input_data, null, 2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launch_open, launch_mode, launch_defaults, bundle_id, flow_id]);
   const automate_served = useSchedulePreview(
-    launch_open && launch_mode === "automate" && gateway_connected ? automate_preview_trigger(automate_form) : null,
+    launch_open && launch_mode === "automate" && gateway_connected ? automate_preview_trigger(automate_form, launch_defaults) : null,
     automations_ctl.preview_schedule,
   );
   // Fresh email status whenever Launch → Automate is shown (the user may have just connected their mailbox).
   useEffect(() => {
-    if (launch_open && launch_mode === "automate" && gateway_connected) void automations_ctl.load_email_status();
+    if (launch_open && launch_mode === "automate" && gateway_connected) {
+      void automations_ctl.load_email_status();
+      // The feeds, webhooks and mailboxes offered by name under "When something arrives".
+      void automations_ctl.load_trigger_vocab();
+    }
   }, [page, launch_mode, gateway_connected, automations_ctl]);
+  // Triggers read by name on every page (Board cards, the agent page): the person's feeds,
+  // webhooks and mailboxes are read once signed in (the Automations page re-reads them).
+  useEffect(() => {
+    if (gateway_connected) void automations_ctl.load_trigger_vocab();
+  }, [gateway_connected, automations_ctl]);
   // Deep links: #launch/automate, #launch/once, #launch, #automations, #run/<run_id>.
   useEffect(() => {
     const apply = () => {
@@ -2928,6 +2978,9 @@ export function App(): React.ReactElement {
         bundle_ref_for: (bid) => workflow_options.find((w) => w.bundle_id === bid)?.bundle_ref || "",
         input_data: input_data_obj,
         email_usable: automations_ctl.email_usable,
+        defaults: launch_defaults,
+        mailboxes: automations_state.mailboxes,
+        connections: automations_state.trigger_connections,
       },
       automate_request_ids.current,
     );
@@ -2942,6 +2995,7 @@ export function App(): React.ReactElement {
       set_automate_notes([]);
       // A created automation must not lend its title/schedule to the next one.
       set_automate_form(DEFAULT_AUTOMATE_FORM);
+      automate_prefilled_for.current = "";
       push_log({ ts: now_iso(), kind: "info", title: "Automation created", preview: clamp_preview(`${built.body.title} · ${res.automation_id}`) });
       set_launch_open(false);
       set_page("automations");
@@ -4889,7 +4943,7 @@ export function App(): React.ReactElement {
   const launch_bundles = (
                   <details className="launch_bundles" style={{ marginTop: "10px" }}>
                     <summary className="help_text muted" style={{ cursor: "pointer" }}>
-                      Workflow bundles
+                      Flow files
                     </summary>
                     <div className="launch_workflow_bar" style={{ marginTop: "8px" }}>
                       <input ref={bundle_upload_input_ref} type="file" accept=".flow" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files.length ? e.target.files[0] : null; if (!f) return; void upload_gateway_bundle(f); }} />
@@ -5373,7 +5427,7 @@ export function App(): React.ReactElement {
                     <button className="btn primary" onClick={() => gateway_connection.openModal()}>
                       Sign in
                     </button>{" "}
-                    to launch workflows on this gateway.
+                    to run flows on this gateway.
                   </div>
                 ) : null}
 
@@ -5384,15 +5438,16 @@ export function App(): React.ReactElement {
                     className="launch_workflow_picker"
                     interfaceId={null}
                     defaultInterface={CODE_AGENT_INTERFACE}
-                    ariaLabel="Workflow"
+                    ariaLabel="Flow"
                     workflows={executable_workflows}
+                    entryDetail={flow_entry_detail}
                     value={launch_picker_value(launch_choice, executable_workflows.data?.entries ?? [])}
                     currentLabel={
                       launch_choice && !launch_picker_value(launch_choice, executable_workflows.data?.entries ?? [])
                         ? { name: workflow_label_by_id[selected_workflow_value] || selected_workflow_value }
                         : null
                     }
-                    unavailableReason={!gateway_connected ? "Sign in to load workflows." : discovery_loading ? "Loading workflows…" : null}
+                    unavailableReason={!gateway_connected ? "Sign in to load flows." : discovery_loading ? "Loading flows…" : null}
                     onChange={(value, entry) => {
                       const choice = choice_from_picker(value, entry);
                       if (choice) void choose_launch_target(choice);
@@ -5407,7 +5462,7 @@ export function App(): React.ReactElement {
                   ) : null}
                   {bundle_loading ? (
                     <div className="help_text muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                      Loading workflow…
+                      Loading flow…
                     </div>
                   ) : null}
 	                  {bundle_error ? (
@@ -5422,7 +5477,7 @@ export function App(): React.ReactElement {
 
                   {!launch_choice ? (
                     <div className="help_text muted" style={{ marginTop: "8px" }}>
-                      Select a workflow above to configure inputs.
+                      Choose a flow above to set its inputs.
                     </div>
                   ) : input_data_obj === null ? (
                     <div className="log_item" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: "10px" }}>
@@ -5445,6 +5500,8 @@ export function App(): React.ReactElement {
                           if (!pid) continue;
                           // The automation's Context choice owns these (one control, not two).
                           if (launch_mode === "automate" && AUTOMATION_OWNED_INPUTS.includes(pid)) continue;
+                          // The trigger fills `event` (what arrived): no raw "Event object {…}" field.
+                          if (launch_mode === "automate" && TRIGGER_OWNED_INPUTS.includes(pid)) continue;
                           const ptype = String((p as any).type || "").trim().toLowerCase();
                           const is_wide =
                             ptype === "tools" || ptype === "skills" || ptype === "mcp" || ptype === "mcp_servers" ||
@@ -5588,6 +5645,9 @@ export function App(): React.ReactElement {
                       on_open_my_email={open_my_email}
                       served={automate_served}
                       on_open_preferences={open_my_email}
+                      defaults={launch_defaults}
+                      connections={automations_state.trigger_connections}
+                      mailboxes={automations_state.mailboxes}
                       tools={automationToolSelection(input_data_obj || {}) ?? undefined}
                       available_tools={available_tool_names}
                       on_tools_change={(tools) => set_input_data_text(JSON.stringify(withAutomationTools(input_data_obj || {}, tools), null, 2))}
@@ -5596,8 +5656,8 @@ export function App(): React.ReactElement {
                       workspaces={launch_workspaces_chooser}
                     />
                     <AutomateTitleLimits form={automate_form} disabled={automate_submitting} on_change={(patch) => set_automate_form((f) => ({ ...f, ...patch }))} />
+                    {/* No .flow upload/reload in New automation: a person picks a flow (UX re-review #16). */}
                     {launch_capabilities}
-                    {launch_bundles}
                   </>
                 ) : (
                   <>
@@ -5639,7 +5699,7 @@ export function App(): React.ReactElement {
                     const disabled_reason = !gateway_connected
                       ? "Sign in first"
                       : !launch_choice
-                        ? "Select a workflow"
+                        ? "Choose a flow"
                         : input_data_obj === null
                           ? "Inputs contain invalid JSON"
                           : automate && !automations_cap.available
@@ -5670,7 +5730,7 @@ export function App(): React.ReactElement {
 
         {page === "automations" ? (
           <AutomationsPage
-            workflowPickerOptions={{ interfaceId: null, defaultInterface: CODE_AGENT_INTERFACE, workflows: executable_workflows, request: (path, init) => gateway.get_gateway_json(path, init.signal) }}
+            workflowPickerOptions={{ interfaceId: null, defaultInterface: CODE_AGENT_INTERFACE, workflows: executable_workflows, entryDetail: flow_entry_detail, request: (path, init) => gateway.get_gateway_json(path, init.signal) }}
             availableTools={available_tool_names}
             ctl={automations_ctl}
             gateway={gateway}

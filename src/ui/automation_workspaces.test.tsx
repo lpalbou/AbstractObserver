@@ -53,7 +53,7 @@ describe("Automate form: a visible Workspaces section, no Advanced disclosure (R
   it("Title and limits is a visible section with the kit dialog's words", () => {
     const html = unescape(renderToStaticMarkup(<AutomateTitleLimits form={DEFAULT_AUTOMATE_FORM} on_change={() => {}} />));
     expect(html).toContain("<legend>Title and limits</legend>");
-    for (const w of ["Title", "Defaults to the task's first line", "First run at (UTC; empty = now)", "Stop after this many runs", "Stop at (UTC)"]) expect(html).toContain(w);
+    for (const w of ["Title", "Defaults to the task's first line", "First run", "Stop after this many runs", "Stop on", "times are in this browser's clock"]) expect(html).toContain(w);
     expect(html).not.toMatch(/<details|<summary|Advanced/);
   });
 

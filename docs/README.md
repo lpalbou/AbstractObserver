@@ -12,7 +12,8 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - **Deploy behind a reverse proxy (same-origin)** → `configuration.md` (recommended pattern)
 - **Connect to a remote gateway (cross-origin/CORS)** → `configuration.md` + `troubleshooting.md`
 - **Read a run: steps by agent cycle, full prompts and answers, filters, search** → `getting-started.md` → "The run view"
-- **Create and manage automations (scheduled runs)** → `automations.md`
+- **Create and manage automations (on a schedule, when something arrives, or by hand)** → `automations.md`
+- **See what an automation's run did after it ended (what arrived, the alert, each delivery, or why nothing rang)** → `automations.md` → "After the run"
 - **See which gateway endpoints are required for each UI feature** → `api.md`
 - **Understand how replay-first + SSE streaming works** → `architecture.md`
 - **Understand Runtime Activity vs Artifact Explorer vs Observe** → `architecture.md` → "Runtime Boundary"
@@ -32,7 +33,7 @@ The **source of truth is the code** (not the docs); where relevant we point to t
 - `api.md` — AbstractGateway endpoints used by the UI (grounded in `src/lib/gateway_client.ts`)
 
 ## Topic guides
-- `automations.md` — Launch → Automate (what, when, context, tools), the Automations page (rows, controls, conflicts), the automation panel (runs as a conversation, answering waits, run details, Discuss), automation tags on Board / Observe / System, legacy schedules and Recreate, and the stub gateway for development
+- `automations.md` — Launch → Automate (what, including flows with their own trigger; when: the flow's trigger, something arriving, by hand, a schedule; context, tools), the Automations page (rows, triggers in words, controls, conflicts), the automation panel (runs as a conversation with what arrived, After the run, answering waits, run details, Discuss), automation tags on Board / Observe / System, legacy schedules and Recreate, and the stub gateway for development
 - Project + ecosystem overview: `../README.md` (AbstractFramework / AbstractRuntime / AbstractCore)
 
 ## Artifacts, server files and local files
@@ -51,7 +52,7 @@ with browser-local files or arbitrary server filesystem browsing:
 ## Operate and extend
 - `configuration.md` — CLI env vars, UI settings, deployment patterns
 - `security.md` — trust boundaries (process manager, remote tool worker, cross-origin)
-- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL, About shows the gateway unavailable, automations)
+- `troubleshooting.md` — common issues (CORS, mixed content, stale service worker, blank Gateway URL, About shows the gateway unavailable, automations, After the run, triggers in words)
 - `development.md` — run from source, tests, build, the automations stub gateway (includes workspace dependency notes)
 
 ## Project meta

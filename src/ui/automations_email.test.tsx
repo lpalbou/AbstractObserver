@@ -64,7 +64,10 @@ describe("Launch → Automate: email", () => {
   it("disables the email options and says why without a usable account", () => {
     for (const status of [null, NOT_SET_UP]) {
       const html = render(status);
-      expect(html).toMatch(/disabled="" value="email"\/> When an email arrives/);
+      // "When something arrives" stays offered (feeds and webhooks need no mailbox); chosen with
+      // nothing to listen to, it says what to add.
+      expect(html).toMatch(/value="arrives"\/> When something arrives/);
+      expect(render(status, { ...DEFAULT_AUTOMATE_FORM, when: "connection" })).toContain('data-note="nothing-to-listen"');
       expect(html).toContain("Connect a mailbox first — ");
       expect(html).toContain('data-action="open-my-email"');
       // "Email me the result" is the kit switch (ui-kit 0.3.3): unavailable with the reason, not a disabled checkbox.
@@ -75,11 +78,13 @@ describe("Launch → Automate: email", () => {
 
   it("offers them with a usable account, and shows the trigger fields when chosen", () => {
     const html = render(USABLE);
-    expect(html).toMatch(/<input type="radio" name="automate_when" value="email"\/> When an email arrives/);
+    expect(html).toMatch(/<input type="radio" name="automate_when" value="arrives"\/> When something arrives/);
     expect(html).not.toContain('data-email-setup="missing"');
     expect(html).toMatch(/role="switch"[^>]*data-action="notify-email" aria-checked="false"/);
     expect(html).not.toMatch(/data-action="notify-email"[^>]*aria-disabled/);
     const chosen = render(USABLE, { ...DEFAULT_AUTOMATE_FORM, when: "email" });
+    // The primary mailbox by its address, never an id.
+    expect(chosen).toMatch(/<option value="mail:default"[^>]*>Mail arrives in /);
     expect(chosen).toContain('name="email_from_in"');
     expect(chosen).toContain('data-email-rule="interval"');
     expect(chosen).toContain('data-email-rule="untrusted"');

@@ -389,7 +389,7 @@ function ProfileBlock(props: { prof: AgentProfile; p: AgentPageProps; line: Stat
             render={(r) => (
               <span>
                 {r.text}
-                {r.parent_run_id && prof.is_automation && hl.occurrence.value?.count !== null && hl.occurrence.value?.count !== undefined && r.text.startsWith("occurrence") ? (
+                {r.parent_run_id && prof.is_automation && hl.occurrence.value?.count !== null && hl.occurrence.value?.count !== undefined && r.text.startsWith("run #") ? (
                   <span className="ap_muted"> of {fmt_int(hl.occurrence.value.count)} so far</span>
                 ) : null}
                 {r.parent_run_id ? <> · {open_btn(r.parent_run_id, "open parent")}</> : null}
@@ -839,7 +839,7 @@ function ContextBlock(props: { p: AgentPageProps }): React.ReactElement {
 function node_name(run: RunSummary): string {
   const wf = workflow_short(String(run.workflow_id || "")) || "(workflow?)";
   const role = String(run.role || "").trim();
-  if (role === "occurrence" && typeof run.occurrence_index === "number") return `occurrence #${run.occurrence_index} · ${wf}`;
+  if (role === "occurrence" && typeof run.occurrence_index === "number") return `run #${run.occurrence_index} · ${wf}`;
   return wf;
 }
 

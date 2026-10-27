@@ -12,18 +12,21 @@ import { LoadingState } from "./loading";
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
-  AutomationPanelWithMarkdown,
   WorkspaceBrowser,
+  openGatewayResource,
   renderAutomationText,
+  renderAutomationTurn,
   type AutomationPanelWithMarkdownProps,
   type GatewayFetch,
 } from "@abstractframework/panel-chat";
 import {
   AfSwitch,
+  AutomationPanel,
+  type AutomationTurn,
+  type GatewayResource,
   AutomationStateLabel as KitAutomationStateLabel,
   CONTROL_ICONS,
   CONTROL_LABELS,
-  DISCUSS_LABEL,
   controlHint,
   type ControlId,
   Icon,
@@ -39,8 +42,8 @@ import {
 } from "@abstractframework/ui-kit";
 
 import type { GatewayClient } from "../lib/gateway_client";
+import { AfterTheRunLoader, type RunAfter } from "./after_the_run";
 import { AutomationDiscussion, type OpenDiscussion } from "./automation_discussion";
-import type { RunWorkspace } from "../lib/gateway_client";
 import {
   AutomationWorkspacesChooser,
   AutomationWorkspacesLine,
@@ -194,29 +197,9 @@ export function ActiveSwitch(props: {
 /** Where the page reads an automation's workspaces for its card: the definition (per revision) and the gateway's dry run. */
 export type RowWorkspaces = { request: WorkspaceRequest; connected: boolean; definition(summary: AutomationSummary): Promise<{ target: { input_data?: unknown } } | null> };
 
-/** The card's "Workspaces: <summary>" line (absent for legacy schedules and until the gateway answered). */
-function RowWorkspacesLine(props: { summary: AutomationSummary; ws: RowWorkspaces }): React.ReactElement | null {
-  const [value, set_value] = useState<RunWorkspace | null | undefined>(undefined);
-  const { summary, ws } = props;
-  useEffect(() => {
-    let live = true;
-    ws.definition(summary).then(
-      (d) => live && set_value(d ? automation_workspace(d as any) : undefined),
-      () => live && set_value(undefined),
-    );
-    return () => {
-      live = false;
-    };
-    // A new revision (any client) reads the definition again.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [summary.automation_id, summary.revision, ws.definition]);
-  if (value === undefined) return null;
-  return <AutomationWorkspacesLine request={ws.request} connected={ws.connected} value={value} refresh_key={summary.revision ?? ""} />;
-}
-
-function AutomationRow(props: { summary: AutomationSummary; state: AutomationsState; h: AutomationsHandlers; ws?: RowWorkspaces }): React.ReactElement {
+function AutomationRow(props: { summary: AutomationSummary; state: AutomationsState; h: AutomationsHandlers }): React.ReactElement {
   const s = props.summary;
-  const v = automation_row_view(s);
+  const v = automation_row_view(s, Date.now(), { connections: props.state.trigger_connections, mailboxes: props.state.mailboxes });
   const selected = props.state.selected_id === s.automation_id;
   const busy = props.state.busy;
   // `iconOnly`: the label becomes the button's accessible name and leads its tooltip.
@@ -286,14 +269,13 @@ function AutomationRow(props: { summary: AutomationSummary; state: AutomationsSt
               {v.current}
             </Fact>
           ) : null}
-          <Fact icon="clock" field="next" label="Next run">
-            next: {v.next_run}
+          <Fact icon="clock" field="next" label={v.listening ? "When it runs" : "Next run"}>
+            {v.listening ? v.next_run : `next: ${v.next_run}`}
           </Fact>
           <Fact icon="info" field="last-status" label="Last run">
             {v.last_status}
           </Fact>
         </span>
-        {props.ws && !v.legacy ? <RowWorkspacesLine summary={s} ws={props.ws} /> : null}
         {v.last ? (
           <span className="auto_row_excerpt" data-field="excerpt">
             {renderAutomationText(v.last)}
@@ -327,7 +309,10 @@ export function AutomationsListView(props: {
   h: AutomationsHandlers;
   /** The list disclosure (DESIGN §12); absent = open, no toggle. */
   list?: { open: boolean; on_toggle: () => void };
-  /** Each card's "Workspaces: <summary>" line; absent = no line. */
+  /**
+   * Kept for hosts that pass it; the cards no longer print the workspace policy (UX review
+   * 2026-10-25 #4: it is under the automation's Workspaces disclosure).
+   */
   ws?: RowWorkspaces;
 }): React.ReactElement {
   const st = props.state;
@@ -369,7 +354,7 @@ export function AutomationsListView(props: {
           data-action="new"
           href={LAUNCH_AUTOMATE_HASH}
           aria-disabled={!props.available.available}
-          title="New automation: opens Launch in Automate mode"
+          title="New automation: run a flow by itself"
           aria-label="New automation"
           onClick={(e) => {
             e.preventDefault();
@@ -414,7 +399,7 @@ export function AutomationsListView(props: {
         </div>
         {props.available.available && !st.loaded && st.loading ? <LoadingState what="automations" /> : null}
         {props.available.available && st.loaded && !st.items.length ? (
-          <div className="help_text muted">No automations yet. Create one from Launch → Automate.</div>
+          <div className="help_text muted" data-empty="automations">No automations yet. Make one in Flow, or press New automation.</div>
         ) : null}
         {archived_count(st) > 0 && st.status_filter !== "archived" ? (
           <div className="auto_show_archived">
@@ -430,7 +415,7 @@ export function AutomationsListView(props: {
         ) : null}
         <ul className="auto_rows">
           {visible_automations(st).map((s) => (
-            <AutomationRow key={s.automation_id} summary={s} state={st} h={props.h} ws={props.ws} />
+            <AutomationRow key={s.automation_id} summary={s} state={st} h={props.h} />
           ))}
         </ul>
       </div>
@@ -449,6 +434,8 @@ export type PanelHostHandlers = {
   fetch_gateway?: GatewayFetch;
   /** A discussion was forked at occurrence `index` (the full gateway answer, both workspace paths included). */
   on_open_session(session: DiscussResponse, notice: string, index: number): void;
+  /** `GET /runs/{id}/after` (framework ADR-0041): each finished run's card gains "After the run". Absent: no section. */
+  read_run_after?(run_id: string): Promise<RunAfter>;
 };
 
 /**
@@ -468,6 +455,11 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
     ...(d.definition ? { definition: d.definition } : {}),
     occurrences: d.occurrences,
     triggerSources: st.trigger_sources,
+    // Triggers by name: "When Release notes has a new item", "When mail arrives in me@example.org".
+    triggerConnections: st.trigger_connections,
+    mailboxes: st.mailboxes,
+    // What arrived, above each run's task (the runs' `input_data.event`).
+    occurrenceEvents: d.occurrence_events,
     busy: st.busy,
     ...(d.error ? { error: d.error } : {}),
     // The panel mints one id per user action and reuses it on retry: forward
@@ -501,6 +493,51 @@ export function automation_panel_props(ctl: AutomationsController, host: PanelHo
   };
 }
 
+/**
+ * The flow's name for a person ("Release digest") from the gateway's executable list (the
+ * entry whose `bundle@version:flow` is the target's `workflow_id`, else the same bundle and
+ * flow); undefined when the list does not have it — the panel then names no flow (its id
+ * stays under Details; UX review 2026-10-25 #4).
+ */
+export function workflow_name_of(
+  workflow_id: string | null | undefined,
+  entries: ReadonlyArray<{ value: string; bundleId: string; flowId: string; name: string }> | null | undefined,
+): string | undefined {
+  const id = String(workflow_id || "").trim();
+  if (!id || !entries?.length) return undefined;
+  const exact = entries.find((e) => e.value === id);
+  if (exact?.name) return exact.name;
+  const at = id.indexOf("@");
+  const colon = id.lastIndexOf(":");
+  if (at <= 0 || colon <= at) return undefined;
+  const bundle = id.slice(0, at);
+  const flow = id.slice(colon + 1);
+  return entries.find((e) => e.bundleId === bundle && e.flowId === flow)?.name || undefined;
+}
+
+/**
+ * The kit panel with panel-chat's renderers (what `AutomationPanelWithMarkdown` wires), and each
+ * run's answer card followed by "After the run" (framework ADR-0041) when the host can read it:
+ * what arrived, the note, the alert or why nothing rang, every delivery. No kit change: the
+ * section rides on the kit's `renderTurn` for the answer turn.
+ */
+export function ObserverAutomationPanel(
+  props: AutomationPanelWithMarkdownProps & { readRunAfter?: (run_id: string) => Promise<RunAfter> },
+): React.ReactElement {
+  const { fetchGateway, messageProps, readRunAfter, ...rest } = props;
+  const onOpenResource = rest.onOpenResource ?? (fetchGateway ? (r: GatewayResource) => openGatewayResource(fetchGateway, r.url, { name: r.name }) : undefined);
+  const renderTurn = (turn: AutomationTurn): React.ReactNode =>
+    turn.kind === "answer" && readRunAfter ? (
+      <>
+        {renderAutomationTurn(turn, messageProps)}
+        <AfterTheRunLoader run_id={turn.runId} read={readRunAfter} />
+      </>
+    ) : (
+      renderAutomationTurn(turn, messageProps)
+    );
+  return <AutomationPanel {...rest} onOpenResource={onOpenResource} renderText={renderAutomationText} renderTurn={renderTurn} />;
+}
+
 /** The detail half: the kit panel, or the legacy explanation. Hook-free.
  * `browser` (a folder browser the host opened through the panel's
  * `onOpenWorkspace`) shows above the panel. */
@@ -526,7 +563,7 @@ export function AutomationDetailView(props: {
   if (!d) {
     return (
       <section className="pane auto_detail auto_detail_empty">
-        <div className="help_text muted">Select an automation to read its runs as a conversation, change it, or discuss a result ({DISCUSS_LABEL.toLowerCase()}).</div>
+        <div className="help_text muted">Select an automation to read its runs, change it, or talk about a result.</div>
       </section>
     );
   }
@@ -569,7 +606,9 @@ export function AutomationDetailView(props: {
       {ws && definition ? (
         <div className="auto_workspaces" data-section="workspaces" data-editing={props.edit?.open ? "true" : undefined}>
           {props.edit?.open ? (
-            <>
+            // Folded while editing too (UX re-review #5): the policy is a detail, opened on purpose.
+            <details className="auto_workspaces_details" data-field="workspaces-details">
+              <summary>Workspaces</summary>
               <AutomationWorkspacesChooser
                 footer={<p className="help_text muted auto_workspaces_help">Each change is saved at once as a new revision; it applies from the next run.</p>}
                 id_prefix={`observer-automation-workspace-${d.automation_id}`}
@@ -579,13 +618,25 @@ export function AutomationDetailView(props: {
                 disabled={ctl.state.busy}
                 on_change={(next) => save_automation_workspace(ctl, ws.revisions, { automation_id: d.automation_id, summary: d.summary, definition }, next, randomId())}
               />
-            </>
+            </details>
           ) : (
-            <AutomationWorkspacesLine request={ws.request} connected={ws.connected} value={value} refresh_key={d.summary.revision ?? ""} />
+            // The workspace policy is a detail (UX review 2026-10-25 #4), not the first line a person reads.
+            <details className="auto_workspaces_details" data-field="workspaces-details">
+              <summary>Workspaces</summary>
+              <AutomationWorkspacesLine request={ws.request} connected={ws.connected} value={value} refresh_key={d.summary.revision ?? ""} />
+            </details>
           )}
         </div>
       ) : null}
-      {p ? <AutomationPanelWithMarkdown {...p} workflowPickerOptions={props.workflowPickerOptions} availableTools={props.availableTools} /> : null}
+      {p ? (
+        <ObserverAutomationPanel
+          {...p}
+          readRunAfter={props.host.read_run_after}
+          workflowName={workflow_name_of(definition?.target.workflow_id, props.workflowPickerOptions?.workflows?.data?.entries)}
+          workflowPickerOptions={props.workflowPickerOptions}
+          availableTools={props.availableTools}
+        />
+      ) : null}
     </section>
   );
 }
@@ -660,10 +711,13 @@ export function AutomationsPage(props: {
   }, [ctl, notice]);
   // The kit panel's per-occurrence Discuss has already forked when this runs:
   // the chat opens on that session, here.
+  // One stable reader per connection (the loader re-reads when this identity changes).
+  const read_run_after = React.useCallback((run_id: string) => props.gateway.get_run_after(run_id) as Promise<RunAfter>, [props.gateway]);
   const host: PanelHostHandlers = {
     ...props.host,
     on_open_workspace: (run_id) => set_files_run((cur) => (cur === run_id ? "" : run_id)),
     fetch_gateway: props.gateway.fetch_gateway,
+    read_run_after: read_run_after,
     on_open_session: (session, notice, index) => {
       props.host.on_open_session(session, notice, index);
       if (!detail) return;

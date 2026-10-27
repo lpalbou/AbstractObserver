@@ -393,7 +393,7 @@ describe("live shape: the 2026-10-13 23:50 UTC listing (occurrence #5 parked on 
     expect(occ.line.text).toMatch(/^running subrun visual_react_agent_basic-agent_0_0_5_81795ea9_node-2 · last step \d+m ago · no progress$/);
     expect(occ.line.actor_run_id).toBe(CHILD);
     expect(occ.title.source).toBe("automation");
-    expect(occ.subject.secondary).toBe("occurrence #5 · basic-agent 0.0.5");
+    expect(occ.subject.secondary).toBe("run #5");
     expect(all_ids(lanes)).not.toContain(CHILD);
   });
 
@@ -475,7 +475,7 @@ describe("card anatomy (design §Card anatomy)", () => {
     expect(html).not.toContain(">Automation<");
     expect(html).not.toContain(">subrun<");
     expect(html).toContain('data-tag="archived"');
-    expect(text_of(c)).toContain("occurrence #3 · basic-agent 0.0.5");
+    expect(text_of(c)).toContain("run #3");
   });
 
   it("metrics render when the sweep knows them (tokens / tools / duration)", () => {
@@ -1227,11 +1227,23 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     // A sentence card's chip still sits inline with its sentence (text flow, never a lone line).
     expect(rule(".mc_card_state")).toMatch(/display:\s*block/);
     expect(rule(".mc_card_state .mc_actor")).toMatch(/display:\s*inline-block/);
-    for (const [source, words] of [["email_received", "on email"], ["manual", "manual"]] as const) {
-      const b = fold_automation_brief({ ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, trigger: { source_id: source, config: {} } } })!;
+    // Triggers in words (UX review 2026-10-25 #2): the real source ids, never shown.
+    for (const [source, words] of [["email.received", "When mail arrives in your main mailbox"], ["manual", "By hand"]] as const) {
+      const b = fold_automation_brief({ ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, trigger: { source_id: source, source_version: 1, config: {} } } })!;
       const c2 = build_board({ active: [ctl], done: [], automations: new Map([["auto1", b]]), now_ms: NOW_MS }).scheduled[0];
       expect(plain(html_of(c2))).toContain(`${words} · next in 1h 12m`);
     }
+    // A feed automation has no clock: it listens; never "feed.item@1", never "no next run".
+    const feed_body = { ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, trigger: { source_id: "feed.item", source_version: 1, config: { connection_id: "c1" } }, schedule_rule_text: "feed.item@1", next_fire_at: null, next_run_at: null } };
+    const feed = fold_automation_brief(feed_body)!;
+    expect(feed.event_driven).toBe(true);
+    expect(feed.schedule_rule_text).toBe("");
+    const feed_ctl = row({ ...ctl, waiting: { reason: "event" } });
+    const c5 = build_board({ active: [feed_ctl], done: [], automations: new Map([["auto1", feed]]), now_ms: NOW_MS }).scheduled[0];
+    const feed_text = plain(html_of(c5));
+    expect(feed_text).toContain("When a feed has a new item · listening");
+    expect(feed_text).not.toMatch(/feed\.item@1|no next run/);
+    expect(c5.status_word).toBe("listening");
     // Served words win over the client fold.
     const served = fold_automation_brief({ ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, schedule_rule_text: "Every 24 hours (UTC)", next_run_local: "2026-10-14T03:02:00+02:00" } })!;
     const c3 = build_board({ active: [ctl], done: [], automations: new Map([["auto1", served]]), now_ms: NOW_MS }).scheduled[0];
@@ -1577,8 +1589,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(plain(failed_html)).not.toContain("…");
     const never = automation_facts_words({ ...CTX, last: null, occurrence_count: 0 }, NOW_MS);
     expect(never.last).toEqual({ text: "no run yet · 0 turns", title: "this automation has not run", failed: false, parts: ["no run yet", "0\u00a0turns"], failure: "" });
-    const manual = automation_facts_words({ ...CTX, cadence: "manual", next_fire_ms: null }, NOW_MS);
-    expect(manual.schedule.text).toBe("manual");
+    const manual = automation_facts_words({ ...CTX, cadence: "By hand", trigger: { source_id: "manual", source_version: 1, config: {} }, event_driven: false, schedule_rule_text: "", next_fire_ms: null }, NOW_MS);
+    expect(manual.schedule.text).toBe("By hand");
     const ended = automation_facts_words({ ...CTX, status: "completed", next_fire_ms: null }, NOW_MS);
     expect(ended.schedule.text).toBe("every 24h · completed: no next run");
   });

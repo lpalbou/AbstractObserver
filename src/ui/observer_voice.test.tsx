@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GatewayClient } from "../lib/gateway_client";
-import { ObserverVoiceSettings, SpeakButton, VoiceDictate, observer_transcribe, observer_tts_stream, type ObserverVoice } from "./observer_voice";
+import { ObserverVoiceSettings, SpeakButton, VoiceDictate, observer_transcribe, observer_tts_stream, observer_voice_creation, type ObserverVoice } from "./observer_voice";
 
 const DEFAULTS = {
   tts: { route: "output.voice", configured: true, provider: "supertonic", model: "supertonic-3", voice: "M3" },
@@ -204,5 +204,71 @@ describe("Observer voice = the kit stack over the gateway voice routes (round 7 
     expect(discuss).toContain("use_observer_voice(");
     expect(app).not.toContain("use_gateway_voice");
     expect(() => readFileSync(resolve(__dirname, "use_gateway_voice.ts"))).toThrow();
+  });
+});
+
+// Create a voice (AbstractGateway 0.16.0 voice library, ui-kit 0.8.9 `createVoice`).
+describe("Settings → Voice creates voices in the gateway's voice library", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  const VOICE = { voice_id: "v-1", name: "Narrator", engine: "qwen3-tts" };
+  const record = () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => (calls.push({ url: String(url), init }), new Response(JSON.stringify(VOICE), { status: 200 }))),
+    );
+    return calls;
+  };
+
+  it("is handed to the kit section over this connection, and absent without one", () => {
+    expect(observer_voice_creation(null)).toBeUndefined();
+    const creation = observer_voice_creation(new GatewayClient({ base_url: "" }))!;
+    expect(typeof creation.design).toBe("function");
+    expect(typeof creation.clone).toBe("function");
+    const src = readFileSync(resolve(__dirname, "observer_voice.tsx"), "utf8");
+    expect(src).toContain("createVoice={observer_voice_creation(gw)}");
+  });
+
+  it("designs a voice: POST /voice/design with the description, name and language", async () => {
+    const calls = record();
+    const creation = observer_voice_creation(new GatewayClient({ base_url: "http://gw.test", auth_token: "tok" }))!;
+    expect(await creation.design!({ description: "a calm, warm low female voice", name: "Narrator", language: "fr" })).toEqual(VOICE);
+    expect(calls[0].url).toBe("http://gw.test/api/gateway/voice/design");
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ description: "a calm, warm low female voice", name: "Narrator", language: "fr" });
+    expect((calls[0].init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
+  it("clones a voice: POST /voice/clones as multipart with the recording and its fields", async () => {
+    const calls = record();
+    const creation = observer_voice_creation(new GatewayClient({ base_url: "http://gw.test", auth_token: "tok" }))!;
+    const recording = new File([new Uint8Array([1, 2, 3])], "me.wav", { type: "audio/wav" });
+    expect((await creation.clone!(recording, { name: "Me", language: "en", reference_text: "Hello there." })).voice_id).toBe("v-1");
+    expect(calls[0].url).toBe("http://gw.test/api/gateway/voice/clones");
+    expect(calls[0].init.method).toBe("POST");
+    const form = calls[0].init.body as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    expect((form.get("file") as File).name).toBe("me.wav");
+    expect(form.get("name")).toBe("Me");
+    expect(form.get("language")).toBe("en");
+    expect(form.get("reference_text")).toBe("Hello there.");
+    // The browser sets the multipart boundary: no JSON content type.
+    expect((calls[0].init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
+  });
+
+  it("a gateway refusal (403, 501) surfaces as the gateway's own sentence", async () => {
+    const creation = observer_voice_creation(new GatewayClient({ base_url: "" }))!;
+    const shared = "On this gateway every account shares one voice store, so creating, changing or deleting a voice is an administrator's act.";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: shared }), { status: 403 })));
+    const refused = await creation.design!({ description: "x" }).catch((e) => e);
+    expect(refused.message).toBe(shared);
+    expect(refused.status).toBe(403);
+    const missing = "Voice design needs abstractvoice[qwen3-tts] where the voice capability runs.";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: missing }), { status: 501 })));
+    const err = await creation.clone!(new Blob([new Uint8Array([1])]), {}).catch((e) => e);
+    expect(err.message).toBe(missing);
+    expect(err.status).toBe(501);
   });
 });
