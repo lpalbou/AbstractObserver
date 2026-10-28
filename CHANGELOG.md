@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-28
+
+Built on `@abstractframework/panel-chat` ^0.6.0 (AbstractUIC 0.8.0; floor raised from ^0.5.0).
+
+### Changed
+
+- **The automation discussion renders the gateway's replay view.** Discuss's chat now reads the conversation from
+  AbstractGateway's replay view (`GET /api/gateway/runs/{id}/view` and `/view/stream`, gateway 0.17.0): one read and one
+  stream instead of the history bundle, every run's ledger pages and streams, and a `GET /runs/{id}` every 2 s. The
+  question or approval shown is the run tree's (a sub-agent's included), answered with the view's own resume command.
+  Live reply text still streams from the ledger. A line under the chat says where the conversation comes from
+  ("Live view from the gateway (replay view)"); against a gateway older than 0.17.0 the chat keeps rebuilding the run
+  in the browser and says so ("Rebuilt in this client from the run ledger: …"). `observer_workflow_transport` adds
+  `replayView` over the connection's `fetch_gateway` (same base URL and credentials).
+
 ## [0.9.0] - 2026-10-28
 
 Built on `@abstractframework/ui-kit` ^0.9.2 and `@abstractframework/panel-chat` ^0.5.0 (AbstractUIC 0.7.2; this release raises the floors from ui-kit ^0.8.9 / panel-chat ^0.4.1). The features below need ui-kit 0.8.8 or later (`triggerWords`, the connections and mailboxes client calls, the panel's `occurrenceEvents` / `workflowName` / `triggerConnections` / `mailboxes`).

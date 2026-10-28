@@ -8,12 +8,34 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AutomationSummary } from "@abstractframework/ui-kit";
 
 import { STATUS_ICONS, STATUS_LABELS } from "@abstractframework/ui-kit";
-import { tabOpenPlan } from "@abstractframework/panel-chat";
+import { WorkflowSessionController, tabOpenPlan, workflowPendingInteraction } from "@abstractframework/panel-chat";
 
 import { GatewayClient } from "../lib/gateway_client";
 import { discussion_turn_target, observer_workflow_transport } from "./automation_discussion";
 import { AutomationDetailView, AutomationStateLabel, AutomationsPage, automation_panel_props, route_row_action, type AutomationsHandlers } from "./automations_page";
 import { INITIAL_AUTOMATIONS_STATE, discuss_index } from "./automations";
+
+/** A minimal `replay_view_v1` (AbstractRuntime 0.15.0 shape) with an open question. */
+const VIEW = {
+  version: "replay_view_v1",
+  root_run_id: "r1",
+  workflow: { id: "basic-agent@0.0.5:81795ea9", bundle_id: "basic-agent", bundle_version: "0.0.5", flow_id: "81795ea9", entrypoint: "81795ea9" },
+  session_id: "s1",
+  status: "waiting",
+  display_status: null,
+  cursor: { token: "r1:3~ab", records: 3, runs: { r1: 3 } },
+  runs: [{ run_id: "r1", parent_run_id: null, status: "waiting", order: ["", "", 0, "r1"] }],
+  interaction: { kind: "ask_user", run_id: "r1", wait_key: "ask:1", step_id: "s-ask", seq: 3, prompt: "Which one?", choices: ["a", "b"], allow_free_text: true, details: null, tool_calls: null, activity_id: null, command: { type: "resume", run_id: "r1", payload: { wait_key: "ask:1" } }, answer_payload: "{response}" },
+  open_waits: [],
+  messages: [
+    { id: "r1:input", role: "user", kind: "prompt", text: "Summarize run #3", run_id: "r1", order: ["2026-10-28T08:00:00+00:00", "r1", 0] },
+    { id: "r1:s1:answer_user", role: "assistant", kind: "answer", text: "It sent 4 emails.", run_id: "r1", order: ["2026-10-28T08:00:02+00:00", "r1", 2] },
+  ],
+  activities: [],
+  artifacts: [],
+  usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2, llm_calls: 1 },
+  warnings: [],
+};
 
 function summary(over: Partial<AutomationSummary> = {}): AutomationSummary {
   return {
@@ -85,6 +107,52 @@ describe("Discuss opens a chat in place", () => {
     await t.submitCommand({ command_id: "c", run_id: "r1", type: "cancel", payload: {} });
     expect(calls).toEqual(["run:r1", "history:r1:true:full", "ledger:r1:4", "stream:r1:5", "cmd:cancel"]);
     expect(opened).toBe(true);
+  });
+
+  it("the replay view rides the same connection: GET /view with its bearer, the stream with Last-Event-ID", async () => {
+    const seen: Array<{ url: string; auth: string | null; last: string | null; inm: string | null }> = [];
+    vi.stubGlobal("fetch", async (url: string, init: any) => {
+      seen.push({ url, auth: init?.headers?.Authorization ?? null, last: init?.headers?.["Last-Event-ID"] ?? null, inm: init?.headers?.["If-None-Match"] ?? null });
+      if (url.endsWith("/view/stream")) return new Response("event: done\ndata: {}\n\n", { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      return new Response(JSON.stringify(VIEW), { status: 200, headers: { ETag: `"${VIEW.cursor.token}"` } });
+    });
+    const t = observer_workflow_transport(new GatewayClient({ base_url: "http://vps:8080", auth_token: "tok" }));
+    const read = await t.replayView!.getView("r 1", { ifNoneMatch: '"x"' });
+    expect(read.notModified).toBe(false);
+    const frames: string[] = [];
+    await t.replayView!.streamView("r 1", { lastEventId: VIEW.cursor.token, signal: new AbortController().signal, onFrame: (f) => frames.push(f.event) });
+    expect(frames).toEqual(["done"]);
+    expect(seen).toEqual([
+      { url: "http://vps:8080/api/gateway/runs/r%201/view", auth: "Bearer tok", last: null, inm: '"x"' },
+      { url: "http://vps:8080/api/gateway/runs/r%201/view/stream", auth: "Bearer tok", last: VIEW.cursor.token, inm: null },
+    ]);
+  });
+
+  it("the discussion renders from the gateway's replay view (no history bundle, no ledger fold), labeled", async () => {
+    const urls: string[] = [];
+    let release!: () => void;
+    vi.stubGlobal("fetch", async (url: string, init: any) => {
+      urls.push(url);
+      if (url.endsWith("/view/stream")) {
+        const body = new ReadableStream({ start(c) { release = () => c.close(); init?.signal?.addEventListener("abort", () => { try { c.close(); } catch { /* closed */ } }); } });
+        return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      }
+      if (url.endsWith("/view")) return new Response(JSON.stringify(VIEW), { status: 200, headers: { ETag: `"${VIEW.cursor.token}"` } });
+      if (url.includes("/ledger/stream")) return new Response(new ReadableStream({ start(c) { init?.signal?.addEventListener("abort", () => { try { c.close(); } catch { /* closed */ } }); } }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+      if (/\/runs\/r1$/.test(url)) return new Response(JSON.stringify({ run_id: "r1", status: "waiting", session_id: "s1" }), { status: 200 });
+      return new Response("{}", { status: 404 });
+    });
+    const ctl = new WorkflowSessionController(observer_workflow_transport(new GatewayClient({ base_url: "", auth_token: "tok" })));
+    await ctl.load("r1");
+    await new Promise((r) => setTimeout(r, 20));
+    const snap = ctl.getSnapshot();
+    expect(snap.source).toBe("replay_view");
+    expect(snap.messages.map((m) => m.content)).toEqual(["Summarize run #3", "It sent 4 emails."]);
+    expect(workflowPendingInteraction(snap)?.wait.wait_key).toBe("ask:1");
+    expect(urls.some((u) => u.includes("history_bundle"))).toBe(false);
+    expect(urls.some((u) => /\/ledger\?/.test(u))).toBe(false);
+    release?.();
+    ctl.dispose();
   });
 
 });

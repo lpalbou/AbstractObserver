@@ -465,6 +465,12 @@ stream in, tool approvals and questions are answered in the chat, and
 **Stop** ends the turn in progress. The button with the automation's title
 returns to its panel.
 
+The chat reads the conversation from the gateway's replay view (AbstractGateway
+0.17.0 or later: `GET /api/gateway/runs/{id}/view` and its stream), the one
+reconstruction of the run every client shows; a line under the chat says so.
+With an older gateway it rebuilds the run from the ledger in the browser, and
+the line says that instead.
+
 - The discussion works in its **own writable workspace**.
 - The automation's folder is **mounted read-only** in it for the file tools,
   so it can read what the runs produced (shell commands are not sandboxed; see

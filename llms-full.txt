@@ -241,7 +241,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -286,7 +286,7 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.12",
-    "@abstractframework/panel-chat": "^0.5.0",
+    "@abstractframework/panel-chat": "^0.6.0",
     "@abstractframework/ui-kit": "^0.9.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -523,6 +523,21 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+## [0.10.0] - 2026-10-28
+
+Built on `@abstractframework/panel-chat` ^0.6.0 (AbstractUIC 0.8.0; floor raised from ^0.5.0).
+
+### Changed
+
+- **The automation discussion renders the gateway's replay view.** Discuss's chat now reads the conversation from
+  AbstractGateway's replay view (`GET /api/gateway/runs/{id}/view` and `/view/stream`, gateway 0.17.0): one read and one
+  stream instead of the history bundle, every run's ledger pages and streams, and a `GET /runs/{id}` every 2 s. The
+  question or approval shown is the run tree's (a sub-agent's included), answered with the view's own resume command.
+  Live reply text still streams from the ledger. A line under the chat says where the conversation comes from
+  ("Live view from the gateway (replay view)"); against a gateway older than 0.17.0 the chat keeps rebuilding the run
+  in the browser and says so ("Rebuilt in this client from the run ledger: …"). `observer_workflow_transport` adds
+  `replayView` over the connection's `fetch_gateway` (same base URL and credentials).
 
 ## [0.9.0] - 2026-10-28
 
@@ -2706,6 +2721,12 @@ The chat is the shared AbstractUIC chat (the one AbstractCode uses): replies
 stream in, tool approvals and questions are answered in the chat, and
 **Stop** ends the turn in progress. The button with the automation's title
 returns to its panel.
+
+The chat reads the conversation from the gateway's replay view (AbstractGateway
+0.17.0 or later: `GET /api/gateway/runs/{id}/view` and its stream), the one
+reconstruction of the run every client shows; a line under the chat says so.
+With an older gateway it rebuilds the run from the ledger in the browser, and
+the line says that instead.
 
 - The discussion works in its **own writable workspace**.
 - The automation's folder is **mounted read-only** in it for the file tools,
