@@ -164,7 +164,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.10.2 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.10.3 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -241,7 +241,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -286,7 +286,7 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
-    "@abstractframework/panel-chat": "^0.6.3",
+    "@abstractframework/panel-chat": "^0.6.4",
     "@abstractframework/ui-kit": "^0.9.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -523,6 +523,14 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+## [0.10.3] - 2026-10-28
+
+On AbstractUIC 0.8.4 (`@abstractframework/ui-kit` ^0.9.5, `@abstractframework/panel-chat` ^0.6.4, `@abstractframework/app-server` ^0.1.13).
+
+### Fixed
+
+- From the kit (AbstractUIC backlog 0064, the message footer spec): in the run chat (`ChatThread`) and an automation's discussion (`WorkflowChat`), a message's stamp carries the date when it is not from today ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"; the full date on hover), and a reply with no text keeps its speaker, disabled with the reason. In the discussion, a reply still being written keeps its speaker (disabled until it is finished) and the "files changed" chip opens the same structured detail as the tokens, tools and time chips.
 
 ## [0.10.2] - 2026-10-28
 
