@@ -128,7 +128,7 @@ describe("Discuss opens a chat in place", () => {
     ]);
   });
 
-  it("the discussion renders from the gateway's replay view (no history bundle, no ledger fold), labeled", async () => {
+  it("the discussion renders from the gateway's replay view (no full history bundle, no ledger fold), labeled", async () => {
     const urls: string[] = [];
     let release!: () => void;
     vi.stubGlobal("fetch", async (url: string, init: any) => {
@@ -140,6 +140,8 @@ describe("Discuss opens a chat in place", () => {
       if (url.endsWith("/view")) return new Response(JSON.stringify(VIEW), { status: 200, headers: { ETag: `"${VIEW.cursor.token}"` } });
       if (url.includes("/ledger/stream")) return new Response(new ReadableStream({ start(c) { init?.signal?.addEventListener("abort", () => { try { c.close(); } catch { /* closed */ } }); } }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
       if (/\/runs\/r1$/.test(url)) return new Response(JSON.stringify({ run_id: "r1", status: "waiting", session_id: "s1" }), { status: 200 });
+      // panel-chat 0.6.2 lists the conversation's turns from a small bundle (the runtime's selection): one turn here.
+      if (url.includes("/runs/r1/history_bundle?include_session=true&include_subruns=false&ledger_max_items=1")) return new Response(JSON.stringify({ session: { session_id: "s1", turns: [{ run_id: "r1" }] } }), { status: 200 });
       return new Response("{}", { status: 404 });
     });
     const ctl = new WorkflowSessionController(observer_workflow_transport(new GatewayClient({ base_url: "", auth_token: "tok" })));
@@ -149,7 +151,10 @@ describe("Discuss opens a chat in place", () => {
     expect(snap.source).toBe("replay_view");
     expect(snap.messages.map((m) => m.content)).toEqual(["Summarize run #3", "It sent 4 emails."]);
     expect(workflowPendingInteraction(snap)?.wait.wait_key).toBe("ask:1");
-    expect(urls.some((u) => u.includes("history_bundle"))).toBe(false);
+    // No full history bundle: the only bundle read is the small turn listing.
+    const bundles = urls.filter((u) => u.includes("history_bundle"));
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toContain("include_subruns=false&ledger_max_items=1");
     expect(urls.some((u) => /\/ledger\?/.test(u))).toBe(false);
     release?.();
     ctl.dispose();

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-28
+
+On AbstractUIC 0.8.2 (`@abstractframework/ui-kit` ^0.9.4, `@abstractframework/panel-chat` ^0.6.2, `@abstractframework/app-server` ^0.1.13).
+
+### Fixed
+
+- A discussion reopened from the replay view shows every turn again (0.10.0 showed only the last one): panel-chat 0.6.2 reads the earlier turns' views (AbstractUIC backlog 0058).
+- From the kit: the tool approval card makes "Allow once" its primary and keeps one visible scope line (the full sentences behind "What the broader choices allow"); a gateway that does not answer reads "Gateway … did not answer" instead of "Session rejected — sign in again"; "Create a voice" and "Manage voices" are styled; the voice picker lists each Qwen3-TTS voice once; one duration format in the chat, and a tool time that includes an approval wait says so; tool-row badges and the model picker's "Custom" are no longer cut.
+- README: the pinned-version example names the current release (it still said 0.5.0).
+
 ## [0.10.0] - 2026-10-28
 
 Built on `@abstractframework/panel-chat` ^0.6.0 (AbstractUIC 0.8.0; floor raised from ^0.5.0).
