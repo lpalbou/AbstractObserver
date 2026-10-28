@@ -42,7 +42,10 @@ describe("After the run", () => {
 
   it("nothing rang: why, in words; an approval on a sub-run: what it is and whether it is open", () => {
     expect(render({ status: "ready", after: { ...GMAIL, attention: null, alerts: [], deliveries: [], quiet_reason: "empty title" } })).toContain("Nothing to notify: the title was empty.");
-    expect(quiet_sentence("no notify")).toBe("Nothing to notify: this flow has no Notify me step.");
+    // Gateway 0.17.1 (backlog 0956): "no notify" = no Notify me step, or one the run did not reach.
+    expect(quiet_sentence("no notify")).toBe("Nothing to notify: the run did not reach a Notify me step.");
+    expect(render({ status: "ready", after: { ...GMAIL, attention: null, alerts: [], deliveries: [], quiet_reason: "no notify" } })).toContain("Nothing to notify: the run did not reach a Notify me step.");
+    expect(quiet_sentence("no notify")).not.toContain("has no Notify me step");
     const wait = render({
       status: "ready",
       after: { ...GMAIL, trigger: null, attention: { record_key: "f0", kind: "approval", from: "wait", open: true, run_id: "sub" }, deliveries: [{ record_key: "f0", channel: "email", via: "outbox", state: "failed", reason: "SMTP refused" }] },

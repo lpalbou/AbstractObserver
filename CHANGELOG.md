@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-10-28
+
+On AbstractUIC 0.8.3 (`@abstractframework/ui-kit` ^0.9.5, `@abstractframework/panel-chat` ^0.6.3, `@abstractframework/app-server` ^0.1.13).
+
+### Fixed
+
+- After the run: "Nothing to notify: the run did not reach a Notify me step." (was "this flow has no Notify me step"): AbstractGateway 0.17.1 answers `quiet_reason: "no notify"` both when the flow has no Notify me step and when the run did not reach it (AbstractGateway backlog 0956).
+- From the kit: a reply's speaker and copy buttons are always visible (they appeared only on hover); the speaker shows a spinner only while the first audio is generated, then Pause, and Play when paused; Settings → Voice → Engines names the chosen voice instead of its id (a cloned voice read "… · 250b665e…"); the speech model list shows each model once; under a cloned voice, a line names the model it is always spoken with.
+
 ## [0.10.1] - 2026-10-28
 
 On AbstractUIC 0.8.2 (`@abstractframework/ui-kit` ^0.9.4, `@abstractframework/panel-chat` ^0.6.2, `@abstractframework/app-server` ^0.1.13).

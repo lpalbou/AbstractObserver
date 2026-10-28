@@ -411,7 +411,8 @@ ended, read from the gateway (`GET /api/gateway/runs/{run_id}/after`; framework
   its delivery) and device, "sent" or "not delivered: <reason>", and the
   time ("No delivery recorded yet." while none is);
 - when nothing rang, why: "Nothing to notify: the title was empty.",
-  "Nothing to notify: this flow has no Notify me step.", "Still running:
+  "Nothing to notify: the run did not reach a Notify me step." (the flow has
+  none, or this run ended on a path without one), "Still running:
   nothing has been sent yet."
 
 A spinner shows until the gateway answered. A failed read is tried three

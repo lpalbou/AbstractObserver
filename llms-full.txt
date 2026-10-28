@@ -164,7 +164,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.10.1 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.10.2 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -241,7 +241,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -286,8 +286,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
-    "@abstractframework/panel-chat": "^0.6.2",
-    "@abstractframework/ui-kit": "^0.9.4",
+    "@abstractframework/panel-chat": "^0.6.3",
+    "@abstractframework/ui-kit": "^0.9.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -523,6 +523,15 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+## [0.10.2] - 2026-10-28
+
+On AbstractUIC 0.8.3 (`@abstractframework/ui-kit` ^0.9.5, `@abstractframework/panel-chat` ^0.6.3, `@abstractframework/app-server` ^0.1.13).
+
+### Fixed
+
+- After the run: "Nothing to notify: the run did not reach a Notify me step." (was "this flow has no Notify me step"): AbstractGateway 0.17.1 answers `quiet_reason: "no notify"` both when the flow has no Notify me step and when the run did not reach it (AbstractGateway backlog 0956).
+- From the kit: a reply's speaker and copy buttons are always visible (they appeared only on hover); the speaker shows a spinner only while the first audio is generated, then Pause, and Play when paused; Settings → Voice → Engines names the chosen voice instead of its id (a cloned voice read "… · 250b665e…"); the speech model list shows each model once; under a cloned voice, a line names the model it is always spoken with.
 
 ## [0.10.1] - 2026-10-28
 
@@ -1801,9 +1810,10 @@ A manual run does not count toward a schedule's run limit.
 ## Why did an automation's run not notify me?
 Open the automation and read **After the run** under that run's answer. It
 says what arrived, the note the flow recorded, the alert it raised and each
-delivery, or why nothing rang: "Nothing to notify: this flow has no Notify me
-step." means the flow's end only records the outcome (add **Notify me** in
-AbstractFlow); "Nothing to notify: the title was empty." means the flow chose
+delivery, or why nothing rang: "Nothing to notify: the run did not reach a
+Notify me step." means the flow has no **Notify me** (its end only records the
+outcome: add one in AbstractFlow) or this run took a path without one (check
+the condition before it); "Nothing to notify: the title was empty." means the flow chose
 to stay quiet; "not delivered: …" names the channel's reason. See
 `automations.md` → "After the run".
 
@@ -2678,7 +2688,8 @@ ended, read from the gateway (`GET /api/gateway/runs/{run_id}/after`; framework
   its delivery) and device, "sent" or "not delivered: <reason>", and the
   time ("No delivery recorded yet." while none is);
 - when nothing rang, why: "Nothing to notify: the title was empty.",
-  "Nothing to notify: this flow has no Notify me step.", "Still running:
+  "Nothing to notify: the run did not reach a Notify me step." (the flow has
+  none, or this run ended on a path without one), "Still running:
   nothing has been sent yet."
 
 A spinner shows until the gateway answered. A failed read is tried three
