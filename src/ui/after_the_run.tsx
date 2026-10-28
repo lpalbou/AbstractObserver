@@ -65,7 +65,9 @@ export function quiet_sentence(reason: string | undefined): string {
     case "empty title":
       return "Nothing to notify: the title was empty.";
     case "no notify":
-      return "Nothing to notify: this flow has no Notify me step.";
+      // AbstractGateway 0.17.1 (backlog 0956) also answers "no notify" when the flow has a Notify me
+      // step the run did not reach (notify null/absent): one sentence true for both.
+      return "Nothing to notify: the run did not reach a Notify me step.";
     case "still running":
       return "Still running: nothing has been sent yet.";
     case "not recorded yet":
