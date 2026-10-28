@@ -152,7 +152,9 @@ describe("Discuss opens a chat in place", () => {
     expect(snap.messages.map((m) => m.content)).toEqual(["Summarize run #3", "It sent 4 emails."]);
     expect(workflowPendingInteraction(snap)?.wait.wait_key).toBe("ask:1");
     // No full history bundle: the only bundle read is the small turn listing.
-    expect(urls.filter((u) => u.includes("history_bundle")).every((u) => u.includes("include_subruns=false&ledger_max_items=1"))).toBe(true);
+    const bundles = urls.filter((u) => u.includes("history_bundle"));
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]).toContain("include_subruns=false&ledger_max_items=1");
     expect(urls.some((u) => /\/ledger\?/.test(u))).toBe(false);
     release?.();
     ctl.dispose();
