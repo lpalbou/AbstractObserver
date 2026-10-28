@@ -1810,9 +1810,10 @@ A manual run does not count toward a schedule's run limit.
 ## Why did an automation's run not notify me?
 Open the automation and read **After the run** under that run's answer. It
 says what arrived, the note the flow recorded, the alert it raised and each
-delivery, or why nothing rang: "Nothing to notify: this flow has no Notify me
-step." means the flow's end only records the outcome (add **Notify me** in
-AbstractFlow); "Nothing to notify: the title was empty." means the flow chose
+delivery, or why nothing rang: "Nothing to notify: the run did not reach a
+Notify me step." means the flow has no **Notify me** (its end only records the
+outcome: add one in AbstractFlow) or this run took a path without one (check
+the condition before it); "Nothing to notify: the title was empty." means the flow chose
 to stay quiet; "not delivered: …" names the channel's reason. See
 `automations.md` → "After the run".
 
@@ -2687,7 +2688,8 @@ ended, read from the gateway (`GET /api/gateway/runs/{run_id}/after`; framework
   its delivery) and device, "sent" or "not delivered: <reason>", and the
   time ("No delivery recorded yet." while none is);
 - when nothing rang, why: "Nothing to notify: the title was empty.",
-  "Nothing to notify: this flow has no Notify me step.", "Still running:
+  "Nothing to notify: the run did not reach a Notify me step." (the flow has
+  none, or this run ended on a path without one), "Still running:
   nothing has been sent yet."
 
 A spinner shows until the gateway answered. A failed read is tried three
