@@ -14,6 +14,7 @@
  *   automation's folder read-only, strict history).
  */
 import React, { useMemo, useState } from "react";
+import { runIsLive } from "./read_aloud";
 
 import {
   WorkflowChat,
@@ -110,7 +111,7 @@ export function AutomationDiscussion(props: {
     }
     return null;
   }, [snapshot.messages]);
-  use_read_aloud(voice, voice_prefs.read_aloud === true, latest_reply);
+  use_read_aloud(voice, voice_prefs.read_aloud === true, latest_reply, `discussion:${session?.session_id || props.voice_session_id || ""}`, runIsLive(snapshot.status));
   const speak_state = (m: { id?: string }) => (voice.tts_playback.key && voice.tts_playback.key === String(m.id || "") ? voice.tts_playback.status : "idle");
 
   const send = async (text: string) => {

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Read aloud no longer speaks existing messages** when opening a run chat or an automation discussion (operator 2026-10-29): a reply is spoken by
+  itself only when it was produced while the conversation is open (AbstractUIC panel-chat's rule, `readAloudStep`,
+  inlined in `read_aloud.ts` until the next kit release). The effect used to remember the newest reply before the
+  conversation had loaded, so the first loaded reply was spoken.
+
 ## [0.10.3] - 2026-10-28
 
 On AbstractUIC 0.8.4 (`@abstractframework/ui-kit` ^0.9.5, `@abstractframework/panel-chat` ^0.6.4, `@abstractframework/app-server` ^0.1.13).

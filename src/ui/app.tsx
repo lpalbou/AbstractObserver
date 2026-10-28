@@ -2116,7 +2116,7 @@ export function App(): React.ReactElement {
     }
     return null;
   }, [chat_messages]);
-  use_read_aloud(chat_voice, voice_prefs.read_aloud === true, chat_latest_answer);
+  use_read_aloud(chat_voice, voice_prefs.read_aloud === true, chat_latest_answer, `run-chat:${run_id}`, chat_sending);
 
   function _download_blob(blob: Blob, filename: string): void {
     try {

@@ -16,6 +16,7 @@
  * runs the Observer watches never gain child runs from reading them aloud.
  */
 import React, { useEffect, useRef, useState } from "react";
+import { READ_ALOUD_INITIAL, readAloudStep } from "./read_aloud";
 import {
   AfVoiceSection,
   Icon,
@@ -270,25 +271,24 @@ export function use_observer_voice(opts: {
 }
 
 /**
- * Speak each new reply when Settings → Voice → Read aloud is on. Replies
- * present when the hook mounts are never spoken (only ones that arrive later).
+ * Settings → Voice → Read aloud: a reply is spoken by itself only when it was
+ * generated while this conversation is open — `live` (its run / the answer
+ * being produced) was seen here first (operator 2026-10-29: opening a run chat
+ * or a discussion spoke its existing messages). The kit's rule (`read_aloud.ts`).
  */
 export function use_read_aloud(
   voice: ObserverVoice,
   enabled: boolean,
   latest: { key: string; text: string } | null,
+  scope: string,
+  live: boolean,
 ): void {
-  const seen = useRef<string | null>(null);
+  const state = useRef(READ_ALOUD_INITIAL);
   useEffect(() => {
-    const key = latest?.key || "";
-    if (seen.current === null) {
-      seen.current = key;
-      return;
-    }
-    if (!key || key === seen.current) return;
-    seen.current = key;
-    if (enabled && voice.tts_supported && latest?.text.trim()) void voice.toggle_tts(key, latest.text);
-  }, [latest?.key, latest?.text, enabled, voice.tts_supported, voice.toggle_tts]);
+    const out = readAloudStep(state.current, { scope, live, reply: latest?.key ? { id: latest.key, text: latest.text } : null });
+    state.current = out.state;
+    if (out.speak && enabled && voice.tts_supported) void voice.toggle_tts(out.speak.id, out.speak.text);
+  }, [scope, live, latest?.key, latest?.text, enabled, voice.tts_supported, voice.toggle_tts]);
 }
 
 /** Ticks once a second while `active` (the elapsed seconds of "Recording…" / "Transcribing…"). */
