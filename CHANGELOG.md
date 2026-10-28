@@ -8,7 +8,7 @@ On AbstractUIC 0.8.4 (`@abstractframework/ui-kit` ^0.9.5, `@abstractframework/pa
 
 ### Fixed
 
-- From the kit, in the run chat and an automation's discussion (panel-chat's `ChatThread` / `WorkflowChat`): a message's stamp carries the date when it is not from today ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"; the full date on hover), the speaker stays on every assistant message while the voice is available (disabled with its reason while a reply is still being written), and the "files changed" chip opens the same structured detail as the tokens, tools and time chips (AbstractUIC backlog 0064, the message footer spec).
+- From the kit (AbstractUIC backlog 0064, the message footer spec): in the run chat (`ChatThread`) and an automation's discussion (`WorkflowChat`), a message's stamp carries the date when it is not from today ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"; the full date on hover), and a reply with no text keeps its speaker, disabled with the reason. In the discussion, a reply still being written keeps its speaker (disabled until it is finished) and the "files changed" chip opens the same structured detail as the tokens, tools and time chips.
 
 ## [0.10.2] - 2026-10-28
 

@@ -12,11 +12,12 @@ is written once in panel-chat 0.6.4 (`message_footer.ts`, AbstractUIC backlog 00
 bump, with no local twin of the card.
 
 ## What changes here
-- `@abstractframework/panel-chat` ^0.6.4 (lockfile refreshed): a message not from today is stamped with its date
-  ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM"), the speaker stays on every assistant message while the voice is
-  available (disabled with its reason while a reply streams), and the files-changed chip opens the structured
-  detail panel.
+- `@abstractframework/panel-chat` ^0.6.4 (lockfile refreshed): in the run chat and the automation discussion a message
+  not from today is stamped with its date ("Yesterday · 10:52 PM", "Oct 21 · 10:52 PM") and a reply with no text keeps
+  its speaker (disabled with the reason); in the discussion (`WorkflowChat`) a streaming reply keeps its speaker
+  (disabled) and the files-changed chip opens the structured detail panel. The run chat's messages carry no statistics
+  and no live state, so those two do not apply there.
 
 ## Evidence
-- The kit check `panel-chat/scripts/check_message_footer.mjs` (44 checks, mutation-checked) pins the behaviour.
+- The kit check `panel-chat/scripts/check_message_footer.mjs` (56 checks, mutation-checked) pins the behaviour.
 - This app: tests and build green on the bumped pin (see the PR).
