@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-Requires `@abstractframework/ui-kit` 0.8.8 (`triggerWords`, the connections and mailboxes client calls, the panel's `occurrenceEvents` / `workflowName` / `triggerConnections` / `mailboxes`).
+## [0.9.0] - 2026-10-28
+
+Built on `@abstractframework/ui-kit` ^0.9.2 and `@abstractframework/panel-chat` ^0.5.0 (AbstractUIC 0.7.2; this release raises the floors from ui-kit ^0.8.9 / panel-chat ^0.4.1). The features below need ui-kit 0.8.8 or later (`triggerWords`, the connections and mailboxes client calls, the panel's `occurrenceEvents` / `workflowName` / `triggerConnections` / `mailboxes`).
 
 ### Changed
 
