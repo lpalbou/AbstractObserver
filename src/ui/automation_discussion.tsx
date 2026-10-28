@@ -18,23 +18,31 @@ import React, { useMemo, useState } from "react";
 import {
   WorkflowChat,
   WorkspaceBrowser,
+  createReplayViewTransport,
   presentInteraction,
   useWorkflowSession,
   workflowPendingInteraction,
+  workflowSourceLabel,
   type WorkflowTransport,
 } from "@abstractframework/panel-chat";
-import { Icon, type DiscussResponse } from "@abstractframework/ui-kit";
+import { Icon, gatewayApiPath, type DiscussResponse } from "@abstractframework/ui-kit";
 
 import type { GatewayClient } from "../lib/gateway_client";
 import { VoiceDictate, use_observer_voice, use_read_aloud, use_voice_defaults, use_voice_prefs } from "./observer_voice";
 
 export const OBSERVER_CLIENT_ID = "abstractobserver";
 
-/** panel-chat's transport over the Observer's gateway client. */
+/**
+ * panel-chat's transport over the Observer's gateway client. `replayView` (panel-chat 0.6.0):
+ * the chat renders the gateway's replay view (`GET runs/{id}/view` + its stream, AbstractGateway
+ * 0.17.0) instead of rebuilding the run from ledger records; on an older gateway the controller
+ * keeps its ledger fold and says so (`snapshot.source`, `sourceReason`).
+ */
 export function observer_workflow_transport(
-  gw: Pick<GatewayClient, "get_run" | "get_run_history_bundle" | "get_ledger" | "stream_ledger" | "submit_command">,
+  gw: Pick<GatewayClient, "get_run" | "get_run_history_bundle" | "get_ledger" | "stream_ledger" | "submit_command" | "fetch_gateway">,
 ): WorkflowTransport {
   return {
+    replayView: createReplayViewTransport({ fetch: (path, init) => gw.fetch_gateway(gatewayApiPath(path), init) }),
     getRun: (id) => gw.get_run(id),
     getHistory: (id) => gw.get_run_history_bundle(id, { include_subruns: true, include_session: true, ledger_mode: "full" }),
     getLedger: (id, after, signal) => gw.get_ledger(id, { after, limit: 200, signal }),
@@ -199,7 +207,16 @@ export function AutomationDiscussion(props: {
               }
             : undefined
         }
-        footer={snapshot.error ? <div className="observe_context_card error" role="alert">{snapshot.error}</div> : null}
+        footer={
+          <>
+            {snapshot.error ? <div className="observe_context_card error" role="alert">{snapshot.error}</div> : null}
+            {snapshot.source ? (
+              <div className="help_text muted discussion_source" data-source={snapshot.source} title={snapshot.sourceReason || undefined}>
+                {workflowSourceLabel(snapshot)}
+              </div>
+            ) : null}
+          </>
+        }
       />
     </section>
   );
