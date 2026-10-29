@@ -16,7 +16,7 @@
  * runs the Observer watches never gain child runs from reading them aloud.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { READ_ALOUD_INITIAL, readAloudStep } from "./read_aloud";
+import { READ_ALOUD_INITIAL, readAloudStep, type ReadAloudPhase } from "./read_aloud";
 import {
   AfVoiceSection,
   Icon,
@@ -281,14 +281,14 @@ export function use_read_aloud(
   enabled: boolean,
   latest: { key: string; text: string } | null,
   scope: string,
-  live: boolean,
+  phase: ReadAloudPhase,
 ): void {
   const state = useRef(READ_ALOUD_INITIAL);
   useEffect(() => {
-    const out = readAloudStep(state.current, { scope, live, reply: latest?.key ? { id: latest.key, text: latest.text } : null });
+    const out = readAloudStep(state.current, { scope, phase, reply: latest?.key ? { id: latest.key, text: latest.text } : null });
     state.current = out.state;
     if (out.speak && enabled && voice.tts_supported) void voice.toggle_tts(out.speak.id, out.speak.text);
-  }, [scope, live, latest?.key, latest?.text, enabled, voice.tts_supported, voice.toggle_tts]);
+  }, [scope, phase, latest?.key, latest?.text, enabled, voice.tts_supported, voice.toggle_tts]);
 }
 
 /** Ticks once a second while `active` (the elapsed seconds of "Recording…" / "Transcribing…"). */

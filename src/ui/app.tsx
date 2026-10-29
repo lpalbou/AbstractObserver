@@ -2116,7 +2116,19 @@ export function App(): React.ReactElement {
     }
     return null;
   }, [chat_messages]);
-  use_read_aloud(chat_voice, voice_prefs.read_aloud === true, chat_latest_answer, `run-chat:${run_id}`, chat_sending);
+  // A failed ask (its answer is a local error) is "ended": it disarms, so a saved thread loaded
+  // later is never taken for its reply.
+  const chat_last_failed = (() => {
+    for (let i = chat_messages.length - 1; i >= 0; i -= 1) if (chat_messages[i].role === "assistant") return Boolean(chat_messages[i].local_error);
+    return false;
+  })();
+  use_read_aloud(
+    chat_voice,
+    voice_prefs.read_aloud === true,
+    chat_latest_answer,
+    `run-chat:${run_id}`,
+    chat_sending ? "live" : chat_last_failed ? "ended" : "completed",
+  );
 
   function _download_blob(blob: Blob, filename: string): void {
     try {

@@ -1,41 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { READ_ALOUD_INITIAL, readAloudStep, runIsLive } from "./read_aloud";
+import { READ_ALOUD_INITIAL, readAloudPhase, readAloudStep, type ReadAloudPhase } from "./read_aloud";
 
-/** The operator's case (2026-10-29): read aloud on, a session with replies is opened or
- * reloaded — nothing is spoken; only a reply generated while it is open is. */
-function play(steps: Array<{ scope: string; status: string; reply: string | null }>): string[] {
+/** The operator's case (2026-10-29) as Observer's chats feed the rule. */
+function play(steps: Array<[string, ReadAloudPhase, string | null]>): string[] {
   let state = READ_ALOUD_INITIAL;
   const spoken: string[] = [];
-  for (const s of steps) {
-    const out = readAloudStep(state, { scope: s.scope, live: runIsLive(s.status), reply: s.reply ? { id: s.reply, text: `text ${s.reply}` } : null });
+  for (const [scope, phase, reply] of steps) {
+    const out = readAloudStep(state, { scope, phase, reply: reply ? { id: reply, text: `text ${reply}` } : null });
     state = out.state;
     if (out.speak) spoken.push(out.speak.id);
   }
   return spoken;
 }
 
-describe("read aloud", () => {
-  it("never speaks when a session with replies is opened or reloaded", () => {
-    expect(play([
-      { scope: "u:s1", status: "idle", reply: null },
-      { scope: "u:s1", status: "loading", reply: null },
-      { scope: "u:s1", status: "completed", reply: "a2" },
-    ])).toEqual([]);
+describe("read aloud (Observer)", () => {
+  it("opening a discussion with replies never speaks them", () => {
+    expect(play([["d:s1", readAloudPhase("loading"), null], ["d:s1", readAloudPhase("completed"), "a2"]])).toEqual([]);
   });
-  it("never speaks the existing reply of the session switched to", () => {
-    expect(play([
-      { scope: "u:s1", status: "running", reply: "a1" },
-      { scope: "u:s1", status: "completed", reply: "a2" },
-      { scope: "u:s2", status: "loading", reply: "a2" },
-      { scope: "u:s2", status: "completed", reply: "b1" },
-    ])).toEqual(["a2"]);
+  it("a failed run-chat ask disarms: a saved thread loaded next is silent", () => {
+    expect(play([["chat:r1", "live", null], ["chat:r1", "ended", null], ["chat:r1", "completed", "thread:t1:3"]])).toEqual([]);
   });
-  it("speaks a reply generated while the session is open, once", () => {
-    expect(play([
-      { scope: "u:s1", status: "completed", reply: "a1" },
-      { scope: "u:s1", status: "running", reply: "a1" },
-      { scope: "u:s1", status: "completed", reply: "a2" },
-      { scope: "u:s1", status: "completed", reply: "a2" },
-    ])).toEqual(["a2"]);
+  it("an answer produced here is spoken once", () => {
+    expect(play([["chat:r1", "completed", "a1"], ["chat:r1", "live", "a1"], ["chat:r1", "completed", "a2"], ["chat:r1", "completed", "a2"]])).toEqual(["a2"]);
+  });
+  it("a discussion turn started here that went loading → completed still speaks", () => {
+    expect(play([["d:s1", readAloudPhase("completed"), "a1"], ["d:s1", readAloudPhase("loading", true), "a1"], ["d:s1", readAloudPhase("completed"), "a2"]])).toEqual(["a2"]);
   });
 });
