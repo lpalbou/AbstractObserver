@@ -5141,11 +5141,13 @@ export function App(): React.ReactElement {
               docs={{ open: assistant_open, onToggle: () => set_assistant_open((v) => !v), label: "Docs assistant" }}
               appearance={{ onOpen: () => set_appearance_open(true) }}
               about={{ identity: about_identity, versions: about_versions, onOpen: refresh_about_versions }}
+              identity="menu"
               connection={{
                 phase: gateway_connection.phase,
                 signingOut: gateway_connection.signingOut,
                 onConnect: () => gateway_connection.openModal(),
                 onDisconnect: () => disconnect_gateway(),
+                status: gateway_connection.status,
               }}
             />
           </div>
