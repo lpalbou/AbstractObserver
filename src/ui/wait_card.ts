@@ -27,7 +27,7 @@ export function wait_card_text(input: WaitCardInput): WaitCardText {
     return {
       text: `Waiting for your approval of ${n === 1 ? "1 tool" : `${n} tools`}${since}`,
       hint: automation
-        ? "This automation asks before these tools. To let it run unattended, set them to Run in the automation's Tools."
+        ? "This automation asks before these tools. To let it run unattended, set them to Auto in the automation's Tools."
         : "",
     };
   }

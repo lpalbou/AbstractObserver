@@ -8,7 +8,7 @@ describe("wait_card_text (ADR 0043: no reason code, no raw wait key)", () => {
   it("a tool approval says how many tools and since when", () => {
     const out = wait_card_text({ reason: "user", tool_calls: 4, since_ms: SINCE, now_ms: NOW, session_id: "automation:7734" });
     expect(out.text).toBe("Waiting for your approval of 4 tools since 7h 22m");
-    expect(out.hint).toContain("set them to Run in the automation's Tools");
+    expect(out.hint).toContain("set them to Auto in the automation's Tools");
     expect(out.text).not.toMatch(/user|tool_approval|wait_key/);
   });
   it("one tool, in a chat (no automation hint)", () => {

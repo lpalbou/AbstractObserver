@@ -15,7 +15,7 @@ runs already waiting be clearly told what to do.
   - Other waits: "Waiting for your answer", "Waiting for the event <name>", "Waiting for a child run to finish",
     "Waiting for a background job", "Waiting for its next scheduled time". An unknown reason reads "Waiting".
   - An automation session's (`automation:<id>`) tool wait adds the hint "This automation asks before these
-    tools. To let it run unattended, set them to Run in the automation's Tools."
+    tools. To let it run unattended, set them to Auto in the automation's Tools."
 - `src/ui/app.tsx`: the run page's waiting card shows that sentence (and the hint). The reason chip and the
   `wait_key` line are gone; the child, until and next-time details stay.
 
