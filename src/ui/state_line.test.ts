@@ -37,7 +37,9 @@ describe("state_line — the bare word 'waiting' never ships alone", () => {
     const details = new Map([["a1", { waiting: { reason: "user", wait_key: "k", details: { tool_calls: [{ name: "web_search" }, { name: "send_email" }] } } }]]);
     const line = state_line(r, ctx([r], { details }));
     expect(line.action).toBe("approve");
-    expect(line.text).toMatch(/^needs your approval: web_search, send_email/);
+    // The tools in the kit's words, never their raw names (operator 2026-10-29).
+    expect(line.text).toMatch(/^needs your approval for a web search and an email/);
+    expect(line.text).not.toMatch(/web_search|send_email/);
     expect(line.unresolved).toBe(false);
   });
 

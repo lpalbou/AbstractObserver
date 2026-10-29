@@ -25,6 +25,13 @@
   example.org/news", "Search the web for AI news", and "2 web searches, 1 page fetch". The exact arguments stay
   behind **Exact arguments**. This needs the ui-kit release that carries `ToolCallWordsList` (AbstractUIC 0068).
 
+### Fixed
+
+- **The state lines name the tools in words** (backlog 0008, after 0007). A run waiting on an approval said "needs
+  your approval: web_search, send_email". It now says "needs your approval for a web search and an email", in the
+  run lists, and "needs approval for 2 web searches and a page fetch" on Mission Control's cards. The words come
+  from the kit's tool nouns.
+
 ## [0.10.3] - 2026-10-28
 
 On AbstractUIC 0.8.4 (`@abstractframework/ui-kit` ^0.9.5, `@abstractframework/panel-chat` ^0.6.4, `@abstractframework/app-server` ^0.1.13).

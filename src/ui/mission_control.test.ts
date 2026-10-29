@@ -165,7 +165,7 @@ describe("five lanes — one case per wait kind × lane (rows of gateway 0.13.1)
     expect(c.line.action).toBe("approve");
     expect(c.wait_key).toBe("wk_9");
     expect(c.tool_names).toEqual(["web_search", "send_email"]);
-    expect(c.line.text).toMatch(/^needs your approval: web_search, send_email/);
+    expect(c.line.text).toMatch(/^needs your approval for a web search and an email/);
     const html = markup(c);
     expect(html).toContain(">Approve<");
     expect(html).toContain(">Reject<");
@@ -1091,8 +1091,8 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     expect(html_of(person)).toContain('<span class="mc_who" title="Started by laurent">laurent</span>');
     // Approvals name the tools; pauses say paused.
     const a = approval({ actor_id: "ops-team" });
-    expect(text_of(a)).toContain(`ops-team · needs approval for web_search, send_email since ${format_when(Date.parse(at(9)), NOW_MS)} (9m)`);
-    expect(tools_words(["read_file", "read_file", "edit_file", "a", "b"])).toBe("read_file ×2, edit_file, a and 1 more");
+    expect(text_of(a)).toContain(`ops-team · needs approval for a web search and an email since ${format_when(Date.parse(at(9)), NOW_MS)} (9m)`);
+    expect(tools_words(["read_file", "read_file", "edit_file", "web_search", "a", "b"])).toBe("2 file reads, a file edit, a web search and 2 more");
     const paused = build_board({ active: [row({ run_id: "p1", status: "waiting", actor_id: "laurent", waiting: { reason: "user", wait_key: "pause:p1" }, updated_at: at(20) })], done: [], now_ms: NOW_MS }).needs_you[0];
     expect(text_of(paused)).toContain(`paused since ${format_when(Date.parse(at(20)), NOW_MS)} (20m)`);
     expect(text_of(paused)).not.toContain("laurent ·");
