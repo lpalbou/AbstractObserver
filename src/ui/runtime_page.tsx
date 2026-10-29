@@ -11,7 +11,8 @@ import { LoadingState } from "./loading";
 import React, { useMemo, useState } from "react";
 
 import { JsonViewer as SharedJsonViewer, Markdown, copyText } from "@abstractframework/panel-chat";
-import { Icon } from "@abstractframework/ui-kit";
+import { Icon, ToolCallWordsList } from "@abstractframework/ui-kit";
+import { kit_tool_calls } from "./tool_call_words";
 import { extract_tool_calls_from_wait, extract_wait_from_record } from "../lib/runtime_extractors";
 import { type StepRecord, type WaitState } from "../lib/types";
 import { ArtifactGlyph, RuntimeInlinePreview, type RuntimeEmbeddedPreview } from "./artifact_previews";
@@ -347,14 +348,12 @@ export function RuntimeActivityConsole(props: {
                 )}
                 {selected_tool_calls.length ? (
                   <div className="runtime_ops_wait_tools">
-                    {selected_tool_calls.map((tc, idx) => (
-                      <React.Fragment key={`${String((tc as any)?.name || "tool")}:${idx}`}>
-                        <span className="chip mono warn">{String((tc as any)?.name || "tool")}</span>
-                        {tool_risk_labels(tc).map((label) => (
-                          <span key={`${idx}:${label}`} className="chip muted" title={TOOL_RISK_INFERRED_TITLE}>{label}~</span>
-                        ))}
-                      </React.Fragment>
-                    ))}
+                    <ToolCallWordsList calls={kit_tool_calls(selected_tool_calls)} label="Tool calls to approve" />
+                    {selected_tool_calls.flatMap((tc, idx) =>
+                      tool_risk_labels(tc).map((label) => (
+                        <span key={`${idx}:${label}`} className="chip muted" title={TOOL_RISK_INFERRED_TITLE}>{label}~</span>
+                      )),
+                    )}
                   </div>
                 ) : null}
                 <details className="runtime_raw_details">

@@ -17,6 +17,14 @@
   inlined in `read_aloud.ts` until the next kit release). The effect used to remember the newest reply before the
   conversation had loaded, so the first loaded reply was spoken.
 
+### Fixed
+
+- **Approval calls read in words** (operator QA 2026-10-29, backlog 0007). The run page's approval panel, the
+  System page's waiting run and Mission Control's request glimpse listed each call as its tool name with its JSON
+  (`fetch_url { "url": … }`). They now use the kit's `ToolCallWordsList` / `describeToolCall`: "Fetch the page
+  example.org/news", "Search the web for AI news", and "2 web searches, 1 page fetch". The exact arguments stay
+  behind **Exact arguments**. This needs the ui-kit release that carries `ToolCallWordsList` (AbstractUIC 0068).
+
 ## [0.10.3] - 2026-10-28
 
 On AbstractUIC 0.8.4 (`@abstractframework/ui-kit` ^0.9.5, `@abstractframework/panel-chat` ^0.6.4, `@abstractframework/app-server` ^0.1.13).

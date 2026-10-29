@@ -36,7 +36,10 @@ import {
   type AfSelectOption,
   type GatewayConnectionState,
   type ProviderOption,
+  ToolCallWordsList,
+  groupToolCalls,
 } from "@abstractframework/ui-kit";
+import { kit_tool_call, kit_tool_calls } from "./tool_call_words";
 import { AppAssistantDrawer } from "./app_assistant";
 import { use_nav_drawer } from "./nav_drawer";
 import { RunChatReplayNote, run_chat_history, type RunChatHistoryReport } from "./run_chat";
@@ -6949,10 +6952,12 @@ export function App(): React.ReactElement {
                   Approve and execute runs the listed tool request through your configured worker. Approve only sends approval without local execution. Reject returns a denial. Cancel run stops the whole workflow run.
                 </div>
                 <div className="wait_tool_list">
+                  {tool_calls_for_wait.length > 1 ? <p className="wait_tool_group">{groupToolCalls(kit_tool_calls(tool_calls_for_wait))}</p> : null}
                   {tool_calls_for_wait.map((tc, idx) => (
                     <div key={`${String((tc as any)?.name || "tool")}:${idx}`} className="wait_tool_card">
                       <div className="wait_tool_header">
-                        <strong>{String((tc as any)?.name || "tool")}</strong>
+                        {/* The call in words (the kit's list); the exact arguments are one click below. */}
+                        <ToolCallWordsList calls={[kit_tool_call(tc)]} label="Tool call to approve" className="wait_tool_words" />
                         <div className="wait_tool_badges">
                           <span className="chip mono warn">approval</span>
                           {tool_risk_labels(tc).map((label) => (
@@ -6960,9 +6965,10 @@ export function App(): React.ReactElement {
                           ))}
                         </div>
                       </div>
-                      <div className="wait_tool_args">
+                      <details className="wait_tool_args">
+                        <summary className="muted">Exact arguments</summary>
                         <SharedJsonViewer value={(tc as any)?.arguments || {}} collapseAfterDepth={3} showCopy={true} />
-                      </div>
+                      </details>
                     </div>
                   ))}
                 </div>
