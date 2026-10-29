@@ -3514,6 +3514,11 @@ button.primary:hover:not(:disabled) {
   gap: 6px;
 }
 
+.runtime_ops_wait_tools > .af-toolwords {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
 .runtime_ops_wait_summary .pc-json-viewer,
 .runtime_ops_wait_summary .pc-json-viewer__tree {
   max-width: 100%;
@@ -4281,6 +4286,23 @@ button.primary:hover:not(:disabled) {
   overflow-y: auto;
   border-radius: var(--radius-md, 8px);
   background: rgba(0, 0, 0, 0.14);
+}
+
+.wait_tool_args > summary {
+  cursor: pointer;
+  padding: 6px 8px;
+  font-size: var(--font-size-sm, 13px);
+}
+
+/* The call in the kit's words (ui-kit .af-toolwords) takes the header's free width. */
+.wait_tool_words {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wait_tool_group {
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 .wait_tool_args .pc-json-viewer,

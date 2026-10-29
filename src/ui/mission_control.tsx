@@ -30,6 +30,7 @@ import { createPortal } from "react-dom";
 import "./board.css";
 
 import { AfChip, AfMemoryHintChip, Icon, automationControls, whenWords, type AutomationChanges, type AutomationSummary, type ControlState, type IconName } from "@abstractframework/ui-kit";
+import { tool_call_sentence, tool_call_verb } from "./tool_call_words";
 import { Markdown } from "@abstractframework/panel-chat";
 
 import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
@@ -537,11 +538,11 @@ function value_words(v: unknown): string {
   }
 }
 
-/** One tool call as words: `name(key: value, …)`; `cap` bounds each value (0 = whole). */
+/** One tool call in words, the kit's sentence ("Fetch the page example.org/news"; see
+ * `tool_call_words.ts`); `cap` bounds the sentence (0 = whole). */
 export function tool_call_words(call: { name: string; arguments?: any }, cap = 0): string {
-  const args = call.arguments && typeof call.arguments === "object" && !Array.isArray(call.arguments) ? Object.entries(call.arguments) : [];
-  const shown = args.map(([k, v]) => `${k}: ${cap > 0 ? clamp_text(value_words(v), cap) : value_words(v)}`);
-  return `${call.name}(${shown.join(", ")})`;
+  const s = tool_call_sentence(call);
+  return cap > 0 ? clamp_text(s, cap) : s;
 }
 
 /** The arguments of one tool call, one `key: value` per line, values whole (the (i));
@@ -950,7 +951,7 @@ export function card_info_sections(card: BoardCard, input: InfoInput): InfoSecti
         const reason = String(input.detail?.pause_reason || row?.pause_reason || "").trim();
         if (reason) push(rows, { id: "pause_reason", label: "Reason", value: reason, long: true });
       } else if (card.pending_calls.length) {
-        card.pending_calls.forEach((c, i) => push(rows, { id: `tool_call_${i}`, label: i === 0 ? "Tool calls" : "", value: tool_args_text(c), chips: [c.name], long: true, copy: tool_call_words(c) }));
+        card.pending_calls.forEach((c, i) => push(rows, { id: `tool_call_${i}`, label: i === 0 ? "Tool calls" : "", value: tool_args_text(c), chips: [tool_call_verb(c)], long: true, copy: tool_call_words(c) }));
       } else if (card.prompt) {
         push(rows, { id: "question", label: "Question", value: card.prompt, long: true });
       }

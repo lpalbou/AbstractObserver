@@ -1113,8 +1113,10 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     expect(g).toMatch(/-webkit-line-clamp:\s*3/);
     expect(g).toMatch(/color:\s*var\(--text-secondary\)/);
     const a = html_of(approval());
-    expect(a).toContain("web_search(query: AI news October 2026)");
-    expect(a).toContain("send_email(to: [&quot;ops@example.org&quot;], subject: digest)");
+    // The calls in the kit's words (ui-kit describeToolCall), never `name(key: value)` or JSON (operator 2026-10-29).
+    expect(a).toContain("Search the web for AI news October 2026  ·  Email ops@example.org (subject “digest”)");
+    expect(a).not.toContain("web_search(");
+    expect(a).not.toContain("&quot;");
     // The ask sits under the state line, before the metrics.
     expect(a.indexOf("mc_card_state")).toBeLessThan(a.indexOf("mc_glimpse_request"));
     expect(a.indexOf("mc_glimpse_request")).toBeLessThan(a.indexOf("mc_card_foot"));
