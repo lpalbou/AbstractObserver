@@ -249,6 +249,9 @@ export function use_observer_voice(opts: {
     // Tap to start / tap to stop, or hold: VoiceDictate stops the recording itself.
     stop_on_pointerup: false,
     tts_stream: ready ? observer_tts_stream(gateway!, run_id, () => prefs_ref.current, assert_current) : undefined,
+    // The voice those requests speak with (ui-kit 0.9.6): a paused reply is spoken again after a
+    // voice change, never resumed in the old voice.
+    tts_voice: voiceTtsRequest(prefs),
     transcribe: ready ? observer_transcribe(gateway!, session_id, run_id, () => prefs_ref.current, assert_current) : undefined,
     on_transcript: (text) => {
       if (scope_ref.current === scope) cb_ref.current.on_transcript(text);
