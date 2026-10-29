@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- **The waiting card reads as words** (operator QA 2026-10-29, ADR 0043, backlog 0005).
+- **The waiting card reads as words** (operator QA 2026-10-29, ADR 0043, backlog 0006).
   - It said "waiting · user · wait_key: tool_approval:dac02daa-…", the reason code and the raw key. Now it says
     "Waiting for your approval of 4 tools since 7h 22m", "Waiting for your answer", "Waiting for a child run to
     finish", and so on (`wait_card.ts`).

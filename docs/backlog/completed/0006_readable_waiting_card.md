@@ -1,4 +1,4 @@
-# 0005 — The waiting card reads as words (no reason code, no raw wait key)
+# 0006 — The waiting card reads as words (no reason code, no raw wait key)
 
 **Status**: completed (2026-10-29, unreleased) · **Priority**: P1 · **Created**: 2026-10-29
 **Cross-package**: AbstractAssistant (the iPhone created automations with `tool_approval: "ask"` hard-coded, the
