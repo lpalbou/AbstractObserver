@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { kit_tool_call, tool_call_sentence, tool_call_verb } from "./tool_call_words";
+import { kit_tool_call, tool_call_sentence, tool_call_verb, tools_phrase } from "./tool_call_words";
 import { RuntimeActivityConsole } from "./runtime_page";
 
 const noop = () => undefined;
@@ -22,6 +22,14 @@ describe("the Observer's approval calls read in the kit's words", () => {
     expect(s).toMatch(/^Make report: /);
     expect(s).toContain("Q3");
     expect(s).not.toMatch(/[{}]/);
+  });
+
+  it("a wait's tools read as one phrase of the kit's nouns", () => {
+    expect(tools_phrase(["web_search", "send_email"])).toBe("a web search and an email");
+    expect(tools_phrase([{ name: "web_search" }, { name: "web_search" }, { name: "fetch_url" }])).toBe("2 web searches and a page fetch");
+    expect(tools_phrase(["make_report"])).toBe("a make report call");
+    expect(tools_phrase(["web_search", "send_email", "fetch_url", "write_file", "read_file"])).toBe("a web search, an email, a page fetch and 2 more");
+    expect(tools_phrase([])).toBe("a tool call");
   });
 
   it("the System page's waiting run lists the calls with the kit's list, not name chips", () => {

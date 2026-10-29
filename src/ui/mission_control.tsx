@@ -30,7 +30,7 @@ import { createPortal } from "react-dom";
 import "./board.css";
 
 import { AfChip, AfMemoryHintChip, Icon, automationControls, whenWords, type AutomationChanges, type AutomationSummary, type ControlState, type IconName } from "@abstractframework/ui-kit";
-import { tool_call_sentence, tool_call_verb } from "./tool_call_words";
+import { tool_call_sentence, tool_call_verb, tools_phrase } from "./tool_call_words";
 import { Markdown } from "@abstractframework/panel-chat";
 
 import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
@@ -499,13 +499,9 @@ export function format_relative(ms: number, now_ms = Date.now()): string {
   return delta > 0 ? `in ${compact_duration(delta)}` : `${compact_duration(-delta)} ago`;
 }
 
-/** "web_search, send_email" · "read_file ×2, edit_file" · "a, b, c and 2 more" (names in call order). */
+/** The tools a card waits on, in the kit's words ("a web search and an email"; `tools_phrase`). */
 export function tools_words(names: string[]): string {
-  if (!names.length) return "a tool call";
-  const counts = new Map<string, number>();
-  for (const n of names) counts.set(n, (counts.get(n) || 0) + 1);
-  const words = Array.from(counts, ([n, k]) => (k > 1 ? `${n} ×${k}` : n));
-  return `${words.slice(0, 3).join(", ")}${words.length > 3 ? ` and ${words.length - 3} more` : ""}`;
+  return tools_phrase(names);
 }
 
 /** Glue a phrase into one unbreakable unit ("Oct 1, 09:14", "(13d 4h)"): a wrap never splits it. */

@@ -24,6 +24,7 @@
  * all fold the same wire rows through here.
  */
 import { extract_tool_calls_from_wait } from "../lib/runtime_extractors";
+import { tools_phrase } from "./tool_call_words";
 import type { WaitState } from "../lib/types";
 import { format_time_until_from_ms, parse_iso_ms, terminal_run_status } from "./format";
 import { run_status_word, type RunSummary, type StopReason } from "./run_status";
@@ -439,10 +440,10 @@ function state_line_raw(run: RunSummary, ctx: StateContext, depth = 0): StateLin
 
   const tool_calls = extract_tool_calls_from_wait(wait);
   if (tool_calls.length) {
-    const names = tool_calls.map((tc: any) => String(tc?.name || "tool").trim()).filter(Boolean);
-    const shown = `${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""}`;
-    const text = `needs your approval: ${shown || "tool call"}${tail}`;
-    return { ...base, verb: "needs_you", lane: "needs_you", object: `approval: ${shown}`, actor: "you", action: "approve", text };
+    // The tools in the kit's words ("a web search and an email"), never their raw names.
+    const shown = tools_phrase(tool_calls);
+    const text = `needs your approval for ${shown}${tail}`;
+    return { ...base, verb: "needs_you", lane: "needs_you", object: `approval for ${shown}`, actor: "you", action: "approve", text };
   }
 
   if (reason === "user") {
