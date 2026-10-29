@@ -66,7 +66,29 @@ export type ConversationContextItem = {
   text: string;
   ts: string;
   runtime_metadata?: RuntimeMetadata | null;
+  /** A tool's result turn (role `tool`, or one answering a `tool_call_id`): rendered in the kit's
+   * words (`ToolResultWordsView`), its payload behind a disclosure, never as raw JSON text. */
+  tool_result?: { name: string; value: unknown };
 };
+
+const TOOL_RESULT_ROLES = new Set(["tool", "function", "tool_result"]);
+
+function tool_result_of(msg: any, role: string, text: string): { name: string; value: unknown } | undefined {
+  if (!TOOL_RESULT_ROLES.has(role) && !(msg && typeof msg === "object" && msg.tool_call_id)) return undefined;
+  const name = String(msg?.name || msg?.tool_name || msg?.metadata?.name || msg?.metadata?.tool_name || "").trim();
+  let value: unknown = msg?.content ?? msg?.result ?? text;
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (t.startsWith("{") || t.startsWith("[")) {
+      try {
+        value = JSON.parse(t);
+      } catch {
+        /* plain text stays text */
+      }
+    }
+  }
+  return { name, value };
+}
 
 export function extract_conversation_context(input: Record<string, any> | null, limit = 6): ConversationContextItem[] {
   if (!input) return [];
@@ -84,7 +106,8 @@ export function extract_conversation_context(input: Record<string, any> | null, 
       msg?.runtime_metadata && typeof msg.runtime_metadata === "object" ? msg.runtime_metadata : null,
       msg?.metadata?.runtime_metadata && typeof msg.metadata.runtime_metadata === "object" ? msg.metadata.runtime_metadata : null
     );
-    out.push({ role, text, ts, runtime_metadata: explicit_meta });
+    const tool_result = tool_result_of(msg, role, text);
+    out.push(tool_result ? { role, text, ts, runtime_metadata: explicit_meta, tool_result } : { role, text, ts, runtime_metadata: explicit_meta });
   }
   return out.slice(Math.max(0, out.length - Math.max(1, limit)));
 }

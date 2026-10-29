@@ -37,6 +37,7 @@ import {
   type GatewayConnectionState,
   type ProviderOption,
   ToolCallWordsList,
+  ToolResultWordsView,
   groupToolCalls,
 } from "@abstractframework/ui-kit";
 import { kit_tool_call, kit_tool_calls } from "./tool_call_words";
@@ -6906,11 +6907,22 @@ export function App(): React.ReactElement {
                     {wait_conversation_context.map((msg, idx) => (
                       <div key={`${msg.role}:${idx}`} className={`wait_turn_row role_${msg.role.replace(/[^a-z0-9_-]+/g, "_")}`}>
 	                        <div className="wait_turn_meta">
-	                          <strong>{msg.role === "assistant" ? "Assistant" : msg.role === "user" || msg.role === "human" ? "User" : msg.role}</strong>
+	                          <strong>{msg.tool_result ? "Tool result" : msg.role === "assistant" ? "Assistant" : msg.role === "user" || msg.role === "human" ? "User" : msg.role}</strong>
 	                          {msg.ts ? <span className="mono muted">{format_time_ago(msg.ts)}</span> : null}
 	                        </div>
                         <RuntimeMetadataChips metadata={msg.runtime_metadata} />
-	                        <Markdown text={clamp_preview(msg.text, { max_chars: 1200, max_lines: 10 })} />
+                        {msg.tool_result ? (
+                          <>
+                            {/* A tool's result in the kit's words; its payload one click away (operator 2026-10-29). */}
+                            <ToolResultWordsView name={msg.tool_result.name || null} result={msg.tool_result.value} />
+                            <details className="wait_turn_result_details">
+                              <summary className="muted">Exact result</summary>
+                              <SharedJsonViewer value={msg.tool_result.value} collapseAfterDepth={3} showCopy={true} />
+                            </details>
+                          </>
+                        ) : (
+	                          <Markdown text={clamp_preview(msg.text, { max_chars: 1200, max_lines: 10 })} />
+                        )}
                       </div>
                     ))}
                   </div>

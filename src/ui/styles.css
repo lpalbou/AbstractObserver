@@ -5125,3 +5125,9 @@ textarea.mono::placeholder {
     animation: none;
   }
 }
+
+/* A tool result turn (Recent session turns): the kit's words, then the payload on request. */
+.wait_turn_result_details > summary {
+  cursor: pointer;
+  font-size: var(--font-size-sm, 13px);
+}

@@ -32,6 +32,14 @@
   run lists, and "needs approval for 2 web searches and a page fetch" on Mission Control's cards. The words come
   from the kit's tool nouns.
 
+### Fixed
+
+- **Tool results in "Recent session turns" read in words** (backlog 0009, operator 2026-10-29). The approval dialog
+  printed earlier tool results as raw JSON (a `skim_websearch` payload). A tool turn now reads "Tool result: Web
+  search returned 10 results", followed by the first titles, with the payload behind **Exact result**. The words
+  come from the kit's `describeToolResult` / `ToolResultWordsView` (AbstractUIC 0070), so this needs the ui-kit
+  release that carries them.
+
 ## [0.10.3] - 2026-10-28
 
 On AbstractUIC 0.8.4 (`@abstractframework/ui-kit` ^0.9.5, `@abstractframework/panel-chat` ^0.6.4, `@abstractframework/app-server` ^0.1.13).
