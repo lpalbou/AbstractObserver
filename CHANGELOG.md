@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **The waiting card reads as words** (operator QA 2026-10-29, ADR 0043, backlog 0006).
+  - It said "waiting · user · wait_key: tool_approval:dac02daa-…", the reason code and the raw key. Now it says
+    "Waiting for your approval of 4 tools since 7h 22m", "Waiting for your answer", "Waiting for a child run to
+    finish", and so on (`wait_card.ts`).
+  - An automation's tool wait adds: "This automation asks before these tools. To let it run unattended, set them
+    to Run in the automation's Tools." Runs that already wait are told where that is decided; nothing approves them
+    for the person.
+
 - **Read aloud no longer speaks existing messages** when opening a run chat or an automation discussion (operator 2026-10-29): a reply is spoken by
   itself only when it was produced while the conversation is open (AbstractUIC panel-chat's rule, `readAloudStep`,
   inlined in `read_aloud.ts` until the next kit release). The effect used to remember the newest reply before the

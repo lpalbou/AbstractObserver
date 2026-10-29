@@ -157,6 +157,7 @@ import { RUNNING_LIMIT, WAITING_LIMIT, is_current_poll, runs_poll_for, runs_poll
 import { AgentPage, merged_subject } from "./agent_page";
 import { fold_node_facts } from "./flow_node_facts";
 import { fold_automation_brief, make_context, state_line, type AutomationBrief } from "./state_line";
+import { wait_card_text } from "./wait_card";
 import { read_stall_after_ms } from "./mission_control";
 import { Modal } from "./modal";
 import { MultiSelect } from "./multi_select";
@@ -6038,13 +6039,27 @@ export function App(): React.ReactElement {
                           const word = is_scheduled_run ? (run_paused ? "suspended" : "scheduled") : "waiting";
                           return <span className={`chip ${run_status_class(word)}`}>{word}</span>;
                         })()}
-                        <span className="muted">{wait_reason || "unknown"}</span>
+                        {(() => {
+                          const card = wait_card_text({
+                            reason: wait_reason,
+                            tool_calls: tool_calls_for_wait.length,
+                            prompt: String((wait_state as any)?.prompt || ""),
+                            event_name: wait_event_name,
+                            since_ms: parse_iso_ms(String(run_state?.updated_at || "")),
+                            now_ms: Date.now(),
+                            session_id: String((run_state as any)?.session_id || ""),
+                          });
+                          // An automation's tool wait also says where that is decided (the already-waiting runs of
+                          // automations created to ask are told, never approved behind the person's back).
+                          return (
+                            <>
+                              <span className="observe_wait_text" data-wait-card="1">{card.text}</span>
+                              {card.hint ? <span className="muted" data-wait-card-hint="1">{card.hint}</span> : null}
+                            </>
+                          );
+                        })()}
 	                    </div>
                       <div className="observe_context_body">
-                        {wait_key ? (<span className="mono" title={wait_key}><span className="muted">wait_key</span>: {short_id(wait_key, 46)}</span>) : null}
-                        {wait_reason === "event" && wait_event_name ? (<span className="mono"><span className="muted">event</span>: {wait_event_name}</span>) : null}
-                        {wait_reason === "subworkflow" && sub_run_id ? (<span className="mono"><span className="muted">child</span>: {short_id(sub_run_id, 18)}</span>) : null}
-                        {wait_reason === "until" && wait_until ? (<span className="mono" title={wait_until}><span className="muted">until</span>: {short_id(wait_until, 46)}</span>) : null}
                       {wait_reason === "until" && wait_until ? (
                           <span className="mono muted">
                         {(() => {
