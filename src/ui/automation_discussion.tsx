@@ -188,7 +188,7 @@ export function AutomationDiscussion(props: {
             automation.
           </div>
         }
-        composerExtras={
+        composerTrailingActions={
           <VoiceDictate
             voice={voice}
             defaults={voice_defaults.value}

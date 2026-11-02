@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The run chat and the automation discussion use the shared rounded multiline composer** from
+  `@abstractframework/panel-chat` 0.7.0. The dictation microphone and the Stop-spoken-reply button sit on the right,
+  beside Send (the composer's `trailingActions`; `WorkflowChat`'s `composerTrailingActions` in the discussion, where
+  the run's Stop follows them), as 44 px round icon buttons. Keyboard rules are unchanged. Tests follow the kit's
+  current words: the Docs assistant footer ("Based on AbstractObserver documentation.") and the approval list without
+  a count line (ui-kit 0.9.8). Needs `@abstractframework/panel-chat` ^0.7.0 (was ^0.6.5) and
+  `@abstractframework/ui-kit` ^0.9.8 (was ^0.9.7), panel-chat's peer floor.
+
 ### Fixed
 
 - **The waiting card reads as words** (operator QA 2026-10-29, ADR 0043, backlog 0006).

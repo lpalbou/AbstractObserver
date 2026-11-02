@@ -59,7 +59,9 @@ describe("the Observer's approval calls read in the kit's words", () => {
     const tools = html.slice(html.indexOf('class="runtime_ops_wait_tools"'));
     expect(tools).toContain('class="af-toolwords"');
     expect(tools).toContain('<span class="af-toolwords__verb" title="fetch_url">Fetch</span>');
-    expect(tools).toContain("1 page fetch, 1 web search");
+    expect(tools).toContain('<span class="af-toolwords__verb" title="web_search">Search</span>');
+    // ui-kit 0.9.8 (backlog 0073): one bullet per call, no count line.
+    expect(tools).not.toContain("1 page fetch, 1 web search");
     expect(tools).not.toContain('<span class="chip mono warn">fetch_url</span>');
   });
 

@@ -24,7 +24,6 @@ export function AppAssistantDrawer(props: {
   open: boolean;
   onClose: () => void;
   connected: boolean;
-  topOffset: number;
   gateway: GatewayClient;
 }): React.ReactElement {
   // Every request goes through the CURRENT client (auth mode can change
@@ -40,7 +39,6 @@ export function AppAssistantDrawer(props: {
       source={OBSERVER_DOCS_SOURCE}
       fetchGateway={fetch_gateway}
       connected={props.connected}
-      topOffset={props.topOffset}
       placeholder="Ask about the observer…"
       suggestions={OBSERVER_DOCS_SUGGESTIONS}
     />
