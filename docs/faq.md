@@ -221,7 +221,7 @@ Security guidance: `security.md`.
 ## Does it support voice (PTT / TTS)?
 Yes, through the gateway's voice routes and the kit's shared voice components (the same ones AbstractCode uses):
 - **Read aloud**: every reply in **Observe → Ask** and in an **Automations → Discuss** chat has a speaker button, and a run's outcome has **Read aloud**. Speech streams sentence by sentence (the first sentence plays while the next is synthesised); **Stop** ends it.
-- **Dictation**: the microphone in the Ask and Discuss composers. Hold it, or tap to start and tap again to stop. While the gateway transcribes, the line under the composer says `Transcribing… 4 s · faster-whisper / large-v3` (the route that will run). Failures read as a sentence.
+- **Dictation**: the microphone in the Ask and Discuss composers, on the right beside Send. Hold it, or tap to start and tap again to stop. While the gateway transcribes, the line under the composer says `Transcribing… 4 s · faster-whisper / large-v3` (the route that will run). Failures read as a sentence.
 - **Settings → Voice** is the kit's Voice section: engines show "Gateway default · supertonic / supertonic-3" from `GET /voice/defaults` (override per browser), output device + Test + volume, microphone + level meter + Test, spoken language, and **Read aloud** (speak each new reply).
 
 Gateway endpoints: `api.md` (Voice section).

@@ -49,7 +49,9 @@ the task first (its text, or its automation's title), then who it belongs to, th
 chain: the root run and every live subrun under it, one row each with its own words —
 "waits at build ↓", "running · llm_call open 38s", "asks a question · 6m", "stuck: subrun
 builder was cancelled 3h ago, this run was not resumed". The asking subrun's request sits
-under the chain with **Approve / Reject** or **Review & answer**; a stuck task shows an
+under the chain with **Approve / Reject** or **Review & answer**. Tool calls waiting for
+approval read in words ("needs your approval for a web search and an email", "Fetch the page
+example.org/news"), with the exact arguments behind **Exact arguments**; a stuck task shows an
 attention block instead: which run is stuck since when, one sentence built from the facts
 (which subrun ended how, and when), then **Cancel task** and **Open the run →**. Each subrun row has a stop control for that subrun alone;
 the card's ✕ cancels the task (its parents and subruns, never an automation's schedule), and

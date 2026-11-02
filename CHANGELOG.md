@@ -2,53 +2,43 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-02
+
+On AbstractUIC 0.9.0 (`@abstractframework/ui-kit` ^0.9.12, `@abstractframework/panel-chat` ^0.7.0,
+`@abstractframework/app-server` ^0.1.13; floors raised from ui-kit ^0.9.5 / panel-chat ^0.6.4).
+
 ### Changed
 
 - **The run chat and the automation discussion use the shared rounded multiline composer** from
   `@abstractframework/panel-chat` 0.7.0. The dictation microphone and the Stop-spoken-reply button sit on the right,
-  beside Send (the composer's `trailingActions`; `WorkflowChat`'s `composerTrailingActions` in the discussion, where
-  the run's Stop follows them), as 44 px round icon buttons. Keyboard rules are unchanged. Tests follow the kit's
-  current words: the Docs assistant footer ("Based on AbstractObserver documentation.") and the approval list without
-  a count line (ui-kit 0.9.8). Needs `@abstractframework/panel-chat` ^0.7.0 (was ^0.6.5) and
-  `@abstractframework/ui-kit` ^0.9.8 (was ^0.9.7), panel-chat's peer floor.
+  beside Send, as 44 px round icon buttons; in the discussion the run's Stop follows them. Keyboard rules are
+  unchanged.
+- **One account widget in the top bar** (ui-kit 0.9.6): your identity menu and the gateway connection status are one
+  control, the same in every AbstractFramework app, next to the kit's Docs assistant, Appearance and About.
+- **The Docs assistant drawer opens under the top bar** on its own (the kit measures the bar's height), so the bar
+  stays reachable while it is open. Its footer reads "Powered by AbstractObserver’s documentation."
 
 ### Fixed
 
-- **The waiting card reads as words** (operator QA 2026-10-29, ADR 0043, backlog 0006).
-  - It said "waiting · user · wait_key: tool_approval:dac02daa-…", the reason code and the raw key. Now it says
-    "Waiting for your approval of 4 tools since 7h 22m", "Waiting for your answer", "Waiting for a child run to
-    finish", and so on (`wait_card.ts`).
-  - An automation's tool wait adds: "This automation asks before these tools. To let it run unattended, set them
-    to Run in the automation's Tools." Runs that already wait are told where that is decided; nothing approves them
-    for the person.
-
-- **Read aloud no longer speaks existing messages** when opening a run chat or an automation discussion (operator 2026-10-29): a reply is spoken by
-  itself only when it was produced while the conversation is open (AbstractUIC panel-chat's rule, `readAloudStep`,
-  inlined in `read_aloud.ts` until the next kit release). The effect used to remember the newest reply before the
-  conversation had loaded, so the first loaded reply was spoken.
-
-### Fixed
-
-- **Approval calls read in words** (operator QA 2026-10-29, backlog 0007). The run page's approval panel, the
-  System page's waiting run and Mission Control's request glimpse listed each call as its tool name with its JSON
-  (`fetch_url { "url": … }`). They now use the kit's `ToolCallWordsList` / `describeToolCall`: "Fetch the page
-  example.org/news", "Search the web for AI news", and "2 web searches, 1 page fetch". The exact arguments stay
-  behind **Exact arguments**. This needs the ui-kit release that carries `ToolCallWordsList` (AbstractUIC 0068).
-
-### Fixed
-
-- **The state lines name the tools in words** (backlog 0008, after 0007). A run waiting on an approval said "needs
-  your approval: web_search, send_email". It now says "needs your approval for a web search and an email", in the
-  run lists, and "needs approval for 2 web searches and a page fetch" on Mission Control's cards. The words come
-  from the kit's tool nouns.
-
-### Fixed
-
-- **Tool results in "Recent session turns" read in words** (backlog 0009, operator 2026-10-29). The approval dialog
-  printed earlier tool results as raw JSON (a `skim_websearch` payload). A tool turn now reads "Tool result: Web
-  search returned 10 results", followed by the first titles, with the payload behind **Exact result**. The words
-  come from the kit's `describeToolResult` / `ToolResultWordsView` (AbstractUIC 0070), so this needs the ui-kit
-  release that carries them.
+- **The waiting card reads as words** (ADR 0043, backlog 0006). It said "waiting · user · wait_key:
+  tool_approval:dac02daa-…", the reason code and the raw key. It now says "Waiting for your approval of 4 tools since
+  7h 22m", "Waiting for your answer", "Waiting for a child run to finish", and so on. An automation's tool wait adds:
+  "This automation asks before these tools. To let it run unattended, set them to Auto in the automation's Tools."
+  Runs that already wait are told where that is decided; nothing approves them for you.
+- **Approval calls read in words** (backlog 0007). The run page's approval panel, the System page's waiting run and
+  Mission Control's request glimpse listed each call as its tool name with its JSON (`fetch_url { "url": … }`). They
+  now read "Fetch the page example.org/news", "Search the web for AI news", one line per call; the exact arguments
+  stay behind **Exact arguments**.
+- **The state lines name the tools in words** (backlog 0008). A run waiting on an approval said "needs your approval:
+  web_search, send_email". It now says "needs your approval for a web search and an email" in the run lists, and
+  "needs approval for 2 web searches and a page fetch" on Mission Control's cards.
+- **Tool results in "Recent session turns" read in words** (backlog 0009). The approval dialog printed earlier tool
+  results as raw JSON. A tool turn now reads "Tool result: Web search returned 10 results", followed by the first
+  titles, with the payload behind **Exact result**.
+- **Read aloud no longer speaks existing messages** when you open a run chat or an automation discussion: a reply is
+  spoken by itself only when it was produced while the conversation is open.
+- **A voice change never resumes a paused reply in the old voice**: after you pick another voice, the paused reply
+  is spoken again with the new one.
 
 ## [0.10.3] - 2026-10-28
 
