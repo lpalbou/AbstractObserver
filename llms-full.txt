@@ -102,6 +102,11 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
 - (Optional) **Voice**: Read aloud (streamed sentence by sentence) and dictation in Ask, run outcomes and Automations → Discuss; Settings → Voice is the kit's shared section showing the gateway's default routes (`src/ui/observer_voice.tsx`)
 
+## What's new
+
+0.11.0 reads approvals, waits and tool results in words, puts the dictation microphone beside Send in the
+shared composer, and uses the kit's one account widget. See [CHANGELOG.md](CHANGELOG.md#0110---2026-11-02).
+
 ## Watching entities (the entity app)
 
 The **entity app** (memory graph + visits UI) is its own package,
@@ -164,7 +169,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.10.3 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.11.0 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -241,7 +246,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -286,8 +291,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
-    "@abstractframework/panel-chat": "^0.6.4",
-    "@abstractframework/ui-kit": "^0.9.5",
+    "@abstractframework/panel-chat": "^0.7.0",
+    "@abstractframework/ui-kit": "^0.9.12",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -523,6 +528,44 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+## [0.11.0] - 2026-11-02
+
+On AbstractUIC 0.9.0 (`@abstractframework/ui-kit` ^0.9.12, `@abstractframework/panel-chat` ^0.7.0,
+`@abstractframework/app-server` ^0.1.13; floors raised from ui-kit ^0.9.5 / panel-chat ^0.6.4).
+
+### Changed
+
+- **The run chat and the automation discussion use the shared rounded multiline composer** from
+  `@abstractframework/panel-chat` 0.7.0. The dictation microphone and the Stop-spoken-reply button sit on the right,
+  beside Send, as 44 px round icon buttons; in the discussion the run's Stop follows them. Keyboard rules are
+  unchanged.
+- **One account widget in the top bar** (ui-kit 0.9.6): your identity menu and the gateway connection status are one
+  control, the same in every AbstractFramework app, next to the kit's Docs assistant, Appearance and About.
+- **The Docs assistant drawer opens under the top bar** on its own (the kit measures the bar's height), so the bar
+  stays reachable while it is open. Its footer reads "Powered by AbstractObserver’s documentation."
+
+### Fixed
+
+- **The waiting card reads as words** (ADR 0043, backlog 0006). It said "waiting · user · wait_key:
+  tool_approval:dac02daa-…", the reason code and the raw key. It now says "Waiting for your approval of 4 tools since
+  7h 22m", "Waiting for your answer", "Waiting for a child run to finish", and so on. An automation's tool wait adds:
+  "This automation asks before these tools. To let it run unattended, set them to Auto in the automation's Tools."
+  Runs that already wait are told where that is decided; nothing approves them for you.
+- **Approval calls read in words** (backlog 0007). The run page's approval panel, the System page's waiting run and
+  Mission Control's request glimpse listed each call as its tool name with its JSON (`fetch_url { "url": … }`). They
+  now read "Fetch the page example.org/news", "Search the web for AI news", one line per call; the exact arguments
+  stay behind **Exact arguments**.
+- **The state lines name the tools in words** (backlog 0008). A run waiting on an approval said "needs your approval:
+  web_search, send_email". It now says "needs your approval for a web search and an email" in the run lists, and
+  "needs approval for 2 web searches and a page fetch" on Mission Control's cards.
+- **Tool results in "Recent session turns" read in words** (backlog 0009). The approval dialog printed earlier tool
+  results as raw JSON. A tool turn now reads "Tool result: Web search returned 10 results", followed by the first
+  titles, with the payload behind **Exact result**.
+- **Read aloud no longer speaks existing messages** when you open a run chat or an automation discussion: a reply is
+  spoken by itself only when it was produced while the conversation is open.
+- **A voice change never resumes a paused reply in the old voice**: after you pick another voice, the paused reply
+  is spoken again with the new one.
 
 ## [0.10.3] - 2026-10-28
 
@@ -1473,7 +1516,9 @@ the task first (its text, or its automation's title), then who it belongs to, th
 chain: the root run and every live subrun under it, one row each with its own words —
 "waits at build ↓", "running · llm_call open 38s", "asks a question · 6m", "stuck: subrun
 builder was cancelled 3h ago, this run was not resumed". The asking subrun's request sits
-under the chain with **Approve / Reject** or **Review & answer**; a stuck task shows an
+under the chain with **Approve / Reject** or **Review & answer**. Tool calls waiting for
+approval read in words ("needs your approval for a web search and an email", "Fetch the page
+example.org/news"), with the exact arguments behind **Exact arguments**; a stuck task shows an
 attention block instead: which run is stuck since when, one sentence built from the facts
 (which subrun ended how, and when), then **Cancel task** and **Open the run →**. Each subrun row has a stop control for that subrun alone;
 the card's ✕ cancels the task (its parents and subruns, never an automation's schedule), and
@@ -1871,7 +1916,7 @@ Security guidance: `security.md`.
 ## Does it support voice (PTT / TTS)?
 Yes, through the gateway's voice routes and the kit's shared voice components (the same ones AbstractCode uses):
 - **Read aloud**: every reply in **Observe → Ask** and in an **Automations → Discuss** chat has a speaker button, and a run's outcome has **Read aloud**. Speech streams sentence by sentence (the first sentence plays while the next is synthesised); **Stop** ends it.
-- **Dictation**: the microphone in the Ask and Discuss composers. Hold it, or tap to start and tap again to stop. While the gateway transcribes, the line under the composer says `Transcribing… 4 s · faster-whisper / large-v3` (the route that will run). Failures read as a sentence.
+- **Dictation**: the microphone in the Ask and Discuss composers, on the right beside Send. Hold it, or tap to start and tap again to stop. While the gateway transcribes, the line under the composer says `Transcribing… 4 s · faster-whisper / large-v3` (the route that will run). Failures read as a sentence.
 - **Settings → Voice** is the kit's Voice section: engines show "Gateway default · supertonic / supertonic-3" from `GET /voice/defaults` (override per browser), output device + Test + volume, microphone + level meter + Test, spoken language, and **Read aloud** (speak each new reply).
 
 Gateway endpoints: `api.md` (Voice section).

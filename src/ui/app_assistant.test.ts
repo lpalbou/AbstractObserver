@@ -66,7 +66,7 @@ describe("observer Docs assistant (kit DocsAssistantDrawer)", () => {
     expect(html).toContain("pc-chat-item--user");
     expect(html).toContain("pc-chat-item--assistant");
     expect(html).toContain("<strong>Observe</strong>");
-    expect(html).toContain("Grounded on AbstractObserver’s documentation (llms.txt) · docs-qa");
+    expect(html).toContain("Powered by AbstractObserver’s documentation.");
   });
 
   it("the drawer: compact header, icon-only New conversation, close, suggestions, signed-out notice", () => {

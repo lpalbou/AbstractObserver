@@ -382,7 +382,7 @@ export function VoiceDictate(props: {
     <span className="voice_tools" data-voice-tools>
       <button
         type="button"
-        className={`btn btn_icon voice_btn${voice.voice_ptt_recording ? " danger" : ""}`}
+        className={`btn btn_icon voice_btn pc-workflow-chat__icon-button${voice.voice_ptt_recording ? " danger" : ""}`}
         data-action="dictate"
         aria-label={voice.voice_ptt_recording ? "Recording — tap or release to transcribe" : "Hold to dictate"}
         aria-pressed={voice.voice_ptt_recording}
@@ -409,7 +409,7 @@ export function VoiceDictate(props: {
         <Icon name={voice.voice_ptt_busy ? "loader" : "mic"} size={15} />
       </button>
       {voice.tts_playback.status !== "idle" ? (
-        <button type="button" className="btn btn_icon" data-action="stop-speaking" aria-label="Stop spoken reply" title="Stop spoken reply" onClick={voice.stop_tts}>
+        <button type="button" className="btn btn_icon pc-workflow-chat__icon-button" data-action="stop-speaking" aria-label="Stop spoken reply" title="Stop spoken reply" onClick={voice.stop_tts}>
           <Icon name="x" size={14} />
         </button>
       ) : null}

@@ -5173,7 +5173,6 @@ export function App(): React.ReactElement {
           open={assistant_open}
           onClose={() => set_assistant_open(false)}
           connected={gateway_connected}
-          topOffset={44}
           gateway={gateway}
         />
 
@@ -6507,7 +6506,7 @@ export function App(): React.ReactElement {
                         busyLabel={chat_voice.voice_ptt_busy ? "Transcribing…" : "Thinking…"}
                         rows={3}
                         sendButtonClassName="btn primary"
-                        actions={
+                        trailingActions={
                           <VoiceDictate
                             voice={chat_voice}
                             defaults={voice_defaults.value}

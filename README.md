@@ -10,6 +10,11 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - **Control** runs via durable commands (`pause`, `resume`, `cancel`)
 - (Optional) **Voice**: Read aloud (streamed sentence by sentence) and dictation in Ask, run outcomes and Automations → Discuss; Settings → Voice is the kit's shared section showing the gateway's default routes (`src/ui/observer_voice.tsx`)
 
+## What's new
+
+0.11.0 reads approvals, waits and tool results in words, puts the dictation microphone beside Send in the
+shared composer, and uses the kit's one account widget. See [CHANGELOG.md](CHANGELOG.md#0110---2026-11-02).
+
 ## Watching entities (the entity app)
 
 The **entity app** (memory graph + visits UI) is its own package,
@@ -72,7 +77,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.10.3 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.11.0 -- abstractobserver
 ```
 
 ### CLI configuration
