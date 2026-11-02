@@ -429,7 +429,7 @@ export function AutomationsListView(props: {
               on_toggle={() => props.h.on_show_paused?.(!st.show_paused)}
               controls="auto_paused_rows"
               title="Paused"
-              count={sections.paused.length}
+              count={st.paused_count ?? sections.paused.length}
               className="auto_paused_toggle"
             />
             {st.show_paused ? (

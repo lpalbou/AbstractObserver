@@ -37,6 +37,8 @@ describe("automation sections (ADR 0048)", () => {
     expect(folded).toContain('aria-expanded="false"');
     expect(folded).not.toContain("Consolidate my notes");
     expect(folded.indexOf("Bravo digest")).toBeLessThan(folded.indexOf("Alpha monitor"));
+    // The label carries the gateway's figure when it serves one (ADR 0048).
+    expect(html(state(served, { paused_count: 7 }))).toMatch(/Paused<\/span><span class="pane_count">7</);
     const opened = html(state(served, { show_paused: true }));
     expect(opened).toContain('aria-expanded="true"');
     expect(opened.indexOf("Alpha monitor")).toBeLessThan(opened.indexOf("Consolidate my notes"));

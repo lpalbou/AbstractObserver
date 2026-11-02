@@ -915,6 +915,8 @@ export type AutomationsState = {
   show_archived: boolean;
   /** ADR 0048: the Paused section is folded until opened. */
   show_paused: boolean;
+  /** The gateway's `paused_automations_count` of the newest list (null when it serves none). */
+  paused_count: number | null;
   selected_id: string;
   detail: AutomationDetailState | null;
   trigger_sources: TriggerSourceEntry[];
@@ -943,6 +945,7 @@ export const INITIAL_AUTOMATIONS_STATE: AutomationsState = {
   status_filter: "",
   show_archived: false,
   show_paused: false,
+  paused_count: null,
   selected_id: "",
   detail: null,
   trigger_sources: [],
@@ -1117,7 +1120,13 @@ export class AutomationsController {
 
   /** Every page of `GET /automations` (v1 has no change cursor). */
   async list_all(): Promise<AutomationSummary[]> {
+    return (await this.list_all_counted()).items;
+  }
+
+  /** Every page, plus the first page's `paused_automations_count` (ADR 0048; null when not served). */
+  async list_all_counted(): Promise<{ items: AutomationSummary[]; paused_count: number | null }> {
     const out: AutomationSummary[] = [];
+    let paused_count: number | null = null;
     let cursor: string | undefined = undefined;
     for (let guard = 0; guard < 200; guard += 1) {
       const page = await this.client.listAutomations({
@@ -1125,8 +1134,12 @@ export class AutomationsController {
         ...(cursor ? { cursor } : {}),
         limit: AUTOMATIONS_PAGE_LIMIT,
       });
+      if (!cursor) {
+        const n = (page as { paused_automations_count?: unknown }).paused_automations_count;
+        paused_count = typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+      }
       out.push(...page.items);
-      if (!page.next_cursor) return out;
+      if (!page.next_cursor) return { items: out, paused_count };
       cursor = page.next_cursor;
     }
     throw new Error("GET /api/gateway/automations kept returning next_cursor after 200 pages.");
@@ -1173,7 +1186,7 @@ export class AutomationsController {
     const seq = ++this.list_seq;
     this.set({ loading: true });
     try {
-      const items = await this.list_all();
+      const { items, paused_count } = await this.list_all_counted();
       void this.load_email_status();
       void this.load_trigger_vocab();
       if (seq !== this.list_seq) return;
@@ -1181,6 +1194,7 @@ export class AutomationsController {
       const fresh = detail ? items.find((s) => s.automation_id === detail.automation_id) : undefined;
       this.set({
         items,
+        paused_count,
         loaded: true,
         loading: false,
         list_error: null,
