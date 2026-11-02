@@ -529,6 +529,13 @@ export default defineConfig({
 
 ## [Unreleased]
 
+### Changed
+
+- **Automations open on the active ones; the paused ones fold under "Paused".** The list draws the
+  gateway's order (active ones first, most recent activity first) and keeps the paused ones in a
+  "Paused · N" section that opens on a click (framework ADR 0048). With a status filter, or with a
+  gateway that does not serve sections (0.19.0 and earlier), the list is drawn as before.
+
 ## [0.11.0] - 2026-11-02
 
 On AbstractUIC 0.9.0 (`@abstractframework/ui-kit` ^0.9.12, `@abstractframework/panel-chat` ^0.7.0,
