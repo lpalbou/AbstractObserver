@@ -5007,6 +5007,7 @@ export function App(): React.ReactElement {
     // below opens Launch in Automate mode (also from a pasted/bookmarked link).
     on_new: () => open_launch("automate"),
     on_show_archived: (show) => automations_ctl.set_show_archived(show),
+    on_show_paused: (show) => automations_ctl.set_show_paused(show),
   };
 
   return (

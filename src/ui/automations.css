@@ -274,6 +274,21 @@
   margin: 0 0 8px;
 }
 
+/* ADR 0048: the paused automations, folded under "Paused · N" after the active ones. */
+.auto_paused {
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.auto_paused_toggle {
+  align-self: flex-start;
+  color: var(--text-muted, inherit);
+}
+.auto_paused_toggle .pane_title {
+  font-size: inherit;
+}
+
 
 /* State as word then icon ("Active ▶", "Paused ⏸"). */
 .auto_state {

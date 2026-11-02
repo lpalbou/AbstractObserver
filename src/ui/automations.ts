@@ -913,6 +913,8 @@ export type AutomationsState = {
   status_filter: AutomationStatus | "";
   /** Archived automations are hidden unless asked for (or filtered on). */
   show_archived: boolean;
+  /** ADR 0048: the Paused section is folded until opened. */
+  show_paused: boolean;
   selected_id: string;
   detail: AutomationDetailState | null;
   trigger_sources: TriggerSourceEntry[];
@@ -940,6 +942,7 @@ export const INITIAL_AUTOMATIONS_STATE: AutomationsState = {
   refreshed_at: null,
   status_filter: "",
   show_archived: false,
+  show_paused: false,
   selected_id: "",
   detail: null,
   trigger_sources: [],
@@ -1022,6 +1025,20 @@ export function wait_answer_payload(kind: unknown, payload: Record<string, any>)
 export function visible_automations(state: Pick<AutomationsState, "items" | "status_filter" | "show_archived">): AutomationSummary[] {
   if (state.show_archived || state.status_filter === "archived") return state.items;
   return state.items.filter((s) => s.status !== "archived");
+}
+
+/**
+ * ADR 0048: the rows in the gateway's order, split by the `section` it serves: the active ones,
+ * then the paused ones (drawn folded under "Paused"). Nothing is sorted or decided here. A status
+ * filter, or a gateway that serves no `section` (0.19.0 and earlier), draws every row as today.
+ */
+export function automation_sections(
+  state: Pick<AutomationsState, "items" | "status_filter" | "show_archived">,
+): { main: AutomationSummary[]; paused: AutomationSummary[] } {
+  const rows = visible_automations(state);
+  const section = (s: AutomationSummary): unknown => (s as AutomationSummary & { section?: unknown }).section;
+  if (state.status_filter || !rows.some((s) => typeof section(s) === "string")) return { main: rows, paused: [] };
+  return { main: rows.filter((s) => section(s) !== "paused"), paused: rows.filter((s) => section(s) === "paused") };
 }
 
 export function archived_count(state: Pick<AutomationsState, "items">): number {
@@ -1413,6 +1430,10 @@ export class AutomationsController {
 
   set_show_archived(show: boolean): void {
     this.set({ show_archived: show });
+  }
+
+  set_show_paused(show: boolean): void {
+    this.set({ show_paused: show });
   }
 
   ask_archive(id: string): void {

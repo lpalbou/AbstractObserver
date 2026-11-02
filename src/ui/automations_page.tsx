@@ -60,6 +60,7 @@ import {
   archived_count,
   automation_row_view,
   discussion_notice,
+  automation_sections,
   visible_automations,
   is_legacy_summary,
   legacy_row_controls,
@@ -80,6 +81,8 @@ export type AutomationsHandlers = {
   on_refresh(): void;
   on_new(): void;
   on_show_archived(show: boolean): void;
+  /** Open or fold the Paused section (ADR 0048). */
+  on_show_paused?(show: boolean): void;
   /** Dismiss the list's feedback line / error (the page wires these to the controller). */
   on_dismiss_notice?(): void;
   on_dismiss_error?(): void;
@@ -318,6 +321,7 @@ export function AutomationsListView(props: {
   const st = props.state;
   const open = props.list ? props.list.open : true;
   const shown = st.error ?? st.list_error;
+  const sections = automation_sections(st);
   const err = shown ? apiErrorText(shown) : null;
   return (
     <section className={`pane auto_list${open ? "" : " list_collapsed"}`} aria-label="Automations">
@@ -414,10 +418,29 @@ export function AutomationsListView(props: {
           </div>
         ) : null}
         <ul className="auto_rows">
-          {visible_automations(st).map((s) => (
+          {sections.main.map((s) => (
             <AutomationRow key={s.automation_id} summary={s} state={st} h={props.h} />
           ))}
         </ul>
+        {sections.paused.length ? (
+          <div className="auto_paused" data-open={st.show_paused ? "true" : "false"}>
+            <ListDisclosure
+              open={st.show_paused}
+              on_toggle={() => props.h.on_show_paused?.(!st.show_paused)}
+              controls="auto_paused_rows"
+              title="Paused"
+              count={sections.paused.length}
+              className="auto_paused_toggle"
+            />
+            {st.show_paused ? (
+              <ul className="auto_rows" id="auto_paused_rows" aria-label="Paused automations">
+                {sections.paused.map((s) => (
+                  <AutomationRow key={s.automation_id} summary={s} state={st} h={props.h} />
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </section>
   );
