@@ -104,6 +104,9 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
+0.12.0 opens Automations on the active ones, most recent activity first, and folds the paused ones under
+"Paused · N" (with AbstractGateway 0.20.0). See [CHANGELOG.md](CHANGELOG.md#0120---2026-11-03).
+
 0.11.0 reads approvals, waits and tool results in words, puts the dictation microphone beside Send in the
 shared composer, and uses the kit's one account widget. See [CHANGELOG.md](CHANGELOG.md#0110---2026-11-02).
 
@@ -169,7 +172,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.11.0 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.12.0 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -246,7 +249,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -292,7 +295,7 @@ See `docs/development.md` for details.
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
     "@abstractframework/panel-chat": "^0.7.0",
-    "@abstractframework/ui-kit": "^0.9.12",
+    "@abstractframework/ui-kit": "^0.9.14",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -528,6 +531,13 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+## [0.12.0] - 2026-11-03
+
+On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
+and avatars that look at you with their eyes only. `@abstractframework/panel-chat` stays ^0.7.0.
+Needs AbstractGateway 0.20.0 for the active-first order and the Paused section; with an older gateway the
+list is drawn as before.
 
 ### Changed
 
@@ -1479,7 +1489,7 @@ It serves a static single-page app (`dist/`) via a small Node.js CLI (`bin/cli.j
 
 ## Prerequisites
 - Node.js `>=18`
-- A running **AbstractGateway** (base URL, e.g. `http://127.0.0.1:8080`); voice and the Board's archived runs need AbstractGateway 0.13.0 or later; the Board's millisecond listings and its last-known-board paint on reload need AbstractGateway 0.15.0 over AbstractRuntime 0.10.1
+- A running **AbstractGateway** (base URL, e.g. `http://127.0.0.1:8080`); voice and the Board's archived runs need AbstractGateway 0.13.0 or later; the Board's millisecond listings and its last-known-board paint on reload need AbstractGateway 0.15.0 over AbstractRuntime 0.10.1; the active-first Automations list and its "Paused · N" section need AbstractGateway 0.20.0
 - In hosted user-auth mode, a Gateway user id and that user's token
 
 ## Run AbstractObserver

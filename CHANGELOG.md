@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-03
+
+On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
+and avatars that look at you with their eyes only. `@abstractframework/panel-chat` stays ^0.7.0.
+Needs AbstractGateway 0.20.0 for the active-first order and the Paused section; with an older gateway the
+list is drawn as before.
+
 ### Changed
 
 - **Automations open on the active ones; the paused ones fold under "Paused".** The list draws the
