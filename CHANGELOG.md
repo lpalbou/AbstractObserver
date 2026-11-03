@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-03
+
+Needs AbstractGateway 0.20.0 for the active-first order and the Paused section; with an older gateway the
+list is drawn as before.
+
 ### Changed
 
 - **Automations open on the active ones; the paused ones fold under "Paused".** The list draws the

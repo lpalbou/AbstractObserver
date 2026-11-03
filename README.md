@@ -12,6 +12,9 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
+0.12.0 opens Automations on the active ones, most recent activity first, and folds the paused ones under
+"Paused · N" (with AbstractGateway 0.20.0). See [CHANGELOG.md](CHANGELOG.md#0120---2026-11-03).
+
 0.11.0 reads approvals, waits and tool results in words, puts the dictation microphone beside Send in the
 shared composer, and uses the kit's one account widget. See [CHANGELOG.md](CHANGELOG.md#0110---2026-11-02).
 
@@ -77,7 +80,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.11.0 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.12.0 -- abstractobserver
 ```
 
 ### CLI configuration
