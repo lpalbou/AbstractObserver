@@ -295,7 +295,7 @@ See `docs/development.md` for details.
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
     "@abstractframework/panel-chat": "^0.7.0",
-    "@abstractframework/ui-kit": "^0.9.12",
+    "@abstractframework/ui-kit": "^0.9.13",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -534,6 +534,8 @@ export default defineConfig({
 
 ## [0.12.0] - 2026-11-03
 
+On `@abstractframework/ui-kit` ^0.9.13 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
+and avatars that look at you with their eyes only. `@abstractframework/panel-chat` stays ^0.7.0.
 Needs AbstractGateway 0.20.0 for the active-first order and the Paused section; with an older gateway the
 list is drawn as before.
 
