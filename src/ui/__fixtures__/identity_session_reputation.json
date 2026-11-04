@@ -1,0 +1,50 @@
+{
+    "subject": "session:q7-demo",
+    "identity_ref": null,
+    "computed_at": "2026-11-04T03:04:00.680360+00:00",
+    "overall": {
+        "trust": 0.6666666666666666,
+        "support": 2,
+        "successes": 2,
+        "failures": 0,
+        "last_outcome_at": "2026-11-04T02:59:37.856964+00:00",
+        "text": "trust 0.67 over 2 outcomes"
+    },
+    "by_task_kind": {
+        "chat/basic@dev:06af7170": {
+            "trust": 0.6666666666666666,
+            "support": 1,
+            "successes": 1,
+            "failures": 0,
+            "last_outcome_at": "2026-11-04T02:59:37.856964+00:00",
+            "text": "trust 0.67 over 1 outcome"
+        },
+        "chat/diagram-render@0.2.0:diagram-render": {
+            "trust": 0.6666666666666666,
+            "support": 1,
+            "successes": 1,
+            "failures": 0,
+            "last_outcome_at": "2026-11-04T02:59:37.796268+00:00",
+            "text": "trust 0.67 over 1 outcome"
+        }
+    },
+    "evidence": [
+        {
+            "run_id": "b3693549-a0a3-43eb-af09-0fcde2b8c49c",
+            "task_kind": "chat/diagram-render@0.2.0:diagram-render",
+            "outcome": "success",
+            "at": "2026-11-04T02:59:37.796268+00:00",
+            "signal": "run_completed",
+            "by": null
+        },
+        {
+            "run_id": "8ea5e8af-6af1-49f7-8ff8-3bb48b19d74b",
+            "task_kind": "chat/basic@dev:06af7170",
+            "outcome": "success",
+            "at": "2026-11-04T02:59:37.856964+00:00",
+            "signal": "run_completed",
+            "by": null
+        }
+    ],
+    "basis": "completion-rate only"
+}

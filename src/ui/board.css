@@ -206,6 +206,37 @@
   border-color: var(--pane-border-strong);
 }
 
+/* The name with the entity's orb before it (identity.tsx); the orb sits on the tile's ground. */
+.mc_entity_title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  /* Clear of the tile's corner arrow; a refusal sentence takes the next line(s). */
+  padding-right: 14px;
+  flex-wrap: wrap;
+}
+
+.mc_entity_title .idn_orb {
+  order: -1;
+  /* Drawn larger than the name's line without making the line taller (the strip's reserved
+   * height, .mc_entities_reserved, is the loaded row's). */
+  margin-block: -7px;
+  --bg-primary: var(--raised-bg);
+}
+
+/* The name keeps its room; the gateway's sentence takes what is left (full text on hover). */
+.mc_entity_title .mc_entity_name {
+  flex: none;
+  max-width: 100%;
+}
+
+.mc_entity_title .idn_look_error {
+  /* Under the name, the tile's whole width, wrapped; it never widens the tile. */
+  flex: 1 0 100%;
+  contain: inline-size;
+}
+
 .mc_entity_name {
   font-size: var(--t-section);
   font-weight: 650;

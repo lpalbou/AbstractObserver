@@ -50,6 +50,7 @@ import {
   type StateLine,
   pill_word as shared_pill_word,
 } from "./state_line";
+import { TrackRecordLine, type RecordRead } from "./identity";
 import "./agent_page.css";
 
 export type AgentPageProps = {
@@ -85,6 +86,9 @@ export type AgentPageProps = {
   /** Copy handler (the app's status-line copy); falls back to the clipboard helper. */
   on_copy?(text: string): void;
   ask_window_note?: string;
+  /** The conversation's track record and trust (`GET /sessions/{id}/track-record` + `/reputation`),
+   * read by the host when the page opens, never on its poll. */
+  record: RecordRead;
 };
 
 // --- folding the props into one view ---------------------------------------------
@@ -943,6 +947,7 @@ export function AgentPage(props: AgentPageProps): React.ReactElement {
         {props.loading.detail ? <Note kind="loading">reading the run detail… (the line above is from the listing row)</Note> : null}
         {props.errors.detail ? <Note kind="error">run detail unavailable: {props.errors.detail} (the line above is from the listing row)</Note> : null}
         {props.detail && !fresh ? <Note kind="info">the listing row is newer than the detail: the line above is from the row</Note> : null}
+        <TrackRecordLine read={props.record} />
       </header>
 
       <ProfileBlock prof={prof} p={props} line={line} ctx={ctx} />

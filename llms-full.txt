@@ -532,6 +532,20 @@ export default defineConfig({
 
 ## [Unreleased]
 
+Needs AbstractGateway 0.20.0 (the digital identity routes); with an older gateway the tiles are drawn as before and the
+agent page's track-record line shows the gateway's refusal.
+
+### Added
+
+- **Entities on the Board wear their look** (framework ADR 0052): each entity tile draws the design and colour its
+  identity names, from the gateway's record at that revision; hovering it names the design, the colour and the voice.
+  Each identity is read once while the page is open. When the look cannot be read, the tile shows the gateway's
+  sentence in full under the name and draws nothing in its place; an entity without an identity keeps its tile as before.
+- **The agent page says how the conversation has gone**, under the state: "2 runs · 2 succeeded · 0 failed · trust 0.67
+  over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)", then "A success here only
+  means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience
+  yet". Read when the page opens, never on its poll.
+
 ## [0.12.0] - 2026-11-03
 
 On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
@@ -2053,8 +2067,8 @@ sequenceDiagram
 ## UI structure (pages → code)
 AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
-- **Board** (Mission Control landing page: one card per task — root run or automation turn — in one of five blocker lanes Needs you / Working / Waiting on… / Scheduled / Done, the chain of subruns inside each card, inline wait answers, per-lane cancel-all, the persisted last known board): `src/ui/mission_control.tsx` over `src/ui/state_line.ts` (one vocabulary: the state sentence, lane, subject and title of a run — shared with the Agent view) and `src/ui/board_data.ts` (the metric-free poll, the 60 s sweep, and the lazy session-scoped caches: automation briefs, task excerpts, last-record pulses, wait details) + `GatewayClient.list_entities()` / `get_entity_card()`
-- **Agent view** (Observe → Agent, where a board card opens): `src/ui/agent_page.tsx` + `agent_facts.ts` (pure folds: can-do, pins with values, context receipt, run tree, spend) + `pins.tsx` / `pin_palette.ts` (AbstractFlow's pin shapes and colours, mirrored)
+- **Board** (Mission Control landing page: one card per task — root run or automation turn — in one of five blocker lanes Needs you / Working / Waiting on… / Scheduled / Done, the chain of subruns inside each card, inline wait answers, per-lane cancel-all, the persisted last known board): `src/ui/mission_control.tsx` over `src/ui/state_line.ts` (one vocabulary: the state sentence, lane, subject and title of a run — shared with the Agent view) and `src/ui/board_data.ts` (the metric-free poll, the 60 s sweep, and the lazy session-scoped caches: automation briefs, task excerpts, last-record pulses, wait details) + `GatewayClient.list_entities()` / `get_entity_card()`; each entity tile draws the look its identity reference names (`src/ui/identity.tsx`: `IdentityLooks`, one `GET /entities/{name}/identity?rev=N` per reference, the kit's `ActivityAvatar` in the entity's colour)
+- **Agent view** (Observe → Agent, where a board card opens): `src/ui/agent_page.tsx` + `agent_facts.ts` (pure folds: can-do, pins with values, context receipt, run tree, spend) + `pins.tsx` / `pin_palette.ts` (AbstractFlow's pin shapes and colours, mirrored); the header's track-record line is `TrackRecordLine` in `src/ui/identity.tsx` (the host reads the session's track record and reputation when the page opens)
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
 - **Launch** (Run once | Automate, bundle upload/reload): `src/ui/app.tsx`, `src/ui/automate_form.tsx` + `GatewayClient.start_run()` / the ui-kit automations client
@@ -2266,6 +2280,9 @@ These power additional pages/drawers. If your gateway does not expose them, the 
 - **Entities strip (Board page)** — cheap reads only, never replay folds
   - `GET /api/gateway/entities` — roster (names)
   - `GET /api/gateway/entities/{name}/card` — per-entity card (state object, age, moments, `as_of_seq`)
+  - `GET /api/gateway/entities/{name}/identity?rev=N` — the look a tile draws (framework ADR 0052; AbstractGateway 0.20.0): the roster row's `identity.rev` with its `entity_id` is the tile's identity reference; the record at that revision gives the design, colour and voice. Read once per reference while the page is open (a poll reads nothing new; a new revision is read once). A row without `identity` keeps the tile as before; a refused read shows the gateway's sentence in full on the tile (wrapped under the name) and draws nothing.
+- **Track record (Observe → Agent)** — read when the agent page opens on a conversation, never on its poll (AbstractGateway 0.20.0)
+  - `GET /api/gateway/sessions/{session_id}/track-record` and `/reputation` — runs, successes, failures and the overall trust with its support, written as "2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)" followed by "A success here only means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience yet" when nothing has an outcome; a refusal is shown as the gateway's sentence
 - **Gateway discovery helpers**
   - `GET /api/gateway/discovery/tools`
   - `GET /api/gateway/discovery/providers?include_models=true|false`

@@ -1,0 +1,48 @@
+/* Digital identity (framework ADR 0052): the entity's orb and the agent page's track-record line. */
+
+.idn_orb {
+  display: inline-flex;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.idn_orb canvas {
+  display: block;
+}
+
+.idn_orb_reading {
+  border: 1px dashed var(--pane-border);
+  box-sizing: border-box;
+}
+
+/* The gateway's sentence, whole: it wraps, never cut (the tooltip repeats it). */
+.idn_look_error {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--t-small);
+  color: var(--error);
+}
+
+.ap_record {
+  margin: 6px 0 0;
+  font-size: var(--t-small);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ap_record_label {
+  color: var(--text-muted);
+}
+
+.ap_record_trust {
+  color: var(--text-primary);
+}
+
+.ap_record_basis {
+  display: block;
+}
+
+.ap_record_error {
+  color: var(--error);
+}

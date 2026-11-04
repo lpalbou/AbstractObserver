@@ -26,6 +26,8 @@ const DETAIL_WAITING = fix("occ5_detail_waiting.json");
 const AUTOMATION = fix("automation.json");
 const AUTOMATION_WAITING = fix("automation_while_waiting.json");
 const SESSION_ROWS: RunSummary[] = fix("session_runs_metrics.json").items;
+const SESSION_RECORD = fix("identity_session_track_record.json");
+const SESSION_REPUTATION = fix("identity_session_reputation.json");
 const WAITING_ROWS: RunSummary[] = fix("runs_while_waiting.json").items;
 
 const OCC = "02c4a311-4e44-508d-96fb-98a205928054";
@@ -75,9 +77,19 @@ function props(over: Partial<AgentPageProps> = {}): AgentPageProps {
     on_open_run: noop,
     on_ask: noop,
     on_action: noop,
+    record: { session_id: "q7-demo", loading: false, error: "", record: SESSION_RECORD, reputation: SESSION_REPUTATION },
     ...over,
   };
 }
+
+describe("AgentPage — the conversation's track record (framework ADR 0052)", () => {
+  it("the header carries the one plain line, read from the live session answer", () => {
+    const m = html(<AgentPage {...props()} />);
+    const header = m.slice(m.indexOf("<header"), m.indexOf("</header>"));
+    expect(text(header)).toContain("Track record: 2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)");
+    expect(text(header)).toContain("A success here only means the task finished: nobody has judged the quality of the work yet.");
+  });
+});
 
 describe("AgentPage — wave-3 gate on the live basic-agent 0.0.5 occurrence", () => {
   const m = html(<AgentPage {...props()} />);
@@ -386,7 +398,7 @@ describe("GATE-1 pins (agent page)", () => {
     const ctl = base({ run_id: "ctl", role: "controller", session_kind: "automation", automation_id: "ctl", waiting: { reason: "event", until: new Date(NOW_MS + 3_600_000).toISOString() } });
     const paused = { ...fold_automation_brief({ summary: { automation_id: "ctl", title: "Nightly", status: "paused", trigger: { source_id: "schedule", config: { every: "24h" } } }, definition: {} })! };
     const out = html(
-      <AgentPage run={ctl} detail={null} input_data={null} flow={null} automation={paused} runs={[ctl]} now_ms={NOW_MS} loading={{ detail: false, input_data: false, flow: false }} errors={{}} on_open_run={() => undefined} on_ask={() => undefined} on_action={() => undefined} />,
+      <AgentPage run={ctl} detail={null} input_data={null} flow={null} automation={paused} runs={[ctl]} now_ms={NOW_MS} loading={{ detail: false, input_data: false, flow: false }} errors={{}} on_open_run={() => undefined} on_ask={() => undefined} on_action={() => undefined} record={{ session_id: "", loading: false, error: "", record: null, reputation: null }} />,
     );
     const header = out.slice(out.indexOf('class="ap_header"'), out.indexOf('class="ap_block"'));
     expect(header).toContain(">paused<");
@@ -398,7 +410,7 @@ describe("GATE-1 pins (agent page)", () => {
     const raw = base({ run_id: "s", session_id: "sess-1", status: "waiting", waiting: { reason: "user", prompt: "Go?" }, updated_at: at(20) });
     const detail = { run_id: "s", status: "completed", updated_at: at(1), created_at: at(30), waiting: null, paused: false, current_node: null, error: null };
     const out = html(
-      <AgentPage run={raw} detail={detail} input_data={null} flow={null} automation={null} runs={[raw]} now_ms={NOW_MS} loading={{ detail: false, input_data: false, flow: false }} errors={{}} on_open_run={() => undefined} on_ask={() => undefined} on_action={() => undefined} />,
+      <AgentPage run={raw} detail={detail} input_data={null} flow={null} automation={null} runs={[raw]} now_ms={NOW_MS} loading={{ detail: false, input_data: false, flow: false }} errors={{}} on_open_run={() => undefined} on_ask={() => undefined} on_action={() => undefined} record={{ session_id: "", loading: false, error: "", record: null, reputation: null }} />,
     );
     const tree = out.slice(out.indexOf("Run tree"));
     expect(tree).toContain("completed in");
