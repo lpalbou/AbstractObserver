@@ -2,8 +2,12 @@
 
 ## [Unreleased]
 
-Needs AbstractGateway 0.20.0 (the digital identity routes); with an older gateway the tiles are drawn as before and the
-agent page's track-record line shows the gateway's refusal.
+## [0.12.0] - 2026-11-04
+
+On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
+and avatars that look at you with their eyes only. `@abstractframework/panel-chat` stays ^0.7.0.
+Needs AbstractGateway 0.20.0 for the digital identity routes, the active-first order and the Paused section; with an
+older gateway the tiles and the list are drawn as before and the agent page's track-record line shows the gateway's refusal.
 
 ### Added
 
@@ -15,13 +19,6 @@ agent page's track-record line shows the gateway's refusal.
   over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)", then "A success here only
   means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience
   yet". Read when the page opens, never on its poll.
-
-## [0.12.0] - 2026-11-03
-
-On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
-and avatars that look at you with their eyes only. `@abstractframework/panel-chat` stays ^0.7.0.
-Needs AbstractGateway 0.20.0 for the active-first order and the Paused section; with an older gateway the
-list is drawn as before.
 
 ### Changed
 
