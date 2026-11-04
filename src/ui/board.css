@@ -212,8 +212,9 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  /* Clear of the tile's corner arrow. */
+  /* Clear of the tile's corner arrow; a refusal sentence takes the next line(s). */
   padding-right: 14px;
+  flex-wrap: wrap;
 }
 
 .mc_entity_title .idn_orb {
@@ -231,8 +232,8 @@
 }
 
 .mc_entity_title .idn_look_error {
-  flex: 1 1 0;
-  /* The sentence never widens the tile: it takes the room the name leaves. */
+  /* Under the name, the tile's whole width, wrapped; it never widens the tile. */
+  flex: 1 0 100%;
   contain: inline-size;
 }
 

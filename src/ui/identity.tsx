@@ -207,21 +207,24 @@ function plural(n: number, one: string, many: string): string {
 }
 
 /** The track record in words: counts, trust with its support, and what the numbers are. */
-export function track_record_words(record: any, reputation: any): { counts: string; trust: string; basis: string } {
+export function track_record_words(record: any, reputation: any): { counts: string; trust: string; gloss: string; basis: string } {
   const runs = count_of(record, "runs", "track record");
   const successes = count_of(record, "successes", "track record");
   const failures = count_of(record, "failures", "track record");
   const overall = reputation?.overall;
   const support = count_of(overall, "support", "trust");
+  const finished = count_of(overall, "successes", "trust");
   const trust = overall?.trust;
   if (typeof trust !== "number" || !Number.isFinite(trust)) throw new Error("The trust has no value.");
   const counts = runs ? `${plural(runs, "run", "runs")} · ${successes.toLocaleString("en-US")} succeeded · ${failures.toLocaleString("en-US")} failed` : "";
-  if (!support) return { counts, trust: "No experience yet", basis: "" };
+  if (!support) return { counts, trust: "No experience yet", gloss: "", basis: "" };
   const basis = String(reputation?.basis ?? record?.basis ?? "").trim();
   return {
     counts,
     trust: `trust ${trust.toFixed(2)} over ${plural(support, "outcome", "outcomes")}`,
-    basis: basis === COMPLETION_ONLY ? "completion rate only, nobody has judged the quality yet" : basis,
+    // The same words as the Entity app's track record (one wording for both apps).
+    gloss: `${finished.toLocaleString("en-US")} of ${support.toLocaleString("en-US")} finished; trust starts in the middle and moves with each outcome`,
+    basis: basis === COMPLETION_ONLY ? "A success here only means the task finished: nobody has judged the quality of the work yet." : basis,
   };
 }
 
@@ -239,7 +242,8 @@ function record_body(r: RecordRead): React.ReactNode {
     <>
       {words.counts ? <span className="ap_record_counts">{words.counts} · </span> : null}
       <span className="ap_record_trust">{words.counts ? words.trust.charAt(0).toLowerCase() + words.trust.slice(1) : words.trust}</span>
-      {words.basis ? <span className="ap_record_basis"> ({words.basis})</span> : null}
+      {words.gloss ? <span className="ap_record_gloss"> ({words.gloss})</span> : null}
+      {words.basis ? <span className="ap_record_basis">{words.basis}</span> : null}
     </>
   );
 }

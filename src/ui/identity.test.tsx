@@ -125,20 +125,22 @@ describe("the track record in plain words", () => {
     expect(track_record_words(SESSION_RECORD, SESSION_REPUTATION)).toEqual({
       counts: "2 runs · 2 succeeded · 0 failed",
       trust: "trust 0.67 over 2 outcomes",
-      basis: "completion rate only, nobody has judged the quality yet",
+      gloss: "2 of 2 finished; trust starts in the middle and moves with each outcome",
+      basis: "A success here only means the task finished: nobody has judged the quality of the work yet.",
     });
   });
   it("no outcome yet reads 'No experience yet', never a trust number", () => {
     const w = track_record_words(EMPTY_RECORD, EMPTY_REPUTATION);
-    expect(w).toEqual({ counts: "", trust: "No experience yet", basis: "" });
+    expect(w).toEqual({ counts: "", trust: "No experience yet", gloss: "", basis: "" });
     expect(EMPTY_REPUTATION.overall.trust).toBe(0.5);
     // Runs without an outcome yet (all still running): the counts, and still no trust number.
     const running = { ...EMPTY_RECORD, runs: 2, in_progress: 2 };
-    expect(track_record_words(running, EMPTY_REPUTATION)).toEqual({ counts: "2 runs · 0 succeeded · 0 failed", trust: "No experience yet", basis: "" });
+    expect(track_record_words(running, EMPTY_REPUTATION)).toEqual({ counts: "2 runs · 0 succeeded · 0 failed", trust: "No experience yet", gloss: "", basis: "" });
   });
   it("one outcome is singular; a basis the Observer does not know is shown as the gateway wrote it", () => {
-    const one = { ...SESSION_REPUTATION, overall: { ...SESSION_REPUTATION.overall, support: 1, trust: 2 / 3 } };
+    const one = { ...SESSION_REPUTATION, overall: { ...SESSION_REPUTATION.overall, support: 1, successes: 1, trust: 2 / 3 } };
     expect(track_record_words({ ...SESSION_RECORD, runs: 1, successes: 1 }, one).trust).toBe("trust 0.67 over 1 outcome");
+    expect(track_record_words({ ...SESSION_RECORD, runs: 1, successes: 1 }, one).gloss).toBe("1 of 1 finished; trust starts in the middle and moves with each outcome");
     expect(track_record_words(SESSION_RECORD, { ...SESSION_REPUTATION, basis: "assessed by people" }).basis).toBe("assessed by people");
   });
   it("an answer without its counts fails loudly", () => {
@@ -151,7 +153,10 @@ describe("TrackRecordLine", () => {
   const read = (over: Partial<RecordRead>): RecordRead => ({ session_id: "q7-demo", loading: false, error: "", record: SESSION_RECORD, reputation: SESSION_REPUTATION, ...over });
   it("one line, plain copy, no jargon", () => {
     const t = text(<TrackRecordLine read={read({})} />);
-    expect(t).toBe("Track record: 2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (completion rate only, nobody has judged the quality yet)");
+    expect(t).toBe(
+      "Track record: 2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)" +
+        "A success here only means the task finished: nobody has judged the quality of the work yet.",
+    );
     for (const word of ["ledger", "basis", "run_id", "session:", "completion-rate", "q7-demo"]) expect(t).not.toContain(word);
   });
   it("'No experience yet' leads the line when nothing has an outcome", () => {

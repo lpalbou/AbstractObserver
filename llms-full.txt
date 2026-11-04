@@ -540,10 +540,11 @@ agent page's track-record line shows the gateway's refusal.
 - **Entities on the Board wear their look** (framework ADR 0052): each entity tile draws the design and colour its
   identity names, from the gateway's record at that revision; hovering it names the design, the colour and the voice.
   Each identity is read once while the page is open. When the look cannot be read, the tile shows the gateway's
-  sentence and draws nothing in its place; an entity without an identity keeps its tile as before.
-- **The agent page says how the conversation has gone**: one line under the state, "2 runs · 2 succeeded · 0 failed ·
-  trust 0.67 over 2 outcomes (completion rate only, nobody has judged the quality yet)", or "No experience yet".
-  Read when the page opens, never on its poll.
+  sentence in full under the name and draws nothing in its place; an entity without an identity keeps its tile as before.
+- **The agent page says how the conversation has gone**, under the state: "2 runs · 2 succeeded · 0 failed · trust 0.67
+  over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)", then "A success here only
+  means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience
+  yet". Read when the page opens, never on its poll.
 
 ## [0.12.0] - 2026-11-03
 
@@ -2279,9 +2280,9 @@ These power additional pages/drawers. If your gateway does not expose them, the 
 - **Entities strip (Board page)** — cheap reads only, never replay folds
   - `GET /api/gateway/entities` — roster (names)
   - `GET /api/gateway/entities/{name}/card` — per-entity card (state object, age, moments, `as_of_seq`)
-  - `GET /api/gateway/entities/{name}/identity?rev=N` — the look a tile draws (framework ADR 0052; AbstractGateway 0.20.0): the roster row's `identity.rev` with its `entity_id` is the tile's identity reference; the record at that revision gives the design, colour and voice. Read once per reference while the page is open (a poll reads nothing new; a new revision is read once). A row without `identity` keeps the tile as before; a refused read shows the gateway's sentence on the tile and draws nothing.
+  - `GET /api/gateway/entities/{name}/identity?rev=N` — the look a tile draws (framework ADR 0052; AbstractGateway 0.20.0): the roster row's `identity.rev` with its `entity_id` is the tile's identity reference; the record at that revision gives the design, colour and voice. Read once per reference while the page is open (a poll reads nothing new; a new revision is read once). A row without `identity` keeps the tile as before; a refused read shows the gateway's sentence in full on the tile (wrapped under the name) and draws nothing.
 - **Track record (Observe → Agent)** — read when the agent page opens on a conversation, never on its poll (AbstractGateway 0.20.0)
-  - `GET /api/gateway/sessions/{session_id}/track-record` and `/reputation` — runs, successes, failures and the overall trust with its support, written as "2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (completion rate only, nobody has judged the quality yet)", or "No experience yet" when nothing has an outcome; a refusal is shown as the gateway's sentence
+  - `GET /api/gateway/sessions/{session_id}/track-record` and `/reputation` — runs, successes, failures and the overall trust with its support, written as "2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)" followed by "A success here only means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience yet" when nothing has an outcome; a refusal is shown as the gateway's sentence
 - **Gateway discovery helpers**
   - `GET /api/gateway/discovery/tools`
   - `GET /api/gateway/discovery/providers?include_models=true|false`

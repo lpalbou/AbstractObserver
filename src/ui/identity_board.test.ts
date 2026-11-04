@@ -15,6 +15,7 @@ const CASTOR_REV1 = JSON.parse(readFileSync(join(__dirname, "__fixtures__", "ide
 describe("entity tiles drawn by their identity refs (framework ADR 0052)", () => {
   let browser: Browser | null = null;
   let bundle = "";
+  let css = "";
   beforeAll(async () => {
     const entry = "\0identity-board-probe";
     const mc = fileURLToPath(new URL("./mission_control.tsx", import.meta.url));
@@ -32,6 +33,9 @@ describe("entity tiles drawn by their identity refs (framework ADR 0052)", () =>
     });
     const outputs = (Array.isArray(out) ? out : [out]).flatMap((o: any) => o.output || []);
     bundle = outputs.find((o: any) => o.type === "chunk").code;
+    // The CSS the board ships (board.css + identity.css, bundled with it): the render checks read it.
+    css = outputs.filter((o: any) => o.type === "asset" && String(o.fileName).endsWith(".css")).map((o: any) => String(o.source)).join("\n");
+    if (!css.includes(".idn_look_error")) throw new Error("the bundle carries no identity.css");
     browser = await chromium.launch();
   }, 180_000);
   afterAll(async () => {
@@ -45,10 +49,11 @@ describe("entity tiles drawn by their identity refs (framework ADR 0052)", () =>
     await page.route("http://identity.test/", (route) =>
       route.fulfill({
         contentType: "text/html",
-        body: '<!doctype html><html><head><style>:root{--bg-primary:#16213e;--ui-border-2:rgba(255,255,255,.2);--warning:#f59e0b;--error:#ef4444;--text-primary:#e5e7eb;--text-secondary:#9ca3af}</style></head><body><div id="root"></div></body></html>',
+        body: '<!doctype html><html><head><style>:root{--bg-primary:#16213e;--raised-bg:#26304d;--pane-border:#3a4566;--t-small:13px;--ui-border-2:rgba(255,255,255,.2);--warning:#f59e0b;--error:#ef4444;--text-primary:#e5e7eb;--text-secondary:#9ca3af}</style></head><body><div id="root"></div></body></html>',
       }),
     );
     await page.goto("http://identity.test/");
+    await page.addStyleTag({ content: css });
     await page.addScriptTag({ content: bundle });
     const r = await page.evaluate(async (castor_rev1: any) => {
       const { React, createRoot, flushSync, MissionControlPage, IdentityLooks } = (window as any).__board;
@@ -87,9 +92,32 @@ describe("entity tiles drawn by their identity refs (framework ADR 0052)", () =>
           reading: Boolean(el.querySelector('[data-testid="identity-look-reading"]')),
           error: el.querySelector('[data-testid="identity-look-error"]')?.getAttribute("title") ?? null,
         }));
+      // The refusal on screen: the whole sentence visible inside its tile (wrapped, never cut).
+      const shown = () => {
+        const el = document.querySelector('[data-testid="identity-look-error"]') as HTMLElement | null;
+        const tile = el?.closest(".mc_entity") as HTMLElement | null;
+        if (!el || !tile) return null;
+        const r = el.getBoundingClientRect(), t = tile.getBoundingClientRect();
+        return {
+          text: el.textContent,
+          white_space: getComputedStyle(el).whiteSpace,
+          text_overflow: getComputedStyle(el).textOverflow,
+          cut: el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1,
+          inside_tile: r.left >= t.left - 0.5 && r.right <= t.right + 0.5 && r.bottom <= t.bottom + 0.5,
+          // "normal" line height is about 1.2 font sizes: more than 1.5 of them is a second line.
+          lines: r.height / parseFloat(getComputedStyle(el).fontSize) > 1.5 ? 2 : 1,
+          // The tile's own cap (content-box max-width + padding + border): the sentence never widens it past.
+          tile_width: Math.round(t.width),
+          tile_cap: (() => {
+            const cs = getComputedStyle(tile);
+            const n = (v: string) => parseFloat(v) || 0;
+            return Math.round(n(cs.maxWidth) + n(cs.paddingLeft) + n(cs.paddingRight) + n(cs.borderLeftWidth) + n(cs.borderRightWidth));
+          })(),
+        };
+      };
       render(1);
       await settle();
-      const first = { calls: [...calls], tiles: tiles() };
+      const first = { calls: [...calls], tiles: tiles(), shown: shown() };
       render(1); // two polls with new tile objects, the same refs
       await settle();
       render(1);
@@ -104,6 +132,13 @@ describe("entity tiles drawn by their identity refs (framework ADR 0052)", () =>
     expect(castor).toMatchObject({ name: "Castor", orb_ref: "entity:castor#1", orb_color: "#d06439", canvas: true, error: null });
     expect(pollux).toMatchObject({ name: "Pollux", orb_ref: null, canvas: false, reading: false, error: "Pollux's look could not be read (HTTP 404): pollux has no identity rev 1" });
     expect(legacy).toEqual({ name: "Legacy", orb_ref: null, orb_color: null, canvas: false, reading: false, error: null });
+    // Readable on screen, not only in the DOM and the tooltip (review of #19: "Pollux's lo…").
+    expect(r.first.shown).toMatchObject({ text: "Pollux's look could not be read (HTTP 404): pollux has no identity rev 1", cut: false, inside_tile: true });
+    expect(r.first.shown!.white_space).not.toBe("nowrap");
+    expect(r.first.shown!.text_overflow).not.toBe("ellipsis");
+    expect(r.first.shown!.lines).toBeGreaterThan(1);
+    expect(r.first.shown!.tile_cap).toBeGreaterThan(0);
+    expect(r.first.shown!.tile_width).toBeLessThanOrEqual(r.first.shown!.tile_cap);
     expect(r.first.calls.filter((c: string) => c === "Castor#1")).toHaveLength(1);
     // The polls read Castor's ref again: never. Pollux's failed read is not kept, but a poll with the
     // same ref does not ask again either (the tile keeps its sentence until the ref changes).

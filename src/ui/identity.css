@@ -16,11 +16,10 @@
   box-sizing: border-box;
 }
 
+/* The gateway's sentence, whole: it wraps, never cut (the tooltip repeats it). */
 .idn_look_error {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-size: var(--t-small);
   color: var(--error);
 }
@@ -38,6 +37,10 @@
 
 .ap_record_trust {
   color: var(--text-primary);
+}
+
+.ap_record_basis {
+  display: block;
 }
 
 .ap_record_error {

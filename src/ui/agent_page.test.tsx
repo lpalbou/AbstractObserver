@@ -86,7 +86,8 @@ describe("AgentPage — the conversation's track record (framework ADR 0052)", (
   it("the header carries the one plain line, read from the live session answer", () => {
     const m = html(<AgentPage {...props()} />);
     const header = m.slice(m.indexOf("<header"), m.indexOf("</header>"));
-    expect(text(header)).toContain("Track record: 2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (completion rate only, nobody has judged the quality yet)");
+    expect(text(header)).toContain("Track record: 2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)");
+    expect(text(header)).toContain("A success here only means the task finished: nobody has judged the quality of the work yet.");
   });
 });
 
