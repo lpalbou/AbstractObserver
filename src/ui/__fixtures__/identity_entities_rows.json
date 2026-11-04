@@ -1,0 +1,38 @@
+{
+  "entities": [
+    {
+      "entity_id": "entity:castor",
+      "name": "Castor",
+      "slug": "castor",
+      "identity": {
+        "rev": 1,
+        "avatar": {
+          "style": "watch-nebula",
+          "color": "#d06439",
+          "source": "default",
+          "watch_code": "C"
+        },
+        "voice": null,
+        "set_at": "2026-11-04T02:52:31.244872+00:00",
+        "set_by": "default"
+      }
+    },
+    {
+      "entity_id": "entity:pollux",
+      "name": "Pollux",
+      "slug": "pollux",
+      "identity": {
+        "rev": 1,
+        "avatar": {
+          "style": "watch-crystal",
+          "color": "#d03964",
+          "source": "default",
+          "watch_code": "S"
+        },
+        "voice": null,
+        "set_at": "2026-11-04T02:52:31.381343+00:00",
+        "set_by": "default"
+      }
+    }
+  ]
+}

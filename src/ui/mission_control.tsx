@@ -49,6 +49,7 @@ import {
   type BoardDataClient,
   type RunOutcome, useSubrunFates, type SubrunFate } from "./board_data";
 import { parse_iso_ms, run_duration_ms, terminal_run_status } from "./format";
+import { EntityLook, type IdentityLooks, type IdentityRef } from "./identity";
 import { LoadingState } from "./loading";
 import { Modal } from "./modal";
 import { run_status_class, stop_reason_of, type RunSummary } from "./run_status";
@@ -1085,6 +1086,9 @@ export function filter_done_window(
 
 export type EntityTile = {
   name: string;
+  /** The identity its roster row names (framework ADR 0052), or null when the row carries none:
+   * the tile then looks as it always did. */
+  identity_ref: IdentityRef | null;
   state: string;
   age_days: number | null;
   last_moment: string;
@@ -1439,6 +1443,8 @@ export type MissionControlProps = {
   /** The entity tiles; null until the FIRST roster + cards read lands (the strip shows skeleton
    * tiles in its reserved height), [] once read and empty (a one-line "no entities" head). */
   entities: EntityTile[] | null;
+  /** Reads each tile's look once per identity ref (identity.tsx). */
+  identity_looks: IdentityLooks;
   /** The roster's size (known before the cards: the skeleton row has as many tiles). */
   entities_total: number;
   entities_error: string;
@@ -3513,7 +3519,10 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
               rel="noreferrer"
               title={[e.error, e.age_days !== null ? `${e.age_days.toFixed(0)} days old` : "", e.last_moment].filter(Boolean).join(" — ") || e.name}
             >
-              <span className="mc_entity_name">{e.name}</span>
+              <span className="mc_entity_title">
+                <span className="mc_entity_name">{e.name}</span>
+                {e.identity_ref ? <EntityLook looks={props.identity_looks} name={e.name} identity_ref={e.identity_ref} size={32} /> : null}
+              </span>
               {/* ONE ACTIVE PHASE (c1455 ruling): prefer the cognition
                 * wire's composite phase — the same source both apps
                 * render — over the card-state heuristic. The chip's

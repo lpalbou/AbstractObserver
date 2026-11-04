@@ -64,6 +64,9 @@ These power additional pages/drawers. If your gateway does not expose them, the 
 - **Entities strip (Board page)** — cheap reads only, never replay folds
   - `GET /api/gateway/entities` — roster (names)
   - `GET /api/gateway/entities/{name}/card` — per-entity card (state object, age, moments, `as_of_seq`)
+  - `GET /api/gateway/entities/{name}/identity?rev=N` — the look a tile draws (framework ADR 0052; AbstractGateway 0.20.0): the roster row's `identity.rev` with its `entity_id` is the tile's identity reference; the record at that revision gives the design, colour and voice. Read once per reference while the page is open (a poll reads nothing new; a new revision is read once). A row without `identity` keeps the tile as before; a refused read shows the gateway's sentence on the tile and draws nothing.
+- **Track record (Observe → Agent)** — read when the agent page opens on a conversation, never on its poll (AbstractGateway 0.20.0)
+  - `GET /api/gateway/sessions/{session_id}/track-record` and `/reputation` — runs, successes, failures and the overall trust with its support, written as "2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (completion rate only, nobody has judged the quality yet)", or "No experience yet" when nothing has an outcome; a refusal is shown as the gateway's sentence
 - **Gateway discovery helpers**
   - `GET /api/gateway/discovery/tools`
   - `GET /api/gateway/discovery/providers?include_models=true|false`

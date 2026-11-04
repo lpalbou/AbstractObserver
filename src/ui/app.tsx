@@ -159,6 +159,7 @@ import { MindmapPanel } from "./mindmap_panel";
 import { ENTITY_TILES_MAX, MissionControlPage, derive_phase_graph, extract_dreams_brief, extract_open_briefs, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
 import { RUNNING_LIMIT, WAITING_LIMIT, is_current_poll, runs_poll_for, runs_poll_peek, local_storage, read_runs_snapshot, runs_snapshot_key, write_runs_snapshot } from "./board_data";
 import { AgentPage, merged_subject } from "./agent_page";
+import { IdentityLooks, entity_row_ref, type IdentityRef, type RecordRead } from "./identity";
 import { fold_node_facts } from "./flow_node_facts";
 import { fold_automation_brief, make_context, state_line, type AutomationBrief } from "./state_line";
 import { wait_card_text } from "./wait_card";
@@ -875,6 +876,8 @@ export function App(): React.ReactElement {
       }),
     [settings.gateway_auth_mode, settings.gateway_url, settings.auth_token]
   );
+  /** Entity looks read once per identity ref over this connection (framework ADR 0052). */
+  const identity_looks = useMemo(() => new IdentityLooks((name, rev) => gateway.get_entity_identity(name, rev)), [gateway]);
   /** Automations page state machine over this connection (ui-kit client). */
   const automations_ctl = useMemo(
     () =>
@@ -1966,12 +1969,13 @@ export function App(): React.ReactElement {
         const roster = await gateway.list_entities();
         // The roster's size lands before the cards: the strip's skeleton row takes its width now.
         if (!stop) set_board_entities_total(roster.entities.length);
-        const names = roster.entities
-          .map((e: any) => String(e?.name || e?.slug || "").trim())
-          .filter(Boolean)
+        // Each tile keeps its row's identity ref (framework ADR 0052): the board draws the look it names.
+        const rows = roster.entities
+          .map((e: any) => ({ name: String(e?.name || e?.slug || "").trim(), identity_ref: entity_row_ref(e) }))
+          .filter((r: { name: string }) => Boolean(r.name))
           .slice(0, ENTITY_TILES_MAX);
         const tiles: BoardEntityTile[] = await Promise.all(
-          names.map(async (name): Promise<BoardEntityTile> => {
+          rows.map(async ({ name, identity_ref }: { name: string; identity_ref: IdentityRef | null }): Promise<BoardEntityTile> => {
             try {
               // Card + the B3 cognition wire (gateway c1390) side by side;
               // cognition is OPTIONAL (pre-wire gateways 404 it — tile
@@ -1995,6 +1999,7 @@ export function App(): React.ReactElement {
               const briefs = extract_open_briefs(card);
               return {
                 name,
+                identity_ref,
                 state: String(state_obj?.state ?? (typeof card?.state === "string" ? card.state : "")).trim(),
                 age_days: typeof card?.age_days === "number" ? card.age_days : null,
                 last_moment: String(last?.kind || "").trim(),
@@ -2016,6 +2021,7 @@ export function App(): React.ReactElement {
             } catch (e: any) {
               return {
                 name,
+                identity_ref,
                 state: "",
                 age_days: null,
                 last_moment: "",
@@ -4424,6 +4430,23 @@ export function App(): React.ReactElement {
   // listings and is never a root): re-list them whenever the subject's own row
   // moves and once a minute while the view is open (GATE-1 finding 1).
   const agent_session_id = String(agent_row?.session_id || "").trim();
+  // The conversation's track record and trust (framework ADR 0052 §5, §6): read when the agent
+  // page opens on a conversation, never on the page's poll (the gateway computes it on each read).
+  const [agent_record, set_agent_record] = useState<RecordRead>({ session_id: "", loading: false, error: "", record: null, reputation: null });
+  useEffect(() => {
+    if (page !== "observe" || right_tab !== "agent" || !gateway_connected) return;
+    const sid = agent_session_id;
+    set_agent_record({ session_id: sid, loading: Boolean(sid), error: "", record: null, reputation: null });
+    if (!sid) return;
+    let alive = true;
+    Promise.all([gateway.get_session_record(sid, "track-record"), gateway.get_session_record(sid, "reputation")]).then(
+      ([record, reputation]) => alive && set_agent_record({ session_id: sid, loading: false, error: "", record, reputation }),
+      (e: any) => alive && set_agent_record({ session_id: sid, loading: false, error: String(e?.message || e), record: null, reputation: null }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [page, right_tab, agent_session_id, gateway_connected, gateway]);
   const agent_moved = String(agent_row?.updated_at || "");
   const agent_minute = Math.floor(Date.now() / 60_000);
   useEffect(() => {
@@ -5210,6 +5233,7 @@ export function App(): React.ReactElement {
               runs_stale={runs_stale}
               notice={connection_notice_text}
               entities={board_entities}
+              identity_looks={identity_looks}
               entities_total={board_entities_total}
               entities_error={board_entities_error}
               on_open_run={(rid) => {
@@ -6236,6 +6260,7 @@ export function App(): React.ReactElement {
                       }}
                       on_reveal_workspace={() => void reveal_run_workspace()}
                       on_copy={(text) => void copy_to_clipboard(text)}
+                      record={agent_record}
                     />
                   ) : (
                     <div className="rs_page">

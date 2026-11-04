@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+Needs AbstractGateway 0.20.0 (the digital identity routes); with an older gateway the tiles are drawn as before and the
+agent page's track-record line shows the gateway's refusal.
+
+### Added
+
+- **Entities on the Board wear their look** (framework ADR 0052): each entity tile draws the design and colour its
+  identity names, from the gateway's record at that revision; hovering it names the design, the colour and the voice.
+  Each identity is read once while the page is open. When the look cannot be read, the tile shows the gateway's
+  sentence and draws nothing in its place; an entity without an identity keeps its tile as before.
+- **The agent page says how the conversation has gone**: one line under the state, "2 runs · 2 succeeded · 0 failed ·
+  trust 0.67 over 2 outcomes (completion rate only, nobody has judged the quality yet)", or "No experience yet".
+  Read when the page opens, never on its poll.
+
 ## [0.12.0] - 2026-11-03
 
 On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,

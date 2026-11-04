@@ -1,0 +1,19 @@
+{
+    "subject": "entity:castor",
+    "identity_ref": {
+        "of": "entity:castor",
+        "rev": 1
+    },
+    "computed_at": "2026-11-04T03:04:01.320609+00:00",
+    "overall": {
+        "trust": 0.5,
+        "support": 0,
+        "successes": 0,
+        "failures": 0,
+        "last_outcome_at": null,
+        "text": "no experience yet"
+    },
+    "by_task_kind": {},
+    "evidence": [],
+    "basis": "completion-rate only"
+}

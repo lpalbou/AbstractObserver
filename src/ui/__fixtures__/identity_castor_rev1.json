@@ -1,0 +1,37 @@
+{
+    "entity_id": "entity:castor",
+    "identity": {
+        "rev": 1,
+        "avatar": {
+            "style": "watch-nebula",
+            "color": "#d06439",
+            "source": "default",
+            "watch_code": "C"
+        },
+        "voice": null,
+        "set_at": "2026-11-04T02:52:31.244872+00:00",
+        "set_by": "default",
+        "change": {
+            "cause": "recorded_default",
+            "written_by": "default",
+            "at": "2026-11-04T02:52:31.244872+00:00"
+        }
+    },
+    "identity_ref": {
+        "of": "entity:castor",
+        "rev": 1
+    },
+    "fingerprint": {
+        "actor_id": "ar_7a87b9170164c16bb64f6e32",
+        "kind": "entity",
+        "display_name": "castor",
+        "entity_id": "entity:castor",
+        "home_id": "home-840ddf42",
+        "spark_hash": "8792c7a57f3678cb3209bf61ef04dda114f8d54f64b5ef95c3333c09a7d16d94",
+        "book_head": null
+    },
+    "age": {
+        "born": "2026-11-04T02:52:31.090952+00:00",
+        "days": 0
+    }
+}

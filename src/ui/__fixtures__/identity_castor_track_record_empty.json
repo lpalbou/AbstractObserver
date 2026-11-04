@@ -1,0 +1,34 @@
+{
+    "subject": "entity:castor",
+    "identity_ref": {
+        "of": "entity:castor",
+        "rev": 1
+    },
+    "fingerprint": {
+        "actor_id": "ar_7a87b9170164c16bb64f6e32",
+        "kind": "entity",
+        "display_name": "castor",
+        "entity_id": "entity:castor",
+        "home_id": "home-840ddf42",
+        "spark_hash": "8792c7a57f3678cb3209bf61ef04dda114f8d54f64b5ef95c3333c09a7d16d94",
+        "book_head": null
+    },
+    "computed_at": "2026-11-04T03:04:01.635738+00:00",
+    "as_of": null,
+    "since": null,
+    "sessions": 0,
+    "runs": 0,
+    "successes": 0,
+    "failures": 0,
+    "cancelled": 0,
+    "in_progress": 0,
+    "assessed": 0,
+    "tokens": {
+        "input": 0,
+        "output": 0,
+        "total": 0
+    },
+    "by_task_kind": {},
+    "recent_outcomes": [],
+    "basis": "completion-rate only"
+}

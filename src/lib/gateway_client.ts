@@ -668,6 +668,35 @@ export class GatewayClient {
     return await r.json();
   }
 
+  /** One entity's identity at one revision (framework ADR 0052 §11): `GET /entities/{name}/identity?rev=N`
+   * → `{entity_id, identity: {rev, avatar: {style, color, watch_code}, voice, …}, identity_ref, …}`.
+   * Read-only with `rev` (the route records a default only without it). A refusal throws the
+   * gateway's own sentence (`gateway_error`). */
+  async get_entity_identity(name: string, rev: number): Promise<any> {
+    const n = String(name || "").trim();
+    if (!n) throw new Error("get_entity_identity: name is required");
+    if (!Number.isInteger(rev) || rev < 1) throw new Error(`get_entity_identity: rev must be a whole number from 1, not ${rev}`);
+    const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath(`entities/${encodeURIComponent(n)}/identity?rev=${rev}`)), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: _deadline(),
+    });
+    if (!r.ok) throw await gateway_error(r, `${n}'s look could not be read`);
+    return await r.json();
+  }
+
+  /** A regular agent's session record (framework ADR 0052 §5, §6, §11): `GET /sessions/{id}/track-record`
+   * or `/reputation`, the runtime's answer unchanged. A refusal throws the gateway's own sentence. */
+  async get_session_record(session_id: string, what: "track-record" | "reputation"): Promise<any> {
+    const sid = String(session_id || "").trim();
+    if (!sid) throw new Error("get_session_record: session_id is required");
+    const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath(`sessions/${encodeURIComponent(sid)}/${what}`)), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: _deadline(),
+    });
+    if (!r.ok) throw await gateway_error(r, "The track record could not be read");
+    return await r.json();
+  }
+
   /** Operator diary door (a2a 0007 + the 2026-07-08 no-ceremony ruling):
    * serves one book entry — private included — and the read is MARKER-FIRST:
    * a diary_read event lands in the entity's replay stream BEFORE the words
