@@ -39,6 +39,7 @@ Notes:
 - Voice (Read aloud streamed per sentence, dictation in Ask/Discuss, Settings → Voice = the kit section with the gateway's default routes from `GET /voice/defaults`): `docs/faq.md` → "Does it support voice", routes in `docs/api.md` → Voice; code `src/ui/observer_voice.tsx`; tests `src/ui/observer_voice.test.tsx` + `scripts/voice_e2e.mjs` (fake routes: `scripts/fake_voice_proxy.mjs`). Needs AbstractGateway 0.13.0 or later.
 - Archived conversations: the Board appends `GET /runs?root_only=true&archived_only=true` (AbstractGateway 0.13.0+) and tags those runs **Archived**; Observer lists runs, not sessions, so it has no Archive button: `docs/api.md` → Runs, `docs/faq.md`; code `with_archived_roots()` in `src/ui/automations.ts`.
 - About: the shared ui-kit compact card (app, framework and gateway versions, links, licence line) from `GET /api/gateway/about`: `docs/faq.md` → "Which version am I running?"; code `src/ui/about.ts`.
+- Digital identity (framework ADR 0052; AbstractGateway 0.20.0): each Board entity tile draws the look its identity reference names (`GET /entities/{name}/identity?rev=N`, read once per reference; a refused read shows the gateway's sentence and draws nothing); the Agent view's track-record line reads the session's track record and reputation once when the page opens ("No experience yet" at zero): `docs/api.md`, `docs/architecture.md`; code `src/ui/identity.tsx`.
 - `llms.txt` format reference: https://llmstxt.org/
 
 ## Documentation (start here)
@@ -104,8 +105,11 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
-0.12.0 opens Automations on the active ones, most recent activity first, and folds the paused ones under
-"Paused · N" (with AbstractGateway 0.20.0). See [CHANGELOG.md](CHANGELOG.md#0120---2026-11-03).
+0.12.0 draws each entity on the Board in its own design and colour, from its identity (hover a tile for the
+design, the colour and the voice), and the agent page says in plain words how the conversation has gone: runs,
+successes, failures and a trust that only counts whether tasks finished, or "No experience yet". Automations open on the
+active ones, most recent activity first, and fold the paused ones under "Paused · N". All of this needs
+AbstractGateway 0.20.0. See [CHANGELOG.md](CHANGELOG.md#0120---2026-11-04).
 
 0.11.0 reads approvals, waits and tool results in words, puts the dictation microphone beside Send in the
 shared composer, and uses the kit's one account widget. See [CHANGELOG.md](CHANGELOG.md#0110---2026-11-02).
@@ -532,8 +536,12 @@ export default defineConfig({
 
 ## [Unreleased]
 
-Needs AbstractGateway 0.20.0 (the digital identity routes); with an older gateway the tiles are drawn as before and the
-agent page's track-record line shows the gateway's refusal.
+## [0.12.0] - 2026-11-04
+
+On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
+and avatars that look at you with their eyes only. `@abstractframework/panel-chat` stays ^0.7.0.
+Needs AbstractGateway 0.20.0 for the digital identity routes, the active-first order and the Paused section; with an
+older gateway the tiles and the list are drawn as before and the agent page's track-record line shows the gateway's refusal.
 
 ### Added
 
@@ -545,13 +553,6 @@ agent page's track-record line shows the gateway's refusal.
   over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)", then "A success here only
   means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience
   yet". Read when the page opens, never on its poll.
-
-## [0.12.0] - 2026-11-03
-
-On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
-and avatars that look at you with their eyes only. `@abstractframework/panel-chat` stays ^0.7.0.
-Needs AbstractGateway 0.20.0 for the active-first order and the Paused section; with an older gateway the
-list is drawn as before.
 
 ### Changed
 

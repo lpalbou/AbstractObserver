@@ -12,8 +12,11 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
-0.12.0 opens Automations on the active ones, most recent activity first, and folds the paused ones under
-"Paused · N" (with AbstractGateway 0.20.0). See [CHANGELOG.md](CHANGELOG.md#0120---2026-11-03).
+0.12.0 draws each entity on the Board in its own design and colour, from its identity (hover a tile for the
+design, the colour and the voice), and the agent page says in plain words how the conversation has gone: runs,
+successes, failures and a trust that only counts whether tasks finished, or "No experience yet". Automations open on the
+active ones, most recent activity first, and fold the paused ones under "Paused · N". All of this needs
+AbstractGateway 0.20.0. See [CHANGELOG.md](CHANGELOG.md#0120---2026-11-04).
 
 0.11.0 reads approvals, waits and tool results in words, puts the dictation microphone beside Send in the
 shared composer, and uses the kit's one account widget. See [CHANGELOG.md](CHANGELOG.md#0110---2026-11-02).
