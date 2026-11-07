@@ -1340,7 +1340,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(html).not.toContain(">Pause schedule</button>");
     // Paused: the primary action is Resume schedule; Run now moves to the menu.
     const paused_html = html_of(auto_card({ ...CTX, status: "paused", capabilities: ["resume", "run_now"] }), { on_automation_command: async () => undefined });
-    expect(paused_html).toMatch(/class="btn mc_btn_sm primary"[^>]*>Resume schedule<\/button>/);
+    // Quiet like Run now (ADR 0053: no loud fills; the pill already says "paused").
+    expect(paused_html).toMatch(/class="btn mc_btn_sm mc_btn_quiet"[^>]*>Resume schedule<\/button>/);
     expect(paused_html).toContain('data-menu-id="run_now" class="af-menu__item">Run now</button>');
     expect(paused_html).not.toContain(">Pause schedule</button>");
   });

@@ -2939,11 +2939,11 @@ function ChainBlock(props: { card: BoardCard; sole_ask: BoardCard | null; glimps
 
 /** A text button behind a gate (an automation card's Run now / Resume schedule): a disabled one
  * keeps its reason on a wrapper (disabled buttons swallow hover); a busy one says so. */
-function GatedButton(props: { state: ControlState; label: string; hint?: string; busy?: boolean; tone?: "primary" | "quiet"; onClick: () => void }): React.ReactElement {
+function GatedButton(props: { state: ControlState; label: string; hint?: string; busy?: boolean; onClick: () => void }): React.ReactElement {
   const live = props.state.enabled && !props.busy;
   const title = props.busy ? `${props.label}…` : props.state.enabled ? [props.hint || props.label, props.state.reason].filter(Boolean).join(" — ") : props.state.reason || "not available";
   const btn = (
-    <button type="button" className={`btn mc_btn_sm${props.tone === "primary" ? " primary" : " mc_btn_quiet"}`} disabled={!live} title={title} onClick={props.onClick}>
+    <button type="button" className="btn mc_btn_sm mc_btn_quiet" disabled={!live} title={title} onClick={props.onClick}>
       {props.busy ? `${props.label}…` : props.label}
     </button>
   );
@@ -3053,7 +3053,7 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
   let primary: React.ReactNode = null;
   if (is_automation && controls) {
     primary = auto_paused ? (
-      <GatedButton state={props.on_automation_command ? controls.toggle.state : NOT_WIRED} label="Resume schedule" tone="primary" busy={cmd.busy === "automation.resume"} onClick={() => command("automation.resume")} />
+      <GatedButton state={props.on_automation_command ? controls.toggle.state : NOT_WIRED} label="Resume schedule" busy={cmd.busy === "automation.resume"} onClick={() => command("automation.resume")} />
     ) : (
       <GatedButton state={props.on_automation_command ? controls.run_now : NOT_WIRED} label="Run now" hint="Start a run of this automation now" busy={cmd.busy === "automation.run_now"} onClick={() => command("automation.run_now")} />
     );
@@ -3135,10 +3135,11 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
       }}
     >
       <div className="mc_card_head">
-        <span className={`mc_card_glyph mc_glyph_${card.subject.kind}`} aria-hidden="true">
-          {card.subject.glyph}
-        </span>
+        {/* The glyph rides with the title (a wrap moves the chips, never the glyph off its title). */}
         <div className="mc_card_titlebox">
+          <span className={`mc_card_glyph mc_glyph_${card.subject.kind}`} aria-hidden="true">
+            {card.subject.glyph}
+          </span>
           {title_loading ? (
             <span className="mc_card_title" title="loading the title…">
               <SkeletonLine className="mc_sk_title" width="64%" />
@@ -3151,6 +3152,10 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
             title_clamp
           )}
         </div>
+        {/* The head's chips travel together: beside the title when the card is wide enough, on
+          * their own row under it when the title would otherwise be squeezed. */}
+        {group_n > 1 || card.archived || !pill_echoes_lane(card.lane, status_word) ? (
+        <span className="mc_card_chips">
         {group_n > 1 ? (
           <span className="mc_group_wrap" onClick={stop} onKeyDown={stop}>
             <AfChipButton
@@ -3169,6 +3174,8 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
         {card.archived ? <span className="mc_pill" data-tag="archived" title="This conversation is archived: hidden from chat lists, kept here and in the ledger">Archived</span> : null}
         {/* ONE word, ONE color map (adversary 3 P0-1); a word the lane already says is not repeated. */}
         {pill_echoes_lane(card.lane, status_word) ? null : <span className={`mc_status ${run_status_class(status_word)}`}>{status_word === "unknown" ? "?" : status_word}</span>}
+        </span>
+        ) : null}
       </div>
       {is_automation ? (
         <AutomationCardBody {...props} />
@@ -3289,7 +3296,7 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
         <div className="mc_card_act">
           {primary}
           <span ref={menu_anchor} className="mc_menu_wrap">
-            <AfMenu label={`More actions for ${card.title.text}`} items={items} className="mc_card_menu" buttonClassName="mc_menu_btn" />
+            <AfMenu label={`More actions for ${title_text}`} items={items} className="mc_card_menu" buttonClassName="mc_menu_btn" />
           </span>
         </div>
       </div>
@@ -3447,6 +3454,8 @@ export function card_view_equal(prev: CardViewProps, next: CardViewProps): boole
 export const BoardCardView = React.memo(BoardCardViewImpl, card_view_equal);
 
 const DONE_SHOWN = 8;
+/** How many runs an opened Done group shows before "show the other N". */
+export const GROUP_SHOWN = 20;
 
 export function MissionControlPage(props: MissionControlProps): React.ReactElement {
   board_render_probe.page?.();
@@ -3832,13 +3841,22 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                     ? visible_groups.map((g) => {
                         const lead = g.cards[0];
                         const open = g.cards.length > 1 && open_groups.has(lead.run_id);
+                        // An open group shows its runs GROUP_SHOWN at a time (a 167-run group is not 167 cards at once).
+                        const all_members = open_groups.has(`${lead.run_id}:all`);
+                        const members = open ? g.cards.slice(1, all_members ? undefined : GROUP_SHOWN + 1) : [];
+                        const rest = open ? g.cards.length - 1 - members.length : 0;
                         const card = <BoardCardView key={lead.run_id} card={lead} {...handlers(lead)} group_count={g.cards.length} group_open={open} group_span={group_span_words(g.cards)} on_group_toggle={stable.toggle_group} />;
                         return open ? (
                           <div key={lead.run_id} className="mc_group" role="group" aria-label={`${g.cards.length} identical runs`}>
                             {card}
-                            {g.cards.slice(1).map((c) => (
+                            {members.map((c) => (
                               <BoardCardView key={c.run_id} card={c} {...handlers(c)} />
                             ))}
+                            {rest > 0 ? (
+                              <button type="button" className="btn mc_more" onClick={() => stable.toggle_group(`${lead.run_id}:all`)}>
+                                show the other {rest}
+                              </button>
+                            ) : null}
                           </div>
                         ) : (
                           card

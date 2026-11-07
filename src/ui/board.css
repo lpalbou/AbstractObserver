@@ -766,15 +766,33 @@
  * (design pass 2026-11-07). Nothing is positioned. */
 .mc_card_head {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+/* A short title keeps its chips beside it; a title longer than the row sends the chips to their
+ * own row, right-aligned under it (a 300 px lane never squeezes a title to one word per line). */
+.mc_card_titlebox {
+  flex: 1 1 auto;
+  display: flex;
   align-items: flex-start;
   gap: 8px;
   min-width: 0;
 }
 
-.mc_card_titlebox {
-  flex: 1 1 0;
+.mc_card_titlebox > :not(.mc_card_glyph) {
+  flex: 1 1 auto;
   min-width: 0;
+}
+
+.mc_card_chips {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
 
