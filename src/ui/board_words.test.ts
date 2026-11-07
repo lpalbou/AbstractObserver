@@ -68,7 +68,8 @@ describe("a failed Done card", () => {
     const plain = html(failed_row());
     expect(plain.match(/>failed</g)?.length).toBe(1);
     expect(plain).not.toMatch(/\btk\b|\b0 (tokens?|tools?|tool calls?|artifacts?)\b|no tokens/);
-    expect(plain).toContain("3 seconds");
+    expect(plain).toContain("took 3 seconds");
+    expect(plain).toContain("57 seconds ago");
     const with_error = html(failed_row({ error: "Provider refused the request" }));
     expect(with_error).toContain("failed: Provider refused the request");
   });

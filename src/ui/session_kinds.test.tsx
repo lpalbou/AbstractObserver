@@ -148,7 +148,7 @@ describe("the Show filter", () => {
 
   it("renders kit filter chips; the one in use is pressed", () => {
     const html = renderToStaticMarkup(<SessionFilterRow options={session_filter_options(rows)} value="notes" on_change={() => {}} />);
-    expect(html).toContain('aria-label="Show"');
+    expect(html).toContain('aria-label="Sessions"');
     expect(html).toMatch(/data-af-value="notes" aria-pressed="true"/);
     expect(html).toMatch(/data-af-value="all" aria-pressed="false"/);
     for (const word of ["All", "Conversations", "Automations", "Notes", "Docs assistant"]) expect(html).toContain(`>${word}<`);

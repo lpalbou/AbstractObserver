@@ -991,11 +991,13 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     const done = row({ run_id: "d1", status: "completed", created_at: at(30), updated_at: at(6), tokens_total: 99_921, tool_calls: 11 });
     const card = build_board({ active: [], done: [done], now_ms: NOW_MS }).done[0];
     const outcome = { answer: "# International Digest\n**Date: 14 October 2026** · the week in review", artifacts: 3 };
-    expect(card_metrics(card, outcome)).toEqual(["24 minutes", "99,921 tokens", "11 tool calls", "3 artifacts"]);
+    expect(card_metrics(card, outcome)).toEqual(["took 24 minutes", "99,921 tokens", "11 tool calls", "3 artifacts"]);
     // A zero is no fact on a card (operator 2026-11-07: "3s · 0 tk · 0 tools"); the (i) keeps the spend.
-    expect(card_metrics({ ...card, duration_ms: 3_000, tokens_total: 0, tool_calls: 0 }, { ...outcome, artifacts: 0 })).toEqual(["3 seconds"]);
+    expect(card_metrics({ ...card, duration_ms: 3_000, tokens_total: 0, tool_calls: 0 }, { ...outcome, artifacts: 0 })).toEqual(["took 3 seconds"]);
+    // With the clock, a finished card also says when it finished.
+    expect(card_metrics(card, outcome, NOW_MS)).toEqual(["took 24 minutes", "99,921 tokens", "11 tool calls", "3 artifacts", "6 minutes ago"]);
     const html = html_of(card, { outcome });
-    expect(text_of(card, { ...H, outcome })).toContain("24 minutes · 99,921 tokens · 11 tool calls · 3 artifacts");
+    expect(text_of(card, { ...H, outcome })).toContain("took 24 minutes · 99,921 tokens · 11 tool calls · 3 artifacts · 6 minutes ago");
     expect(html).toContain('class="mc_glimpse mc_glimpse_answer"');
     const glimpse = plain(html.match(/class="mc_glimpse mc_glimpse_answer"[^>]*>([\s\S]*?)<div class="mc_card_foot"/)![1]);
     expect(glimpse).toContain("International Digest");
@@ -1004,7 +1006,7 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     // The sentence ("completed in 24m") gives way to the answer; before the outcome is read it stays.
     expect(html).not.toContain("mc_state_text");
     expect(html_of(card)).toContain("completed in 24m");
-    expect(card_metrics(card, null)).toEqual(["24 minutes", "99,921 tokens", "11 tool calls"]);
+    expect(card_metrics(card, null)).toEqual(["took 24 minutes", "99,921 tokens", "11 tool calls"]);
     // A failure keeps its error as the line.
     const failed = build_board({ active: [], done: [row({ run_id: "f1", status: "failed", error: "provider timeout" })], now_ms: NOW_MS }).done[0];
     expect(html_of(failed, { outcome })).not.toContain("mc_glimpse_answer");
@@ -1359,7 +1361,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     for (const [word, cls] of [["running", "info"], ["failed", "danger"], ["waiting", "warn"], ["completed", "ok"], ["scheduled", "info"]]) {
       expect(run_status_class(word)).toBe(cls);
     }
-    expect(html_of(auto_card(CTX))).toContain('<span class="mc_status info">scheduled</span>');
+    // "scheduled" in the Scheduled lane would only repeat the lane's name (design review 2026-11-07).
+    expect(html_of(auto_card(CTX))).not.toContain('<span class="mc_status info">scheduled</span>');
     // Needs-you: the title and the pill share the head row; the since-time is absolute already.
     const q = build_board({ active: [row({ run_id: "q1", status: "waiting", waiting: { reason: "user" }, session_id: "acode-1", updated_at: at(3) })], done: [], now_ms: NOW_MS }).needs_you[0];
     const head = html_of(q).match(/<div class="mc_card_head">[\s\S]*?<\/div>/)![0];

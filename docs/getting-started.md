@@ -65,7 +65,7 @@ inputs and outputs as pins with their values, its context window, the run tree, 
 
 The Board and the Observe list show **every session** the gateway has, Docs assistant chats and
 AbstractNote's own sessions included. When the gateway reports what each session is for, a
-**Show** row above the lanes (and in the Observe list) filters them: **All**, **Conversations**,
+**Sessions** row above the lanes (and in the Observe list) filters them: **All**, **Conversations**,
 **Automations**, **Notes**, and any other kind the gateway reports, each with its number of
 sessions. A gateway that reports no kinds shows every run, with no filter.
 

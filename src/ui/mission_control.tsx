@@ -605,14 +605,18 @@ export function outcome_glimpse(card: BoardCard, outcome?: RunOutcome | null): {
  * automation card (controller) has none: its "duration" was the controller run's
  * age since the automation was created — the unexplained "12d 18h" of the
  * 2026-10-15 screenshot — and its facts rows say what matters instead. */
-export function card_metrics(card: BoardCard, outcome?: RunOutcome | null): string[] {
+export function card_metrics(card: BoardCard, outcome?: RunOutcome | null, now_ms?: number): string[] {
   const out: string[] = [];
   if (card.role === "controller") return out;
-  if (card.duration_ms >= 0) out.push(duration_words(card.duration_ms));
+  const done = card.lane === "done";
+  // A finished run says how long it took and when it finished ("took 3 seconds · 2 hours ago"):
+  // a bare "3 seconds" read as either (design review 2026-11-07).
+  if (card.duration_ms >= 0) out.push(done ? `took ${duration_words(card.duration_ms)}` : duration_words(card.duration_ms));
   // A zero is no fact for a person ("0 tk · 0 tools"); the (i) keeps the whole spend.
   if (card.tokens_total) out.push(count_words(card.tokens_total, "token"));
   if (card.tool_calls) out.push(count_words(card.tool_calls, "tool call"));
-  if (card.lane === "done" && outcome?.artifacts) out.push(count_words(outcome.artifacts, "artifact"));
+  if (done && outcome?.artifacts) out.push(count_words(outcome.artifacts, "artifact"));
+  if (done && typeof now_ms === "number" && card.since_ms !== null) out.push(format_relative(card.since_ms, now_ms));
   return out;
 }
 
@@ -2616,7 +2620,7 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
   const ongoing = !is_automation && (card.lane === "needs_you" || card.lane === "working" || card.lane === "waiting_on");
   const request = needs ? request_glimpse(card, props.detail) : null;
   const answer = is_automation ? null : outcome_glimpse(card, props.outcome);
-  const metrics = card_metrics(card, props.outcome);
+  const metrics = card_metrics(card, props.outcome, props.now_ms);
   const who_line = needs ? needs_you_line(card, props.now_ms) : null;
   // Where a detail is still loading the card shows a skeleton line, never a blank
   // (operator 2026-10-15): the ask of a Needs-you card, the answer of a Done card.
@@ -2647,7 +2651,7 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
   const left_icons = is_automation || (ongoing && (Boolean(code_session_of(card)) || Boolean(on_cancel_run)));
   const metrics_in_foot = !left_icons && metrics.length > 0;
   const metrics_view = metrics.length ? (
-    <div className={`mc_card_metrics${metrics_in_foot ? " mc_foot_metrics" : ""}`} title={card.lane === "done" ? "run time · tokens of the run tree · tool calls · artifacts" : "time since the run started · tokens of the run tree · tool calls"}>
+    <div className={`mc_card_metrics${metrics_in_foot ? " mc_foot_metrics" : ""}`} title={card.lane === "done" ? "run time · tokens of the run tree · tool calls · artifacts · when it finished" : "time since the run started · tokens of the run tree · tool calls"}>
       <FactUnits parts={metrics} />
     </div>
   ) : null;
@@ -2699,8 +2703,9 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
             ) : null}
           </span>
         )}
-        {/* ONE word, ONE color map (adversary 3 P0-1). */}
-        <span className={`mc_status ${run_status_class(status_word)}`}>{status_word === "unknown" ? "?" : status_word}</span>
+        {/* ONE word, ONE color map (adversary 3 P0-1). "scheduled" in the Scheduled lane only repeats
+          * the lane's name (design review 2026-11-07); "paused" and every other word still show. */}
+        {card.lane === "scheduled" && status_word === "scheduled" ? null : <span className={`mc_status ${run_status_class(status_word)}`}>{status_word === "unknown" ? "?" : status_word}</span>}
       </div>
       {(subject.label || subject.secondary || card.archived) && !(has_chain && !subject.label && !card.archived && card.chain[0] && (subject.secondary === card.chain[0].name || subject.secondary === workflow_short(card.workflow_id))) ? (
         <div className="mc_card_subject">
