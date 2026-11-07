@@ -1135,6 +1135,9 @@ export type EntityTile = {
   card_state?: "pending" | "loaded" | "failed";
   /** True until the cognition wire's first answer for this tile (placeholders, not "unknown"). */
   cognition_pending?: boolean;
+  /** When the card fields shown were read, set only when the latest read of the card failed: the
+   * tile then says how old they are ("as of 12m ago") instead of passing them as current. */
+  card_as_of_ms?: number | null;
 };
 
 /** One open question/problem brief off the entity card. The card's row
@@ -3564,6 +3567,10 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                 <SkeletonLine className="mc_entity_sk" width="70%" />
               ) : e.card_state === "failed" ? (
                 <span className="mc_entity_moment mc_entity_card_note" title={e.error}>{ENTITY_CARD_FAILED_NOTE}</span>
+              ) : e.card_as_of_ms ? (
+                <span className="mc_entity_moment mc_entity_card_note" title={`${e.last_moment ? `${e.last_moment} — ` : ""}could not read newer details: ${e.error}`}>
+                  {`as of ${format_age(e.card_as_of_ms, now_ms)} ago${e.last_moment ? ` · ${e.last_moment.replace(/_/g, " ")}` : ""}`}
+                </span>
               ) : e.last_moment ? (
                 <span className="mc_entity_moment" title={e.last_moment}>{e.last_moment.replace(/_/g, " ")}</span>
               ) : null}

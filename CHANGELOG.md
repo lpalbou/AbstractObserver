@@ -14,10 +14,16 @@ Works with the same gateways as 0.12.1; no gateway change needed.
   waiting keeps its place, so nothing on the page moves.
 - **Less downloading every 30 seconds.** The strip still checks every 30 seconds whether each entity is busy or idle,
   but the larger details (age, last moment, open questions and problems, lessons, night signals) are kept and read
-  again only every 5 minutes, or straight away when the entity changes state. At most three are read at a time, so
-  the rest of the Board is never kept waiting.
-- When an entity's details cannot be read, its tile keeps its name and state and says "details unavailable right now"
-  (the reason shows on hover); it tries again 30 seconds later.
+  again only every 5 minutes, or at the next check (within 30 seconds) when the entity changes state. At most three
+  are read at a time, so the rest of the Board is never kept waiting. With a gateway that cannot say whether an
+  entity is busy, the details are still read every 30 seconds, since busy or idle is then worked out from them.
+- **Nothing goes blank when a read fails.** If the list of entities cannot be read again, the tiles stay and a short
+  line says when they were last read. If "busy or idle" cannot be read, the tile keeps the last answer. If an
+  entity's details cannot be read again, the tile keeps them and says how old they are ("as of 12m ago"); if they
+  were never read, it says "details unavailable right now" (the reason shows on hover). Each is tried again 30
+  seconds later.
+- What the strip remembers belongs to the gateway and account you are signed in with: signing in as someone else
+  starts the strip afresh.
 - When the gateway asks Observer to slow down (too many requests), the Entities strip pauses as before and now
   resumes on its own afterwards; it used to stay frozen until you reconnected.
 

@@ -15,7 +15,8 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 0.12.2 makes the Board's Entities strip show up at once: the tiles are drawn as soon as the list of entities
 arrives, and each tile fills in when its own details arrive, so one entity with a long history no longer keeps the
 whole strip blank for seconds. Details that change slowly are kept and read again every 5 minutes or when the entity
-changes state, instead of being downloaded again every 30 seconds. See [CHANGELOG.md](CHANGELOG.md#0122---2026-11-07).
+changes state, instead of being downloaded again every 30 seconds, and a failed read keeps what was shown (saying how
+old it is) instead of blanking it. See [CHANGELOG.md](CHANGELOG.md#0122---2026-11-07).
 
 0.12.1 picks up the shared voice fix: when the browser has paused the page's sound, the Read aloud and Speak buttons
 offer Play and say so, and Play resumes the same audio instead of preparing the reply again. See [CHANGELOG.md](CHANGELOG.md#0121---2026-11-07).

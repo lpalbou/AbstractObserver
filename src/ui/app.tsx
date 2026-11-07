@@ -157,7 +157,7 @@ import {
 import { FlowGraph } from "./flow_graph";
 import { MindmapPanel } from "./mindmap_panel";
 import { MissionControlPage, derive_phase_graph, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
-import { ENTITY_REFRESH_MS, create_entity_tiles_loader } from "./entity_tiles";
+import { create_entity_tiles_loader, start_entity_tiles_poll } from "./entity_tiles";
 import { RUNNING_LIMIT, WAITING_LIMIT, is_current_poll, runs_poll_for, runs_poll_peek, local_storage, read_runs_snapshot, runs_snapshot_key, write_runs_snapshot } from "./board_data";
 import { AgentPage, merged_subject } from "./agent_page";
 import { IdentityLooks, type RecordRead } from "./identity";
@@ -1955,7 +1955,11 @@ export function App(): React.ReactElement {
   // Entity tiles for the board (entity_tiles.ts): drawn from the roster at once, each tile then
   // filled by its own cognition read (every 30 s) and its own card read (a few at a time, kept
   // and read again only when older than 5 minutes or the entity's state changed). One slow card
-  // never holds the strip. The loader, and its card cache, end with the connection.
+  // never holds the strip. What the loader knows belongs to one gateway + signed-in account: the
+  // effect restarts when either changes, and the loader drops everything if its scope moves.
+  const entity_principal = String(connection_status?.gateway?.principal?.user_id || "").trim();
+  const entity_scope_ref = useRef("");
+  entity_scope_ref.current = `${settings.gateway_auth_mode}|${settings.gateway_url}|${entity_principal}`;
   useEffect(() => {
     if (!gateway_connected) {
       set_board_entities(null);
@@ -1964,9 +1968,10 @@ export function App(): React.ReactElement {
       return;
     }
     let stop = false;
-    let timer: number | null = null;
+    set_board_entities(null);
     const loader = create_entity_tiles_loader({
       gateway,
+      scope: () => entity_scope_ref.current,
       sink: {
         tiles: (t) => {
           if (!stop) set_board_entities(t);
@@ -1983,18 +1988,13 @@ export function App(): React.ReactElement {
       // Answers arriving together render once per frame.
       schedule: (fn) => void window.requestAnimationFrame(() => fn()),
     });
-    const load = async () => {
-      await loader.refresh();
-      if (!stop) timer = window.setTimeout(() => void load(), ENTITY_REFRESH_MS);
-    };
-    void load();
+    const stop_poll = start_entity_tiles_poll(loader);
     return () => {
       stop = true;
-      loader.stop();
-      if (timer !== null) window.clearTimeout(timer);
+      stop_poll();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gateway_connected, gateway]);
+  }, [gateway_connected, gateway, entity_principal]);
 
   // Board-initiated wait answers: independent of the attached run (the
   // whole point — approve from the Review column without switching context).

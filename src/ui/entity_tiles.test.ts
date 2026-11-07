@@ -10,6 +10,7 @@ import {
   ENTITY_CARD_TTL_MS,
   ENTITY_REFRESH_MS,
   create_entity_tiles_loader,
+  start_entity_tiles_poll,
   type EntityTilesGateway,
 } from "./entity_tiles";
 import { ENTITY_CARD_FAILED_NOTE, ENTITY_TILES_MAX, MissionControlPage, type EntityTile } from "./mission_control";
@@ -23,11 +24,13 @@ type Row = { name: string; state: string; changed_at: string };
  * in `card_ms[name]` (default 15 ms). Calls are recorded in order. */
 function mock_gateway(rows: Row[], card_ms: Record<string, number> = {}, fail_card: Set<string> = new Set()) {
   const calls = { roster: 0, card: [] as string[], cognition: [] as string[], cards_in_flight: 0, max_cards_in_flight: 0 };
-  const state = { rows };
+  /** Switches for the failure tests: roster/cognition errors by message, cognition values. */
+  const state = { rows, roster_error: "", cog_error: {} as Record<string, string>, working: false, tokens: 1000 };
   const gw: EntityTilesGateway = {
     async list_entities() {
       calls.roster += 1;
       await delay(20);
+      if (state.roster_error) throw new Error(state.roster_error);
       return {
         entities: state.rows.map((r) => ({
           name: r.name,
@@ -41,7 +44,8 @@ function mock_gateway(rows: Row[], card_ms: Record<string, number> = {}, fail_ca
     async get_entity_cognition(name: string) {
       calls.cognition.push(name);
       await delay(10);
-      return { working: false, phase: "sleep", spend: { lifetime: { tokens_total: 1000 } }, warnings: [] };
+      if (state.cog_error[name]) throw new Error(state.cog_error[name]);
+      return { working: state.working, phase: "sleep", spend: { lifetime: { tokens_total: state.tokens } }, warnings: [] };
     },
     async get_entity_card(name: string) {
       calls.card.push(name);
@@ -66,16 +70,19 @@ function mock_gateway(rows: Row[], card_ms: Record<string, number> = {}, fail_ca
 
 function recorder() {
   const emissions: Array<{ at: number; tiles: EntityTile[] }> = [];
+  /** How many times the strip was sent back to "not known yet" (null). */
+  const resets: number[] = [];
   const totals: number[] = [];
   const errors: string[] = [];
   return {
     emissions,
+    resets,
     totals,
     errors,
     last: () => emissions[emissions.length - 1]?.tiles ?? null,
     tile: (name: string) => emissions[emissions.length - 1]?.tiles.find((t) => t.name === name),
     sink: {
-      tiles: (t: EntityTile[]) => emissions.push({ at: Date.now(), tiles: t }),
+      tiles: (t: EntityTile[] | null) => (t === null ? resets.push(Date.now()) : emissions.push({ at: Date.now(), tiles: t })),
       total: (n: number) => totals.push(n),
       error: (m: string) => errors.push(m),
     },
@@ -289,6 +296,207 @@ describe("Board Entities strip: tile by tile, cards kept (entity_tiles.ts)", () 
     limited = false;
     expect(await tick(l2.refresh())).toBe(true);
     expect(m2.calls.roster).toBe(1);
+    l2.stop();
+  });
+  it("O1: what is known belongs to one gateway + account — another account starts from nothing and late answers of the old one are dropped", async () => {
+    const m = mock_gateway(rows("castor", "pollux"), { pollux: 5000 });
+    const r = recorder();
+    let scope = "http://gw|alice";
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync, scope: () => scope });
+    await tick(loader.refresh());
+    await vi.advanceTimersByTimeAsync(100);
+    expect(r.tile("castor")!.card_state).toBe("loaded");
+    expect(r.tile("pollux")!.card_state).toBe("pending"); // alice's pollux card still in flight
+    scope = "http://gw|bob";
+    const p = loader.refresh();
+    expect(r.resets.length).toBe(1); // the strip goes back to its placeholders at once
+    await vi.advanceTimersByTimeAsync(20);
+    // Bob's tiles: nothing of alice's cards or cognition carried over.
+    expect(r.last()!.every((t) => t.card_state === "pending" && t.cognition_pending === true)).toBe(true);
+    await tick(p); // t = 180 ms; alice's pollux card answers at 5020, bob's at 5150
+    await vi.advanceTimersByTimeAsync(4900);
+    expect(r.tile("pollux")!.card_state).toBe("pending"); // alice's late answer was dropped
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(r.tile("pollux")!.card_state).toBe("loaded");
+    // Both cards read again as bob.
+    expect(m.calls.card.filter((n) => n === "castor").length).toBe(2);
+    expect(m.calls.card.filter((n) => n === "pollux").length).toBe(2);
+    loader.stop();
+  });
+
+  it("O2: a failed roster read keeps the last tiles with a note saying since when; the next good read keeps every fact", async () => {
+    const m = mock_gateway(rows("castor", "pollux"));
+    const r = recorder();
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync });
+    await tick(loader.refresh());
+    await vi.advanceTimersByTimeAsync(100);
+    m.state.roster_error = "list_entities failed: HTTP 503";
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    await tick(loader.refresh());
+    expect(r.last()!.map((t) => t.name)).toEqual(["castor", "pollux"]);
+    expect(r.last()!.every((t) => t.card_state === "loaded" && t.tokens_total === 1000)).toBe(true);
+    expect(r.errors[r.errors.length - 1]).toMatch(/^Could not refresh the entities; showing what was read at \d/);
+    m.state.roster_error = "";
+    const before = r.emissions.length;
+    void loader.refresh();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(r.emissions[before].tiles.every((t) => t.cognition_pending === false && t.card_state === "loaded")).toBe(true);
+    expect(r.errors[r.errors.length - 1]).toBe("");
+    // A 404 still means "no entity door": no tiles, no error.
+    m.state.roster_error = "list_entities failed: HTTP 404 Not Found";
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    await tick(loader.refresh());
+    expect(r.last()).toEqual([]);
+    expect(r.errors[r.errors.length - 1]).toBe("");
+    loader.stop();
+  });
+
+  it("O3: a failed cognition read keeps the last busy/idle and spend; a 404 means the wire is absent", async () => {
+    const m = mock_gateway(rows("castor"));
+    m.state.working = true;
+    const r = recorder();
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync });
+    await tick(loader.refresh());
+    expect(r.tile("castor")!.working).toBe(true);
+    m.state.cog_error.castor = "get_entity_cognition failed: HTTP 500";
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    await tick(loader.refresh());
+    expect(r.tile("castor")!.working).toBe(true);
+    expect(r.tile("castor")!.tokens_total).toBe(1000);
+    m.state.cog_error.castor = "get_entity_cognition failed: HTTP 404 Not Found";
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    await tick(loader.refresh());
+    expect(r.tile("castor")!.working).toBeNull();
+    expect(r.tile("castor")!.tokens_total).toBeNull();
+    loader.stop();
+  });
+
+  it("O4: a card that fails after a good read shows how old its fields are, until a good read again", async () => {
+    const fail = new Set<string>();
+    const m = mock_gateway(rows("castor"), {}, fail);
+    const r = recorder();
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync });
+    await tick(loader.refresh());
+    await vi.advanceTimersByTimeAsync(100);
+    const read_at = Date.now() - 100 + 15; // the card answered 15 ms into the cards' turn
+    expect(r.tile("castor")!.card_as_of_ms ?? null).toBeNull();
+    fail.add("castor");
+    await vi.advanceTimersByTimeAsync(ENTITY_CARD_TTL_MS);
+    await tick(loader.refresh());
+    await vi.advanceTimersByTimeAsync(100);
+    const c = r.tile("castor")!;
+    expect(c.card_state).toBe("loaded");
+    expect(c.last_moment).toBe("moment_of_castor");
+    expect(Math.abs((c.card_as_of_ms ?? 0) - read_at)).toBeLessThan(50);
+    const html = page(r.last()!, 1);
+    expect(html).toContain("as of 5m ago · moment of castor");
+    fail.clear();
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    await tick(loader.refresh());
+    await vi.advanceTimersByTimeAsync(100);
+    expect(r.tile("castor")!.card_as_of_ms ?? null).toBeNull();
+    expect(page(r.last()!, 1)).not.toContain("as of ");
+    loader.stop();
+  });
+
+  it("O5: a rate limit that starts while cards are queued stops the queue; the next tick queues them again", async () => {
+    const m = mock_gateway(rows("a", "b", "c", "d", "e", "f"), { a: 100, b: 100, c: 100 });
+    const r = recorder();
+    let limited = false;
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync, is_rate_limited: () => limited });
+    await tick(loader.refresh());
+    expect(m.calls.card).toEqual(["a", "b", "c"]);
+    limited = true;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(m.calls.card).toEqual(["a", "b", "c"]); // d, e, f not asked during the window
+    limited = false;
+    await tick(loader.refresh());
+    await vi.advanceTimersByTimeAsync(100);
+    expect(m.calls.card).toEqual(["a", "b", "c", "d", "e", "f"]);
+    loader.stop();
+  });
+
+  it("O5: a card still in flight at the next tick is not asked twice", async () => {
+    const m = mock_gateway(rows("ephemeral", "castor"), { ephemeral: 45_000 });
+    const r = recorder();
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync });
+    await tick(loader.refresh());
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    await tick(loader.refresh());
+    expect(m.calls.card.filter((n) => n === "ephemeral").length).toBe(1);
+    loader.stop();
+  });
+
+  it("O5: an entity that leaves the roster is forgotten — when it comes back its card is read again", async () => {
+    const m = mock_gateway(rows("castor", "pollux"));
+    const r = recorder();
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync });
+    await tick(loader.refresh());
+    await vi.advanceTimersByTimeAsync(100);
+    const all = m.state.rows;
+    m.state.rows = all.filter((x) => x.name !== "pollux");
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    await tick(loader.refresh());
+    m.state.rows = all;
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    void loader.refresh();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(r.tile("pollux")!.card_state).toBe("pending");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(m.calls.card.filter((n) => n === "pollux").length).toBe(2);
+    expect(m.calls.card.filter((n) => n === "castor").length).toBe(1);
+    loader.stop();
+  });
+
+  it("O5: stopped while the roster is in flight, nothing reaches the strip", async () => {
+    const m = mock_gateway(rows("castor"));
+    const r = recorder();
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync });
+    const p = loader.refresh();
+    loader.stop();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await p).toBe(false);
+    expect(r.emissions.length + r.totals.length + r.errors.length).toBe(0);
+    expect(m.calls.cognition.length + m.calls.card.length).toBe(0);
+  });
+
+  it("O5: the poll comes back on its own after a rate-limit stand-down, every 30 s", async () => {
+    const m = mock_gateway(rows("castor"));
+    const r = recorder();
+    let limited = true;
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync, is_rate_limited: () => limited });
+    const stop = start_entity_tiles_poll(loader);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(m.calls.roster).toBe(0);
+    limited = false;
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    expect(m.calls.roster).toBe(1);
+    await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS + 100);
+    expect(m.calls.roster).toBe(2);
+    stop();
+    await vi.advanceTimersByTimeAsync(5 * ENTITY_REFRESH_MS);
+    expect(m.calls.roster).toBe(2);
+  });
+
+  it("O7: on a gateway without the cognition wire, the card (busy/idle from its last moment) is read at every 30 s refresh", async () => {
+    const m = mock_gateway(rows("castor"));
+    m.state.cog_error.castor = "get_entity_cognition failed: HTTP 404 Not Found";
+    const r = recorder();
+    const loader = create_entity_tiles_loader({ gateway: m.gw, sink: r.sink, schedule: sync });
+    for (let i = 0; i < 4; i++) {
+      await tick(loader.refresh());
+      await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    }
+    expect(m.calls.card.length).toBe(4);
+    // With the wire, the same four ticks read the card once (test (c) above for the full rule).
+    const m2 = mock_gateway(rows("castor"));
+    const l2 = create_entity_tiles_loader({ gateway: m2.gw, sink: recorder().sink, schedule: sync });
+    for (let i = 0; i < 4; i++) {
+      await tick(l2.refresh());
+      await vi.advanceTimersByTimeAsync(ENTITY_REFRESH_MS);
+    }
+    expect(m2.calls.card.length).toBe(1);
+    loader.stop();
     l2.stop();
   });
 });
