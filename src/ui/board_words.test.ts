@@ -71,6 +71,8 @@ describe("a failed Done card", () => {
     expect(plain).toContain("took 3 seconds");
     expect(plain).toContain("57 seconds ago");
     const with_error = html(failed_row({ error: "Provider refused the request" }));
-    expect(with_error).toContain("failed: Provider refused the request");
+    // The pill says "failed"; the card says why, whole (redesign 2026-11-07).
+    expect(with_error).toContain("Provider refused the request");
+    expect(with_error.match(/>failed</g)?.length).toBe(1);
   });
 });

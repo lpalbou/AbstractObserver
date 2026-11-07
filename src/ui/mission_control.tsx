@@ -29,7 +29,27 @@ import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useStat
 import { createPortal } from "react-dom";
 import "./board.css";
 
-import { AfChip, EntityCard, Icon, automationControls, whenWords, type AutomationChanges, type AutomationSummary, type ControlState, type EntityCardStatus, type EntityTile as KitEntityTile, type IconName } from "@abstractframework/ui-kit";
+import {
+  ActivityAvatar,
+  AfChip,
+  AfChipButton,
+  AfMenu,
+  EntityCard,
+  Icon,
+  automationControls,
+  entityMomentWords,
+  entityNowWords,
+  entityTroubleWords,
+  entityWhenWords,
+  whenWords,
+  type AfMenuItem,
+  type AutomationChanges,
+  type AutomationSummary,
+  type ControlState,
+  type EntityCardStatus,
+  type EntityTile as KitEntityTile,
+
+} from "@abstractframework/ui-kit";
 import { tool_call_sentence, tool_call_verb, tools_phrase } from "./tool_call_words";
 import { Markdown } from "@abstractframework/panel-chat";
 
@@ -108,6 +128,47 @@ export const LANE_EMPTY: Record<BoardLane, string> = {
   scheduled: "nothing scheduled",
   done: "no recent runs",
 };
+
+/** The pill word a lane already says (redesign 2026-11-07, "say each fact once"): a Working
+ * card's "running" or a Needs-you card's "waiting" repeats the lane's name; any other word
+ * ("paused", "stuck", "failed", "completed") is information and keeps its pill. */
+export const LANE_PILL_ECHO: Record<BoardLane, string> = {
+  needs_you: "waiting",
+  working: "running",
+  waiting_on: "waiting",
+  scheduled: "scheduled",
+  done: "",
+};
+
+/** Whether a card's pill repeats its lane. */
+export function pill_echoes_lane(lane: BoardLane, status_word: string): boolean {
+  const echo = LANE_PILL_ECHO[lane];
+  return Boolean(echo) && String(status_word || "").trim().toLowerCase() === echo;
+}
+
+/** An empty lane is a header, not a column (redesign 2026-11-07): it collapses to a rail
+ * (a chip on a phone) once its count is known. A lane still loading never collapses, and
+ * Done stays open while runs are hidden outside its window (its window select must stay). */
+export function lane_collapses(input: { count: number; loading: boolean; hidden_outside_window?: number }): boolean {
+  return !input.loading && input.count === 0 && !(input.hidden_outside_window && input.hidden_outside_window > 0);
+}
+
+/** Card density, chosen by the viewer and remembered per browser. */
+export type BoardDensity = "comfortable" | "compact";
+export const DENSITY_STORAGE_KEY = "abstractobserver_board_density_v1";
+
+export function read_density(storage: Pick<Storage, "getItem"> | null | undefined): BoardDensity {
+  try {
+    return storage?.getItem(DENSITY_STORAGE_KEY) === "compact" ? "compact" : "comfortable";
+  } catch {
+    return "comfortable";
+  }
+}
+
+/** Lines a title shows before its "…" control, per density. */
+export const TITLE_LINES: Record<BoardDensity, number> = { comfortable: 2, compact: 1 };
+/** Lines a quoted request / answer shows before its "…" control, per density. */
+export const GLIMPSE_LINES: Record<BoardDensity, number> = { comfortable: 3, compact: 2 };
 
 
 export type BoardCard = {
@@ -433,6 +494,54 @@ export function split_board_rows(runs: RunSummary[], all_runs?: RunSummary[]): {
   return { active, done };
 }
 
+/** A run of identical consecutive Done cards, shown as ONE row with its count (redesign
+ * 2026-11-07: three "Thank you. failed" cards read as a wall, not as three facts). */
+export type DoneGroup = { key: string; cards: BoardCard[] };
+
+/** What makes two Done cards the same row: everything their faces show before the answer is
+ * read — the whole title, the pill, the sentence, the subject, archived, the error. */
+export function done_group_key(card: BoardCard): string {
+  // An automation's runs differ by their number only ("run #381", "run #382"): the same row.
+  const no_index = (t: string) => String(t || "").replace(/\brun #\d+\b/g, "run #").trim();
+  return [full_title(card), card.status_word, card.failed ? card.error || card.line.text : "", card.subject.label, no_index(card.subject.secondary), no_index(card.tag_label), card.archived].join("\u0001");
+}
+
+/** "#343 to #382": the run numbers a Done group spans, when its cards carry them ("" otherwise). */
+export function group_span_words(cards: readonly BoardCard[]): string {
+  const idx = cards.map((c) => c.row?.occurrence_index).filter((n): n is number => typeof n === "number");
+  if (idx.length < 2) return "";
+  const lo = Math.min(...idx);
+  const hi = Math.max(...idx);
+  return lo === hi ? `#${lo}` : `#${lo} to #${hi}`;
+}
+
+/** A Done card whose sentence only repeats its pill and its meta ("completed" / "completed in 3s"
+ * under a "completed" pill and "took 3 seconds"): the card says it once. */
+export function done_sentence_echoes(card: BoardCard): boolean {
+  const t = card.line.text.trim().toLowerCase();
+  const w = String(card.status_word || "").trim().toLowerCase();
+  return card.lane === "done" && Boolean(w) && (t === w || (w === "completed" && /^completed in \S+$/.test(t)));
+}
+
+/** Consecutive equal cards fold into one group (order kept: the lane's failures-first order
+ * already puts repeats side by side). Pure. */
+export function group_done_cards(cards: readonly BoardCard[]): DoneGroup[] {
+  const out: DoneGroup[] = [];
+  for (const c of cards) {
+    const key = done_group_key(c);
+    const last = out[out.length - 1];
+    if (last && last.key === key) last.cards.push(c);
+    else out.push({ key, cards: [c] });
+  }
+  return out;
+}
+
+/** A task's chain is a straight path (root → child → grandchild, no branch, nothing folded):
+ * it reads as one line "basic-agent › node-2" instead of a tree. */
+export function chain_is_path(chain: readonly ChainRow[]): boolean {
+  return chain.length > 1 && chain.every((r, i) => Boolean(r.run_id) && r.depth === i);
+}
+
 
 // --- the "no progress after" threshold (P6: a visible user setting) --------------
 
@@ -528,7 +637,7 @@ const glued = (s: string) => s.split(" ").join("\u00a0");
  * `<who> · asks since Oct 1, 09:14 (13d 4h)` · `needs approval for web_search since …` ·
  * `paused since …`. */
 export function needs_you_line(card: BoardCard, now_ms: number): { who: string; text: string } {
-  const since = card.since_ms !== null ? ` since ${glued(format_when(card.since_ms, now_ms))} ${glued(`(${compact_duration(Math.max(0, now_ms - card.since_ms))})`)}` : "";
+  const since = card.since_ms !== null ? ` since ${glued(format_when(card.since_ms, now_ms))} ${glued(`(${duration_words(Math.max(0, now_ms - card.since_ms))})`)}` : "";
   const action = card.line.action;
   if (card.line.verb === "paused") return { who: "", text: `paused${since}` };
   // Stuck: the attention block below carries the facts; the line says since when.
@@ -584,7 +693,8 @@ export function request_glimpse(card: BoardCard, detail?: any): { text: string; 
     return reason ? { text: clamp_text(reason, GLIMPSE_CHARS), full: clamp_text(reason, GLIMPSE_TITLE_CHARS) } : null;
   }
   if (card.line.action === "approve" && card.pending_calls.length) {
-    const text = card.pending_calls.map((c) => tool_call_words(c, 120)).join("  ·  ");
+    // Whole calls (the card's clamp and its "…" bound what shows; a per-call cut hid the URL's end).
+    const text = card.pending_calls.map((c) => tool_call_words(c)).join("  ·  ");
     const full = card.pending_calls.map((c) => tool_call_words(c)).join("\n");
     return { text: clamp_text(text, GLIMPSE_CHARS), full: clamp_text(full, GLIMPSE_TITLE_CHARS) };
   }
@@ -1213,6 +1323,9 @@ export type MissionControlProps = {
   /** The context bar's chooser: `PATCH /automations/{id}` with `expected_revision` — the same
    * revision-based edit the Automations page's Edit box sends. Absent = the bar is read-only. */
   on_revise_automation?: ReviseHandler;
+  /** Pause a running run (run control `pause`), from a Working card's ⋯ menu; resolves to an
+   * error sentence or null. Absent = no Pause on the board. */
+  on_pause_run?: (run_id: string) => Promise<string | null | void>;
 };
 
 /** Skeleton cards per lane before the first runs poll lands (operator 2026-10-15: the
@@ -1260,17 +1373,221 @@ export const ENTITIES_STRIP_EMPTY_CLASS = "mc_entities mc_entities_empty";
 export const SKELETON_ENTITIES = 4;
 /** The most tiles the strip shows (the head says "N of total — open the entity app for all"). */
 export const ENTITY_TILES_MAX = 12;
-/** Loading cards under the Entities head before the roster is known: the shared card's loading
- * state holds its final size, so the row does not move when the roster and tiles land. */
+/** Loading chips under the Entities head before the roster is known: the chip's loading state
+ * holds its final height, so the row does not move when the roster and tiles land. */
 export function SkeletonEntityTiles(props: { n: number; now_ms: number }): React.ReactElement {
   return (
     <>
       {Array.from({ length: props.n }, (_, i) => (
-        <div key={i} className="mc_entity_cell" aria-hidden="true">
-          <EntityCard tile={null} status="loading" nowMs={props.now_ms} density="compact" className="mc_entity_card" />
-        </div>
+        <span key={i} className="mc_entity_chip is_skeleton" aria-hidden="true">
+          <span className="mc_entity_orb is-plain" />
+          <span className="mc_entity_who">
+            <SkeletonLine width="64px" />
+            <SkeletonLine width="120px" />
+            <SkeletonLine width="96px" />
+          </span>
+        </span>
       ))}
     </>
+  );
+}
+
+/** The entity's look as a small orb: its avatar design (kit ActivityAvatar, still), else a quiet
+ * disc with its initial in its colour. */
+function EntityOrb(props: { name: string; look: EntityTileLook | { style?: string | null; color?: string | null } | null; size: number }): React.ReactElement {
+  const color = props.look?.color || undefined;
+  const style = { width: props.size, height: props.size, ...(color ? { "--af-entity-color": color } : {}) } as React.CSSProperties;
+  if (props.look?.style) {
+    return (
+      <span className="mc_entity_orb" style={style} aria-hidden="true">
+        <ActivityAvatar design={props.look.style} pose="listening" level={0.5} size={props.size} animated={false} quality="high" />
+      </span>
+    );
+  }
+  return (
+    <span className="mc_entity_orb is-plain" style={style} aria-hidden="true">
+      {(props.name || "?").trim().charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+/** The words of one entity chip, from the kit's entity words (pure; the tests read it). */
+export function entity_chip_words(e: EntityTile, now_ms: number): { name: string; now: string; moment: string; trouble: string } {
+  const t = e.tile;
+  const name = t?.name || e.name || "";
+  if (!t) return { name, now: "", moment: "", trouble: "" };
+  const now = entityNowWords(t.now, now_ms);
+  const now_text = [now.label, now.busy ? "busy now" : "", now.since].filter(Boolean).join(" · ");
+  const moment = entityMomentWords(t.last_moment);
+  const when = moment ? entityWhenWords(t.last_moment?.at, now_ms) : "";
+  return { name, now: now_text, moment: moment ? `${moment}${when ? ` · ${when}` : ""}` : "", trouble: entityTroubleWords(t.now?.trouble, now_ms) };
+}
+
+/** The kit card's own words for a tile older than the last read attempt. */
+export function entity_stale_words(e: EntityTile, now_ms: number): string {
+  if (e.status !== "stale" || !e.tile) return "";
+  return e.as_of_ms ? `Details from ${entityWhenWords(e.as_of_ms, now_ms)}; newer ones could not be read` : "Newer details could not be read";
+}
+
+/** One entity in the strip (redesign 2026-11-07): its orb, name, what it is doing and for how long,
+ * its last moment (or its trouble, in warning words) — one compact chip. Hover or click opens the
+ * kit EntityCard (full) beside it with every fact whole; its head opens the entity app. */
+function EntityChip(props: { e: EntityTile; now_ms: number; href: string }): React.ReactElement {
+  const { e } = props;
+  const [open, set_open] = useState<"" | "hover" | "pinned">("");
+  const anchor = useRef<HTMLButtonElement>(null);
+  const w = entity_chip_words(e, props.now_ms);
+  const stale = entity_stale_words(e, props.now_ms);
+  const look = e.tile?.look ?? e.look;
+  const loading = !e.tile && e.status === "loading";
+  const hide_soon = () => {
+    clear_info_timer();
+    info_hover_timer = window.setTimeout(() => set_open((m) => (m === "hover" ? "" : m)), 200);
+  };
+  return (
+    <>
+      <button
+        ref={anchor}
+        type="button"
+        className="mc_entity_chip"
+        data-status={e.status}
+        data-trouble={w.trouble ? "true" : undefined}
+        aria-haspopup="dialog"
+        aria-expanded={open !== ""}
+        aria-label={[w.name, w.now, w.trouble, stale, w.moment].filter(Boolean).join(" · ")}
+        onMouseEnter={() => {
+          clear_info_timer();
+          if (!open) info_hover_timer = window.setTimeout(() => set_open((m) => m || "hover"), 150);
+        }}
+        onMouseLeave={() => (open === "hover" ? hide_soon() : clear_info_timer())}
+        onClick={() => {
+          clear_info_timer();
+          set_open(open === "pinned" ? "" : "pinned");
+        }}
+      >
+        <EntityOrb name={w.name} look={look} size={30} />
+        <span className="mc_entity_who">
+          <span className="mc_entity_name">{w.name}</span>
+          {loading ? (
+            <>
+              <SkeletonLine width="120px" />
+              <SkeletonLine width="96px" />
+            </>
+          ) : !e.tile ? (
+            <span className="mc_entity_line mc_entity_note">Details unavailable right now</span>
+          ) : (
+            <>
+              <span className="mc_entity_line mc_entity_now">{w.now}</span>
+              {/* Line 3: trouble first, then staleness, else the last moment (the kit card has all three). */}
+              {w.trouble ? (
+                <span className="mc_entity_line mc_entity_trouble">{w.trouble}</span>
+              ) : stale ? (
+                <span className="mc_entity_line mc_entity_stale">{stale}</span>
+              ) : (
+                <span className="mc_entity_line mc_entity_moment">{w.moment || "No moment yet"}</span>
+              )}
+            </>
+          )}
+        </span>
+      </button>
+      {open && typeof document !== "undefined" ? (
+        <BoardPopover
+          anchor={anchor}
+          label={`About ${w.name}`}
+          width={380}
+          className="mc_entity_pop"
+          on_close={(refocus) => {
+            set_open("");
+            if (refocus) anchor.current?.focus();
+          }}
+          on_hover={(inside) => (inside ? clear_info_timer() : open === "hover" ? hide_soon() : undefined)}
+        >
+          <EntityCard
+            tile={e.tile}
+            status={e.status}
+            name={e.name}
+            look={e.look}
+            asOfMs={e.as_of_ms}
+            reason={e.reason || undefined}
+            nowMs={props.now_ms}
+            density="full"
+            href={`${props.href}${props.href.includes("?") ? "&" : "?"}entity=${encodeURIComponent(e.name)}&live=1`}
+            target="_blank"
+            className="mc_entity_card"
+          />
+        </BoardPopover>
+      ) : null}
+    </>
+  );
+}
+
+const ENTITY_ROW_STORAGE_KEY = "abstractobserver_board_entities_all_v1";
+
+/** The Entities strip (redesign 2026-11-07): ONE row of chips — a rail that scrolls sideways when
+ * the roster is wider than the page — and "Show all" that wraps every chip onto rows, remembered
+ * per browser. The strip keeps one height in every state (loading, pending tiles, loaded). */
+function EntityStrip(props: { tiles: EntityTile[]; loading: boolean; total: number; error: string; href: string; now_ms: number }): React.ReactElement {
+  const row = useRef<HTMLDivElement>(null);
+  const [all, set_all] = useState<boolean>(() => {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem(ENTITY_ROW_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [overflows, set_overflows] = useState(false);
+  useBrowserLayoutEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const check = () => set_overflows(all ? el.children.length > 1 && (el.lastElementChild as HTMLElement).offsetTop > (el.firstElementChild as HTMLElement).offsetTop + 2 : el.scrollWidth > el.clientWidth + 1);
+    check();
+    return watch_size(el, check);
+  }, [props.tiles.length, all, props.loading]);
+  const toggle = () => {
+    const next = !all;
+    set_all(next);
+    try {
+      localStorage.setItem(ENTITY_ROW_STORAGE_KEY, next ? "1" : "0");
+    } catch {}
+  };
+  const empty = !props.loading && !props.tiles.length;
+  return (
+    <section className={empty ? ENTITIES_STRIP_EMPTY_CLASS : ENTITIES_STRIP_CLASS} aria-busy={props.loading || undefined} aria-label="Entities">
+      <div className="mc_entities_head">
+        <span className="mc_entities_title">
+          Entities
+          {!props.loading && props.total > props.tiles.length ? (
+            <span className="mc_entities_count" title="The entity app lists them all">
+              {props.tiles.length} of {props.total}
+            </span>
+          ) : !props.loading && props.tiles.length ? (
+            <span className="mc_entities_count">{props.tiles.length}</span>
+          ) : null}
+          {empty ? <span className="muted mc_entities_none"> — no entities</span> : null}
+        </span>
+        {props.tiles.length && (overflows || all) ? (
+          <button type="button" className="mc_link_btn mc_entities_toggle" aria-expanded={all} onClick={toggle}>
+            {all ? "One row" : `Show all ${props.tiles.length}`}
+          </button>
+        ) : null}
+        <a className="mc_entity_link" href={props.href} target="_blank" rel="noreferrer">
+          Open the entity app →
+        </a>
+      </div>
+      {props.error ? <div className="muted mc_entities_error">{props.error}</div> : null}
+      {props.loading ? (
+        <div className="mc_entities_row" role="status" aria-label="loading entities">
+          <LoadingState what="entities" />
+          <SkeletonEntityTiles n={props.total ? Math.min(props.total, ENTITY_TILES_MAX) : SKELETON_ENTITIES} now_ms={props.now_ms} />
+        </div>
+      ) : props.tiles.length ? (
+        <div ref={row} className={`mc_entities_row${all ? " is_all" : ""}`}>
+          {props.tiles.map((e) => (
+            <EntityChip key={e.name} e={e} now_ms={props.now_ms} href={props.href} />
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1451,16 +1768,20 @@ export function LaneCancelBand(props: { state: LaneCancelState; label: string; o
   return null;
 }
 
-function BoardColumn(props: { col: BoardLane; title: string; count: number | null; count_title?: string; cancel?: { run_ids: readonly string[]; targets?: CancelTargets; on_cancel_run?: CancelHandler; on_cancel_runs?: CancelBatchHandler }; tools?: React.ReactNode; after?: React.ReactNode; children: React.ReactNode }): React.ReactElement {
+function BoardColumn(props: { col: BoardLane; title: string; hint?: string; empty?: string; count: number | null; count_title?: string; cancel?: { run_ids: readonly string[]; targets?: CancelTargets; on_cancel_run?: CancelHandler; on_cancel_runs?: CancelBatchHandler }; tools?: React.ReactNode; after?: React.ReactNode; children: React.ReactNode }): React.ReactElement {
   board_render_probe.lane?.(props.col);
   const title_id = `mc_column_title_${props.col}`;
   const cancel = useLaneCancel(props.col, props.cancel?.run_ids ?? [], props.cancel?.on_cancel_run, { targets: props.cancel?.targets, on_cancel_runs: props.cancel?.on_cancel_runs });
   // A count is a claim: before the first poll the pill says "…", never 0.
   const count_class = props.count === null ? " is_loading" : props.count ? "" : " is_zero";
+  // An empty lane is its header alone (redesign 2026-11-07): a rail on desktop, a chip on a
+  // phone; what empty MEANS is its tooltip and its accessible description.
+  const collapsed = Boolean(props.empty);
+  const about = collapsed ? `${props.title}: ${props.empty}` : props.hint ? `${props.title}: ${props.hint}` : undefined;
   return (
-    <section className={`mc_column mc_column_${props.col}`} aria-labelledby={title_id}>
+    <section className={`mc_column mc_column_${props.col}${collapsed ? " is_collapsed" : ""}`} aria-labelledby={title_id} title={collapsed ? about : undefined}>
       <header className="mc_column_head">
-        <h2 className="mc_column_title" id={title_id}>
+        <h2 className="mc_column_title" id={title_id} title={collapsed ? undefined : about}>
           {props.title}
         </h2>
         {cancel.enabled ? <LaneCancelIcon label={cancel.label} open={cancel.state.phase !== "idle"} on_ask={cancel.ask} /> : null}
@@ -1469,6 +1790,7 @@ function BoardColumn(props: { col: BoardLane; title: string; count: number | nul
           {props.count === null ? "…" : props.count}
         </span>
         {props.after}
+        {collapsed ? <span className="mc_column_empty_words">{props.empty}</span> : null}
       </header>
       {cancel.enabled ? <LaneCancelBand state={cancel.state} label={cancel.label} on_run={() => void cancel.run()} on_keep={cancel.keep} /> : null}
       {props.children}
@@ -2063,6 +2385,67 @@ function BoardPopover(props: BoardPopoverProps): React.ReactElement | null {
   );
 }
 
+/** ONE ResizeObserver for every clamp and strip on the board (a card holds no observer of its
+ * own): `watch_size(el, cb)` calls `cb` when `el` resizes; the returned function stops. */
+const size_watch = new Map<Element, () => void>();
+let size_observer: ResizeObserver | null = null;
+function watch_size(el: Element, cb: () => void): () => void {
+  if (typeof ResizeObserver === "undefined") return () => {};
+  if (!size_observer) {
+    size_observer = new ResizeObserver((entries) => {
+      for (const e of entries) size_watch.get(e.target)?.();
+    });
+  }
+  size_watch.set(el, cb);
+  size_observer.observe(el);
+  return () => {
+    size_watch.delete(el);
+    size_observer?.unobserve(el);
+  };
+}
+
+/** Text that shows `lines` lines and, ONLY when it has more, an explicit "…" control (redesign
+ * 2026-11-07: nothing is cut without a way to read it whole). The "…" expands the text in place,
+ * or — `on_more` — opens the full text elsewhere (a glimpse's popover). Measured after layout:
+ * the static render (tests, first paint) shows the clamp without the control. */
+export function ClampText(props: { lines: number; what: string; className?: string; title?: string; on_more?: () => void; text_key: string; children: React.ReactNode }): React.ReactElement {
+  const ref = useRef<HTMLDivElement>(null);
+  const [over, set_over] = useState(false);
+  const [open, set_open] = useState(false);
+  useBrowserLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || open) return;
+    const check = () => set_over(el.scrollHeight > el.clientHeight + 1);
+    check();
+    return watch_size(el, check);
+  }, [props.text_key, props.lines, open]);
+  const more = over || open;
+  return (
+    <div className={`mc_clamp${props.className ? ` ${props.className}` : ""}${open ? " is_open" : ""}${more ? " has_more" : ""}`} title={props.title}>
+      <div ref={ref} className="mc_clamp_text" data-lines={open ? undefined : props.lines} style={open ? undefined : ({ WebkitLineClamp: props.lines } as React.CSSProperties)}>
+        {props.children}
+      </div>
+      {more ? (
+        <button
+          type="button"
+          className="mc_clamp_more"
+          aria-expanded={props.on_more ? undefined : open}
+          aria-label={open ? `Show less of the ${props.what}` : `Read the whole ${props.what}`}
+          title={open ? "Show less" : `Read the whole ${props.what}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (props.on_more) props.on_more();
+            else set_open(!open);
+          }}
+          onKeyDown={stop}
+        >
+          {open ? "less" : "…"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 /** The full text behind a glimpse (a Done card's answer, a Needs-you card's request),
  * rendered with the shared markdown renderer (operator 2026-10-15 21:44: "what a terrible
  * tooltip for the card, please improve and use our shared renderer of md") — never a
@@ -2117,7 +2500,7 @@ export function GlimpseBody(props: {
  * native tooltip of raw markdown is replaced by the board's popover: hover (150 ms) or a
  * click shows the FULL answer/request rendered as markdown beside the card; leave or Escape
  * closes it. Nothing about the card's size or look changes (operator 2026-10-15 22:0x). */
-function Glimpse(props: { kind: "answer" | "request" | "task"; text: string; full: string; about: string; on_open: () => void; children: React.ReactNode; as_title?: boolean }): React.ReactElement {
+function Glimpse(props: { kind: "answer" | "request" | "task"; text: string; full: string; about: string; on_open: () => void; children: React.ReactNode; as_title?: boolean; lines?: number }): React.ReactElement {
   const [open, set_open] = useState<"" | "hover" | "pinned">("");
   const anchor = useRef<HTMLDivElement>(null);
   const hide_soon = () => {
@@ -2129,7 +2512,7 @@ function Glimpse(props: { kind: "answer" | "request" | "task"; text: string; ful
     <>
       <div
         ref={anchor}
-        className={props.as_title ? "mc_card_title mc_title_glimpse" : `mc_glimpse mc_glimpse_${props.kind}`}
+        className={props.as_title ? "mc_title_glimpse" : `mc_glimpse mc_glimpse_${props.kind}`}
         title={`Read the full ${what}`}
         onMouseEnter={() => {
           clear_info_timer();
@@ -2142,7 +2525,14 @@ function Glimpse(props: { kind: "answer" | "request" | "task"; text: string; ful
           set_open(open === "pinned" ? "" : "pinned");
         }}
       >
-        {props.children}
+        {props.as_title ? (
+          props.children
+        ) : (
+          /* The glimpse's "…" opens the full text beside the card (the popover), never a cut line. */
+          <ClampText lines={props.lines ?? 3} what={what} text_key={props.text} on_more={() => set_open("pinned")}>
+            {props.children}
+          </ClampText>
+        )}
       </div>
       {open && typeof document !== "undefined" ? (
         <BoardPopover
@@ -2155,55 +2545,6 @@ function Glimpse(props: { kind: "answer" | "request" | "task"; text: string; ful
         >
           <GlimpseBody kind={props.kind} text={props.full} about={props.about} on_open={props.on_open} on_close={() => set_open("")} />
         </BoardPopover>
-      ) : null}
-    </>
-  );
-}
-
-/** (i): hover or focus shows the brief; a click pins it (so "Name it" can be typed into).
- * Always visible, a kit icon in the card's footer; the body renders only once opened. */
-function InfoButton(props: CardInfoProps): React.ReactElement {
-  const [open, set_open] = useState<"" | "hover" | "pinned">("");
-  const btn = useRef<HTMLButtonElement>(null);
-  const hide_soon = () => {
-    clear_info_timer();
-    info_hover_timer = window.setTimeout(() => set_open((m) => (m === "hover" ? "" : m)), 200);
-  };
-  const about = props.card.role === "controller" ? "About this automation" : "About this run";
-  return (
-    <>
-      <button
-        ref={btn}
-        type="button"
-        className="btn mc_icon_btn mc_info_btn"
-        title={about}
-        aria-label={about}
-        aria-haspopup="dialog"
-        aria-expanded={open !== ""}
-        onClick={(e) => {
-          e.stopPropagation();
-          clear_info_timer();
-          set_open(open === "pinned" ? "" : "pinned");
-        }}
-        onKeyDown={stop}
-        onMouseEnter={() => {
-          clear_info_timer();
-          if (!open) info_hover_timer = window.setTimeout(() => set_open((m) => m || "hover"), 150);
-        }}
-        onMouseLeave={() => (open === "hover" ? hide_soon() : clear_info_timer())}
-      >
-        <Icon name="info" size={15} />
-      </button>
-      {open && typeof document !== "undefined" ? (
-        <InfoPopover
-          {...props}
-          anchor={btn}
-          on_close={(refocus) => {
-            set_open("");
-            if (refocus) btn.current?.focus();
-          }}
-          on_hover={(inside) => (inside ? clear_info_timer() : open === "hover" ? hide_soon() : undefined)}
-        />
       ) : null}
     </>
   );
@@ -2247,6 +2588,17 @@ export type CardHandlers = {
   brief_loading?: boolean;
   outcome_loading?: boolean;
   automation_loading?: boolean;
+  /** comfortable (default) or compact: how many lines a title / glimpse shows before its "…". */
+  density?: BoardDensity;
+  /** A Done group's lead card: how many identical runs it stands for, whether they are shown. */
+  group_count?: number;
+  group_open?: boolean;
+  /** The run numbers the group spans ("#343 to #382"), when known. */
+  group_span?: string;
+  /** Fold / unfold a Done group (by its lead card's run id). */
+  on_group_toggle?: (run_id: string) => void;
+  /** Pause a running run (the Working card's ⋯ menu). */
+  on_pause_run?: CancelHandler;
 };
 
 /** The card's subject line: the automation (when it is not already the title) and its
@@ -2267,64 +2619,45 @@ export function card_subject_words(card: BoardCard): { label: string; secondary:
   return { label, secondary: card.subject.secondary !== title ? card.subject.secondary : "" };
 }
 
-/** The Needs-you act zone: the ONE move that follows (Open in Code and Cancel sit on the
- * footer of every ongoing card, operator 2026-10-15: one line, icons, any phase). */
+/** The Needs-you decision: the ONE move that follows (Approve/Reject, Resume, Review & answer,
+ * or opening the run) — the card's primary action, in its foot (redesign 2026-11-07). Every other
+ * move (Open in Code, Cancel, Copy, Details) is behind the card's ⋯ menu. */
 function NeedsYouActions(props: { card: BoardCard } & CardHandlers): React.ReactElement {
   const { card } = props;
   const busy = props.busy || props.stale === true;
   const action = card.line.action;
   const open = () => props.on_open_run(card.run_id);
   return (
-    <div className="mc_card_review_body" onClick={stop} onKeyDown={stop}>
-      {action === "approve" && !card.wait_key ? (
-        <div className="mc_card_line" title="The wait has not registered a wait_key yet — open the run to inspect.">
-          wait key not published yet — open the run
-        </div>
-      ) : null}
-      <div className="mc_card_actions">
-        {action === "approve" && card.wait_key ? (
-          <>
-            <button type="button" className="btn success mc_btn_sm" disabled={busy} onClick={() => props.on_act(card, { approved: true })}>
-              {busy ? "Resuming…" : "Approve"}
-            </button>
-            <button type="button" className="btn danger mc_btn_sm" disabled={busy} onClick={() => props.on_act(card, { approved: false })}>
-              Reject
-            </button>
-          </>
-        ) : action === "resume" && props.on_resume ? (
-          <button type="button" className="btn primary mc_btn_sm" disabled={busy} onClick={() => props.on_resume!(card)}>
-            {busy ? "Resuming…" : "Resume"}
+    <div className="mc_card_actions" onClick={stop} onKeyDown={stop}>
+      {action === "approve" && card.wait_key ? (
+        <>
+          <button type="button" className="btn success mc_btn_sm" disabled={busy} onClick={() => props.on_act(card, { approved: true })}>
+            {busy ? "Resuming…" : "Approve"}
           </button>
-        ) : action === "answer" ? (
-          /* USER-RESPONSE waits never take a blind inline answer (operator,
-           * 2026-07-14: "to answer, I would require to understand the
-           * context"). The button opens the run's full context view. */
-          <button type="button" className="btn primary mc_btn_sm" onClick={open}>
-            Review &amp; answer →
+          <button type="button" className="btn danger mc_btn_sm" disabled={busy} onClick={() => props.on_act(card, { approved: false })}>
+            Reject
           </button>
-        ) : (
-          /* No wait key, an unresolved row-only wait, or a pause this host
-           * cannot resume: the ONE working move is opening the run. */
-          <button type="button" className="btn mc_btn_sm" onClick={open}>
-            Open the run →
-          </button>
-        )}
-      </div>
+        </>
+      ) : action === "resume" && props.on_resume ? (
+        <button type="button" className="btn primary mc_btn_sm" disabled={busy} onClick={() => props.on_resume!(card)}>
+          {busy ? "Resuming…" : "Resume"}
+        </button>
+      ) : action === "answer" ? (
+        /* USER-RESPONSE waits never take a blind inline answer (operator,
+         * 2026-07-14: "to answer, I would require to understand the
+         * context"). The button opens the run's full context view. */
+        <button type="button" className="btn primary mc_btn_sm" onClick={open}>
+          Review &amp; answer →
+        </button>
+      ) : (
+        /* No wait key, an unresolved row-only wait, or a pause this host
+         * cannot resume: the ONE working move is opening the run. */
+        <button type="button" className="btn mc_btn_sm" onClick={open}>
+          Open the run →
+        </button>
+      )}
     </div>
   );
-}
-
-/** A footer icon behind a gate: a disabled one keeps its reason (on a wrapper — disabled
- * buttons swallow hover), a busy one is disabled and spins; the label is the accessible name. */
-function GatedIcon(props: { state: ControlState; label: string; icon: IconName; hint?: string; busy?: boolean; className?: string; onClick: () => void }): React.ReactElement {
-  const live = props.state.enabled && !props.busy;
-  const title = props.busy ? `${props.label}…` : props.state.enabled ? [props.hint || props.label, props.state.reason].filter(Boolean).join(" — ") : props.state.reason || "not available";
-  const btn = (
-    <button type="button" className={`btn mc_icon_btn${props.className ? ` ${props.className}` : ""}`} disabled={!live} title={title} aria-label={props.label} onClick={props.onClick}>
-      <Icon name={props.busy ? "loader" : props.icon} size={15} className={props.busy ? "mc_spin" : undefined} />
-    </button>
-  );
-  return live ? btn : <span className="mc_btn_wrap" title={title}>{btn}</span>;
 }
 
 /** Facts as units: the separator is glued to the unit before it, so a narrow card wraps
@@ -2376,9 +2709,6 @@ function AutomationCardBody(props: { card: BoardCard } & CardHandlers): React.Re
         <div className="mc_facts">
           <div className="mc_fact_cell mc_fact_schedule" title={facts.schedule.title || undefined}>
             <FactUnits parts={facts.schedule.parts} />
-          </div>
-          <div className={`mc_fact_cell mc_fact_last${facts.last.failed ? " is_failed" : ""}`} title={facts.last.title || undefined}>
-            <FactUnits parts={facts.last.parts} />
           </div>
           {facts.last.failure ? (
             <div className="mc_fact_fail" title={facts.last.failure}>
@@ -2461,7 +2791,6 @@ function AutomationCardBody(props: { card: BoardCard } & CardHandlers): React.Re
 
 const CMD_IDLE: { busy: AutomationCardCommand | ""; error: string } = { busy: "", error: "" };
 const NOT_WIRED: ControlState = { enabled: false, reason: "commands are not wired on this host" };
-const LIVE: ControlState = { enabled: true };
 
 /** One card — the same skeleton in every lane (design §Card anatomy), ONE vertical flow
  * (operator 2026-10-15: nothing positioned, no reserved height):
@@ -2478,34 +2807,30 @@ export function stuck_words(facts: StateLine["stuck_facts"] | undefined): string
   if (!facts) return "a subrun ended and this run was not resumed";
   if (facts.status === "missing") return `its subrun ${facts.subrun} no longer exists on the gateway, so this run cannot be resumed`;
   const was = facts.status === "cancelled" ? "was cancelled" : facts.status === "failed" ? "failed" : `ended ${facts.status}`;
-  const ago = facts.ended_ms !== null ? ` ${compact_duration(facts.ended_ms)} ago` : "";
+  const ago = facts.ended_ms !== null ? ` ${duration_words(facts.ended_ms)} ago` : "";
   return `its subrun ${facts.subrun} ${was}${ago} and this run was not resumed`;
 }
 
-/** The attention block of a stuck task (operator 2026-10-16 10:10: the session, what it is doing,
- * the situation in its own words, the quick option, the icons): the run that is stuck, since
- * when, the sentence from its facts, and the two moves — Cancel task, or open the run. */
-function StuckBlock(props: { run_id: string; name: string; facts: StateLine["stuck_facts"] | undefined; since_ms: number | null | undefined; now_ms: number; on_open_run: (run_id: string) => void; on_cancel_task?: () => void }): React.ReactElement {
-  const since = typeof props.since_ms === "number" ? ` since ${glued(format_when(props.since_ms, props.now_ms))} ${glued(`(${compact_duration(Math.max(0, props.now_ms - props.since_ms))})`)}` : "";
+/** Why a task is stuck, in its own words (operator 2026-10-16 10:10): the run that is stuck
+ * (named unless the line above already names it), since when, and the sentence from its facts.
+ * The move — Cancel task — is the card's primary action. */
+function StuckWhy(props: { run_id: string; name: string; facts: StateLine["stuck_facts"] | undefined; since_ms: number | null | undefined; now_ms: number; on_open_run: (run_id: string) => void; head: boolean; named?: boolean }): React.ReactElement {
+  const since = typeof props.since_ms === "number" ? ` since ${glued(format_when(props.since_ms, props.now_ms))} ${glued(`(${duration_words(Math.max(0, props.now_ms - props.since_ms))})`)}` : "";
   return (
     <div className="mc_ask mc_ask_stuck" data-run-id={props.run_id} role="group" aria-label="stuck">
-      <div className="mc_ask_head">
-        <button type="button" className="mc_ask_who" onClick={() => props.on_open_run(props.run_id)} onKeyDown={stop}>
-          {props.name}
-        </button>{" "}
-        <span className="mc_ask_words">stuck{since}</span>
-      </div>
+      {props.head ? (
+        <div className="mc_ask_head">
+          {props.named !== false ? (
+            <>
+              <button type="button" className="mc_ask_who" onClick={() => props.on_open_run(props.run_id)} onKeyDown={stop}>
+                {props.name}
+              </button>{" "}
+            </>
+          ) : null}
+          <span className="mc_ask_words">stuck{since}</span>
+        </div>
+      ) : null}
       <div className="mc_stuck_why">{capitalize(stuck_words(props.facts))}.</div>
-      <div className="mc_card_actions">
-        {props.on_cancel_task ? (
-          <button type="button" className="btn danger mc_btn_sm" onClick={props.on_cancel_task}>
-            Cancel task
-          </button>
-        ) : null}
-        <button type="button" className="btn mc_btn_sm" onClick={() => props.on_open_run(props.run_id)}>
-          Open the run →
-        </button>
-      </div>
     </div>
   );
 }
@@ -2514,17 +2839,11 @@ function capitalize(s: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-/** One row of a task's chain: name (opens the run), its own words, and — below the root —
- * a ✕ that stops THAT subrun only, with the upward consequence in its words (design
- * adversary P0-1: a stopped child resumes its parent, which may delegate again). */
-function ChainRowView(props: { row: ChainRow; on_open_run: (run_id: string) => void; on_cancel_run?: CancelHandler }): React.ReactElement {
+/** One row of a branching task tree: name (opens the run) and its own words; a row that asks
+ * says so and its ask follows below (never its words twice). Stopping a subrun is in the card's
+ * ⋯ menu ("Stop subrun <name>"). */
+function ChainRowView(props: { row: ChainRow; on_open_run: (run_id: string) => void }): React.ReactElement {
   const { row } = props;
-  const [state, dispatch] = useReducer(cancel_reducer, CANCEL_IDLE);
-  const send = async () => {
-    if (!props.on_cancel_run) return;
-    dispatch({ type: "send" });
-    dispatch(await send_cancel(props.on_cancel_run, row.run_id));
-  };
   const more = !row.run_id;
   return (
     <div className={`mc_chain_row${row.stuck ? " is_stuck" : ""}${row.asks ? " is_ask" : ""}${row.running ? " is_running" : ""}`} style={{ paddingLeft: `${Math.min(row.depth, 5) * 14}px` }} data-run-id={row.run_id || undefined}>
@@ -2541,46 +2860,60 @@ function ChainRowView(props: { row: ChainRow; on_open_run: (run_id: string) => v
             {row.name}
           </button>
         )}
-        {row.words ? (
-          <span className="mc_chain_words" title={row.words}>
-            {row.words}
-          </span>
-        ) : null}
-        {props.on_cancel_run && row.depth > 0 && !more && state.phase === "idle" ? (
-          <button type="button" className="btn mc_icon_btn mc_cancel mc_chain_cancel" title={SUBRUN_STOP_WORDS} aria-label={`Stop subrun ${row.name} only`} onClick={() => dispatch({ type: "ask" })}>
-            <Icon name="x" size={13} />
-          </button>
-        ) : null}
+        {row.asks ? <span className="mc_chain_words">needs you ↓</span> : row.words ? <span className="mc_chain_words">{row.words}</span> : null}
       </div>
-      {state.phase !== "idle" || state.error ? (
-        <div className="mc_chain_confirm">{cancel_confirm_nodes({ state, on_event: dispatch, on_send: () => void send(), question: SUBRUN_STOP_QUESTION })}</div>
-      ) : null}
     </div>
   );
 }
 
-/** A task card's body: the chain, then every asking subrun's ask and act zone, then the
- * stuck band when nothing asks and a row is stuck. */
-function ChainBlock(props: { card: BoardCard; on_cancel_task?: () => void } & CardHandlers): React.ReactElement {
+/** A task card's body: the chain — ONE path line "basic-agent › node-2" when it is a straight
+ * line, the tree when it branches — then each asking subrun's ask (its decision inline only when
+ * the task has more than one; a single ask's decision is the card's primary action), then why it
+ * is stuck when nothing asks. Each fact is said once (redesign 2026-11-07: the tree repeated the
+ * ask's sentence above the ask). */
+function ChainBlock(props: { card: BoardCard; sole_ask: BoardCard | null; glimpse_lines: number } & CardHandlers): React.ReactElement {
   const { card } = props;
+  const path = chain_is_path(card.chain);
+  const leaf = card.chain[card.chain.length - 1];
   const stuck_row = card.stuck && !card.asks.length ? card.chain.find((r) => r.stuck) : undefined;
   const loading = new Set((props.ask_loading || "").split(",").filter(Boolean));
   const busy_of = (ask: BoardCard) => Boolean(props.busy_wait) && props.busy_wait === `${ask.run_id}:${ask.wait_key}:${ask.since_ms ?? ""}`;
   return (
     <div className="mc_chain" onClick={stop} onKeyDown={stop}>
-      {card.chain.map((row, i) => (
-        <ChainRowView key={row.run_id || `more-${i}`} row={row} on_open_run={props.on_open_run} on_cancel_run={props.on_cancel_run} />
-      ))}
+      {path ? (
+        <div className="mc_path">
+          {card.chain.map((r, i) => (
+            <React.Fragment key={r.run_id}>
+              {i ? (
+                <span className="mc_path_sep" aria-hidden="true">
+                  ›
+                </span>
+              ) : null}
+              <button type="button" className="mc_chain_name" title={`Open ${r.title || r.name}`} onClick={() => props.on_open_run(r.run_id)} onKeyDown={stop}>
+                {r.name}
+              </button>
+            </React.Fragment>
+          ))}
+          {leaf && !leaf.asks && !leaf.stuck && leaf.words ? <span className={`mc_chain_words${leaf.running ? " is_running" : ""}`}>{leaf.words}</span> : null}
+        </div>
+      ) : (
+        card.chain.map((row, i) => <ChainRowView key={row.run_id || `more-${i}`} row={row} on_open_run={props.on_open_run} />)
+      )}
       {card.asks.map((ask) => {
         const detail = props.ask_detail?.[ask.run_id];
         const request = request_glimpse(ask, detail);
         const who = needs_you_line(ask, props.now_ms);
+        const named = !(path && leaf && ask.run_id === leaf.run_id);
         return (
           <div key={ask.run_id} className="mc_ask" data-run-id={ask.run_id}>
-            <div className="mc_ask_head" title={ask.line.text}>
-              <button type="button" className="mc_ask_who" onClick={() => props.on_open_run(ask.run_id)} onKeyDown={stop}>
-                {run_display_name(ask.workflow_id) || short_run_id(ask.run_id)}
-              </button>{" "}
+            <div className="mc_ask_head">
+              {named ? (
+                <>
+                  <button type="button" className="mc_ask_who" onClick={() => props.on_open_run(ask.run_id)} onKeyDown={stop}>
+                    {run_display_name(ask.workflow_id) || short_run_id(ask.run_id)}
+                  </button>{" "}
+                </>
+              ) : null}
               <span className="mc_ask_words">
                 {who.who ? `${who.who} · ` : ""}
                 {who.text}
@@ -2589,32 +2922,62 @@ function ChainBlock(props: { card: BoardCard; on_cancel_task?: () => void } & Ca
             {!request && loading.has(ask.run_id) ? (
               <InlineSkeleton what="the request" />
             ) : request ? (
-              <Glimpse kind="request" text={request.text} full={request.full} about={card.title.text} on_open={() => props.on_open_run(ask.run_id)}>
+              <Glimpse kind="request" text={request.text} full={request.full} about={card.title.text} on_open={() => props.on_open_run(ask.run_id)} lines={props.glimpse_lines}>
                 {request.text}
               </Glimpse>
             ) : null}
-            <NeedsYouActions {...props} card={ask} detail={detail} busy={busy_of(ask)} />
+            {ask === props.sole_ask ? null : <NeedsYouActions {...props} card={ask} detail={detail} busy={busy_of(ask)} />}
           </div>
         );
       })}
       {stuck_row ? (
-        <StuckBlock run_id={stuck_row.run_id} name={stuck_row.name} facts={stuck_row.stuck_facts} since_ms={stuck_row.since_ms} now_ms={props.now_ms} on_open_run={props.on_open_run} on_cancel_task={props.on_cancel_task} />
+        <StuckWhy run_id={stuck_row.run_id} name={stuck_row.name} facts={stuck_row.stuck_facts} since_ms={stuck_row.since_ms} now_ms={props.now_ms} on_open_run={props.on_open_run} head named={!(path && leaf && leaf.run_id === stuck_row.run_id)} />
       ) : null}
     </div>
   );
 }
 
-function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.ReactElement {
+/** A text button behind a gate (an automation card's Run now / Resume schedule): a disabled one
+ * keeps its reason on a wrapper (disabled buttons swallow hover); a busy one says so. */
+function GatedButton(props: { state: ControlState; label: string; hint?: string; busy?: boolean; tone?: "primary" | "quiet"; onClick: () => void }): React.ReactElement {
+  const live = props.state.enabled && !props.busy;
+  const title = props.busy ? `${props.label}…` : props.state.enabled ? [props.hint || props.label, props.state.reason].filter(Boolean).join(" — ") : props.state.reason || "not available";
+  const btn = (
+    <button type="button" className={`btn mc_btn_sm${props.tone === "primary" ? " primary" : " mc_btn_quiet"}`} disabled={!live} title={title} onClick={props.onClick}>
+      {props.busy ? `${props.label}…` : props.label}
+    </button>
+  );
+  return live ? btn : <span className="mc_btn_wrap" title={title}>{btn}</span>;
+}
+
+type PauseState = { phase: "idle" | "busy" | "sent"; error: string };
+const PAUSE_IDLE: PauseState = { phase: "idle", error: "" };
+
+/** One card — the same anatomy in every lane (redesign 2026-11-07, DESIGN.md):
+ *   head   glyph · the WHOLE title (2 lines, 1 in compact; "…" reads the rest) · ×N · the pill
+ *          (only when it says more than the lane)
+ *   body   WHY-NOW: the state sentence · the chain as one path · a Done card's answer · an
+ *          automation's schedule, last run and context — then the ask (Needs you)
+ *   notice Cancel / Stop confirms, command errors, "copied"
+ *   foot   ONE row: the meta (subject · age · tokens · tool calls · artifacts · when) on the left,
+ *          the ONE primary action and the ⋯ menu on the right. */
+function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
   const { card } = props;
   board_render_probe.card?.(card.run_id);
   const [cancel, cancel_dispatch] = useReducer(cancel_reducer, CANCEL_IDLE);
+  const [stop_sub, set_stop_sub] = useState<{ row: ChainRow; state: CancelState } | null>(null);
   const [cmd, set_cmd] = useState(CMD_IDLE);
+  const [pause, set_pause] = useState<PauseState>(PAUSE_IDLE);
+  const [details, set_details] = useState(false);
+  const [copied, set_copied] = useState<"" | "copied" | "failed">("");
+  const menu_anchor = useRef<HTMLSpanElement>(null);
+  const density: BoardDensity = props.density ?? "comfortable";
   const status_word = card.status_word;
   const subject = card_subject_words(card);
   const is_automation = card.role === "controller";
   const has_chain = card.chain.length > 0;
-  // A lone run that asks renders its ask in place (as before); a task with a chain renders
-  // the chain and each asking subrun's zone (ChainBlock).
+  // A lone run that asks renders its ask in place; a task with a chain renders the chain and each
+  // asking subrun's ask (ChainBlock).
   const needs = !is_automation && card.lane === "needs_you" && !has_chain;
   // Observability: any ongoing run opens in Code and can be cancelled, whatever its lane.
   const ongoing = !is_automation && (card.lane === "needs_you" || card.lane === "working" || card.lane === "waiting_on");
@@ -2628,13 +2991,28 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
   const answer_loading = !is_automation && card.lane === "done" && !answer && !card.failed && props.outcome_loading === true;
   const title_loading = card.title.untitled && props.brief_loading === true;
   // A finished card whose sentence is its pill's word says it once (the pill).
-  const echoes_pill = card.lane === "done" && !answer && card.line.text.trim().toLowerCase() === String(status_word || "").trim().toLowerCase();
+  const echoes_pill = !answer && done_sentence_echoes(card);
+  // A failed Done card says WHY, whole (the sentence clamps the error at 120 characters): the pill
+  // already says "failed".
+  const failure = card.lane === "done" && card.failed && card.error ? card.error : "";
   const on_cancel_run = ongoing ? props.on_cancel_run : undefined;
   const cancel_tree = cancel.phase !== "idle" && on_cancel_run ? props.cancel_targets?.(card.run_id) : undefined;
   const send_cancel_now = async () => {
     if (!on_cancel_run) return;
     cancel_dispatch({ type: "send" });
     cancel_dispatch(await send_cancel_tree(on_cancel_run, card.run_id, cancel_tree, props.on_cancel_runs));
+  };
+  const stop_event = (ev: CancelEvent) =>
+    set_stop_sub((s) => {
+      if (!s) return s;
+      const state = cancel_reducer(s.state, ev);
+      return state.phase === "idle" && !state.error ? null : { ...s, state };
+    });
+  const send_stop_now = async () => {
+    if (!stop_sub || !props.on_cancel_run) return;
+    const run_id = stop_sub.row.run_id;
+    stop_event({ type: "send" });
+    stop_event(await send_cancel(props.on_cancel_run, run_id));
   };
   const command = (type: AutomationCardCommand) => {
     if (!props.on_automation_command || cmd.busy) return;
@@ -2644,97 +3022,171 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
       if (!error) props.on_renamed?.(card.automation_id);
     });
   };
+  const send_pause = () => {
+    const on_pause = props.on_pause_run;
+    if (!on_pause || pause.phase === "busy") return;
+    set_pause({ phase: "busy", error: "" });
+    void Promise.resolve()
+      .then(() => on_pause(card.run_id))
+      .then(
+        (err) => set_pause(typeof err === "string" && err ? { phase: "idle", error: err } : { phase: "sent", error: "" }),
+        (e: any) => set_pause({ phase: "idle", error: String(e?.message || e || "pause failed") }),
+      );
+  };
+  const copy_id = () => {
+    void clipboardWrite(card.run_id).then((ok) => {
+      set_copied(ok ? "copied" : "failed");
+      window.setTimeout(() => set_copied(""), 1500);
+    });
+  };
+  const open = () => props.on_open_run(card.run_id);
   const controls = is_automation ? automation_card_controls(card.automation, cmd.busy !== "") : null;
-  const notice = cancel.phase !== "idle" || cancel.error || cmd.error;
-  // A footer with no icons on its left (a Done card) carries the metrics there, so no card
-  // spends a row on a lone ⧉ (i); a card with icons keeps its metrics line just above.
-  const left_icons = is_automation || (ongoing && (Boolean(code_session_of(card)) || Boolean(on_cancel_run)));
-  const metrics_in_foot = !left_icons && metrics.length > 0;
-  const metrics_view = metrics.length ? (
-    <div className={`mc_card_metrics${metrics_in_foot ? " mc_foot_metrics" : ""}`} title={card.lane === "done" ? "run time · tokens of the run tree · tool calls · artifacts · when it finished" : "time since the run started · tokens of the run tree · tool calls"}>
-      <FactUnits parts={metrics} />
-    </div>
+  const auto_paused = Boolean(controls && controls.toggle.command === "automation.resume");
+
+  // The decision the foot carries: a lone asking run's own, or a task's single asking subrun's.
+  const sole_ask = has_chain && card.asks.length === 1 ? card.asks[0] : null;
+  const ask_card = needs && !card.line.stuck ? card : sole_ask;
+  const ask_detail = needs ? props.detail : sole_ask ? props.ask_detail?.[sole_ask.run_id] : undefined;
+  const ask_busy = needs ? props.busy : sole_ask ? Boolean(props.busy_wait) && props.busy_wait === `${sole_ask.run_id}:${sole_ask.wait_key}:${sole_ask.since_ms ?? ""}` : false;
+  const stuck_now = needs ? Boolean(card.line.stuck) : has_chain && card.stuck && !card.asks.length;
+
+  let primary: React.ReactNode = null;
+  if (is_automation && controls) {
+    primary = auto_paused ? (
+      <GatedButton state={props.on_automation_command ? controls.toggle.state : NOT_WIRED} label="Resume schedule" tone="primary" busy={cmd.busy === "automation.resume"} onClick={() => command("automation.resume")} />
+    ) : (
+      <GatedButton state={props.on_automation_command ? controls.run_now : NOT_WIRED} label="Run now" hint="Start a run of this automation now" busy={cmd.busy === "automation.run_now"} onClick={() => command("automation.run_now")} />
+    );
+  } else if (stuck_now) {
+    primary = on_cancel_run ? (
+      cancel.phase === "idle" ? (
+        <button type="button" className="btn danger mc_btn_sm" title={CANCEL_TASK_WORDS} onClick={() => cancel_dispatch({ type: "ask" })}>
+          Cancel task
+        </button>
+      ) : null
+    ) : (
+      <button type="button" className="btn mc_btn_sm" onClick={open}>
+        Open the run →
+      </button>
+    );
+  } else if (ask_card) {
+    primary = <NeedsYouActions {...props} card={ask_card} detail={ask_detail} busy={ask_busy} />;
+  }
+
+  // ⋯ — every secondary move, only those that apply (the kit menu lists no disabled items).
+  const items: AfMenuItem[] = [];
+  if (is_automation) {
+    if (props.on_open_automation) items.push({ id: "open_automation", label: "Open automation", onSelect: () => props.on_open_automation?.(card.automation_id) });
+    if (controls && props.on_automation_command) {
+      if (auto_paused && controls.run_now.enabled) items.push({ id: "run_now", label: "Run now", onSelect: () => command("automation.run_now") });
+      if (!auto_paused && controls.toggle.state.enabled) items.push({ id: "pause_schedule", label: controls.toggle.label, onSelect: () => command(controls.toggle.command) });
+    }
+  } else {
+    items.push({ id: "open", label: "Open the run", onSelect: open });
+    const session = code_session_of(card);
+    const code_url = String(props.code_app?.url || "").trim();
+    if (ongoing && session && code_url) items.push({ id: "code", label: "Open in Code", onSelect: () => void window.open(code_href(code_url, session, card.run_id), "_blank", "noreferrer") });
+    if (card.lane === "working" && props.on_pause_run && card.line.verb === "running" && pause.phase === "idle") items.push({ id: "pause", label: "Pause", onSelect: send_pause });
+    if (on_cancel_run && !stuck_now && cancel.phase === "idle") items.push({ id: "cancel", label: "Cancel…", danger: true, onSelect: () => cancel_dispatch({ type: "ask" }) });
+    if (ongoing && props.on_cancel_run) {
+      for (const r of card.chain) {
+        if (r.depth > 0 && r.run_id) items.push({ id: `stop:${r.run_id}`, label: `Stop subrun ${r.name}…`, danger: true, onSelect: () => set_stop_sub({ row: r, state: { phase: "confirm", error: "" } }) });
+      }
+    }
+    items.push({ id: "copy", label: "Copy run id", onSelect: copy_id });
+  }
+  items.push({ id: "details", label: is_automation ? "About this automation" : "About this run", onSelect: () => set_details(true) });
+
+  const title_text = full_title(card);
+  const untitled_chip = card.title.untitled ? (
+    <>
+      {" "}
+      <AfChip tone="muted" size="sm" className="mc_untitled" title="No title on the wire yet: the workflow id stands in">
+        untitled
+      </AfChip>
+    </>
   ) : null;
+  const title_clamp = (
+    <ClampText lines={TITLE_LINES[density]} what="title" className="mc_card_title" text_key={title_text}>
+      {title_text}
+      {untitled_chip}
+    </ClampText>
+  );
+  // An automation's foot carries its last run ("last #384 completed 48 seconds ago · 384 turns").
+  const auto_facts = is_automation && card.automation ? automation_facts_words(card.automation, props.now_ms) : null;
+  const show_subject = !(has_chain && !subject.label && !card.archived && card.chain[0] && (subject.secondary === card.chain[0].name || subject.secondary === workflow_short(card.workflow_id)));
+  const meta_parts = [...(show_subject ? [subject.label, subject.secondary] : []), ...metrics].filter(Boolean);
+  const wait_key_note = ask_card && ask_card.line.action === "approve" && !ask_card.wait_key;
+  const notice = cancel.phase !== "idle" || cancel.error || stop_sub || cmd.error || pause.phase === "sent" || pause.error || copied;
+  const group_n = props.group_count ?? 0;
   return (
     <div
-      className={`mc_card mc_card_${card.lane}${card.failed ? " mc_card_failed" : ""}${card.line.stalled ? " mc_card_stalled" : ""}${is_automation ? " mc_card_automation" : ""}`}
+      className={`mc_card mc_card_${card.lane}${card.failed ? " mc_card_failed" : ""}${card.line.stalled ? " mc_card_stalled" : ""}${is_automation ? " mc_card_automation" : ""}${group_n > 1 ? " mc_card_group" : ""}`}
       data-lane={card.lane}
       data-run-id={card.run_id}
-      onClick={() => props.on_open_run(card.run_id)}
+      onClick={open}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
         // Only the card ITSELF answers Enter — keydown from the controls
         // must never navigate (adversary P0: Enter in a textarea destroyed
         // the typed answer).
-        if (e.key === "Enter" && e.target === e.currentTarget) props.on_open_run(card.run_id);
+        if (e.key === "Enter" && e.target === e.currentTarget) open();
       }}
     >
       <div className="mc_card_head">
         <span className={`mc_card_glyph mc_glyph_${card.subject.kind}`} aria-hidden="true">
           {card.subject.glyph}
         </span>
-        {title_loading ? (
-          <span className="mc_card_title" title="loading the title…">
-            <SkeletonLine className="mc_sk_title" width="64%" />
-          </span>
-        ) : has_chain || card.task ? (
-          <Glimpse kind="task" text={card.title.text} full={card.task || full_title(card)} about={card.subject.label || card.subject.secondary} on_open={() => props.on_open_run(card.run_id)} as_title>
-            {card.title.text}
-            {card.title.untitled ? (
-              <>
-                {" "}
-                <AfChip tone="muted" size="sm" className="mc_untitled" title="No title on the wire yet: the workflow id stands in">
-                  untitled
-                </AfChip>
-              </>
-            ) : null}
-          </Glimpse>
-        ) : (
-          <span className="mc_card_title" title={full_title(card)}>
-            {card.title.text}
-            {card.title.untitled ? (
-              <>
-                {" "}
-                <AfChip tone="muted" size="sm" className="mc_untitled" title="No title on the wire yet: the workflow id stands in">
-                  untitled
-                </AfChip>
-              </>
-            ) : null}
-          </span>
-        )}
-        {/* ONE word, ONE color map (adversary 3 P0-1). "scheduled" in the Scheduled lane only repeats
-          * the lane's name (design review 2026-11-07); "paused" and every other word still show. */}
-        {card.lane === "scheduled" && status_word === "scheduled" ? null : <span className={`mc_status ${run_status_class(status_word)}`}>{status_word === "unknown" ? "?" : status_word}</span>}
-      </div>
-      {(subject.label || subject.secondary || card.archived) && !(has_chain && !subject.label && !card.archived && card.chain[0] && (subject.secondary === card.chain[0].name || subject.secondary === workflow_short(card.workflow_id))) ? (
-        <div className="mc_card_subject">
-          {subject.label ? (
-            <span className="mc_subject_label" title={subject.label}>
-              {subject.label}
+        <div className="mc_card_titlebox">
+          {title_loading ? (
+            <span className="mc_card_title" title="loading the title…">
+              <SkeletonLine className="mc_sk_title" width="64%" />
             </span>
-          ) : null}
-          {subject.secondary ? (
-            <span className="mc_subject_secondary" title={subject.secondary}>
-              {subject.secondary}
-            </span>
-          ) : null}
-          {card.archived ? <span className="mc_pill" data-tag="archived" title="This conversation is archived: hidden from chat lists, kept here and in the ledger">Archived</span> : null}
+          ) : card.task && card.task.trim() !== title_text.trim() ? (
+            <Glimpse kind="task" text={title_text} full={card.task} about={card.subject.label || card.subject.secondary} on_open={open} as_title>
+              {title_clamp}
+            </Glimpse>
+          ) : (
+            title_clamp
+          )}
         </div>
-      ) : null}
+        {group_n > 1 ? (
+          <span className="mc_group_wrap" onClick={stop} onKeyDown={stop}>
+            <AfChipButton
+              size="sm"
+              tone="muted"
+              className="mc_group_count"
+              expanded={props.group_open === true}
+              ariaLabel={props.group_open ? `Fold the ${group_n} identical runs` : `${group_n} identical runs: show each`}
+              title={props.group_open ? "Fold them back into one row" : `${group_n} runs in a row with this same title, status and subject${props.group_span ? ` (runs ${props.group_span})` : ""}: show each`}
+              onClick={() => props.on_group_toggle?.(card.run_id)}
+            >
+              ×{group_n}
+            </AfChipButton>
+          </span>
+        ) : null}
+        {card.archived ? <span className="mc_pill" data-tag="archived" title="This conversation is archived: hidden from chat lists, kept here and in the ledger">Archived</span> : null}
+        {/* ONE word, ONE color map (adversary 3 P0-1); a word the lane already says is not repeated. */}
+        {pill_echoes_lane(card.lane, status_word) ? null : <span className={`mc_status ${run_status_class(status_word)}`}>{status_word === "unknown" ? "?" : status_word}</span>}
+      </div>
       {is_automation ? (
         <AutomationCardBody {...props} />
       ) : has_chain ? (
-        <ChainBlock {...props} on_cancel_task={on_cancel_run ? () => cancel_dispatch({ type: "ask" }) : undefined} />
+        <ChainBlock {...props} sole_ask={sole_ask} glimpse_lines={GLIMPSE_LINES[density]} />
       ) : answer_loading ? (
         <InlineSkeleton what="the answer" />
+      ) : failure ? (
+        <ClampText lines={2} what="error" className="mc_card_state mc_card_failure" text_key={failure}>
+          {failure}
+        </ClampText>
       ) : echoes_pill ? (
         /* The sentence would only repeat the pill ("failed" under "failed"); a failure with a
          * reason keeps its sentence ("failed: <reason>"), which is not an echo. */
         null
       ) : answer ? (
         /* A Done card's WHY-NOW is its outcome: a glimpse of the answer. */
-        <Glimpse kind="answer" text={answer.text} full={answer.full} about={card.title.text} on_open={() => props.on_open_run(card.run_id)}>
+        <Glimpse kind="answer" text={answer.text} full={answer.full} about={card.title.text} on_open={open} lines={GLIMPSE_LINES[density]}>
           {/* Answers are markdown: rendered, then flattened to one quiet run of text
             * (board.css) — "# Digest **Date**" never shows its syntax. Remote images
             * stay links; the glimpse itself is the one control: it opens the full answer. */}
@@ -2767,7 +3219,7 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
               aria-label="no progress"
               title={`No ledger step for ${compact_duration(card.line.stale_ms ?? 0)}: past the ${stall_label(props.stall_after_ms)} threshold set in the Working lane's head`}
             >
-              {"\u00a0⚠"}
+              {" ⚠"}
             </span>
           ) : null}
           {card.line.action === "inspect" ? (
@@ -2778,7 +3230,7 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
                 className="mc_inspect"
                 onClick={(e) => {
                   e.stopPropagation();
-                  props.on_open_run(card.run_id);
+                  open();
                 }}
                 onKeyDown={stop}
               >
@@ -2793,64 +3245,56 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
       ) : request ? (
         /* THE ASK, in place: a card that hides what the run wants forces the
          * open-the-run detour the lane exists to remove. */
-        <Glimpse kind="request" text={request.text} full={request.full} about={card.title.text} on_open={() => props.on_open_run(card.run_id)}>
+        <Glimpse kind="request" text={request.text} full={request.full} about={card.title.text} on_open={open} lines={GLIMPSE_LINES[density]}>
           {request.text}
         </Glimpse>
       ) : null}
       {needs && card.line.stuck ? (
-        <StuckBlock run_id={card.run_id} name={run_display_name(card.workflow_id) || short_run_id(card.run_id)} facts={card.line.stuck_facts} since_ms={card.since_ms} now_ms={props.now_ms} on_open_run={props.on_open_run} on_cancel_task={on_cancel_run ? () => cancel_dispatch({ type: "ask" }) : undefined} />
-      ) : needs ? (
-        <NeedsYouActions {...props} />
+        <StuckWhy run_id={card.run_id} name={run_display_name(card.workflow_id) || short_run_id(card.run_id)} facts={card.line.stuck_facts} since_ms={card.since_ms} now_ms={props.now_ms} on_open_run={props.on_open_run} head={false} />
       ) : null}
-      {metrics_in_foot ? null : metrics_view}
+      {wait_key_note ? (
+        <div className="mc_card_line" title="The wait has not registered a wait_key yet — open the run to inspect.">
+          wait key not published yet — open the run
+        </div>
+      ) : null}
       {notice ? (
         <div className="mc_card_notice" onClick={stop} onKeyDown={stop}>
           {cancel_confirm_nodes({ state: cancel, on_event: cancel_dispatch, on_send: () => void send_cancel_now(), question: cancel_question(cancel_tree, card.run_id) })}
-          {cmd.error ? (
+          {stop_sub
+            ? cancel_confirm_nodes({ state: stop_sub.state, on_event: stop_event, on_send: () => void send_stop_now(), question: `${SUBRUN_STOP_QUESTION} (${stop_sub.row.name})` })
+            : null}
+          {pause.phase === "sent" ? <span className="mc_cancel_sent">pause requested</span> : null}
+          {copied ? (
+            <span className={`mc_copied is_${copied}`} role="status">
+              {copied === "copied" ? "run id copied" : "copy failed"}
+            </span>
+          ) : null}
+          {cmd.error || pause.error ? (
             <div className="mc_act_error" role="alert">
-              {cmd.error}
+              {cmd.error || pause.error}
             </div>
           ) : null}
         </div>
       ) : null}
       <div className={`mc_card_foot${is_automation ? " mc_auto_foot" : ""}`} onClick={stop} onKeyDown={stop}>
-        {is_automation && controls ? (
-          <>
-            <GatedIcon
-              state={props.on_open_automation ? LIVE : { enabled: false, reason: "not available here" }}
-              label="Open automation"
-              hint="Open this automation on the Automations page"
-              icon="loop"
-              onClick={() => props.on_open_automation?.(card.automation_id)}
-            />
-            <GatedIcon state={props.on_automation_command ? controls.run_now : NOT_WIRED} label="Run now" icon="playCircle" busy={cmd.busy === "automation.run_now"} onClick={() => command("automation.run_now")} />
-            <GatedIcon
-              state={props.on_automation_command ? controls.toggle.state : NOT_WIRED}
-              label={controls.toggle.label}
-              icon={controls.toggle.command === "automation.resume" ? "play" : "pause"}
-              busy={cmd.busy === controls.toggle.command}
-              onClick={() => command(controls.toggle.command)}
-            />
-          </>
+        {auto_facts ? (
+          <div className={`mc_card_meta mc_fact_last${auto_facts.last.failed ? " is_failed" : ""}`} title={auto_facts.last.title || undefined}>
+            <FactUnits parts={auto_facts.last.parts} />
+          </div>
         ) : (
-          <>
-            {ongoing ? <OpenInCode card={card} code_app={props.code_app} variant="icon" /> : null}
-            {on_cancel_run ? (
-              cancel.phase === "idle" ? (
-                cancel_button({ on_event: cancel_dispatch, variant: "icon" })
-              ) : (
-                <span className="mc_btn_wrap" title={cancel.phase === "sent" ? "cancel requested" : "Cancel this task? Answer just above"}>
-                  <button type="button" className="btn mc_icon_btn mc_cancel is_active" disabled aria-label="Cancel this task">
-                    <Icon name="x" size={15} />
-                  </button>
-                </span>
-              )
-            ) : null}
-          </>
+          <div className="mc_card_meta" title={card.lane === "done" ? "what ran · run time · tokens of the run tree · tool calls · artifacts · when it finished" : "what ran · time since the run started · tokens of the run tree · tool calls"}>
+            <FactUnits parts={meta_parts} />
+          </div>
         )}
-        {metrics_in_foot ? metrics_view : <span className="mc_spacer" />}
-        {is_automation ? null : <CopyButton text={card.run_id} label="the run id" title={card.run_id} />}
-        <InfoButton
+        <div className="mc_card_act">
+          {primary}
+          <span ref={menu_anchor} className="mc_menu_wrap">
+            <AfMenu label={`More actions for ${card.title.text}`} items={items} className="mc_card_menu" buttonClassName="mc_menu_btn" />
+          </span>
+        </div>
+      </div>
+      {details && typeof document !== "undefined" ? (
+        <InfoPopover
           card={card}
           now_ms={props.now_ms}
           stall_after_ms={props.stall_after_ms}
@@ -2866,8 +3310,14 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
           on_cancel_run={props.on_cancel_run}
           on_cancel_runs={props.on_cancel_runs}
           cancel_targets={props.cancel_targets}
+          anchor={menu_anchor as unknown as React.RefObject<HTMLButtonElement>}
+          on_close={(refocus) => {
+            set_details(false);
+            if (refocus) menu_anchor.current?.querySelector("button")?.focus();
+          }}
+          on_hover={() => {}}
         />
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -3018,6 +3468,10 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
   const [busy_wait, set_busy_wait] = useState<string>("");
   const [act_error, set_act_error] = useState<string>("");
   const [show_done, set_show_done] = useState(false);
+  // Density: the viewer's choice, remembered per browser (redesign 2026-11-07).
+  const [density, set_density] = useState<BoardDensity>(() => read_density(viewer_storage()));
+  // Done groups shown member by member (by their lead card's run id); folded by default.
+  const [open_groups, set_open_groups] = useState<ReadonlySet<string>>(() => new Set());
   // Done window: persisted operator preference (survives reloads).
   const [done_window, set_done_window] = useState<DoneWindowKey>(() => {
     try {
@@ -3035,7 +3489,12 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
     [rows, pulses.map, automations.map, stall_after_ms],
   );
   const base_done = useMemo(() => filter_done_window(base.done, done_window, Date.now()).visible, [base, done_window]);
-  const done_shown = useMemo(() => (show_done ? base_done : base_done.slice(0, DONE_SHOWN)).map((c) => c.row), [base_done, show_done]);
+  // Done shows ROWS (a group of identical runs is one row); the rows read are those of the
+  // groups shown — the viewport still bounds which of them are read.
+  const done_shown = useMemo(() => {
+    const groups = group_done_cards(base_done);
+    return (show_done ? groups : groups.slice(0, DONE_SHOWN)).flatMap((g) => g.cards.map((c) => c.row));
+  }, [base_done, show_done]);
   const in_view = useMemo(
     () =>
       rows_in_viewport(
@@ -3159,6 +3618,14 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
       cancel_targets: (run_id: string) => cancel_targets([run_id], active_ref.current),
       act: (c: BoardCard, payload: any) => void act_ref.current(c, payload),
       resume: (c: BoardCard) => void resume_ref.current(c),
+      pause: ((run_id) => host.current.on_pause_run!(run_id)) as CancelHandler,
+      toggle_group: (run_id: string) =>
+        set_open_groups((prev) => {
+          const next = new Set(prev);
+          if (next.has(run_id)) next.delete(run_id);
+          else next.add(run_id);
+          return next;
+        }),
     }),
     [],
   );
@@ -3203,68 +3670,27 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
     brief_loading: briefs.loading.has(card.run_id),
     outcome_loading: outcomes.loading.has(card.run_id),
     automation_loading: card.automation_id ? automations.loading.has(card.automation_id) : false,
+    density,
+    on_pause_run: props.on_pause_run ? stable.pause : undefined,
   });
 
+  const set_density_saved = (next: BoardDensity) => {
+    set_density(next);
+    try {
+      localStorage.setItem(DENSITY_STORAGE_KEY, next);
+    } catch {}
+  };
+
   return (
-    <div className="page page_scroll mc_page">
+    <div className="page page_scroll mc_page" data-density={density}>
       {act_error ? <div className="mc_error">{act_error}</div> : null}
       {/* The strip is in the page at FIRST PAINT (operator 2026-10-15: it landed after the lanes and
-        * pushed them down). One class in every state — `.mc_entities_reserved` holds the loaded row's
-        * height — so the lanes never move: skeleton tiles under the head until the roster and cards
-        * land (`entities === null`), the tiles after, a one-line head when the gateway has none. */}
-      <div className={!entities_loading && !tiles.length ? ENTITIES_STRIP_EMPTY_CLASS : ENTITIES_STRIP_CLASS} aria-busy={entities_loading || undefined}>
-        <div className="mc_entities_head">
-          <span>
-            Entities
-            {!entities_loading && props.entities_total > tiles.length ? (
-              <span className="mc_entities_count" title="The entity app lists them all">
-                {tiles.length} of {props.entities_total}
-              </span>
-            ) : null}
-            {!entities_loading && !tiles.length ? <span className="muted mc_entities_none"> — no entities</span> : null}
-          </span>
-          <a className="mc_entity_link" href={props.entity_app_href} target="_blank" rel="noreferrer">
-            Open the entity app →
-          </a>
-        </div>
-        {props.entities_error ? <div className="muted">{props.entities_error}</div> : null}
-        {entities_loading ? (
-          <div className="mc_entities_row" role="status" aria-label="loading entities">
-            <LoadingState what="entities" />
-            <SkeletonEntityTiles n={props.entities_total ? Math.min(props.entities_total, ENTITY_TILES_MAX) : SKELETON_ENTITIES} now_ms={now_ms} />
-          </div>
-        ) : null}
-        {tiles.length ? (
-          <div className="mc_entities_row">
-            {/* One shared kit card per entity (ui-kit EntityCard, compact): who, what it is doing
-              * now and for how long, one interest, the last moment. Its head opens the entity app. */}
-            {tiles.map((e) => (
-              <div key={e.name} className="mc_entity_cell">
-                <EntityCard
-                  tile={e.tile}
-                  status={e.status}
-                  name={e.name}
-                  look={e.look}
-                  asOfMs={e.as_of_ms}
-                  reason={e.reason || undefined}
-                  nowMs={now_ms}
-                  density="compact"
-                  href={`${props.entity_app_href}${props.entity_app_href.includes("?") ? "&" : "?"}entity=${encodeURIComponent(e.name)}&live=1`}
-                  target="_blank"
-                  className="mc_entity_card"
-                />
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
+        * pushed them down), one height in every state; ONE row of entity chips (redesign 2026-11-07). */}
+      <EntityStrip tiles={tiles} loading={entities_loading} total={props.entities_total} error={props.entities_error} href={props.entity_app_href} now_ms={now_ms} />
 
       {/* ONE slim line above the lanes (operator 2026-10-15: the stat strip repeated the lanes'
-        * counts): a notice only when something is wrong or not yet true, then how old the
-        * runs poll is and Refresh. The gateway's connection shows in the app header. */}
+        * counts): a notice only when something is wrong or not yet true. */}
       {!props.gateway_connected || props.runs_refreshed_at === null || props.runs_stale || props.notice ? (
-        /* Only a notice, only when there is one (operator 2026-10-15: no data age, no Refresh
-         * button — the board polls by itself). */
         <div className="mc_status_line">
           {!props.gateway_connected ? (
             <span className="mc_notice is_bad" role="status">
@@ -3289,20 +3715,41 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
         </div>
       ) : null}
 
-      {props.filters ? <div className="mc_filters">{props.filters}</div> : null}
+      {/* The filters stay at the top; the density toggle closes their row. */}
+      <div className="mc_filters">
+        <div className="mc_filters_main">{props.filters}</div>
+        <div className="mc_view_tools">
+          <AfChipButton
+            size="sm"
+            tone="neutral"
+            className="mc_density_toggle"
+            pressed={density === "compact"}
+            title={density === "compact" ? "Compact cards: one-line titles, two-line quotes (click for comfortable)" : "Comfortable cards: two-line titles, three-line quotes (click for compact)"}
+            onClick={() => set_density_saved(density === "compact" ? "comfortable" : "compact")}
+          >
+            Compact
+          </AfChipButton>
+        </div>
+      </div>
 
-      <div className="mc_board">
+      <div className="mc_board" data-density={density}>
         {LANE_ORDER.map((lane) => {
           // Done is WINDOWED (operator 2026-07-14): terminal runs grow
           // without bound; active lanes never hide anything.
           const windowed = lane === "done" ? done_view.visible : lanes[lane];
-          const visible = lane === "done" && !show_done ? windowed.slice(0, DONE_SHOWN) : windowed;
+          const groups = lane === "done" ? group_done_cards(windowed) : null;
+          const visible_groups = groups ? (show_done ? groups : groups.slice(0, DONE_SHOWN)) : null;
+          const visible = visible_groups ? visible_groups.map((g) => g.cards[0]) : windowed;
           const loading_lane = props.runs_refreshed_at === null || (lane === "done" && props.done_loaded === false);
+          const collapsed = lane_collapses({ count: windowed.length, loading: loading_lane, hidden_outside_window: lane === "done" ? done_view.hidden_count : 0 });
+          const stalled = lane === "working" ? windowed.filter((c) => c.line.stalled).length : 0;
           return (
             <BoardColumn
               key={lane}
               col={lane}
               title={LANE_LABEL[lane]}
+              hint={LANE_HINT[lane]}
+              empty={collapsed ? LANE_EMPTY[lane] : undefined}
               count={loading_lane ? null : windowed.length}
               count_title={
                 lane === "done" && done_view.hidden_count
@@ -3311,90 +3758,111 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                     ? `${windowed.length} task${windowed.length === 1 ? "" : "s"} · ${windowed.reduce((n, c) => n + (c.asks.length || (c.line.lane === "needs_you" && !c.stuck ? 1 : 0)), 0)} asks`
                     : undefined
               }
-              cancel={{ run_ids: windowed.map((c) => c.run_id), targets: cancel_targets(windowed.map((c) => c.run_id), rows.active), on_cancel_run: props.on_cancel_run, on_cancel_runs: props.on_cancel_runs }}
+              cancel={collapsed ? undefined : { run_ids: windowed.map((c) => c.run_id), targets: cancel_targets(windowed.map((c) => c.run_id), rows.active), on_cancel_run: props.on_cancel_run, on_cancel_runs: props.on_cancel_runs }}
               after={
-                lane === "working" ? (
-                  <label className="mc_stall_control" title="No progress after: a running card whose last ledger step is older than this gets the mark ⚠ and floats to the top of Working">
-                    {/* The mark the threshold sets, then the time: "⚠ after 5m" (a lane is ~240 px
-                      * wide at 1500 px; the words "no progress after" are the select's name). */}
-                    <span className="mc_stall_word" aria-hidden="true">
-                      <span className="mc_stall_mark">⚠</span> after
-                    </span>
-                    <select
-                      className="mc_window_select mc_stall_select"
-                      aria-label="no progress after"
-                      value={String(stall_after_ms)}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        set_stall_after_ms(v);
-                        try {
-                          localStorage.setItem(STALL_STORAGE_KEY, String(v));
-                        } catch {}
-                      }}
-                    >
-                      {STALL_AFTER_OPTIONS.map((o) => (
-                        <option key={o.ms} value={String(o.ms)}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                lane === "working" && !collapsed ? (
+                  <>
+                    {stalled ? (
+                      <span className="mc_lane_flag" title={`${stalled} running card${stalled === 1 ? "" : "s"} with no ledger step past the threshold`}>
+                        {stalled} stalled
+                      </span>
+                    ) : null}
+                    <label className="mc_stall_control" title="No progress after: a running card whose last ledger step is older than this gets the mark ⚠ and floats to the top of Working">
+                      <span className="mc_stall_word" aria-hidden="true">
+                        <span className="mc_stall_mark">⚠</span> after
+                      </span>
+                      <select
+                        className="mc_window_select mc_stall_select"
+                        aria-label="no progress after"
+                        value={String(stall_after_ms)}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          set_stall_after_ms(v);
+                          try {
+                            localStorage.setItem(STALL_STORAGE_KEY, String(v));
+                          } catch {}
+                        }}
+                      >
+                        {STALL_AFTER_OPTIONS.map((o) => (
+                          <option key={o.ms} value={String(o.ms)}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
                 ) : null
               }
               tools={
-                lane === "done" ? (
-                    <select
-                      className="mc_window_select"
-                      value={done_window}
-                      title="Show terminal runs from this time window"
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        const v = e.target.value as DoneWindowKey;
-                        set_done_window(v);
-                        set_show_done(false);
-                        try {
-                          localStorage.setItem("abstractobserver_done_window_v1", v);
-                        } catch {}
-                      }}
-                    >
-                      {(Object.keys(DONE_WINDOW_MS) as DoneWindowKey[]).map((k) => (
-                        <option key={k} value={k}>
-                          {DONE_WINDOW_LABEL[k]}
-                        </option>
-                      ))}
-                    </select>
+                lane === "done" && !collapsed ? (
+                  <select
+                    className="mc_window_select"
+                    value={done_window}
+                    title="Show terminal runs from this time window"
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const v = e.target.value as DoneWindowKey;
+                      set_done_window(v);
+                      set_show_done(false);
+                      try {
+                        localStorage.setItem("abstractobserver_done_window_v1", v);
+                      } catch {}
+                    }}
+                  >
+                    {(Object.keys(DONE_WINDOW_MS) as DoneWindowKey[]).map((k) => (
+                      <option key={k} value={k}>
+                        {DONE_WINDOW_LABEL[k]}
+                      </option>
+                    ))}
+                  </select>
                 ) : null
               }
             >
-              <div className="mc_column_hint muted">{LANE_HINT[lane]}</div>
-              <div className="mc_column_cards" ref={lane_refs[lane]} aria-busy={loading_lane || undefined}>
-                {/* Before the first poll a lane shows card-shaped skeletons, never an
-                  * empty sentence (operator 2026-10-15: "nothing is blocked" while loading). */}
-                {loading_lane && !visible.length ? (
-                  <>
-                    <LoadingState what={lane === "done" && props.runs_refreshed_at !== null ? "finished runs" : "runs"} />
-                    <SkeletonCards n={SKELETON_CARDS[lane]} />
-                  </>
-                ) : null}
-                {visible.map((card) => (
-                  <BoardCardView key={card.run_id} card={card} {...handlers(card)} />
-                ))}
-                {!windowed.length && !loading_lane ? (
-                  <div className="mc_empty muted">
-                    {lane === "done" && done_view.hidden_count ? `none in the ${DONE_WINDOW_LABEL[done_window]} — ${done_view.hidden_count} older` : LANE_EMPTY[lane]}
-                  </div>
-                ) : null}
-                {lane === "done" && windowed.length > DONE_SHOWN && !show_done ? (
-                  <button className="btn mc_more" onClick={() => set_show_done(true)}>
-                    show all {windowed.length}
-                  </button>
-                ) : null}
-                {lane === "done" && done_view.hidden_count && windowed.length ? (
-                  <div className="mc_window_note muted" title="Widen the window above to see older terminal runs">
-                    +{done_view.hidden_count} older outside {DONE_WINDOW_LABEL[done_window]}
-                  </div>
-                ) : null}
-              </div>
+              {collapsed ? null : (
+                <div className="mc_column_cards" ref={lane_refs[lane]} aria-busy={loading_lane || undefined}>
+                  {/* Before the first poll a lane shows card-shaped skeletons, never an
+                    * empty sentence (operator 2026-10-15: "nothing is blocked" while loading). */}
+                  {loading_lane && !visible.length ? (
+                    <>
+                      <LoadingState what={lane === "done" && props.runs_refreshed_at !== null ? "finished runs" : "runs"} />
+                      <SkeletonCards n={SKELETON_CARDS[lane]} />
+                    </>
+                  ) : null}
+                  {visible_groups
+                    ? visible_groups.map((g) => {
+                        const lead = g.cards[0];
+                        const open = g.cards.length > 1 && open_groups.has(lead.run_id);
+                        const card = <BoardCardView key={lead.run_id} card={lead} {...handlers(lead)} group_count={g.cards.length} group_open={open} group_span={group_span_words(g.cards)} on_group_toggle={stable.toggle_group} />;
+                        return open ? (
+                          <div key={lead.run_id} className="mc_group" role="group" aria-label={`${g.cards.length} identical runs`}>
+                            {card}
+                            {g.cards.slice(1).map((c) => (
+                              <BoardCardView key={c.run_id} card={c} {...handlers(c)} />
+                            ))}
+                          </div>
+                        ) : (
+                          card
+                        );
+                      })
+                    : visible.map((card) => <BoardCardView key={card.run_id} card={card} {...handlers(card)} />)}
+                  {!windowed.length && !loading_lane ? (
+                    <div className="mc_empty muted">
+                      {lane === "done" && done_view.hidden_count ? `none in the ${DONE_WINDOW_LABEL[done_window]} — ${done_view.hidden_count} older` : LANE_EMPTY[lane]}
+                    </div>
+                  ) : null}
+                  {lane === "done" && groups && groups.length > DONE_SHOWN && !show_done ? (
+                    <button className="btn mc_more" onClick={() => set_show_done(true)}>
+                      show all {windowed.length}
+                      {groups.length !== windowed.length ? ` (${groups.length} rows)` : ""}
+                    </button>
+                  ) : null}
+                  {lane === "done" && done_view.hidden_count && windowed.length ? (
+                    <div className="mc_window_note muted" title="Widen the window above to see older terminal runs">
+                      +{done_view.hidden_count} older outside {DONE_WINDOW_LABEL[done_window]}
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </BoardColumn>
           );
         })}

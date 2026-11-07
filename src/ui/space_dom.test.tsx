@@ -260,8 +260,10 @@ describe("the Entities strip never moves the lanes (desktop, rendered DOM)", () 
     }
     // No entities at all: the strip collapses to its head and the lanes move up — once, when the
     // roster lands — instead of leaving the page's largest empty box.
-    expect(none.strip_h, JSON.stringify({ loading, none })).toBeLessThan(loading.strip_h / 3);
-    expect(none.lanes_top, JSON.stringify({ loading, none })).toBeLessThan(loading.lanes_top - 100);
+    // (Redesign 2026-11-07: the loaded strip is ONE row of chips, ~130 px instead of ~227 px, so the
+    // head alone is now under half of it and saves ~80 px.)
+    expect(none.strip_h, JSON.stringify({ loading, none })).toBeLessThan(loading.strip_h / 2);
+    expect(none.lanes_top, JSON.stringify({ loading, none })).toBeLessThan(loading.lanes_top - 60);
   }, 120_000);
 });
 

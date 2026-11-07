@@ -216,7 +216,8 @@ describe("five lanes — one case per wait kind × lane (rows of gateway 0.13.1)
     ]);
     const html = markup(c, { on_cancel_run: async () => null });
     expect(html).toContain('class="mc_chain_name" title="Open visual_react_agent_x_node-2"');
-    expect(html).toContain('aria-label="Stop subrun x_node-2 only"');
+    // Stopping ONE subrun is an item of the card's ⋯ menu (redesign 2026-11-07).
+    expect(html).toContain(">Stop subrun x_node-2…</button>");
     expect(markup(c)).not.toContain("Stop subrun");
     // A fresh pulse is progress: no mark, and a 1 h threshold clears the old one too.
     const fresh = new Map([[UUID, fold_pulse(UUID, 1, { node_id: "reason", status: "started", effect: { type: "llm_call" }, started_at: ago(1), ended_at: null })!]]);
@@ -440,9 +441,8 @@ describe("card anatomy (design §Card anatomy)", () => {
     const c = board([row({ run_id: UUID })]).working[0];
     expect(text_of(c)).not.toContain(UUID);
     expect(text_of(c)).not.toContain(UUID.slice(0, 6));
-    expect(markup(c)).toMatch(new RegExp(`class="mc_copy"[^>]*title="${UUID}"[^>]*aria-label="Copy the run id"`));
-    // The icon is drawn (15 px), not a glyph that depends on the font.
-    expect(markup(c)).toMatch(/class="mc_copy"[^>]*>\s*<svg width="15" height="15"/);
+    // Copying it is an item of the card's ⋯ menu (redesign 2026-11-07: one menu for every secondary move).
+    expect(markup(c)).toContain('data-menu-id="copy" class="af-menu__item">Copy run id</button>');
   });
 
   it("a run with no title on the wire says untitled (the chip says why); a clamped title's tooltip is the whole title", () => {
@@ -454,10 +454,10 @@ describe("card anatomy (design §Card anatomy)", () => {
     const titled = build_board({ active: [row({ run_id: "p", session_id: "s" })], done: [], now_ms: NOW, run_briefs: new Map([["p", { run_id: "p", excerpt: long }]]) }).working[0];
     expect(titled.title.source).toBe("excerpt");
     expect(text_of(titled)).not.toContain("untitled");
-    // The card clamps the title to 2 lines; hovering it opens the task's full text in the elevated
-    // panel (operator 2026-10-16 02:36: no native tooltip for the session's text), the source lives in the (i).
-    expect(markup(titled)).toContain('class="mc_card_title mc_title_glimpse" title="Read the full task"');
-    expect(markup(titled)).toContain(long.slice(0, 40));
+    // The card shows the WHOLE title, clamped to 2 lines with an explicit "…" beyond (redesign
+    // 2026-11-07); it is the task itself, so no second "full task" panel repeats it.
+    expect(markup(titled)).toContain('class="mc_clamp mc_card_title"');
+    expect(text_of(titled)).toContain(long);
   });
 
   it("the old 'subrun' meta word and the generic Automation button are gone; the archived pill stays", () => {
@@ -694,10 +694,11 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
       expect(h).not.toContain("<svg");
     }
     expect(page).not.toContain("list_collapsed");
-    expect(page).not.toMatch(/hidden=""/);
+    // Nothing is hidden on the page but the closed ⋯ menu's list (kit AfMenu).
+    expect(page.replace(/<div class="af-menu__list" role="menu" hidden="">/g, "")).not.toMatch(/hidden=""/);
     // Working holds one card; every other lane is empty and its pill is muted.
-    expect(page).toMatch(/id="mc_column_title_working">Working<\/h2><span class="mc_column_count">1<\/span>/);
-    expect(page).toMatch(/id="mc_column_title_needs_you">Needs you<\/h2><span class="mc_column_count is_zero">0<\/span>/);
+    expect(page).toMatch(/id="mc_column_title_working"[^>]*>Working<\/h2><span class="mc_column_count">1<\/span>/);
+    expect(page).toMatch(/id="mc_column_title_needs_you"[^>]*>Needs you<\/h2><span class="mc_column_count is_zero">0<\/span>/);
     expect((page.match(/class="mc_column_count is_zero"/g) || []).length).toBe(4);
     // The pill: tabular figures, primary text on a raised surface, 13 px, right-aligned; zero muted.
     const pill = rule(".mc_column_head .mc_column_count");
@@ -723,7 +724,8 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     expect(css).not.toMatch(/\.mc_card:hover\s*\{[^}]*transform/);
     // The card's copy and every (i) row's copy carry the button; the (i) has one per fact row.
     const c = question();
-    expect(html_of(c)).toMatch(/class="mc_copy"[^>]*title="q1"/);
+    // The card's copy is an item of its ⋯ menu (redesign 2026-11-07); the (i) rows keep theirs.
+    expect(html_of(c)).toContain(">Copy run id</button>");
     const info = renderToStaticMarkup(React.createElement(CardInfo, { card: c, now_ms: NOW_MS, stall_after_ms: 5 * 60_000 }));
     const rows = (info.match(/class="mc_info_row"/g) || []).length;
     expect(rows).toBeGreaterThan(8);
@@ -733,14 +735,15 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
   it("WHO · asks since <when> (<age>): a person when actor_id names one; nothing (never 'you', never 'gateway') otherwise", () => {
     expect(format_when(Date.parse("2026-10-01T09:14:00Z"), NOW_MS)).toMatch(/^Oct \d{1,2}, \d\d:\d\d$/);
     expect(format_when(Date.parse("2025-10-01T09:14:00Z"), NOW_MS)).toMatch(/^Oct \d{1,2} 2025, \d\d:\d\d$/);
-    const since = `${format_when(Date.parse(at(3)), NOW_MS)} (3m)`;
+    // The age in words (operator 2026-11-07: no unit abbreviations on a card).
+    const since = `${format_when(Date.parse(at(3)), NOW_MS)} (3 minutes)`;
     const anon = question({ actor_id: "gateway" });
     expect(person_of(anon.row)).toBe("");
     const line = needs_you_line(anon, NOW_MS);
     expect(line.who).toBe("");
     expect(line.text.split("\u00a0").join(" ")).toBe(`asks since ${since}`);
     // The date and the age are glued: a narrow lane never splits "(3m)" or "Oct 13, 23:47".
-    expect(line.text).toBe(`asks since ${format_when(Date.parse(at(3)), NOW_MS).split(" ").join("\u00a0")} (3m)`);
+    expect(line.text).toBe(`asks since ${format_when(Date.parse(at(3)), NOW_MS).split(" ").join("\u00a0")} (3\u00a0minutes)`);
     const t = text_of(anon);
     expect(t).toContain(`asks since ${since}`);
     expect(t).not.toMatch(/\byou\b/);
@@ -750,10 +753,10 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     expect(html_of(person)).toContain('<span class="mc_who" title="Started by laurent">laurent</span>');
     // Approvals name the tools; pauses say paused.
     const a = approval({ actor_id: "ops-team" });
-    expect(text_of(a)).toContain(`ops-team · needs approval for a web search and an email since ${format_when(Date.parse(at(9)), NOW_MS)} (9m)`);
+    expect(text_of(a)).toContain(`ops-team · needs approval for a web search and an email since ${format_when(Date.parse(at(9)), NOW_MS)} (9 minutes)`);
     expect(tools_words(["read_file", "read_file", "edit_file", "web_search", "a", "b"])).toBe("2 file reads, a file edit, a web search and 2 more");
     const paused = build_board({ active: [row({ run_id: "p1", status: "waiting", actor_id: "laurent", waiting: { reason: "user", wait_key: "pause:p1" }, updated_at: at(20) })], done: [], now_ms: NOW_MS }).needs_you[0];
-    expect(text_of(paused)).toContain(`paused since ${format_when(Date.parse(at(20)), NOW_MS)} (20m)`);
+    expect(text_of(paused)).toContain(`paused since ${format_when(Date.parse(at(20)), NOW_MS)} (20 minutes)`);
     expect(text_of(paused)).not.toContain("laurent ·");
   });
 
@@ -767,10 +770,11 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     // rendered beside the card — the full text is never a native tooltip (operator 2026-10-15).
     expect(html_of(q)).toMatch(/<div class="mc_glimpse mc_glimpse_request" title="Read the full request">/);
     expect(html_of(q)).not.toMatch(/title="The coding agent believes/);
-    // Same class, same look as the answer glimpse: one rule, a 3-line clamp, muted.
+    // Same class, same look as the answer glimpse: one rule, muted; the 3-line clamp is the shared
+    // ClampText's (an explicit "…" opens the full request, redesign 2026-11-07).
     const g = rule(".mc_glimpse");
-    expect(g).toMatch(/-webkit-line-clamp:\s*3/);
     expect(g).toMatch(/color:\s*var\(--text-secondary\)/);
+    expect(html_of(q)).toMatch(/mc_glimpse_request"[^>]*><div class="mc_clamp"><div class="mc_clamp_text" data-lines="3" style="-webkit-line-clamp:3">/);
     const a = html_of(approval());
     // The calls in the kit's words (ui-kit describeToolCall), never `name(key: value)` or JSON (operator 2026-10-29).
     expect(a).toContain("Search the web for AI news October 2026  ·  Email ops@example.org (subject “digest”)");
@@ -787,22 +791,24 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     const titled = build_board({ active: [row({ run_id: "s1", session_id: "acode-1" })], done: [], now_ms: NOW_MS, run_briefs: new Map([["s1", { run_id: "s1", excerpt: "Fix the failing test" }]]) }).working[0];
     expect(text_of(titled)).not.toMatch(/\bsession\b/);
     expect(html_of(titled)).not.toContain("mc_subject_label");
-    expect(html_of(titled)).toMatch(/<span class="mc_subject_secondary" title="basic-agent 0.0.5">basic-agent 0.0.5<\/span>/);
+    // The workflow leads the foot's meta row (redesign 2026-11-07: one meta row).
+    expect(html_of(titled)).toMatch(/<div class="mc_card_meta"[^>]*><span class="mc_unit">basic-agent 0.0.5<span class="mc_sep">/);
     const untitled = build_board({ active: [row({ run_id: "s2", session_id: "acode-2" })], done: [], now_ms: NOW_MS }).working[0];
     expect(untitled.title.text).toBe("basic-agent 0.0.5");
     expect(html_of(untitled)).not.toContain("mc_card_subject");
+    expect(html_of(untitled)).not.toMatch(/<span class="mc_unit">basic-agent 0.0.5/);
     expect(text_of(untitled)).not.toMatch(/\bsession\b/);
   });
 
   it("Cancel: a two-step confirm in place (no browser dialog) that calls on_cancel_run with the run id; absent prop → no Cancel", async () => {
-    expect(html_of(question())).not.toContain('aria-label="Cancel this task"');
+    expect(html_of(question())).not.toContain(">Cancel…</button>");
     const with_cancel = html_of(question(), { on_cancel_run: async () => null });
-    // On the card it is a kit icon button on the footer row (operator 2026-10-15: one line, icons);
-    // its words carry the reach (design adversary 2026-10-16 P0-1).
-    expect(with_cancel).toMatch(/<button type="button" class="btn mc_icon_btn mc_cancel" title="Cancel this task: this run, its parents below the automation, and everything working under them" aria-label="Cancel this task"><svg/);
+    // On the card it is an item of the ⋯ menu (redesign 2026-11-07: one menu for every secondary
+    // move); its confirm in place carries the reach (design adversary 2026-10-16 P0-1).
+    expect(with_cancel).toContain('data-menu-id="cancel" class="af-menu__item af-menu__item--danger">Cancel…</button>');
     // …and on EVERY ongoing lane, not only Needs you.
     const working_card = build_board({ active: [row({ run_id: "w1", status: "running", session_id: "acode-w1", updated_at: at(1) })], done: [], now_ms: NOW_MS }).working[0];
-    expect(html_of(working_card, { on_cancel_run: async () => null })).toContain('aria-label="Cancel this task"');
+    expect(html_of(working_card, { on_cancel_run: async () => null })).toContain(">Cancel…</button>");
     // The steps.
     const idle: CancelState = { phase: "idle", error: "" };
     const asked = cancel_reducer(idle, { type: "ask" });
@@ -842,20 +848,24 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
   it("Open in Code: AbstractCode's hash route in a new tab when the app is installed; disabled with the install hint otherwise; never on automation runs", () => {
     expect(code_href("http://127.0.0.1:3003/", "acode-e1e4f8901acf", "q1")).toBe("http://127.0.0.1:3003/#session=acode-e1e4f8901acf&run=q1");
     expect(code_href("http://127.0.0.1:3003/#old", "s 1", "r/1")).toBe("http://127.0.0.1:3003/#session=s%201&run=r%2F1");
+    // On the card, "Open in Code" is an item of the ⋯ menu when the app is installed (it opens
+    // code_href in a new tab); without the app the kit menu lists no disabled item — the (i) keeps
+    // the disabled button with the install hint (below).
     const on = html_of(question(), { code_app: { url: "http://127.0.0.1:3003/" } });
-    expect(on).toContain('href="http://127.0.0.1:3003/#session=acode-e1e4f8901acf&amp;run=q1" target="_blank" rel="noreferrer"');
-    // The card's control is a kit icon with its name as the accessible label (one footer row).
-    expect(on).toContain('aria-label="Open in Code"');
-    expect(on).toMatch(/class="btn mc_icon_btn mc_open_code"[^>]*><svg/);
+    expect(on).toContain('data-menu-id="code" class="af-menu__item">Open in Code</button>');
     for (const off of [html_of(question()), html_of(question(), { code_app: null })]) {
-      expect(off).toContain(`<span class="mc_btn_wrap" title="${CODE_INSTALL_HINT}"><button type="button" class="btn mc_icon_btn" disabled="" title="${CODE_INSTALL_HINT}" aria-label="Open in Code">`);
+      expect(off).not.toContain("Open in Code");
       expect(off).not.toContain("#session=");
     }
+    const off_info = renderToStaticMarkup(React.createElement(CardInfo, { card: question(), now_ms: NOW_MS, stall_after_ms: 5 * 60_000 }));
+    expect(off_info).toContain(`title="${CODE_INSTALL_HINT}"`);
+    const on_info = renderToStaticMarkup(React.createElement(CardInfo, { card: question(), now_ms: NOW_MS, stall_after_ms: 5 * 60_000, code_app: { url: "http://127.0.0.1:3003/" } }));
+    expect(on_info).toContain('href="http://127.0.0.1:3003/#session=acode-e1e4f8901acf&amp;run=q1" target="_blank" rel="noreferrer"');
     // Any ONGOING card opens in Code, whatever its lane (observability, operator 2026-10-15).
     const waiting_card = build_board({ active: [row({ run_id: "w2", status: "waiting", session_id: "acode-w2", waiting: { reason: "event" }, updated_at: at(2) })], done: [], now_ms: NOW_MS }).waiting_on[0];
-    expect(html_of(waiting_card, { code_app: { url: "http://127.0.0.1:3003/" } })).toContain("#session=acode-w2&amp;run=w2");
+    expect(html_of(waiting_card, { code_app: { url: "http://127.0.0.1:3003/" } })).toContain(">Open in Code</button>");
     const done_card = build_board({ active: [], done: [row({ run_id: "d1", status: "completed", session_id: "acode-d1", updated_at: at(3) })], now_ms: NOW_MS }).done[0];
-    expect(html_of(done_card, { code_app: { url: "http://127.0.0.1:3003/" } })).not.toContain('aria-label="Open in Code"');
+    expect(html_of(done_card, { code_app: { url: "http://127.0.0.1:3003/" } })).not.toContain("Open in Code");
     expect(CODE_INSTALL_HINT).toBe("Install the AbstractCode web app (npx @abstractframework/code) to open this conversation");
     // An automation occurrence has no conversation to open in Code ("Open automation" lives in the (i)).
     const occ = build_board({
@@ -1003,14 +1013,17 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     expect(glimpse).toContain("International Digest");
     expect(glimpse).toContain("Date: 14 October 2026");
     expect(glimpse).not.toMatch(/#|\*\*/);
-    // The sentence ("completed in 24m") gives way to the answer; before the outcome is read it stays.
+    // The sentence ("completed in 24m") gives way to the answer; before the outcome is read the
+    // card says it once — the pill and "took 24 minutes" (redesign 2026-11-07: no echo).
     expect(html).not.toContain("mc_state_text");
-    expect(html_of(card)).toContain("completed in 24m");
+    expect(html_of(card)).not.toContain("completed in 24m");
+    expect(text_of(card)).toContain("completed took 24 minutes");
     expect(card_metrics(card, null)).toEqual(["took 24 minutes", "99,921 tokens", "11 tool calls"]);
     // A failure keeps its error as the line.
     const failed = build_board({ active: [], done: [row({ run_id: "f1", status: "failed", error: "provider timeout" })], now_ms: NOW_MS }).done[0];
     expect(html_of(failed, { outcome })).not.toContain("mc_glimpse_answer");
-    expect(text_of(failed, { ...H, outcome })).toContain("failed: provider timeout");
+    // The pill says "failed"; the card says why, whole.
+    expect(text_of(failed, { ...H, outcome })).toContain("failed provider timeout");
   });
 });
 
@@ -1076,7 +1089,7 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
   const CTX: AutomationBrief = fold_automation_brief(CTX_BODY)!;
 
   const tile = (name: string): EntityTile => ({ name, look: null, tile: null, status: "loading", as_of_ms: null, reason: "" });
-  const strip_of = (html: string) => html.match(/<div class="(mc_entities[^"]*)"([^>]*)>/)!;
+  const strip_of = (html: string) => html.match(/<section class="(mc_entities[^"]*)"([^>]*)>/)!;
 
   it("the Entities strip is in the page at first paint: skeleton tiles under its head while the roster loads, the tiles after, a one-line head when there are none — ONE class throughout, so the lanes never move", () => {
     // Before the roster: the strip, busy, with placeholder tiles (the roster's size once known).
@@ -1085,21 +1098,24 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(strip_of(loading)[2]).toContain('aria-busy="true"');
     expect(loading).toContain('<div class="mc_entities_row" role="status" aria-label="loading entities">');
     expect(loading).toContain("Loading entities…");
-    // Loading cards: the shared kit card in its loading state (it holds its final size), no link yet.
-    expect((loading.match(/data-status="loading"/g) || []).length).toBe(SKELETON_ENTITIES);
+    // Loading chips (redesign 2026-11-07: ONE row of chips): skeleton chips at the chip's own
+    // height, no link yet.
+    const skeletons = (html: string) => (html.match(/class="mc_entity_chip is_skeleton"/g) || []).length;
+    expect(skeletons(loading)).toBe(SKELETON_ENTITIES);
     expect(loading).not.toContain("af-entity-card__head\" href");
     expect(loading).not.toContain("no entities");
     expect(loading).not.toContain("open the entity app for all");
-    const sized = page({ entities: null, entities_total: 16 });
-    expect((sized.match(/data-status="loading"/g) || []).length).toBe(ENTITY_TILES_MAX);
-    expect((page({ entities: null, entities_total: 3 }).match(/data-status="loading"/g) || []).length).toBe(3);
+    expect(skeletons(page({ entities: null, entities_total: 16 }))).toBe(ENTITY_TILES_MAX);
+    expect(skeletons(page({ entities: null, entities_total: 3 }))).toBe(3);
     // After: the tiles, the "N of total" head, no skeleton, no busy mark — the same class attribute.
     const loaded = page({ entities: [tile("castor"), tile("pollux")], entities_total: 16 });
     expect(strip_of(loaded)[1]).toBe(strip_of(loading)[1]);
     expect(strip_of(loaded)[2]).not.toContain("aria-busy");
-    expect((loaded.match(/<a class="af-entity-card__head"/g) || []).length).toBe(2);
+    // One chip per entity (a tile still loading draws its name and skeleton lines); the kit card
+    // opens from the chip on demand.
+    expect((loaded.match(/<button type="button" class="mc_entity_chip" data-status="loading"/g) || []).length).toBe(2);
     expect(loaded).not.toContain('role="status" aria-label="loading entities"');
-    expect(loaded).toContain('<span>Entities<span class="mc_entities_count" title="The entity app lists them all">2 of 16</span></span>');
+    expect(loaded).toContain('<span class="mc_entities_title">Entities<span class="mc_entities_count" title="The entity app lists them all">2 of 16</span></span>');
     expect(loaded).toContain("Open the entity app →");
     expect(loaded).not.toContain("no entities");
     // None: the one-line head alone — the empty class, not the reserved box (the roster is in,
@@ -1130,9 +1146,11 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(loading).toContain("loading runs…");
     expect(loading).not.toContain("loading…</div>");
     expect(SKELETON_CARDS).toEqual({ needs_you: 3, working: 3, waiting_on: 2, scheduled: 2, done: 3 });
+    // After the poll an empty lane is its header alone, saying what empty means (redesign 2026-11-07).
     const polled = page({ runs_refreshed_at: NOW_MS, done_loaded: true });
     for (const lane of LANE_ORDER) {
-      expect(polled).toContain(`<div class="mc_empty muted">${LANE_EMPTY[lane]}</div>`);
+      expect(polled).toContain(`<span class="mc_column_empty_words">${LANE_EMPTY[lane]}</span>`);
+      expect(polled).toMatch(new RegExp(`class="mc_column mc_column_${lane} is_collapsed"`));
     }
     expect(polled).not.toContain("mc_card_skeleton");
     // Done keeps its skeletons until the first sweep lands, even after the active poll.
@@ -1160,7 +1178,7 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     const d = build_board({ active: [], done: [row({ run_id: "d1", status: "completed", created_at: at(30), updated_at: at(6) })], now_ms: NOW_MS }).done[0];
     expect(html_of(d, { outcome_loading: true })).toContain('aria-label="loading the answer"');
     expect(html_of(d, { outcome_loading: true })).not.toContain("mc_state_text");
-    expect(html_of(d)).toContain("completed in 24m");
+    expect(plain(html_of(d))).toContain("took 24 minutes");
     expect(html_of(d, { outcome_loading: true, outcome: { answer: "Done.", artifacts: 0 } })).toContain("mc_glimpse_answer");
     // An automation card without its brief yet: skeleton facts while loading, the wake sentence otherwise.
     const bare = build_board({ active: [ctl], done: [], now_ms: NOW_MS }).scheduled[0];
@@ -1185,7 +1203,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     const nb = (t: string) => t.split(" ").join("\u00a0");
     expect(facts.schedule).toEqual({ text: "every 24h · next in 1 hour 12 minutes", title: `every 24h · next run ${format_when(NOW_MS + 72 * 60_000, NOW_MS)}`, parts: ["every 24h", `next ${nb("in 1 hour 12 minutes")}`] });
     expect(facts.last).toEqual({ text: "last #14 completed 12 days 1 hour ago · 14 turns", title: `#14 completed · fired ${fired_abs} · took 1 hour`, failed: false, parts: [`last #14 completed ${nb("12 days 1 hour ago")}`, nb("14 turns")], failure: "" });
-    const last_cell = html.match(/<div class="mc_fact_cell mc_fact_last" title="([^"]*)">([\s\S]*?)<\/div>/)!;
+    // The last run is the foot's meta row (redesign 2026-11-07: one meta row, left of the action).
+    const last_cell = html.match(/<div class="mc_card_meta mc_fact_last" title="([^"]*)">([\s\S]*?)<\/div>/)!;
     expect(last_cell[1]).toBe(`#14 completed · fired ${fired_abs} · took 1 hour`);
     expect(plain(last_cell[2])).toBe("last #14 completed 12 days 1 hour ago · 14 turns");
     // The separator is glued to the fact before it: a wrap never starts a line with "·".
@@ -1196,17 +1215,13 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(html).toMatch(/<span class="mc_ctx_fill" style="width:62%"><\/span>/);
     expect(html).toMatch(/<button type="button" class="mc_ctx_bar" aria-expanded="false" aria-label="context 31k \/ 50k: change the budget" title="31,000 tokens of history were replayed into the last run · budget 50,000 tokens · click to change">/);
     expect(html).not.toContain("mc_ctx_chooser");
-    // Row 4, the footer: kit icons, ALWAYS visible (operator 2026-10-15: "I should not have to
-    // mouse over to see those buttons") — Open automation · Run now · Pause schedule · (i),
-    // enabled by the served capabilities (revise, pause); the footer is the card's last child.
-    const foot = html.match(/<div class="mc_card_foot mc_auto_foot">[\s\S]*<\/div><\/div>$/)![0];
-    const labels = [...foot.matchAll(/<button[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
-    expect(labels).toEqual(["Open automation", "Run now", "Pause schedule", "About this automation"]);
-    expect(plain(foot)).toBe("");
-    expect(foot).toContain('<button type="button" class="btn mc_icon_btn" title="Open this automation on the Automations page" aria-label="Open automation"><svg');
-    expect(foot).toContain('<button type="button" class="btn mc_icon_btn" title="Pause schedule" aria-label="Pause schedule"><svg');
-    expect(foot).toMatch(/<span class="mc_btn_wrap" title="Not permitted for this automation\."><button type="button" class="btn mc_icon_btn" disabled="" title="Not permitted for this automation\." aria-label="Run now"><svg/);
-    expect(foot).toContain('class="btn mc_icon_btn mc_info_btn"');
+    // The foot (redesign 2026-11-07): the last run on the left, ONE primary action — Run now, here
+    // gated by the served capabilities with its reason — and the ⋯ menu with what else applies:
+    // Open automation · Pause schedule · About this automation. Always visible, never hover-only.
+    const foot = html.match(/<div class="mc_card_foot mc_auto_foot"[^>]*>[\s\S]*$/)![0];
+    expect(foot).toMatch(/<span class="mc_btn_wrap" title="Not permitted for this automation\."><button type="button" class="btn mc_btn_sm mc_btn_quiet" disabled="" title="Not permitted for this automation\.">Run now<\/button><\/span>/);
+    const items = [...foot.matchAll(/class="af-menu__item[^"]*">([^<]+)<\/button>/g)].map((m) => m[1]);
+    expect(items).toEqual(["Open automation", "Pause schedule", "About this automation"]);
     // Nothing is hover-revealed but ⧉: no opacity rule on the footer's buttons, no hover-only bar.
     expect(css).not.toMatch(/mc_auto_foot\s*>/);
     expect(css).not.toMatch(/mc_card_more/);
@@ -1229,7 +1244,7 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     const failed_excerpt = automation_facts_words({ ...CTX, last: { ...CTX.last!, status: "failed" }, last_excerpt: "provider timeout" }, NOW_MS);
     expect(failed_excerpt.last.failure).toBe("provider timeout");
     const failed_html = html_of(auto_card({ ...CTX, last: { ...CTX.last!, status: "failed" }, last_notification_text: words }));
-    expect(failed_html).toContain('class="mc_fact_cell mc_fact_last is_failed"');
+    expect(failed_html).toContain('class="mc_card_meta mc_fact_last is_failed"');
     expect(failed_html).toContain(`<div class="mc_fact_fail" title="${words}">${words}</div>`);
     expect(plain(failed_html)).not.toContain("…");
     const never = automation_facts_words({ ...CTX, last: null, occurrence_count: 0 }, NOW_MS);
@@ -1317,13 +1332,17 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(await send_automation_command(async () => {
       throw { status: 409, code: "invalid_state", message: "An occurrence is in progress." };
     }, "auto1", "automation.run_now")).toBe("An occurrence is in progress.");
-    // Without a host the icons say so (disabled, the reason in the title, on a wrapper too).
+    // Without a host the primary action says so (disabled, the reason in the title, on a wrapper
+    // too); the menu lists no move the host cannot make (kit AfMenu: no disabled items).
     const html = html_of(auto_card({ ...CTX, capabilities: ["run_now", "pause"] }), { on_open_automation: undefined });
-    expect(html).toContain('<span class="mc_btn_wrap" title="commands are not wired on this host"><button type="button" class="btn mc_icon_btn" disabled="" title="commands are not wired on this host" aria-label="Run now"><svg');
-    expect(html).toContain('<span class="mc_btn_wrap" title="not available here"><button type="button" class="btn mc_icon_btn" disabled="" title="not available here" aria-label="Open automation"><svg');
-    // Paused: ONE toggle, Resume schedule (play); Run now is the play-circle, so the two never look alike.
+    expect(html).toContain('<span class="mc_btn_wrap" title="commands are not wired on this host"><button type="button" class="btn mc_btn_sm mc_btn_quiet" disabled="" title="commands are not wired on this host">Run now</button></span>');
+    expect(html).not.toContain(">Open automation</button>");
+    expect(html).not.toContain(">Pause schedule</button>");
+    // Paused: the primary action is Resume schedule; Run now moves to the menu.
     const paused_html = html_of(auto_card({ ...CTX, status: "paused", capabilities: ["resume", "run_now"] }), { on_automation_command: async () => undefined });
-    expect([...paused_html.matchAll(/aria-label="(Run now|Pause schedule|Resume schedule)"/g)].map((m) => m[1])).toEqual(["Run now", "Resume schedule"]);
+    expect(paused_html).toMatch(/class="btn mc_btn_sm primary"[^>]*>Resume schedule<\/button>/);
+    expect(paused_html).toContain('data-menu-id="run_now" class="af-menu__item">Run now</button>');
+    expect(paused_html).not.toContain(">Pause schedule</button>");
   });
 
   it("D. spacing: one 12 px card padding, a 6 px row rhythm, facts as stacked lines that wrap (no ellipsis), no empty rows, relative times carry the absolute time; status colours unchanged", () => {
@@ -1335,7 +1354,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
       return all[all.length - 1][1];
     };
     expect(last(".mc_card")).toMatch(/gap:\s*6px/);
-    expect(last(".mc_card")).toMatch(/padding:\s*12px;/);
+    // Short cards (redesign 2026-11-07): 10 px above and below, 12 px at the sides.
+    expect(last(".mc_card")).toMatch(/padding:\s*10px 12px;/);
     expect(last(".mc_column_cards")).toMatch(/gap:\s*10px/);
     expect(last(".mc_facts")).toMatch(/flex-direction:\s*column/);
     expect(last(".mc_fact_cell")).not.toMatch(/text-overflow|nowrap/);
@@ -1363,12 +1383,15 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     }
     // "scheduled" in the Scheduled lane would only repeat the lane's name (design review 2026-11-07).
     expect(html_of(auto_card(CTX))).not.toContain('<span class="mc_status info">scheduled</span>');
-    // Needs-you: the title and the pill share the head row; the since-time is absolute already.
+    // Needs-you: "waiting" would only repeat the lane (redesign 2026-11-07); a word that says
+    // more ("paused") keeps its pill on the title's row. The since-time is absolute already.
     const q = build_board({ active: [row({ run_id: "q1", status: "waiting", waiting: { reason: "user" }, session_id: "acode-1", updated_at: at(3) })], done: [], now_ms: NOW_MS }).needs_you[0];
-    const head = html_of(q).match(/<div class="mc_card_head">[\s\S]*?<\/div>/)![0];
+    const head = html_of(q).slice(0, html_of(q).indexOf("mc_card_state"));
     expect(head).toContain("mc_card_title");
-    expect(head).toContain('class="mc_status warn"');
-    expect(plain(html_of(q))).toContain(`since ${format_when(NOW_MS - 3 * 60_000, NOW_MS)} (3m)`);
+    expect(head).not.toContain('class="mc_status');
+    const p = build_board({ active: [row({ run_id: "p1", status: "waiting", waiting: { reason: "user", wait_key: "pause:p1" }, updated_at: at(3) })], done: [], now_ms: NOW_MS }).needs_you[0];
+    expect(html_of(p).slice(0, html_of(p).indexOf("mc_card_state"))).toContain(">paused</span>");
+    expect(plain(html_of(q))).toContain(`since ${format_when(NOW_MS - 3 * 60_000, NOW_MS)} (3 minutes)`);
   });
 });
 
@@ -1432,7 +1455,7 @@ describe("operator round 2026-10-15 evening (lane F): no stat strip, one card fl
     const html = page();
     const heads = html.match(/<header class="mc_column_head">[\s\S]*?<\/header>/g)!;
     const working = heads.find((h) => h.includes('id="mc_column_title_working"'))!;
-    expect(working).toMatch(/<span class="mc_column_count">1<\/span><label class="mc_stall_control"[^>]*>[\s\S]*<select class="mc_window_select mc_stall_select" aria-label="no progress after"/);
+    expect(working).toMatch(/<span class="mc_column_count">1<\/span>(<span class="mc_lane_flag"[^>]*>\d+ stalled<\/span>)?<label class="mc_stall_control"[^>]*>[\s\S]*<select class="mc_window_select mc_stall_select" aria-label="no progress after"/);
     expect(working).toContain('title="No progress after: a running card whose last ledger step is older than this gets the mark ⚠ and floats to the top of Working"');
     for (const o of STALL_AFTER_OPTIONS) expect(working).toContain(`>${o.label}</option>`);
     // Only there: one select on the page besides Done's window.
@@ -1451,41 +1474,44 @@ describe("operator round 2026-10-15 evening (lane F): no stat strip, one card fl
     expect(page({ refreshing: true })).not.toContain("Refreshing");
   });
 
-  it("the footer is the card's LAST child, inside its padding, with always-visible kit icons named for screen readers", () => {
+  it("the foot is the card's LAST child: the meta on the left, ONE primary action and the ⋯ menu on the right, named for screen readers", () => {
     const code = { url: "http://127.0.0.1:3003/" };
-    // A run that needs you: its ONE move in the act zone ABOVE the footer; ✕ and Open in Code in it.
+    // A run that needs you: its ONE move in the foot, then the menu with every other move
+    // (redesign 2026-11-07: one primary action per card, the rest behind one menu).
     const q = html_of(question(), { code_app: code, on_cancel_run: async () => null });
     const kids = root_children(q);
     expect(kids[kids.length - 1]).toBe("mc_card_foot");
-    expect(kids.indexOf("mc_card_review_body")).toBeLessThan(kids.indexOf("mc_card_foot"));
     const foot = q.slice(q.indexOf('<div class="mc_card_foot"'));
-    expect([...foot.matchAll(/<(?:button|a)[^>]*aria-label="([^"]+)"/g)].map((m) => m[1])).toEqual(["Open in Code", "Cancel this task", "Copy the run id", "About this run"]);
-    expect(foot).toContain('<a class="btn mc_icon_btn mc_open_code"');
-    expect(foot).toMatch(/class="btn mc_icon_btn mc_info_btn"[^>]*><svg/);
+    expect(foot).toMatch(/^<div class="mc_card_foot"><div class="mc_card_meta"/);
+    expect(foot).toMatch(/<div class="mc_card_act"><div class="mc_card_actions"><button type="button" class="btn primary mc_btn_sm">Review &amp; answer →<\/button><\/div><span class="mc_menu_wrap">/);
+    expect(foot).toContain('aria-label="More actions for basic-agent 0.0.5" aria-haspopup="menu" aria-expanded="false"');
+    const items = (h: string) => [...h.matchAll(/class="af-menu__item[^"]*">([^<]+)<\/button>/g)].map((m) => m[1]);
+    expect(items(foot)).toEqual(["Open the run", "Open in Code", "Cancel…", "Copy run id", "About this run"]);
     expect(foot).not.toMatch(/>i<\/button>/);
-    // An automation card: Open automation · Run now · Pause schedule · (i), the footer last.
+    // An automation card: Run now is the action; the menu opens the automation, pauses, tells about it.
     const a = html_of(auto_card(), { on_open_automation: noop, on_automation_command: async () => undefined });
     expect(root_children(a).slice(-1)).toEqual(["mc_card_foot mc_auto_foot"]);
     const a_foot = a.slice(a.indexOf('<div class="mc_card_foot mc_auto_foot"'));
-    expect([...a_foot.matchAll(/<button[^>]*aria-label="([^"]+)"/g)].map((m) => m[1])).toEqual(["Open automation", "Run now", "Pause schedule", "About this automation"]);
-    // Paused: the toggle says Resume schedule.
+    expect(a_foot).toContain(">Run now</button>");
+    expect(items(a_foot)).toEqual(["Open automation", "Pause schedule", "About this automation"]);
+    // Paused: the action says Resume schedule; there is no Pause anywhere.
     const p = html_of(auto_card({ ...DIGEST, status: "paused", capabilities: ["resume"] }), { on_open_automation: noop, on_automation_command: async () => undefined });
-    expect(p).toContain('aria-label="Resume schedule"');
-    expect(p).not.toContain('aria-label="Pause schedule"');
-    // A Done card: its metrics share the footer row with ⧉ and (i) — no row spent on two icons.
+    expect(p).toContain(">Resume schedule</button>");
+    expect(p).not.toContain("Pause schedule");
+    // A Done card: its meta and the menu share the one foot row — no row spent on icons.
     const d = build_board({ active: [], done: [row({ run_id: "d1", status: "completed", created_at: at(30), updated_at: at(6), tokens_total: 9_000 })], now_ms: NOW_MS }).done[0];
     const dh = html_of(d);
     expect(root_children(dh).slice(-1)).toEqual(["mc_card_foot"]);
-    expect(dh.slice(dh.indexOf('<div class="mc_card_foot"'))).toMatch(/^<div class="mc_card_foot"><div class="mc_card_metrics mc_foot_metrics"/);
-    // The footer row: flex, centred, 4 px gaps, min-width 0, a hairline above (not a box).
+    expect(dh.slice(dh.indexOf('<div class="mc_card_foot"'))).toMatch(/^<div class="mc_card_foot"><div class="mc_card_meta"[^>]*><span class="mc_unit">took 24 minutes/);
+    // The foot row: flex that wraps (the action goes under a long meta, never over it), centred,
+    // min-width 0, no box and no hairline (a short card needs no divider).
     const f = rule_of(".mc_card_foot");
-    for (const decl of [/display:\s*flex/, /align-items:\s*center/, /gap:\s*4px/, /min-width:\s*0/, /border-top:\s*1px solid/]) expect(f).toMatch(decl);
-    expect(f).not.toMatch(/position|min-height|height:/);
-    const icon = rule_of(".mc_card .btn.mc_icon_btn");
-    expect(icon).toMatch(/width:\s*26px/);
-    expect(icon).toMatch(/height:\s*26px/);
-    expect(icon).toMatch(/color:\s*var\(--text-secondary\)/);
-    expect(rule_of(".mc_card .btn.mc_icon_btn:hover:not(:disabled), .mc_card .btn.mc_icon_btn[aria-expanded=\"true\"]")).toMatch(/color:\s*var\(--text-primary\)/);
+    for (const decl of [/display:\s*flex/, /flex-wrap:\s*wrap/, /align-items:\s*center/, /min-width:\s*0/]) expect(f).toMatch(decl);
+    expect(f).not.toMatch(/position|min-height|height:|border/);
+    const meta = rule_of(".mc_card_meta");
+    expect(meta).toMatch(/font-size:\s*var\(--t-micro\)/);
+    expect(meta).toMatch(/color:\s*var\(--text-muted\)/);
+    expect(meta).not.toMatch(/min-width:\s*0/);
   });
 
   it("nothing on a card is positioned or hover-only but ⧉: no absolute rule, no reserved height, no hover action bar", () => {
@@ -1499,8 +1525,9 @@ describe("operator round 2026-10-15 evening (lane F): no stat strip, one card fl
       if (!/\.mc_copy/.test(sel)) expect(m[2], sel).not.toMatch(/opacity:\s*0(;|\s|$)/);
     }
     expect(flat).not.toMatch(/mc_auto_foot\s*>|mc_card_more|\.mc_card:hover\s+\.mc_auto_foot/);
+    // The old hover-only text bar is gone (an always-visible primary action is not it).
     const src = readFileSync(new URL("./mission_control.tsx", import.meta.url), "utf8");
-    expect(src).not.toMatch(/function GatedButton|mc_card_more/);
+    expect(src).not.toMatch(/mc_card_more/);
     // ⧉ stays the one hover / focus reveal (the lane E pin, kept).
     expect(rule_of(".mc_copy")).toMatch(/opacity:\s*0;/);
   });
@@ -1543,14 +1570,18 @@ describe("operator round 2026-10-15 evening (lane F): no stat strip, one card fl
       const next = src.slice(i + 10).search(/\n(export )?(function|const|type) /);
       return src.slice(i, i + 10 + next);
     };
-    for (const name of ["BoardCardViewImpl", "AutomationCardBody", "InfoButton", "CopyButton", "CancelControl", "OpenInCode", "GatedIcon", "FactUnits"]) {
+    for (const name of ["BoardCardViewImpl", "AutomationCardBody", "CopyButton", "CancelControl", "OpenInCode", "GatedButton", "FactUnits", "ChainBlock", "NeedsYouActions"]) {
       expect(body(name), name).not.toMatch(/useEffect|useLayoutEffect|useBrowserLayoutEffect|setInterval/);
     }
+    // The one measuring piece is ClampText: a layout effect per TEXT change (not per poll) on the
+    // board's ONE shared ResizeObserver — never an observer or a timer of its own.
+    expect(body("ClampText")).toMatch(/watch_size\(el, check\)/);
+    expect(body("ClampText")).not.toMatch(/new ResizeObserver|setInterval|setTimeout/);
     // The popover owns its placement and listeners, mounted only while open.
     // The listeners (Escape, outside press, pan) live in the one popover shell, never in a card.
     expect(body("BoardPopover")).toMatch(/useEffect/);
     expect(body("InfoPopover")).not.toMatch(/useEffect/);
-    expect(body("InfoButton")).toMatch(/\{open && typeof document !== "undefined" \? \(\s*<InfoPopover/);
+    expect(body("BoardCardViewImpl")).toMatch(/\{details && typeof document !== "undefined" \? \(\s*<InfoPopover/);
   });
 
   it("the card is memoized on what it renders: a rebuilt but unchanged card is equal, a changed word or a new handler is not (React.memo's own test)", () => {
@@ -1641,7 +1672,7 @@ describe("render cost in a browser (operator 2026-10-15: 'and slow')", () => {
     for (let i = 0; i < 14; i++) rows.push({ run_id: `wk${i}`, workflow_id: "basic-agent@0.0.5:81795ea9", status: "running", session_id: `acode-w${i}`, created_at: iso(4000), updated_at: iso(1500 + i) });
     for (let i = 0; i < 18; i++) rows.push({ run_id: `wo${i}`, workflow_id: "basic-agent@0.0.5:81795ea9", status: "waiting", waiting: { reason: "event" }, created_at: iso(5000), updated_at: iso(2500 + i) });
     for (let i = 0; i < 5; i++) rows.push({ run_id: `ctl${i}`, role: "controller", session_kind: "automation", automation_id: `auto${i}`, workflow_id: "automation", status: "waiting", waiting: { reason: "event", until: iso(-600 - i) }, created_at: iso(9000), updated_at: iso(1800) });
-    for (let i = 0; i < 8; i++) rows.push({ run_id: `dn${i}`, workflow_id: "basic-agent@0.0.5:81795ea9", status: i % 5 ? "completed" : "failed", created_at: iso(300 + i * 10), updated_at: iso(200 + i * 10), tokens_total: 1_000 + i });
+    for (let i = 0; i < 8; i++) rows.push({ run_id: `dn${i}`, workflow_id: "basic-agent@0.0.5:81795ea9", status: i % 5 ? "completed" : "failed", created_at: iso(300 + i * 10), updated_at: iso(200 + i * 10), tokens_total: 1_000 + i, brief: { title: `Digest ${i}` } }); // distinct titles: identical runs would fold into one row
     const page = await (await browser!.newContext({ viewport: { width: 1500, height: 1000 } })).newPage();
     await page.setContent('<!doctype html><html><body><div id="root"></div></body></html>');
     await page.addScriptTag({ content: bundle });
@@ -1758,7 +1789,8 @@ describe("cancel all in a lane head (operator 2026-10-16: next to 'Needs you' an
         ...extra,
       }),
     );
-  const heads = (html: string) => Object.fromEntries((html.match(/<section class="mc_column mc_column_(\w+)"[\s\S]*?<\/header>/g) || []).map((h) => [h.match(/mc_column_(\w+)"/)![1], h]));
+  // A lane may be collapsed (empty, redesign 2026-11-07): its header is still its head.
+  const heads = (html: string) => Object.fromEntries((html.match(/<section class="mc_column mc_column_(\w+)(?: is_collapsed)?"[\s\S]*?<\/header>/g) || []).map((h) => [h.match(/mc_column_(\w+)(?: is_collapsed)?"/)![1], h]));
   const rows = [
     row({ run_id: "u1", status: "waiting", waiting: { reason: "user" }, updated_at: at(3) }),
     row({ run_id: "u2", status: "waiting", waiting: { reason: "user" }, updated_at: at(4) }),
@@ -1965,17 +1997,21 @@ describe("a stuck parent is a Needs-you card that names the subrun and its end (
     expect(c.status_word).toBe("stuck");
     const cancel = { on_cancel_run: async () => null };
     const html = markup(c, cancel);
-    expect(html).toContain("stuck: subrun x was cancelled 30m ago");
+    // A straight chain reads as one path (redesign 2026-11-07); the stuck leaf's words are the
+    // attention block's, said once below it.
+    expect(html).toContain('<div class="mc_path">');
     // The attention block (operator 2026-10-16 10:10: the session, what it does, the situation in its
     // own words, the quick option, the icons): which run is stuck since when, the sentence from the
     // facts, Cancel task and Open the run. No hardcoded band.
     expect(html).not.toContain("mc_stuck_band");
     expect(html).toContain('class="mc_ask mc_ask_stuck" data-run-id="child" role="group" aria-label="stuck"');
     // "since <when>" renders in the viewer's time zone: build the expectation the same way.
-    expect(html.replace(/\u00a0/g, " ")).toContain(`<span class="mc_ask_words">stuck since ${format_when(NOW - 60 * 60_000, NOW)} (1h 0m)</span>`);
-    expect(html).toContain('<div class="mc_stuck_why">Its subrun x was cancelled 30m ago and this run was not resumed.</div>');
+    expect(html.replace(/\u00a0/g, " ")).toContain(`<span class="mc_ask_words">stuck since ${format_when(NOW - 60 * 60_000, NOW)} (1 hour)</span>`);
+    // Durations in words on the card (operator 2026-11-07: no unit abbreviations).
+    expect(html).toContain('<div class="mc_stuck_why">Its subrun x was cancelled 30 minutes ago and this run was not resumed.</div>');
+    // The one move is the card's primary action; opening the run is in its ⋯ menu (and the card).
     expect(html).toContain(">Cancel task</button>");
-    expect(html).toContain(">Open the run →</button>");
+    expect(html).toContain('data-menu-id="open" class="af-menu__item">Open the run</button>');
     // Without a cancel handler the block still opens the run; it never shows a dead button.
     expect(markup(c)).not.toContain("Cancel task");
     expect(markup(c)).toContain(">Open the run →</button>");
@@ -1985,7 +2021,7 @@ describe("a stuck parent is a Needs-you card that names the subrun and its end (
     expect(ids(lone_lanes.needs_you)).toEqual(["lone"]);
     const lone_html = markup(lone_lanes.needs_you[0], cancel);
     expect(lone_html).toContain('class="mc_ask mc_ask_stuck" data-run-id="lone"');
-    expect(lone_html).toContain("Its subrun x was cancelled 30m ago and this run was not resumed.");
+    expect(lone_html).toContain("Its subrun x was cancelled 30 minutes ago and this run was not resumed.");
     expect(lone_html).toContain(">Cancel task</button>");
     // Stuck sorts LAST in Needs you: a fresh ask above 77-day-old junk (design adversary P1-2).
     const ask = row({ run_id: "ask", status: "waiting", waiting: { reason: "user" }, updated_at: ago(2) });

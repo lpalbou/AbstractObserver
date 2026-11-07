@@ -117,24 +117,151 @@
   font-size: var(--t-small);
 }
 
-/* Horizontal rail; the bottom padding gives the raised shadows room
- * instead of clipping them at the scroll edge. */
+/* ONE row of entity chips (redesign 2026-11-07): a rail that scrolls sideways when the roster is
+ * wider than the page; "Show all" wraps every chip onto rows. Chips are content-wide (nothing in
+ * them is cut) and one fixed height (name · now · last moment), so loading never moves the lanes. */
 .mc_entities_row {
-  gap: 10px;
-  padding: 3px 3px 12px;
-}
-
-/* One cell per entity: the shared kit card (ui-kit EntityCard, compact) at one width, so the rail
- * reads as a row of equal cards; on a phone a card takes most of the screen and the rail scrolls. */
-.mc_entity_cell {
   display: flex;
-  flex: 0 0 auto;
-  width: min(280px, 82vw);
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 6px;
+  scrollbar-width: thin;
 }
 
-.mc_entity_cell > .mc_entity_card {
+.mc_entities_row.is_all {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+.mc_entity_chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 64px;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
   background: var(--raised-bg);
-  box-shadow: 0 1px 2px color-mix(in srgb, black 14%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.mc_entity_chip:hover,
+.mc_entity_chip[aria-expanded="true"] {
+  border-color: var(--pane-border-strong);
+}
+
+.mc_entity_chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Trouble is one hairline of warning, never a flood. */
+.mc_entity_chip[data-trouble="true"] {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--pane-border));
+}
+
+.mc_entity_chip.is_skeleton {
+  width: 210px;
+  cursor: default;
+}
+
+.mc_entity_orb {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.mc_entity_orb.is-plain {
+  width: 30px;
+  height: 30px;
+  background: color-mix(in srgb, var(--af-entity-color, var(--text-secondary)) 22%, transparent);
+  color: var(--af-entity-color, var(--text-secondary));
+  font-size: var(--t-small);
+  font-weight: 650;
+}
+
+.mc_entity_who {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.mc_entity_name {
+  font-size: var(--t-small);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.mc_entity_line {
+  font-size: var(--t-micro);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.mc_entity_now {
+  color: var(--text-secondary);
+}
+
+.mc_entity_trouble {
+  color: var(--warning);
+}
+
+.mc_entity_stale {
+  font-style: italic;
+}
+
+.mc_entity_who .mc_sk {
+  height: 10px;
+  margin: 2px 0;
+}
+
+/* The expanded entity: the kit card, every line whole (the strip's card clamps; this one reads). */
+.mc_entity_pop {
+  padding: 0;
+  overflow: auto;
+}
+
+.mc_entity_pop .af-entity-card {
+  border: 0;
+  box-shadow: none;
+}
+
+.mc_entity_pop .af-entity-card__line {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  min-height: 0;
+}
+
+.mc_entity_pop .af-entity-card__fact-row {
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.mc_entity_pop .af-entity-card__fact-row > span {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.mc_entities_toggle {
+  margin-left: auto;
+  font-size: var(--t-small);
+}
+
+.mc_entities_toggle + .mc_entity_link {
+  margin-left: 14px;
 }
 
 /* ---------- board lanes as panes ---------- */
@@ -142,11 +269,14 @@
 /* Five lanes (backlog 0003): Needs you · Working · Waiting on… · Scheduled ·
  * Done, side by side from 1440 px; three per row below that, two on
  * tablets, one on phones (the lanes stack in reading order). */
+/* Columns FILL the width (redesign 2026-11-07): flex items on a 220 px basis (five fit from 1440 px) that grow to share
+ * the row; below 220 px a lane wraps to the next row; on a phone they stack. An empty lane is a
+ * 44 px rail (its header, vertical). */
 .mc_board {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 /* Lane = pane (overrides the flat styles.css .mc_column box). The
@@ -154,6 +284,8 @@
  * underline — the old treatment stacked three (column border + title
  * color + card tint). */
 .mc_column {
+  flex: 1 1 220px;
+  min-width: 0;
   padding: 0;
   min-height: 220px;
   border: 1px solid var(--pane-border);
@@ -193,16 +325,9 @@
   margin: 2px 0 4px;
 }
 
-@media (max-width: 1439.98px) {
-  .mc_board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-@media (max-width: 1023.98px) {
-  .mc_board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
 @media (max-width: 767.98px) {
-  .mc_board { grid-template-columns: 1fr; }
+  .mc_board { flex-direction: column; flex-wrap: nowrap; }
+  .mc_column { flex: none; }
 }
 
 /* ── De-mono + framework type (operator verdict 13:07: "font is horrible,
@@ -249,8 +374,25 @@
  * its geometry tokens are set here; the label in sentence case like the lane names. */
 .mc_filters {
   flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
   min-width: 0;
   padding: 0 2px;
+}
+
+.mc_filters_main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mc_view_tools {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .session_filter_row {
@@ -575,14 +717,15 @@
 }
 
 .mc_card {
+  --mc-card-bg: var(--raised-bg);
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  padding: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--pane-border);
-  border-radius: 12px;
-  background: var(--raised-bg);
+  border-radius: 10px;
+  background: var(--mc-card-bg);
   box-shadow: 0 1px 2px color-mix(in srgb, black 14%, transparent);
   cursor: pointer;
   transition: border-color 0.15s;
@@ -623,9 +766,14 @@
  * (design pass 2026-11-07). Nothing is positioned. */
 .mc_card_head {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-start;
-  gap: 4px 8px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mc_card_titlebox {
+  flex: 1 1 0;
   min-width: 0;
 }
 
@@ -649,12 +797,7 @@
 /* Titles are sentences (automation titles, task excerpts): two lines; the whole
  * title is the tooltip and the (i)'s first row. */
 .mc_card_head .mc_card_title {
-  flex: 1 1 calc(100% - 22px);
   min-width: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   font-family: var(--font-sans);
   font-size: var(--t-body);
   font-weight: 600;
@@ -673,13 +816,13 @@
   font-weight: 500;
 }
 
+/* The pill sits on the title's first line, right (lanes are wide enough since the redesign). */
 .mc_card_head .mc_status {
   flex: none;
   display: inline-flex;
   align-items: center;
   height: calc(var(--t-body) * 1.4);
-  /* Under the title, aligned with its text (the glyph's 14 px + the 8 px gap). */
-  margin: 0 0 0 22px;
+  margin: 0;
   padding: 0 8px;
   font-size: var(--t-micro);
   font-weight: 600;
@@ -811,10 +954,6 @@ button.mc_actor_run:hover {
 /* The quoted glimpse — the request on a Needs-you card, the answer on a Done
  * card: ONE look, muted, three lines, the whole text in the tooltip. */
 .mc_glimpse {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   padding: 0 0 0 10px;
   border-left: 2px solid var(--pane-border-strong);
   color: var(--text-secondary);
@@ -1089,14 +1228,48 @@ button.mc_actor_run:hover {
 }
 
 /* THE FOOTER — the card's last child, inside its padding: a hairline, then one row. */
+/* THE FOOT — one row: the meta on the left (wrapping between units), the primary action and the
+ * ⋯ menu on the right; on a narrow card the action row wraps under the meta, right-aligned. No
+ * hairline above it (the card is short; the meta's muted tone separates it). */
 .mc_card_foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: 6px 10px;
   min-width: 0;
   margin-top: 2px;
-  padding-top: 8px;
-  border-top: 1px solid var(--pane-border);
+}
+
+/* min-width stays auto (its longest glued phrase): a phrase that does not fit next to the action
+ * wraps the action under it instead of running beneath the button. */
+.mc_card_meta {
+  flex: 1 1 14em;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  font-size: var(--t-micro);
+  line-height: 1.45;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mc_card_meta .mc_unit {
+  white-space: nowrap;
+}
+
+.mc_card_meta .mc_pill {
+  vertical-align: 1px;
+}
+
+.mc_card_act {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.mc_card_act .mc_card_actions {
+  flex-wrap: nowrap;
 }
 
 .mc_card_foot .mc_spacer {
@@ -1640,12 +1813,11 @@ a.btn.mc_btn_quiet {
   /* An explicit min-height drops a flex item's content-based minimum: never let the column
    * flex .mc_page squeeze the strip below its content (the lanes own the scroll). */
   flex: none;
-  /* The loaded row: head + row padding + one compact kit EntityCard (who, now, one interest, the
-   * last moment) + the strip's padding and border = 226.8 at font scale 1 with ui-kit 0.9.18's
-   * compact card (measured in space_dom.test.tsx without this floor: loading, pending and loaded
-   * rows all 226.84 px in Chromium; the test pins the loading row to the loaded row). A card with
-   * a warning or a stale note is taller and grows the row; the kit adds only that row. */
-  min-height: var(--mc-entities-min, 227px);
+  /* The loaded row (redesign 2026-11-07): head + ONE row of 64 px entity chips + the strip's
+   * padding and border = 129.5 px at font scale 1 (measured in space_dom.test.tsx without this
+   * floor: loading, pending and loaded rows all 129.5 px in Chromium). "Show all" wraps the chips
+   * onto more rows: the viewer's own move, never data landing. */
+  min-height: var(--mc-entities-min, 130px);
 }
 
 @keyframes mc_shimmer {
@@ -1997,4 +2169,274 @@ a.btn.mc_btn_quiet {
   color: var(--text-primary);
   font-size: var(--t-small);
   line-height: 1.45;
+}
+
+/* ====================================================================================
+ * REDESIGN 2026-11-07 (operator: "a lot of empty space and then very narrow cards and very tall
+ * at the same time: unreadable, uninformative, unactionable"; untracked/observer-board/DESIGN.md).
+ * Quiet: hairlines, no new colour, animation only for state.
+ * ==================================================================================== */
+
+/* ---------- an empty lane is a header, not a column ---------- */
+.mc_column.is_collapsed {
+  flex: 0 0 44px;
+  min-height: 160px;
+  background: transparent;
+  border-style: dashed;
+}
+
+.mc_column.is_collapsed .mc_column_head {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 0;
+  height: 100%;
+  padding: 12px 0;
+  border-bottom: 0;
+}
+
+.mc_column.is_collapsed .mc_column_title {
+  writing-mode: vertical-rl;
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mc_column.is_collapsed .mc_column_head .mc_column_count {
+  order: -1;
+  margin: 0;
+}
+
+.mc_column_empty_words {
+  display: none;
+  color: var(--text-muted);
+  font-size: var(--t-micro);
+}
+
+/* Phones: an empty lane is one line ("Waiting on… 0 · nothing is blocked"), after the lanes
+ * that hold cards. */
+@media (max-width: 767.98px) {
+  .mc_column.is_collapsed {
+    order: 1;
+    flex: none;
+    min-height: 0;
+  }
+  .mc_column.is_collapsed .mc_column_head {
+    flex-direction: row;
+    justify-content: flex-start;
+    height: auto;
+    padding: 6px 12px;
+  }
+  .mc_column.is_collapsed .mc_column_title {
+    writing-mode: horizontal-tb;
+  }
+  .mc_column.is_collapsed .mc_column_head .mc_column_count {
+    order: 0;
+  }
+  .mc_column_empty_words {
+    display: inline;
+  }
+}
+
+/* The lane hint is the title's tooltip now; the row it took is the cards'. */
+.mc_column_hint {
+  display: none;
+}
+
+/* "1 stalled": the Working lane's SLA marker, in the header, warning text only. */
+.mc_lane_flag {
+  flex: none;
+  color: var(--warning);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---------- text that shows N lines, then an explicit "…" ---------- */
+.mc_clamp {
+  position: relative;
+  min-width: 0;
+}
+
+.mc_clamp_text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+
+.mc_clamp.is_open .mc_clamp_text {
+  display: block;
+  overflow: visible;
+}
+
+/* The "…" sits on the last shown line, over the clamp's own ellipsis, on the card's surface. */
+.mc_clamp_more {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 0 2px 0 14px;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(90deg, transparent, var(--mc-card-bg, var(--raised-bg)) 10px);
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 700;
+  line-height: inherit;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.mc_clamp_more:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.mc_clamp_more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.mc_clamp.is_open .mc_clamp_more {
+  position: static;
+  padding: 0 0 0 4px;
+  background: none;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  letter-spacing: normal;
+}
+
+/* ---------- the chain as one path ---------- */
+.mc_path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  min-width: 0;
+  font-size: var(--t-small);
+  line-height: 1.45;
+}
+
+.mc_path_sep {
+  color: var(--text-muted);
+}
+
+.mc_path .mc_chain_words {
+  flex: 0 1 auto;
+}
+
+.mc_path .mc_chain_words.is_running {
+  color: var(--text-primary);
+}
+
+.mc_path + .mc_ask {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.mc_ask .mc_card_actions {
+  justify-content: flex-end;
+}
+
+/* ---------- Done: identical runs as one row ---------- */
+.mc_group_wrap {
+  flex: none;
+  display: inline-flex;
+}
+
+.mc_group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--pane-border-strong);
+}
+
+/* ---------- the ⋯ menu (kit AfMenu) on the card's foot ---------- */
+.mc_menu_wrap {
+  display: inline-flex;
+}
+
+.mc_card .af-menu__button.mc_menu_btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+}
+
+@media (max-width: 767.98px), (pointer: coarse) {
+  .mc_card .af-menu__button.mc_menu_btn {
+    width: var(--tap-min, 44px);
+    min-width: var(--tap-min, 44px);
+    height: var(--tap-min, 44px);
+  }
+}
+
+.mc_copied {
+  font-size: var(--t-micro);
+  color: var(--success);
+}
+
+.mc_copied.is_failed {
+  color: var(--error);
+}
+
+/* ---------- density: compact tightens the rhythm (titles 1 line, quotes 2: ClampText) ---------- */
+.mc_board[data-density="compact"] .mc_column_cards {
+  gap: 6px;
+}
+
+.mc_board[data-density="compact"] .mc_card {
+  gap: 4px;
+  padding: 7px 10px;
+}
+
+.mc_board[data-density="compact"] .mc_card_head .mc_card_title {
+  font-size: var(--t-small);
+}
+
+.mc_board[data-density="compact"] .mc_card_foot {
+  margin-top: 0;
+}
+
+/* The Entities head: title, count, then "Show all" and the app link on the right. */
+.mc_entities_head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mc_entities_head .mc_entity_link {
+  margin-left: auto;
+}
+
+.mc_entities_head .mc_entities_toggle + .mc_entity_link {
+  margin-left: 14px;
+}
+
+/* A failed Done card's reason, whole behind its "…" (the pill says "failed"). */
+.mc_card_failure {
+  color: color-mix(in srgb, var(--error) 80%, var(--text-secondary));
+}
+
+/* The head's chips (×N, Archived, the pill) sit on the title's first line. */
+.mc_card_head .mc_pill {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* An automation card's last run in its foot: the fact's own colour rules (failed = error). */
+.mc_card_meta.mc_fact_last.is_failed {
+  color: var(--error);
+}
+
+/* The Entities head never breaks a phrase ("12 of 17", "Show all 12", the link). */
+.mc_entities_head {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.mc_entities_head > * {
+  white-space: nowrap;
 }
