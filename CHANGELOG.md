@@ -16,7 +16,9 @@ work (see below).
   it is into lately, and its last moment ("A visit ended · 1 hour ago"). The card's head opens the entity in the
   entity app, in a new tab.
 - **Gone from the strip:** the token count ("4.2M tk"), the coloured phase chip, the "idle · 2.3d ago" line, and the
-  "78 questions · 29 problems · 33 lessons · night: 48 signals" pill under each tile with the list it opened.
+  "78 questions · 29 problems · 33 lessons · night: 48 signals" pill under each tile with the list it opened
+  (including opening diary entries from it), and the hover panel on the look (design, colour, voice). On gateways
+  before 0.21.0 the card cannot say for how long an entity has been in its state.
 - **One small read per entity.** With AbstractGateway 0.21.0 each card is filled by one read of about 2 KB every 30
   seconds, at most three at a time, instead of a busy-or-idle read plus a much larger details read. The look comes
   with it: no separate read of each entity's identity any more.

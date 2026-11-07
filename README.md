@@ -12,7 +12,7 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
-0.12.3 replaces the Board's entity tiles with the shared entity card (the same card the entity app uses): each
+0.12.3 replaces the Board's entity tiles with the shared entity card (the kit's `EntityCard`, made to be shared by every app): each
 entity shows its look and name, what it is doing now and for how long, a warning when its own time stopped after
 failures, what it is into lately and its last moment, in plain words. The token count, the phase chip and the
 "78 questions · 29 problems · 33 lessons · night: 48 signals" pill under each tile are gone. With AbstractGateway

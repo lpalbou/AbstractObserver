@@ -106,7 +106,7 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
-0.12.3 replaces the Board's entity tiles with the shared entity card (the same card the entity app uses): each
+0.12.3 replaces the Board's entity tiles with the shared entity card (the kit's `EntityCard`, made to be shared by every app): each
 entity shows its look and name, what it is doing now and for how long, a warning when its own time stopped after
 failures, what it is into lately and its last moment, in plain words. The token count, the phase chip and the
 "78 questions · 29 problems · 33 lessons · night: 48 signals" pill under each tile are gone. With AbstractGateway
@@ -316,7 +316,7 @@ See `docs/development.md` for details.
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
     "@abstractframework/panel-chat": "^0.8.2",
-    "@abstractframework/ui-kit": "^0.9.15",
+    "@abstractframework/ui-kit": "^0.9.17",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -567,7 +567,9 @@ work (see below).
   it is into lately, and its last moment ("A visit ended · 1 hour ago"). The card's head opens the entity in the
   entity app, in a new tab.
 - **Gone from the strip:** the token count ("4.2M tk"), the coloured phase chip, the "idle · 2.3d ago" line, and the
-  "78 questions · 29 problems · 33 lessons · night: 48 signals" pill under each tile with the list it opened.
+  "78 questions · 29 problems · 33 lessons · night: 48 signals" pill under each tile with the list it opened
+  (including opening diary entries from it), and the hover panel on the look (design, colour, voice). On gateways
+  before 0.21.0 the card cannot say for how long an entity has been in its state.
 - **One small read per entity.** With AbstractGateway 0.21.0 each card is filled by one read of about 2 KB every 30
   seconds, at most three at a time, instead of a busy-or-idle read plus a much larger details read. The look comes
   with it: no separate read of each entity's identity any more.
@@ -2371,7 +2373,7 @@ These power additional pages/drawers. If your gateway does not expose them, the 
 - **Entities strip (Board page)** — one shared card per entity (ui-kit `EntityCard`, compact), cheap reads only
   - `GET /api/gateway/entities` — roster (names, state, identity with its `avatar` design and colour, and `reads`): the cards are drawn from it as soon as it answers (name and look, the rest loading); read every 30 s. A failed read (other than 404) keeps the last cards under a line saying when they were read; a 404 means the gateway has no entities.
   - `GET /api/gateway/entities/{name}/tile` (AbstractGateway 0.21.0; used when the roster carries `reads.tile`) — what one card shows: who (look, age, mind), what it is doing now and since when, the own-time-failed warning, what it is into lately, its last moment, counts. Read for every card at each 30 s refresh, at most three at a time; nothing else is read per entity. A failed read keeps the last tile and says "Details from 12 minutes ago; newer ones could not be read"; with nothing read yet the card says "Details unavailable right now" (the reason on hover).
-  - Older gateways (no `reads.tile` on the roster): `GET /api/gateway/entities/{name}/cognition` (busy or idle and the phase, every 30 s; a 404 means the wire is absent) and `GET /api/gateway/entities/{name}/card` (age, moments, interests, open questions and problems, lessons; at most three at a time, kept and read again after 5 minutes or when the roster row's `state.changed_at` changes, every 30 s without the cognition wire). Observer turns them into the same tile, so the card looks the same.
+  - Older gateways (no `reads.tile` on the roster): `GET /api/gateway/entities/{name}/cognition` (busy or idle and the phase, every 30 s; a 404 means the wire is absent) and `GET /api/gateway/entities/{name}/card` (age, moments, interests, open questions and problems, lessons; at most three at a time, kept and read again after 5 minutes or when the roster row's `state.changed_at` changes, every 30 s without the cognition wire). Observer turns them into the same tile shape and draws the same card, except that it cannot say for how long an entity has been in its state.
   - Everything the strip keeps belongs to one gateway and signed-in account; another account starts from nothing. While the gateway asks for a pause (too many requests), the strip reads nothing and resumes on its own.
 - **Track record (Observe → Agent)** — read when the agent page opens on a conversation, never on its poll (AbstractGateway 0.20.0)
   - `GET /api/gateway/sessions/{session_id}/track-record` and `/reputation` — runs, successes, failures and the overall trust with its support, written as "2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)" followed by "A success here only means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience yet" when nothing has an outcome; a refusal is shown as the gateway's sentence
