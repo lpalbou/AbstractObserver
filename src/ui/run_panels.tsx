@@ -105,6 +105,8 @@ export function WorkflowRunNavigator(props: {
   automation_titles: Record<string, string>;
   on_search: (value: string) => void;
   on_filter: (value: RunFilterMode) => void;
+  /** The "Show" chips over the sessions (session_kinds.ts), when the gateway reports kinds. */
+  kind_filter?: React.ReactNode;
   on_group_by: (value: "status" | "workflow" | "session") => void;
   on_refresh: () => void;
   on_select: (run_id: string, root_run_id?: string) => void;
@@ -175,6 +177,7 @@ export function WorkflowRunNavigator(props: {
             <option value="session">Group by session</option>
           </select>
         </div>
+        {props.kind_filter}
       </div>
 
       <div className="run_tree" id="run_nav_tree" hidden={!open}>

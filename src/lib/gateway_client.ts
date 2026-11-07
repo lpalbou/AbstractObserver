@@ -199,6 +199,13 @@ export type GatewayAbout = {
   packages: Record<string, string>;
 };
 
+/** The `GET /runs` query parameters a capability descriptor advertises
+ * (`capabilities.contracts.common.runs.list.filters`), or null when it advertises none. */
+export function runs_list_filters_of(capabilities: any): string[] | null {
+  const filters = capabilities?.capabilities?.contracts?.common?.runs?.list?.filters;
+  return Array.isArray(filters) ? filters.map((f: unknown) => String(f)) : null;
+}
+
 export class GatewayClient {
   private _cfg: GatewayClientConfig;
 
@@ -375,6 +382,10 @@ export class GatewayClient {
     include_drafts?: boolean;
     /** Only runs of ARCHIVED sessions (POST /sessions/{id}/archive); a root_only listing leaves them out. */
     archived_only?: boolean;
+    /** The session purpose a turn listing (root_only / archived_only) shows: `conversation` (the
+     * gateway's default), `docs`, `notes` or `all`. Send it only to a gateway that advertises the
+     * `kind` filter (`runs_list_filters()`): an older one refuses unknown parameters. */
+    kind?: string;
   }): Promise<any> {
     const limit = typeof opts?.limit === "number" ? opts.limit : 50;
     const status = String(opts?.status || "").trim();
@@ -388,6 +399,7 @@ export class GatewayClient {
     if (session_id) qs.set("session_id", session_id);
     if (root_only) qs.set("root_only", "true");
     if (opts?.archived_only === true) qs.set("archived_only", "true");
+    if (typeof opts?.kind === "string" && opts.kind.trim()) qs.set("kind", opts.kind.trim());
     if (typeof opts?.include_ledger_len === "boolean") qs.set("include_ledger_len", String(opts.include_ledger_len));
     if (typeof opts?.include_metrics === "boolean") qs.set("include_metrics", String(opts.include_metrics));
     if (typeof opts?.include_drafts === "boolean") qs.set("include_drafts", String(opts.include_drafts));
@@ -1213,6 +1225,31 @@ export class GatewayClient {
     });
     if (!r.ok) throw new Error(`get_workflow_flow failed: ${r.status}`);
     return await r.json();
+  }
+
+  /** The capability descriptor, read ONCE per client (discovery and the runs sweep share the one
+   * request); a failed read is not kept, so the next caller asks again. */
+  private _capabilities: Promise<any> | null = null;
+  capabilities_once(): Promise<any> {
+    if (!this._capabilities) {
+      const p = this.discovery_capabilities();
+      this._capabilities = p;
+      p.catch(() => {
+        if (this._capabilities === p) this._capabilities = null;
+      });
+    }
+    return this._capabilities;
+  }
+
+  /** The `GET /runs` query parameters this gateway advertises
+   * (`capabilities.contracts.common.runs.list.filters`); null when it advertises none or the
+   * descriptor cannot be read. */
+  async runs_list_filters(): Promise<string[] | null> {
+    try {
+      return runs_list_filters_of(await this.capabilities_once());
+    } catch {
+      return null;
+    }
   }
 
   /** `GET /api/gateway/discovery/capabilities` (the capability descriptor,

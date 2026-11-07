@@ -1112,6 +1112,8 @@ export function format_tokens(n: number | null): string {
 
 export type MissionControlProps = {
   gateway_connected: boolean;
+  /** The "Show" chips over the sessions (session_kinds.ts), drawn above the lanes. */
+  filters?: React.ReactNode;
   /** Listing roots (the navigator's rows) — the board reads their terminal rows for Done. */
   runs: RunSummary[];
   /** Every row seen: the active listings (running + waiting, every depth) and the 60 s sweep. */
@@ -3219,6 +3221,8 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
           ) : null}
         </div>
       ) : null}
+
+      {props.filters ? <div className="mc_filters">{props.filters}</div> : null}
 
       <div className="mc_board">
         {LANE_ORDER.map((lane) => {

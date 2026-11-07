@@ -171,6 +171,8 @@ import { type RuntimeMetadata } from "./runtime_metadata";
 import { run_status_class, run_status_word, stop_reason_of, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
 import { ObserverVoiceSettings, SpeakButton, VoiceDictate, use_observer_voice, use_read_aloud, use_voice_defaults, use_voice_prefs } from "./observer_voice";
 import { useListOpen } from "./list_disclosure";
+import { SESSION_FILTER_ALL, filter_sessions, list_session_roots, listing_kind, session_filter_options, type SessionFilter } from "./session_kinds";
+import { SessionFilterRow } from "./session_filter_row";
 import "./system.css";
 // Usability layer LAST: it corrects actionable-information presentation and
 // must win equal-specificity fights with every page sheet above.
@@ -567,6 +569,8 @@ export function App(): React.ReactElement {
   const [workflow_options, set_workflow_options] = useState<WorkflowOption[]>([]);
   const [run_options, set_run_options] = useState<RunSummary[]>([]);
   const [all_run_options, set_all_run_options] = useState<RunSummary[]>([]);
+  /** The Board's and the Observe list's "Show" chips (session_kinds.ts): one choice for both. */
+  const [session_filter, set_session_filter] = useState<SessionFilter>(SESSION_FILTER_ALL);
   const [runs_loading, set_runs_loading] = useState(false);
   const [runs_refreshed_at, set_runs_refreshed_at] = useState<number | null>(null);
   // null until the first roster + cards read lands: the board strip shows skeleton tiles in its
@@ -1464,15 +1468,9 @@ export function App(): React.ReactElement {
     poll.begin_sweep(Date.now());
     // Roots first; the archived listing (a second full scan of the store, 8–10 s under
     // contention) only when the roots page says archived conversations exist (R3.1 §5).
-    void gateway_client
-      .list_runs({ limit: 200, root_only: true, include_metrics: true })
-      .then(async (roots) => {
-        const archived_count = Number((roots as any)?.archived_sessions);
-        if (Number.isFinite(archived_count) && archived_count <= 0) return [roots, { items: [] }] as [any, any];
-        // Archived conversations leave the root listing; Observer still shows them (audit view).
-        const archived = await gateway_client.list_runs({ limit: 200, root_only: true, archived_only: true, include_metrics: true });
-        return [roots, archived] as [any, any];
-      })
+    // EVERY session (operator 2026-11-07): a turn listing shows conversations only unless asked
+    // for `kind=all`, which a gateway advertising the `kind` filter understands (session_kinds.ts).
+    void list_session_roots(gateway_client)
       .then(
       ([roots, archived]) => {
         // Same epoch guard, plus: a late sweep of a replaced client never
@@ -1525,7 +1523,7 @@ export function App(): React.ReactElement {
       refresh_runs(gateway_for_connect),
       gateway_for_connect.discovery_tools(),
       gateway_for_connect.discovery_providers({ include_models: false }),
-      gateway_for_connect.discovery_capabilities(),
+      gateway_for_connect.capabilities_once(),
     ]);
     // EPOCH GUARD (adversary 2026-07-13): a sign-out that happened during
     // the awaits must not have its cleared state repopulated by these
@@ -3434,7 +3432,7 @@ export function App(): React.ReactElement {
     set_saved_chat_threads_error("");
     set_saved_chat_threads_loading(true);
     try {
-      const runs_res = await gateway.list_runs({ limit: 200, workflow_id: wid, root_only: true });
+      const runs_res = await gateway.list_runs({ limit: 200, workflow_id: wid, root_only: true, ...listing_kind(await gateway.runs_list_filters()) });
       const items = Array.isArray(runs_res?.items) ? runs_res.items : [];
       const runs: Array<{ run_id: string; ledger_len: number }> = [];
       for (const it of items) {
@@ -4615,16 +4613,25 @@ export function App(): React.ReactElement {
     });
   }, [all_run_options, run_options, run_id, run_state, records.length, subrun_ids, session_id_for_run]);
 
+  // Every session the gateway has, with simple filters (operator 2026-11-07). A choice the rows no
+  // longer offer falls back to All (never an empty board for a filter that is not shown).
+  const session_options = useMemo(() => session_filter_options(runtime_run_rows), [runtime_run_rows]);
+  const shown_session_filter = session_options.some((o) => o.value === session_filter) ? session_filter : SESSION_FILTER_ALL;
+  const board_runs = useMemo(() => filter_sessions(run_options, shown_session_filter), [run_options, shown_session_filter]);
+  const board_all_runs = useMemo(() => filter_sessions(all_run_options, shown_session_filter), [all_run_options, shown_session_filter]);
+  const observe_rows = useMemo(() => filter_sessions(runtime_run_rows, shown_session_filter), [runtime_run_rows, shown_session_filter]);
+  const session_filter_row = <SessionFilterRow options={session_options} value={shown_session_filter} on_change={set_session_filter} />;
+
   const observe_sections = useMemo<RunTreeSection[]>(
     () =>
-      build_run_tree_sections(runtime_run_rows, {
+      build_run_tree_sections(observe_rows, {
         query: observe_search,
         filter: observe_filter,
         group_by: observe_group_by,
         workflow_label_by_id,
         parent_hint: (rid) => subrun_parent_ref.current[rid] || "",
       }),
-    [runtime_run_rows, observe_search, observe_filter, observe_group_by, workflow_label_by_id],
+    [observe_rows, observe_search, observe_filter, observe_group_by, workflow_label_by_id],
   );
 
 
@@ -5092,8 +5099,9 @@ export function App(): React.ReactElement {
           ) : (
             <MissionControlPage
               gateway_connected={gateway_connected}
-              runs={run_options}
-              all_runs={all_run_options}
+              runs={board_runs}
+              all_runs={board_all_runs}
+              filters={session_filter_row}
               runs_refreshed_at={runs_refreshed_at}
               runs_stale={runs_stale}
               notice={connection_notice_text}
@@ -5768,7 +5776,8 @@ export function App(): React.ReactElement {
                 loading={runs_loading}
                 connected={gateway_connected}
                 on_sign_in={() => gateway_connection.openModal()}
-                total_runs={runtime_run_rows.length}
+                total_runs={observe_rows.length}
+                kind_filter={session_filter_row}
                 workflow_label_by_id={workflow_label_by_id}
                 automation_titles={automation_titles}
                 on_search={set_observe_search}

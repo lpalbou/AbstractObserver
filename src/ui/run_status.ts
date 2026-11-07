@@ -111,6 +111,9 @@ export type RunSummary = {
   waiting?: any;
   /** The run's session is archived (Code's "Archive"): hidden from chat lists, never from Observer. */
   archived?: boolean | null;
+  /** What the session is FOR, as the gateway reports it (`conversation`, `docs`, `notes`, ...;
+   * gateway session_kinds.py). Absent on a gateway without session kinds. */
+  kind?: string | null;
 };
 
 /** Run-listing view shapes (moved from app.tsx, slice 4a): the
