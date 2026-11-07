@@ -14,7 +14,7 @@
  *   automation's folder read-only, strict history).
  */
 import React, { useMemo, useState } from "react";
-import { readAloudPhase } from "./read_aloud";
+import { readAloudPhase } from "@abstractframework/panel-chat";
 
 import {
   WorkflowChat,

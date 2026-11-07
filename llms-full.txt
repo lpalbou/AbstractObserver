@@ -105,6 +105,10 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
+0.12.1 picks up the shared voice fix: read aloud and the Speak buttons show a reply as playing only while it can be
+heard, say so when the browser has paused the page's sound, and a second Play while a reply is being prepared no
+longer asks for it twice. See [CHANGELOG.md](CHANGELOG.md#0121---2026-11-07).
+
 0.12.0 draws each entity on the Board in its own design and colour, from its identity (hover a tile for the
 design, the colour and the voice), and the agent page says in plain words how the conversation has gone: runs,
 successes, failures and a trust that only counts whether tasks finished, or "No experience yet". Automations open on the
@@ -176,7 +180,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.12.0 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.12.1 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -253,7 +257,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -535,6 +539,26 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+## [0.12.1] - 2026-11-07
+
+On AbstractUIC 0.10.2 (`@abstractframework/ui-kit` ^0.9.15, `@abstractframework/panel-chat` ^0.8.2; floors raised
+from ui-kit ^0.9.14 / panel-chat ^0.7.0). No change of its own beyond the kit's voice fix; works with the same
+gateways as 0.12.0.
+
+### Fixed
+
+- **Read aloud and the Speak buttons show a reply as playing only while it can be heard.** When the browser keeps
+  the page's sound paused (for example in a tab you have not clicked yet), the button no longer claims the reply is
+  playing in silence: Observer says "Audio playback is paused by the browser. Press Play to try again." The
+  speaking indicator rests while the next sentence is still being prepared or the volume is muted.
+- **Pressing Play again while a reply is still being prepared no longer asks for it twice**: both presses share one
+  request and the reply is spoken once.
+
+### Changed
+
+- Read aloud decides which replies to speak with the shared rule from `@abstractframework/panel-chat` (only replies
+  produced while the conversation is open), instead of a copy of it kept in this app. Behaviour is unchanged.
 
 ## [0.12.0] - 2026-11-04
 

@@ -16,7 +16,7 @@
  * runs the Observer watches never gain child runs from reading them aloud.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { READ_ALOUD_INITIAL, readAloudStep, type ReadAloudPhase } from "./read_aloud";
+import { READ_ALOUD_INITIAL, readAloudStep, type ReadAloudPhase } from "@abstractframework/panel-chat";
 import {
   AfVoiceSection,
   Icon,
@@ -277,7 +277,7 @@ export function use_observer_voice(opts: {
  * Settings → Voice → Read aloud: a reply is spoken by itself only when it was
  * generated while this conversation is open — `live` (its run / the answer
  * being produced) was seen here first (operator 2026-10-29: opening a run chat
- * or a discussion spoke its existing messages). The kit's rule (`read_aloud.ts`).
+ * or a discussion spoke its existing messages). The rule is panel-chat's `readAloudStep`.
  */
 export function use_read_aloud(
   voice: ObserverVoice,

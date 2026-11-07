@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-07
+
+On AbstractUIC 0.10.2 (`@abstractframework/ui-kit` ^0.9.15, `@abstractframework/panel-chat` ^0.8.2; floors raised
+from ui-kit ^0.9.14 / panel-chat ^0.7.0). No change of its own beyond the kit's voice fix; works with the same
+gateways as 0.12.0.
+
+### Fixed
+
+- **Read aloud and the Speak buttons show a reply as playing only while it can be heard.** When the browser keeps
+  the page's sound paused (for example in a tab you have not clicked yet), the button no longer claims the reply is
+  playing in silence: Observer says "Audio playback is paused by the browser. Press Play to try again." The
+  speaking indicator rests while the next sentence is still being prepared or the volume is muted.
+- **Pressing Play again while a reply is still being prepared no longer asks for it twice**: both presses share one
+  request and the reply is spoken once.
+
+### Changed
+
+- Read aloud decides which replies to speak with the shared rule from `@abstractframework/panel-chat` (only replies
+  produced while the conversation is open), instead of a copy of it kept in this app. Behaviour is unchanged.
+
 ## [0.12.0] - 2026-11-04
 
 On `@abstractframework/ui-kit` ^0.9.14 (was ^0.9.12): provider names shown as text badges until each owner approves its logo,
