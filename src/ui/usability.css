@@ -54,35 +54,6 @@ button.primary:disabled,
   white-space: nowrap;
 }
 
-/* ── Task 5: entity tiles are LINKS (new tab) — say so ──
- * The tile is an <a target=_blank>; nothing marked it as one. A quiet ↗
- * in the corner turns "card?" into "opens the entity app". */
-.mc_entity {
-  position: relative;
-}
-
-.mc_entity::after {
-  content: "↗";
-  position: absolute;
-  top: 9px;
-  right: 11px;
-  font-size: var(--t-small);
-  line-height: 1;
-  color: var(--text-muted);
-  opacity: 0.55;
-  transition: opacity 0.15s, color 0.15s;
-}
-
-.mc_entity:hover::after {
-  opacity: 1;
-  color: var(--info);
-}
-
-/* Entity name leaves room for the corner marker. */
-.mc_entity_name {
-  padding-right: 16px;
-}
-
 /* ── Task 2: the Story's metric row must not out-shout the Outcome ──
  * 8 tiles at 4-per-row = two rows of billboards between the title and
  * the failure reason. Auto-fit lets all 8 sit in one slim row at desk

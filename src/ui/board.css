@@ -61,7 +61,6 @@
   color: var(--error);
 }
 
-
 .mc_status_line .btn.mc_refresh {
   flex: none;
   height: 24px;
@@ -122,149 +121,17 @@
   padding: 3px 3px 12px;
 }
 
-/* Entity tile = raised card (markup adds .raised for shadow + hover lift);
- * overrides the cramped styles.css .mc_entity box and neutralizes its
- * info hover border (the lift + strong border is the affordance). */
-.mc_entity {
-  gap: 6px;
-  min-width: 178px;
-  max-width: 244px;
-  padding: 12px 13px;
-  border: 1px solid var(--pane-border);
-  border-radius: 10px;
-  background: var(--raised-bg);
-}
-
-/* Cell = tile + its hints badge stacked; the anchor stays the anchor
- * (a chip button nested inside an <a> would be invalid + a misclick). */
+/* One cell per entity: the shared kit card (ui-kit EntityCard, compact) at one width, so the rail
+ * reads as a row of equal cards; on a phone a card takes most of the screen and the rail scrolls. */
 .mc_entity_cell {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex: 0 0 auto;
+  width: min(240px, 78vw);
 }
 
-.mc_entity_hints_btn {
-  align-self: flex-start;
-  font-size: var(--t-small);
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--pane-border);
-  border-radius: 999px;
-  padding: 1px 9px;
-  cursor: pointer;
-}
-
-.mc_entity_hints_btn:hover,
-.mc_entity_hints_btn[aria-expanded="true"] {
-  color: var(--text-primary);
-  border-color: var(--pane-border-strong);
-}
-
-/* Expanded hint chips for ONE entity (access-hint lane, plan §observer 2). */
-.mc_entity_hints_panel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 3px 4px;
-}
-
-.mc_entity_hints_more {
-  font-size: var(--t-small);
-}
-
-/* Night-signals line (wave-5): a factual one-liner on its own row —
- * words only, no meter (feelings color content, they never rank it). */
-.mc_entity_dreams {
-  flex-basis: 100%;
-  min-width: 0; /* flex min-width:auto would let one long token force tile overflow */
-  overflow-wrap: anywhere;
-  font-size: var(--t-small);
-}
-
-/* Diary entry modal body: the entity's words verbatim, never reflowed. */
-.mc_diary_meta,
-.mc_diary_recorded {
-  font-size: var(--t-small);
-  margin-bottom: 6px;
-}
-
-.mc_diary_gist {
-  font-style: italic;
-  margin: 4px 0 8px;
-}
-
-.mc_diary_text {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
-  font-size: var(--t-body);
-  margin: 0;
-}
-
-.mc_entity:hover {
-  border-color: var(--pane-border-strong);
-}
-
-/* The name with the entity's orb before it (identity.tsx); the orb sits on the tile's ground. */
-.mc_entity_title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  /* Clear of the tile's corner arrow; a refusal sentence takes the next line(s). */
-  padding-right: 14px;
-  flex-wrap: wrap;
-}
-
-.mc_entity_title .idn_orb {
-  order: -1;
-  /* Drawn larger than the name's line without making the line taller (the strip's reserved
-   * height, .mc_entities_reserved, is the loaded row's). */
-  margin-block: -7px;
-  --bg-primary: var(--raised-bg);
-}
-
-/* The name keeps its room; the gateway's sentence takes what is left (full text on hover). */
-.mc_entity_title .mc_entity_name {
-  flex: none;
-  max-width: 100%;
-}
-
-.mc_entity_title .idn_look_error {
-  /* Under the name, the tile's whole width, wrapped; it never widens the tile. */
-  flex: 1 0 100%;
-  contain: inline-size;
-}
-
-.mc_entity_name {
-  font-size: var(--t-section);
-  font-weight: 650;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mc_entity_status_row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.mc_entity_moment {
-  font-size: var(--t-micro);
-}
-
-.mc_entity_idle {
-  font-size: var(--t-micro);
-}
-
-.mc_entity_spend {
-  font-size: var(--t-micro);
-  font-variant-numeric: tabular-nums;
+.mc_entity_cell > .mc_entity_card {
+  background: var(--raised-bg);
+  box-shadow: var(--shadow-raised);
 }
 
 /* ---------- board lanes as panes ---------- */
@@ -344,23 +211,6 @@
   font-family: var(--font-sans);
 }
 
-.mc_entity_live {
-  font-family: var(--font-sans);
-  font-size: var(--t-micro);
-}
-
-.mc_entity_moment {
-  font-family: var(--font-sans);
-  font-size: var(--t-micro);
-  color: var(--text-muted);
-}
-
-.mc_entity_spend {
-  font-family: var(--font-sans);
-  font-size: var(--t-micro);
-}
-
-
 .mc_column_hint,
 .mc_empty {
   font-family: var(--font-sans);
@@ -383,28 +233,6 @@
   font-weight: 650;
   color: var(--text-primary);
   margin-bottom: 10px;
-}
-
-.mc_entity {
-  background: var(--raised-bg);
-  border: 1px solid var(--pane-border);
-  border-radius: 10px;
-  box-shadow: var(--shadow-raised);
-  padding: 12px 14px;
-  gap: 6px;
-  transition: border-color 0.15s, transform 0.12s, box-shadow 0.15s;
-}
-
-.mc_entity:hover {
-  border-color: var(--pane-border-strong);
-  transform: translateY(-1px);
-}
-
-.mc_entity_name {
-  font-family: var(--font-sans);
-  font-size: calc(13.5px * var(--font-scale, 1));
-  font-weight: 650;
-  letter-spacing: -0.01em;
 }
 
 .mc_column {
@@ -584,7 +412,6 @@
 .mc_column_needs_you .mc_column_head {
   border-bottom-color: color-mix(in srgb, var(--warning) 25%, var(--pane-border));
 }
-
 
 /* ── Columns fill the page (continuum parity): the board grid takes the
  * leftover page height so empty columns run to the bottom edge instead
@@ -1424,7 +1251,6 @@ a.btn.mc_btn_quiet {
   overflow-wrap: anywhere;
 }
 
-
 /* ---------- the (i) popover (portalled to <body>: the lanes clip) ----------
  * A real layout (operator 2026-10-14): 500 px wide (the viewport minus its
  * gutters on phones), at most 70 % of the viewport tall with its own scroll,
@@ -1742,8 +1568,8 @@ a.btn.mc_btn_quiet {
 }
 
 /* The Entities strip is in the page at first paint and never moves the lanes (operator
- * 2026-10-15): one reserved height in every state — skeleton tiles while the roster and cards
- * load, the tiles after, a one-line "no entities" head inside the same box. The floor is the
+ * 2026-10-15): one reserved height in every state — loading cards while the roster and tiles
+ * load, the cards after, a one-line "no entities" head inside the same box. The floor is the
  * loaded row's height (head + one tile row, measured in space_dom.test.tsx). */
 /* The roster is in and empty: the head line only; the strip gives its room back to the lanes. */
 .mc_entities_empty {
@@ -1758,50 +1584,11 @@ a.btn.mc_btn_quiet {
   /* An explicit min-height drops a flex item's content-based minimum: never let the column
    * flex .mc_page squeeze the strip below its content (the lanes own the scroll). */
   flex: none;
-  /* The loaded row: head (19.5) + 10 + row padding (3 + 12) + a cell with the five-line tile and
-   * its hints badge (170.75) + the strip's 12 + 12 padding + 2 border = 241.25 at font scale 1
-   * (measured in space_dom.test.tsx, which pins the skeleton row to the loaded row). */
-  min-height: var(--mc-entities-min, 242px);
-}
-
-/* The skeleton tile's lines are the loaded tile's line heights (name 13.5 px at 1.5, the phase
- * chip = small line + 2 px 8 px padding, moment/liveness/spend at 12 px), so a skeleton cell is
- * a loaded cell's height. */
-.mc_entity_skeleton {
-  pointer-events: none;
-  cursor: default;
-  display: flex;
-  flex-direction: column;
-  width: 196px;
-}
-
-.mc_entity_skeleton .mc_sk {
-  display: block;
-  height: calc(12px * var(--font-scale, 1) * 1.5);
-}
-
-.mc_entity_skeleton .mc_sk_title {
-  height: calc(13.5px * var(--font-scale, 1) * 1.5);
-}
-
-.mc_entity_skeleton .mc_sk_chip {
-  width: 56px;
-  height: calc(12.33px * var(--font-scale, 1) * 1.5 + 4px);
-  border-radius: 999px;
-}
-
-/* The hints badge's line under a skeleton tile (the loaded cell's 20 px `.mc_entity_hints_btn`). */
-.mc_sk_hints {
-  display: block;
-  height: 20px;
-  border-radius: 999px;
-}
-
-/* A drawn tile whose card or cognition answer has not arrived yet: the missing line is held at the
- * loaded line's height (moment/liveness/spend at 12 px), so nothing moves when the answer lands. */
-.mc_entity .mc_entity_sk {
-  display: block;
-  height: calc(12px * var(--font-scale, 1) * 1.5);
+  /* The loaded row: head + row padding + one compact kit EntityCard (who, now, one interest, the
+   * last moment) + the strip's padding and border = 211.7 at font scale 1 (measured in
+   * space_dom.test.tsx, which pins the loading row to the loaded row). A card with a warning or a
+   * stale note is taller and grows the row; the kit adds only that row. */
+  min-height: var(--mc-entities-min, 212px);
 }
 
 @keyframes mc_shimmer {

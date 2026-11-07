@@ -620,14 +620,29 @@ export class GatewayClient {
   // --- Entity observation reads (the entity app owns the deep surfaces;
   // these two power the main app's fleet/board view: roster + the cheap
   // per-entity card — never whole-life replay folds from this client).
-  async list_entities(): Promise<{ entities: any[] }> {
+  /** The roster: `{entities, reads}`. `reads.tile` (gateway 0.21.0) says the per-entity tile read
+   * exists (`get_entity_tile`); an older gateway serves no `reads`. */
+  async list_entities(): Promise<{ entities: any[]; reads: any }> {
     const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath("entities")), {
       headers: { ..._auth_headers(this._cfg.auth_token) },
       signal: _deadline(),
     });
     if (!r.ok) throw new Error(`list_entities failed: ${await _read_error(r)}`);
     const body = await r.json();
-    return { entities: Array.isArray(body?.entities) ? body.entities : [] };
+    return { entities: Array.isArray(body?.entities) ? body.entities : [], reads: body?.reads && typeof body.reads === "object" ? body.reads : null };
+  }
+
+  /** One entity's tile (gateway 0.21.0, backlog 1012): `GET /entities/{name}/tile`, what one card
+   * about it shows (ui-kit `EntityCard`, tile_version 1). Pure read. */
+  async get_entity_tile(name: string): Promise<any> {
+    const n = String(name || "").trim();
+    if (!n) throw new Error("get_entity_tile: name is required");
+    const r = await _fetch(_join(this._cfg.base_url, gatewayApiPath(`entities/${encodeURIComponent(n)}/tile`)), {
+      headers: { ..._auth_headers(this._cfg.auth_token) },
+      signal: _deadline(),
+    });
+    if (!r.ok) throw new Error(`get_entity_tile failed: ${await _read_error(r)}`);
+    return await r.json();
   }
 
   /** THE one entity phase graph (laurent dm#79 one-graph ruling, c3594):
