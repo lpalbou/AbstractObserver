@@ -9,6 +9,7 @@ function packageVersion() {
 
 module.exports = async () => {
   const react = (await import("@vitejs/plugin-react")).default;
+  const { configDefaults } = await import("vitest/config");
   return {
     plugins: [react()],
     define: {
@@ -37,6 +38,9 @@ module.exports = async () => {
     },
     test: {
       environment: "node",
+      // untracked/ holds scratch copies of older checkouts (release worktrees, review copies):
+      // their tests are not this tree's and must never be swept into its run.
+      exclude: [...configDefaults.exclude, "untracked/**"],
     },
   };
 };
