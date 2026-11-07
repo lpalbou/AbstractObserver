@@ -26,6 +26,7 @@ Created 2026-09-27, when the first item completed. Before that, the folder had n
 | ID | Item | Completed | Notes |
 |---|---|---|---|
 | 0002 | [Automations in the Observer](completed/0002_automations_observer.md) | 2026-09-27 | UNRELEASED. Automate mode, Automations page (kit panel), transcript as chat pairs, discuss, typed wait answers, legacy rows. `56af9b4`…`9685fe0`; vitest 159/159; Chromium walk 17/17 on gateway `5161785`; review 54 GO. |
+| 0005 | [Adopt panel-chat's `readAloudStep` export](completed/0005_adopt_panel_chat_read_aloud_export.md) | 2026-11-07 | Release 0.12.1. Inlined `src/ui/read_aloud.ts` deleted; three importers use `@abstractframework/panel-chat`. vitest 708 passed / 1 skipped. |
 
 ## Proposed
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { READ_ALOUD_INITIAL, readAloudPhase, readAloudStep, type ReadAloudPhase } from "./read_aloud";
+import { READ_ALOUD_INITIAL, readAloudPhase, readAloudStep, type ReadAloudPhase } from "@abstractframework/panel-chat";
 
 /** The operator's case (2026-10-29) as Observer's chats feed the rule. */
 function play(steps: Array<[string, ReadAloudPhase, string | null]>): string[] {

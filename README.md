@@ -12,6 +12,9 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
+0.12.1 picks up the shared voice fix: when the browser has paused the page's sound, the Read aloud and Speak buttons
+offer Play and say so, and Play resumes the same audio instead of preparing the reply again. See [CHANGELOG.md](CHANGELOG.md#0121---2026-11-07).
+
 0.12.0 draws each entity on the Board in its own design and colour, from its identity (hover a tile for the
 design, the colour and the voice), and the agent page says in plain words how the conversation has gone: runs,
 successes, failures and a trust that only counts whether tasks finished, or "No experience yet". Automations open on the
@@ -83,7 +86,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.12.0 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.12.1 -- abstractobserver
 ```
 
 ### CLI configuration
