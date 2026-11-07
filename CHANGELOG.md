@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.13.0] - Unreleased (local build 2026-11-08, not published)
+
+### Changed
+
+- **The Board, redesigned** (operator 2026-11-07: "a lot of empty space and then very narrow cards and very tall at
+  the same time: unreadable, uninformative, unactionable"). Lanes fill the width (flex columns that share the row;
+  five fit from 1440 px, they stack on a phone); an empty lane is its header alone (a narrow rail, a one-line chip
+  on a phone). Cards are short: the whole title (two lines, one in Compact) with an explicit "…" only beyond, a
+  status pill only when it says more than the lane, one why-now block, and one foot row with the facts (what ran,
+  age, tokens, tool calls, artifacts, when) and ONE primary action — Approve / Reject, Review & answer, Resume,
+  Cancel task, Run now or Resume schedule. Every other move (Open the run, Open in Code, Pause, Cancel, Stop one
+  subrun, Copy run id, About) is behind one ⋯ menu. A straight task chain reads as one line ("basic-agent ›
+  node-2") and its ask is said once. In Done, identical runs in a row (an automation's runs differ only by their
+  number) are one row "×N" that opens them, twenty at a time; a failure says why, whole; "completed in 3s" no
+  longer repeats the pill. Entities are one row of chips (avatar, name, what it is doing and for how long, its last
+  moment or its trouble); hovering or clicking a chip opens the kit's entity card with every line whole; "Show
+  all" wraps the row. A **Compact** chip next to the Sessions filter tightens the cards and is remembered per
+  browser. Durations on cards are in words.
+
+### Added
+
+- **Pause** a running run from its card's ⋯ menu (the run control the Observe page already sends).
+
 ## [0.12.4] - 2026-11-07
 
 On AbstractUIC 0.10.5 (`@abstractframework/ui-kit` ^0.9.18, floor raised from ^0.9.17). The Sessions row appears
