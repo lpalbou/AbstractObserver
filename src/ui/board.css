@@ -1797,6 +1797,13 @@ a.btn.mc_btn_quiet {
   border-radius: 999px;
 }
 
+/* A drawn tile whose card or cognition answer has not arrived yet: the missing line is held at the
+ * loaded line's height (moment/liveness/spend at 12 px), so nothing moves when the answer lands. */
+.mc_entity .mc_entity_sk {
+  display: block;
+  height: calc(12px * var(--font-scale, 1) * 1.5);
+}
+
 @keyframes mc_shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }

@@ -62,8 +62,9 @@ Errors use `{"detail": {"reason_code", "message", "field"?, "command_id"?}}`; th
 These power additional pages/drawers. If your gateway does not expose them, the corresponding UI areas will show errors or empty states.
 
 - **Entities strip (Board page)** — cheap reads only, never replay folds
-  - `GET /api/gateway/entities` — roster (names)
-  - `GET /api/gateway/entities/{name}/card` — per-entity card (state object, age, moments, `as_of_seq`)
+  - `GET /api/gateway/entities` — roster (names, state, identity): the tiles are drawn from it as soon as it answers; read every 30 s
+  - `GET /api/gateway/entities/{name}/cognition` — busy or idle, phase and spend for one tile; read every 30 s, before any card (404 on older gateways: the tile falls back to the card's last moment)
+  - `GET /api/gateway/entities/{name}/card` — per-entity card (state object, age, moments, open questions/problems, lessons, night signals): read at most three at a time, each tile filled when its own card answers; kept between refreshes and read again only after 5 minutes or when the roster row's `state.changed_at` changes
   - `GET /api/gateway/entities/{name}/identity?rev=N` — the look a tile draws (framework ADR 0052; AbstractGateway 0.20.0): the roster row's `identity.rev` with its `entity_id` is the tile's identity reference; the record at that revision gives the design, colour and voice. Read once per reference while the page is open (a poll reads nothing new; a new revision is read once). A row without `identity` keeps the tile as before; a refused read shows the gateway's sentence in full on the tile (wrapped under the name) and draws nothing.
 - **Track record (Observe → Agent)** — read when the agent page opens on a conversation, never on its poll (AbstractGateway 0.20.0)
   - `GET /api/gateway/sessions/{session_id}/track-record` and `/reputation` — runs, successes, failures and the overall trust with its support, written as "2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)" followed by "A success here only means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience yet" when nothing has an outcome; a refusal is shown as the gateway's sentence

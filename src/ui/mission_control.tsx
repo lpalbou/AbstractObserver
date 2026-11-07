@@ -1129,6 +1129,12 @@ export type EntityTile = {
    * (null = section absent — pre-signal store or pre-brief gateway). */
   dreams_brief: DreamSignalsBrief | null;
   error: string;
+  /** Where the card-derived fields stand (entity_tiles.ts reads the card apart from the roster):
+   * "pending" = not read yet, the tile shows quiet placeholders in their place; "failed" = the
+   * read failed and nothing older is known, the tile shows a short note. Absent = "loaded". */
+  card_state?: "pending" | "loaded" | "failed";
+  /** True until the cognition wire's first answer for this tile (placeholders, not "unknown"). */
+  cognition_pending?: boolean;
 };
 
 /** One open question/problem brief off the entity card. The card's row
@@ -1534,6 +1540,8 @@ export const ENTITIES_STRIP_EMPTY_CLASS = "mc_entities mc_entities_empty";
 export const SKELETON_ENTITIES = 4;
 /** The most tiles the strip shows (the head says "N of total — open the entity app for all"). */
 export const ENTITY_TILES_MAX = 12;
+/** The words a tile shows when its card could not be read (the reason rides the tooltip). */
+export const ENTITY_CARD_FAILED_NOTE = "details unavailable right now";
 
 /** Tile-shaped shimmering placeholders: name, phase chip, moment, liveness, spend, then the hints
  * badge under the tile — the loaded cell's lines, so the skeleton row is the loaded row's height. */
@@ -3550,7 +3558,15 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
               })()}
               {/* Moment kinds arrive as snake_case event names — display
                 * de-snakes for reading; the tooltip keeps the verbatim. */}
-              {e.last_moment ? <span className="mc_entity_moment" title={e.last_moment}>{e.last_moment.replace(/_/g, " ")}</span> : null}
+              {/* The card arrives after the roster (entity_tiles.ts): until then a quiet placeholder
+                * holds the line, a failed read says so in a few words (the reason on hover). */}
+              {e.card_state === "pending" ? (
+                <SkeletonLine className="mc_entity_sk" width="70%" />
+              ) : e.card_state === "failed" ? (
+                <span className="mc_entity_moment mc_entity_card_note" title={e.error}>{ENTITY_CARD_FAILED_NOTE}</span>
+              ) : e.last_moment ? (
+                <span className="mc_entity_moment" title={e.last_moment}>{e.last_moment.replace(/_/g, " ")}</span>
+              ) : null}
               {/* WORKING / FRESHNESS (B3, 2026-07-13): the cognition wire's
                 * store-read `working` is authoritative when present
                 * (gateway c1390); pre-wire gateways fall back to the
@@ -3560,6 +3576,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                 // "busy", never "working" — WORK is a ruled PHASE word;
                 // execution liveness must not wear it (fable5 P1,
                 // c1475 wave).
+                if (e.cognition_pending) return <SkeletonLine className="mc_entity_sk" width="42%" />;
                 if (e.working === true) {
                   return (
                     <span className="mc_entity_live" title="busy now (loop mid-day or live visit — store-read, never fabricated)">
@@ -3590,7 +3607,9 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                 * home run ledger + the open visit's live spend. Warnings
                 * from the wire ride the tooltip so a partial number is
                 * never read as total. */}
-              {e.tokens_total !== null ? (
+              {e.cognition_pending ? (
+                <SkeletonLine className="mc_entity_sk" width="56%" />
+              ) : e.tokens_total !== null ? (
                 <span
                   className="muted mc_entity_spend"
                   title={`lifetime billed tokens (home run ledger)${e.live_visit_tokens !== null ? `; open visit: ${format_tokens(e.live_visit_tokens)} tk` : ""}${e.spend_warning ? `; ${e.spend_warning}` : ""}`}
@@ -3603,8 +3622,10 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
             {/* Access-hint lane (§observer 2 + build-5 twin): what this
               * entity carries OPEN plus what it has DISTILLED, rendered
               * from the card's briefs. A count badge — the deep view
-              * stays the entity app. */}
-            {e.open_questions_total || e.open_problems_total || e.lessons_total || e.dreams_brief ? (
+              * stays the entity app. Until the card is read, the badge's line is held. */}
+            {e.card_state === "pending" ? (
+              <SkeletonLine className="mc_sk_hints" width="120px" />
+            ) : e.open_questions_total || e.open_problems_total || e.lessons_total || e.dreams_brief ? (
               <button
                 type="button"
                 className="mc_entity_hints_btn"
