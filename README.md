@@ -12,9 +12,8 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
-0.12.1 picks up the shared voice fix: read aloud and the Speak buttons show a reply as playing only while it can be
-heard, say so when the browser has paused the page's sound, and a second Play while a reply is being prepared no
-longer asks for it twice. See [CHANGELOG.md](CHANGELOG.md#0121---2026-11-07).
+0.12.1 picks up the shared voice fix: when the browser has paused the page's sound, the Read aloud and Speak buttons
+offer Play and say so, and Play resumes the same audio instead of preparing the reply again. See [CHANGELOG.md](CHANGELOG.md#0121---2026-11-07).
 
 0.12.0 draws each entity on the Board in its own design and colour, from its identity (hover a tile for the
 design, the colour and the voice), and the agent page says in plain words how the conversation has gone: runs,

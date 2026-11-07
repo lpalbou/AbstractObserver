@@ -10,12 +10,10 @@ gateways as 0.12.0.
 
 ### Fixed
 
-- **Read aloud and the Speak buttons show a reply as playing only while it can be heard.** When the browser keeps
-  the page's sound paused (for example in a tab you have not clicked yet), the button no longer claims the reply is
-  playing in silence: Observer says "Audio playback is paused by the browser. Press Play to try again." The
-  speaking indicator rests while the next sentence is still being prepared or the volume is muted.
-- **Pressing Play again while a reply is still being prepared no longer asks for it twice**: both presses share one
-  request and the reply is spoken once.
+- **When the browser keeps the page's sound paused** (for example in a tab you have not clicked yet), the Read aloud
+  and Speak buttons offer Play instead of claiming the reply is playing in silence, and Observer says "Audio playback
+  is paused by the browser. Press Play to try again." Play then resumes the same audio instead of preparing the reply
+  again.
 
 ### Changed
 
