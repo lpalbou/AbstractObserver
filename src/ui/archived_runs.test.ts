@@ -27,7 +27,9 @@ describe("archived conversations stay observable", () => {
     expect(boardSource).toMatch(/\{card\.archived \? <span className="mc_pill" data-tag="archived"[^>]*>Archived<\/span> : null\}/);
   });
   it("refresh_runs also asks for archived roots and merges them", () => {
-    expect(appSource).toMatch(/list_runs\(\{ limit: 200, root_only: true, archived_only: true, include_metrics: true \}\)/);
+    // The sweep's listings live in session_kinds.ts (list_session_roots: every session, kind=all
+    // when the gateway understands it; session_kinds.test.tsx drives it with a fake client).
+    expect(appSource).toMatch(/list_session_roots\(gateway_client\)/);
     expect(appSource).toMatch(/const root_items = with_archived_roots\(/);
   });
   it("list_runs sends archived_only=true", async () => {

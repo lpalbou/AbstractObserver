@@ -232,6 +232,8 @@ type WorkflowOption = {
   /** Interfaces this entrypoint is currently the gateway default agent for. */
   agent_default_interfaces: string[];
   label: string;
+  /** The entrypoint's own name, as the gateway lists it ("AbstractAssistant Orchestrator"). */
+  name?: string;
   description?: string;
   /** True when the entrypoint declares at least one interface contract —
    * the launchable set (operator 2026-07-14: Launch surfaces ONLY
@@ -1141,6 +1143,18 @@ export function App(): React.ReactElement {
     return out;
   }, [workflow_options]);
 
+  /** The workflows' own names by `bundle_id:flow_id`: an untitled Board card says what ran in the
+   * gateway's words instead of its id (operator 2026-11-07). */
+  const workflow_name_by_id = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const w of workflow_options) {
+      const key = String(w.workflow_id || "").trim();
+      const name = String(w.name || "").trim();
+      if (key && name) out[key] = name;
+    }
+    return out;
+  }, [workflow_options]);
+
   /* LAUNCH PICKER (operator 2026-10-01, C3F): Observer is a LAUNCHER, not an
    * agent client — the kit WorkflowPicker in its any-interface mode lists
    * every workflow the signed-in person may run (GET /bundles: the gateway
@@ -1345,6 +1359,7 @@ export function App(): React.ReactElement {
           bundle_ref: String(b?.bundle_ref || "").trim(),
           flow_id: fid,
           label,
+          name: name || undefined,
           description: description || undefined,
           has_interface,
           agent_default_interfaces,
@@ -5102,6 +5117,7 @@ export function App(): React.ReactElement {
               runs={board_runs}
               all_runs={board_all_runs}
               filters={session_filter_row}
+              workflow_names={workflow_name_by_id}
               runs_refreshed_at={runs_refreshed_at}
               runs_stale={runs_stale}
               notice={connection_notice_text}

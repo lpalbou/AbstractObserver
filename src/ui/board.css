@@ -16,6 +16,9 @@
  *   2026-10-15); every other card control is an always-visible icon.
  * - Each selector is defined ONCE (the 2026-10-15 pass folded the card's
  *   layered overrides into one card block).
+ * - Design pass 2026-11-07 (operator: "the overall design is fairly ugly"): lanes are quiet
+ *   columns (no gradient, no shadow) so the cards carry the depth; lane names in sentence case;
+ *   a lighter card shadow, a smaller pill; the "Show" chips above the lanes.
  */
 
 /* ---------- page rhythm ---------- */
@@ -131,7 +134,7 @@
 
 .mc_entity_cell > .mc_entity_card {
   background: var(--raised-bg);
-  box-shadow: var(--shadow-raised);
+  box-shadow: 0 1px 2px color-mix(in srgb, black 14%, transparent);
 }
 
 /* ---------- board lanes as panes ---------- */
@@ -220,26 +223,62 @@
  * we use"): entity tiles + lanes wear the pane/raised recipes with real
  * depth. ── */
 .mc_entities {
-  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  background: color-mix(in srgb, var(--pane-bg) 70%, transparent);
   border: 1px solid var(--pane-border);
-  border-radius: 12px;
-  box-shadow: var(--shadow-pane);
+  border-radius: 14px;
+  box-shadow: none;
   padding: 12px 16px;
 }
 
 .mc_entities_head {
   font-family: var(--font-sans);
-  font-size: var(--t-section);
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 650;
   color: var(--text-primary);
   margin-bottom: 10px;
 }
 
+.mc_entities_count {
+  margin-left: 8px;
+  color: var(--text-muted);
+  font-size: var(--t-small);
+  font-weight: 500;
+}
+
+/* The "Show" chips (session_kinds.ts): the kit's filter facet row, outside a full filter bar, so
+ * its geometry tokens are set here; the label in sentence case like the lane names. */
+.mc_filters {
+  flex: none;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.session_filter_row {
+  --af-filterbar-label-w: auto;
+  --af-filterbar-chip-h: 28px;
+  min-width: 0;
+}
+
+.session_filter_row .af-filterbar__label {
+  color: var(--text-secondary);
+  font-size: var(--t-small);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.run_nav_controls .session_filter_row {
+  margin-top: 8px;
+}
+
+.run_nav_controls .session_filter_row .af-filterbar__chip {
+  padding: 0 9px;
+}
+
 .mc_column {
-  background: linear-gradient(180deg, var(--pane-top-light), transparent 42px), var(--pane-bg);
+  background: color-mix(in srgb, var(--pane-bg) 70%, transparent);
   border: 1px solid var(--pane-border);
-  border-radius: 12px;
-  box-shadow: var(--shadow-pane);
+  border-radius: 14px;
+  box-shadow: none;
   padding: 0;
   overflow: hidden;
 }
@@ -247,7 +286,7 @@
 .mc_column_head {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--pane-border);
 }
 
@@ -258,9 +297,16 @@
   min-height: 46px;
 }
 
+/* Lane names in sentence case, at reading size (styles.css's legacy rule set them in
+ * tracked capitals, which read as code labels). */
 .mc_column_head .mc_column_title {
   margin: 0;
   min-width: 0;
+  color: var(--text-primary);
+  font-size: calc(14px * var(--font-scale, 1));
+  font-weight: 650;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* The count: a readable pill — tabular figures, primary text on a subtle raised
@@ -397,7 +443,7 @@
 }
 
 .mc_column_hint {
-  padding: 8px 14px 0;
+  padding: 9px 14px 0;
   color: var(--text-muted);
 }
 
@@ -535,9 +581,9 @@
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--pane-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--raised-bg);
-  box-shadow: var(--shadow-raised);
+  box-shadow: 0 1px 2px color-mix(in srgb, black 14%, transparent);
   cursor: pointer;
   transition: border-color 0.15s;
 }
@@ -572,12 +618,17 @@
 
 /* Head: the glyph and the pill are one title line tall, so both sit centred on the
  * title's first line whether it wraps or not. */
+/* Head: the glyph, then the title over the whole remaining width (in a 220 px lane a pill beside
+ * it cut "AbstractAssistant" in two); the pill wraps under the title, aligned with its text
+ * (design pass 2026-11-07). Nothing is positioned. */
 .mc_card_head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
 }
+
 
 .mc_card_glyph {
   flex: none;
@@ -598,7 +649,7 @@
 /* Titles are sentences (automation titles, task excerpts): two lines; the whole
  * title is the tooltip and the (i)'s first row. */
 .mc_card_head .mc_card_title {
-  flex: 1 1 auto;
+  flex: 1 1 calc(100% - 22px);
   min-width: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -606,11 +657,13 @@
   overflow: hidden;
   font-family: var(--font-sans);
   font-size: var(--t-body);
-  font-weight: 620;
+  font-weight: 600;
   line-height: 1.4;
   color: var(--text-primary);
   white-space: normal;
-  overflow-wrap: anywhere;
+  /* Words break only when one is wider than the card: in a narrow lane the pill moves to its own
+   * line instead of cutting "AbstractAssistant" in two (design pass 2026-11-07). */
+  overflow-wrap: break-word;
 }
 
 /* "untitled" flows with the title text (a flex sibling squeezed the title to one
@@ -625,10 +678,22 @@
   display: inline-flex;
   align-items: center;
   height: calc(var(--t-body) * 1.4);
-  margin: 0;
+  /* Under the title, aligned with its text (the glyph's 14 px + the 8 px gap). */
+  margin: 0 0 0 22px;
   padding: 0 8px;
+  font-size: var(--t-micro);
+  font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+}
+
+/* A failed run's reason, under its title (the pill says "failed" once). */
+.mc_card_error {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text-secondary);
 }
 
 /* Subject: one muted line; the label (an automation) leads, the facts give way first. */
@@ -1585,10 +1650,11 @@ a.btn.mc_btn_quiet {
    * flex .mc_page squeeze the strip below its content (the lanes own the scroll). */
   flex: none;
   /* The loaded row: head + row padding + one compact kit EntityCard (who, now, one interest, the
-   * last moment) + the strip's padding and border = 211.7 at font scale 1 (measured in
-   * space_dom.test.tsx, which pins the loading row to the loaded row). A card with a warning or a
-   * stale note is taller and grows the row; the kit adds only that row. */
-  min-height: var(--mc-entities-min, 212px);
+   * last moment) + the strip's padding and border = 213.7 at font scale 1 with the kit card's
+   * 2026-11-07 head band (measured in space_dom.test.tsx, which pins the loading row to the loaded
+   * row). A card with a warning or a stale note is taller and grows the row; the kit adds only
+   * that row. */
+  min-height: var(--mc-entities-min, 214px);
 }
 
 @keyframes mc_shimmer {

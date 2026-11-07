@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Every session the gateway has, with a Show filter** (operator 2026-11-07: "Observer is for technical users, so
+  we absolutely need to show anything running on the gateway. However be smart, we should have simple filters").
+  The Board's and the Observe list's turn listings ask for `kind=all` when the gateway advertises the `kind` filter,
+  so Docs assistant chats and AbstractNote's sessions are listed too; a **Show** row (kit filter chips) filters
+  by All, Conversations, Automations, Notes and any other kind the gateway reports, with session counts. A gateway
+  without kinds is asked nothing new and shows no filter.
+
+### Changed
+
+- **A calmer, more readable Board** (operator 2026-11-07: "the overall design is fairly ugly"). Lane names in
+  sentence case; quiet lanes with the depth on the cards; a card title gets the whole card width (the status pill
+  sits under it, never cutting a word in two); an untitled card is named by its workflow's own name ("AbstractAssistant
+  Orchestrator", never its id); metrics in words ("24 minutes · 99,921 tokens · 11 tool calls", no "tk", zero
+  counts left to the (i)); automation facts in words ("next in 1 hour 12 minutes"); "Starts fresh each run" instead
+  of "independent context"; a finished card no longer repeats its pill ("failed") as its sentence, and shows the
+  error instead when there is one; the entities head reads "Entities 12 of 17" with one link.
+
 ## [0.12.3] - 2026-11-07
 
 On AbstractUIC 0.10.4 (`@abstractframework/ui-kit` ^0.9.17, floor raised from ^0.9.15, for its shared entity card).

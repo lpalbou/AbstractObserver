@@ -495,7 +495,25 @@ export function format_utc(ms: number): string {
 /** "13d 4h ago" / "in 11h 2m". */
 export function format_relative(ms: number, now_ms = Date.now()): string {
   const delta = ms - now_ms;
-  return delta > 0 ? `in ${compact_duration(delta)}` : `${compact_duration(-delta)} ago`;
+  return delta > 0 ? `in ${duration_words(delta)}` : `${duration_words(-delta)} ago`;
+}
+
+function count_words(n: number, one: string, many = `${one}s`): string {
+  return `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+}
+
+/** How long, in words a person reads (operator 2026-11-07: no unit abbreviations on a card):
+ * "3 seconds", "12 minutes", "1 hour 12 minutes", "2 days 3 hours". */
+export function duration_words(ms: number): string {
+  const total_s = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000));
+  const total_m = Math.floor(total_s / 60);
+  const total_h = Math.floor(total_m / 60);
+  const d = Math.floor(total_h / 24);
+  const pair = (a: string, b: number, unit: string) => (b ? `${a} ${count_words(b, unit)}` : a);
+  if (d > 0) return pair(count_words(d, "day"), total_h % 24, "hour");
+  if (total_h > 0) return pair(count_words(total_h, "hour"), total_m % 60, "minute");
+  if (total_m > 0) return count_words(total_m, "minute");
+  return count_words(total_s, "second");
 }
 
 /** The tools a card waits on, in the kit's words ("a web search and an email"; `tools_phrase`). */
@@ -582,17 +600,45 @@ export function outcome_glimpse(card: BoardCard, outcome?: RunOutcome | null): {
   return answer ? { text: clamp_text(answer, GLIMPSE_CHARS), full: clamp_text(answer, GLIMPSE_TITLE_CHARS) } : null;
 }
 
-/** "24m · 99,921 tk · 11 tools · 3 artifacts" — the card's metrics, as facts. An
+/** "24 minutes · 99,921 tokens · 11 tool calls · 3 artifacts" — the card's metrics, as facts in
+ * plain words (operator 2026-11-07: "3s · 0 tk · 0 tools" read as internal words). An
  * automation card (controller) has none: its "duration" was the controller run's
  * age since the automation was created — the unexplained "12d 18h" of the
  * 2026-10-15 screenshot — and its facts rows say what matters instead. */
 export function card_metrics(card: BoardCard, outcome?: RunOutcome | null): string[] {
   const out: string[] = [];
   if (card.role === "controller") return out;
-  if (card.duration_ms >= 0) out.push(compact_duration(card.duration_ms));
-  if (card.tokens_total !== null) out.push(`${card.tokens_total.toLocaleString("en-US")} tk`);
-  if (card.tool_calls !== null) out.push(`${card.tool_calls} tool${card.tool_calls === 1 ? "" : "s"}`);
-  if (card.lane === "done" && typeof outcome?.artifacts === "number") out.push(`${outcome.artifacts} artifact${outcome.artifacts === 1 ? "" : "s"}`);
+  if (card.duration_ms >= 0) out.push(duration_words(card.duration_ms));
+  // A zero is no fact for a person ("0 tk · 0 tools"); the (i) keeps the whole spend.
+  if (card.tokens_total) out.push(count_words(card.tokens_total, "token"));
+  if (card.tool_calls) out.push(count_words(card.tool_calls, "tool call"));
+  if (card.lane === "done" && outcome?.artifacts) out.push(count_words(outcome.artifacts, "artifact"));
+  return out;
+}
+
+/** The gateway's name of a run's workflow (`<bundle>@<version>:<flow>` → the entrypoint name listed
+ * under `<bundle>:<flow>` by GET /bundles), or "". */
+export function workflow_name_of(workflow_id: string, names: Readonly<Record<string, string>> | null | undefined): string {
+  const wid = String(workflow_id || "").trim();
+  if (!names || !wid.includes(":")) return "";
+  const cut = wid.indexOf(":");
+  const bundle = wid.slice(0, cut);
+  const at = bundle.lastIndexOf("@");
+  return String(names[`${at > 0 ? bundle.slice(0, at) : bundle}:${wid.slice(cut + 1)}`] || "").trim();
+}
+
+/** Untitled cards (their title is the workflow id) take the workflow's own name when the gateway
+ * lists one (operator 2026-11-07: a Done card read "abstractassistant-orchestr…"). Pure. */
+export function name_untitled_cards(lanes: BoardLanes, names: Readonly<Record<string, string>> | null | undefined): BoardLanes {
+  if (!names || !Object.keys(names).length) return lanes;
+  const name_card = (c: BoardCard): BoardCard => {
+    const asks = c.asks.length ? c.asks.map(name_card) : c.asks;
+    const name = c.title.untitled ? workflow_name_of(c.workflow_id, names) : "";
+    if (!name && asks === c.asks) return c;
+    return { ...c, asks, title: name ? { text: name, source: "workflow", untitled: false } : c.title };
+  };
+  const out = {} as BoardLanes;
+  for (const lane of LANE_ORDER) out[lane] = lanes[lane].map(name_card);
   return out;
 }
 
@@ -700,7 +746,7 @@ export function automation_facts_words(a: AutomationBrief, now_ms: number): Auto
   // The in-progress occurrence is the last one: the schedule line already says so.
   const current = Boolean(in_progress && in_progress.index === l.index);
   const head = current ? `#${l.index} started${ago ? ` ${ago}` : ""}` : `last #${l.index} ${failed ? "✗ failed" : l.status}${ago ? ` ${ago}` : ""}`;
-  const took = l.fired_ms !== null && l.finished_ms !== null && l.finished_ms >= l.fired_ms ? compact_duration(l.finished_ms - l.fired_ms) : "";
+  const took = l.fired_ms !== null && l.finished_ms !== null && l.finished_ms >= l.fired_ms ? duration_words(l.finished_ms - l.fired_ms) : "";
   const parts = [head, turns];
   const title = [`#${l.index} ${l.status}`, l.fired_ms !== null ? `fired ${format_when(l.fired_ms, now_ms)}` : "", took ? `took ${took}` : "", failure].filter(Boolean).join(" · ");
   return { schedule, last: { text: plain_words(parts), title, failed, parts, failure } };
@@ -1114,6 +1160,9 @@ export type MissionControlProps = {
   gateway_connected: boolean;
   /** The "Show" chips over the sessions (session_kinds.ts), drawn above the lanes. */
   filters?: React.ReactNode;
+  /** The workflows' own names by `bundle_id:flow_id` (GET /bundles entrypoint names): an untitled
+   * card is named by what ran, never by its id. */
+  workflow_names?: Readonly<Record<string, string>>;
   /** Listing roots (the navigator's rows) — the board reads their terminal rows for Done. */
   runs: RunSummary[];
   /** Every row seen: the active listings (running + waiting, every depth) and the 60 s sweep. */
@@ -2202,6 +2251,8 @@ export type CardHandlers = {
  * lives in its trigger chip. */
 export function card_subject_words(card: BoardCard): { label: string; secondary: string } {
   const title = card.title.text;
+  // A card named by its workflow (no title of its own) does not repeat the workflow's id under it.
+  if (card.title.source === "workflow" && (card.subject.kind === "agent" || card.subject.kind === "run")) return { label: "", secondary: "" };
   if (card.subject.kind === "agent" || card.subject.kind === "run") {
     const wf = workflow_short(card.workflow_id);
     return { label: "", secondary: wf && wf !== title ? wf : "" };
@@ -2397,7 +2448,7 @@ function AutomationCardBody(props: { card: BoardCard } & CardHandlers): React.Re
         </div>
       ) : ctx && ctx.label ? (
         <span className="mc_ctx_chip" title={`${ctx.mode} context: every run starts from the task alone`}>
-          {ctx.label}
+          {ctx.mode === "independent" ? "Starts fresh each run" : ctx.label}
         </span>
       ) : null}
     </>
@@ -2572,6 +2623,8 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
   const request_loading = needs && !request && props.detail_loading === true;
   const answer_loading = !is_automation && card.lane === "done" && !answer && !card.failed && props.outcome_loading === true;
   const title_loading = card.title.untitled && props.brief_loading === true;
+  // A finished card whose sentence is its pill's word says it once (the pill).
+  const echoes_pill = card.lane === "done" && !answer && card.line.text.trim().toLowerCase() === String(status_word || "").trim().toLowerCase();
   const on_cancel_run = ongoing ? props.on_cancel_run : undefined;
   const cancel_tree = cancel.phase !== "idle" && on_cancel_run ? props.cancel_targets?.(card.run_id) : undefined;
   const send_cancel_now = async () => {
@@ -2670,6 +2723,13 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
         <ChainBlock {...props} on_cancel_task={on_cancel_run ? () => cancel_dispatch({ type: "ask" }) : undefined} />
       ) : answer_loading ? (
         <InlineSkeleton what="the answer" />
+      ) : echoes_pill ? (
+        /* The sentence would only repeat the pill ("failed" under "failed"): the error, if any. */
+        card.failed && card.error ? (
+          <div className="mc_card_state mc_card_error" title={card.error}>
+            {card.error}
+          </div>
+        ) : null
       ) : answer ? (
         /* A Done card's WHY-NOW is its outcome: a glimpse of the answer. */
         <Glimpse kind="answer" text={answer.text} full={answer.full} about={card.title.text} on_open={() => props.on_open_run(card.run_id)}>
@@ -3005,13 +3065,14 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
     }
     return out;
   }, [automations.records]);
-  const lanes = useMemo(
+  const built = useMemo(
     () =>
       briefs.map.size || waits.map.size
         ? build_board({ active: rows.active, done: rows.done, details: waits.map, fates: fates.map, pulses: pulses.map, automations: automations.map, run_briefs: briefs.map, now_ms: Date.now(), stall_after_ms })
         : base,
     [base, briefs.map, rows, waits.map, pulses.map, automations.map, stall_after_ms],
   );
+  const lanes = useMemo(() => name_untitled_cards(built, props.workflow_names), [built, props.workflow_names]);
   const done_view = useMemo(
     () => filter_done_window(lanes.done, done_window, now_ms),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3153,11 +3214,15 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
         <div className="mc_entities_head">
           <span>
             Entities
-            {!entities_loading && props.entities_total > tiles.length ? ` (${tiles.length} of ${props.entities_total} — open the entity app for all)` : ""}
+            {!entities_loading && props.entities_total > tiles.length ? (
+              <span className="mc_entities_count" title="The entity app lists them all">
+                {tiles.length} of {props.entities_total}
+              </span>
+            ) : null}
             {!entities_loading && !tiles.length ? <span className="muted mc_entities_none"> — no entities</span> : null}
           </span>
           <a className="mc_entity_link" href={props.entity_app_href} target="_blank" rel="noreferrer">
-            open the entity app →
+            Open the entity app →
           </a>
         </div>
         {props.entities_error ? <div className="muted">{props.entities_error}</div> : null}
