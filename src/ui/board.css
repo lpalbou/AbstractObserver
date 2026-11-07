@@ -687,15 +687,6 @@
   white-space: nowrap;
 }
 
-/* A failed run's reason, under its title (the pill says "failed" once). */
-.mc_card_error {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  color: var(--text-secondary);
-}
-
 /* Subject: one muted line; the label (an automation) leads, the facts give way first. */
 .mc_card_subject {
   display: flex;

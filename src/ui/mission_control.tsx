@@ -2724,12 +2724,9 @@ function BoardCardViewImpl(props: { card: BoardCard } & CardHandlers): React.Rea
       ) : answer_loading ? (
         <InlineSkeleton what="the answer" />
       ) : echoes_pill ? (
-        /* The sentence would only repeat the pill ("failed" under "failed"): the error, if any. */
-        card.failed && card.error ? (
-          <div className="mc_card_state mc_card_error" title={card.error}>
-            {card.error}
-          </div>
-        ) : null
+        /* The sentence would only repeat the pill ("failed" under "failed"); a failure with a
+         * reason keeps its sentence ("failed: <reason>"), which is not an echo. */
+        null
       ) : answer ? (
         /* A Done card's WHY-NOW is its outcome: a glimpse of the answer. */
         <Glimpse kind="answer" text={answer.text} full={answer.full} about={card.title.text} on_open={() => props.on_open_run(card.run_id)}>
