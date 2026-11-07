@@ -1,6 +1,9 @@
 # Changelog
 
-## [Unreleased]
+## [0.12.4] - 2026-11-07
+
+On AbstractUIC 0.10.5 (`@abstractframework/ui-kit` ^0.9.18, floor raised from ^0.9.17). The Sessions row appears
+when the gateway offers the session `kind` filter; a gateway that does not shows every run, as before, with no chips.
 
 ### Added
 
@@ -22,6 +25,10 @@
   counts left to the (i)); automation facts in words ("next in 1 hour 12 minutes"); "Starts fresh each run" instead
   of "independent context"; a finished card no longer repeats its pill ("failed") as its sentence, and shows the
   error instead when there is one; the entities head reads "Entities 12 of 17" with one link.
+- **Entity cards read as a person's card** (from the kit's `EntityCard` in ui-kit 0.9.18): the normal reading font
+  instead of code-style text, the portrait, name and now line on a faint wash of the entity's colour, separated from
+  the rest by a thin line. Same information, same words. The Entities strip keeps one height while the cards load
+  and after they arrive (its reserved height follows the new card: 227 px instead of 214 px).
 
 ## [0.12.3] - 2026-11-07
 

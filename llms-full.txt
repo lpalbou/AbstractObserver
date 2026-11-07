@@ -39,6 +39,7 @@ Notes:
 - Voice (Read aloud streamed per sentence, dictation in Ask/Discuss, Settings → Voice = the kit section with the gateway's default routes from `GET /voice/defaults`): `docs/faq.md` → "Does it support voice", routes in `docs/api.md` → Voice; code `src/ui/observer_voice.tsx`; tests `src/ui/observer_voice.test.tsx` + `scripts/voice_e2e.mjs` (fake routes: `scripts/fake_voice_proxy.mjs`). Needs AbstractGateway 0.13.0 or later.
 - Archived conversations: the Board appends `GET /runs?root_only=true&archived_only=true` (AbstractGateway 0.13.0+) and tags those runs **Archived**; Observer lists runs, not sessions, so it has no Archive button: `docs/api.md` → Runs, `docs/faq.md`; code `with_archived_roots()` in `src/ui/automations.ts`.
 - About: the shared ui-kit compact card (app, framework and gateway versions, links, licence line) from `GET /api/gateway/about`: `docs/faq.md` → "Which version am I running?"; code `src/ui/about.ts`.
+- Sessions filter (Board and Observe list): every session the gateway has; when `capabilities.contracts.common.runs.list.filters` includes `kind`, listings ask `kind=all` and a Sessions row (All, Conversations, Automations, Notes, other reported kinds) asks each choice's own sessions (`kind=<kind>`, `session_kind` for Conversations/Automations); no chips otherwise: `docs/getting-started.md`, `docs/api.md`; code `src/ui/session_kinds.ts`.
 - Board Entities strip: one shared ui-kit `EntityCard` (compact) per entity, from `GET /entities/{name}/tile` every 30 s when the roster carries `reads.tile` (AbstractGateway 0.21.0), else from `/cognition` + `/card`: `docs/api.md` → Entities strip; code `src/ui/entity_tiles.ts`.
 - Digital identity (framework ADR 0052; AbstractGateway 0.20.0): the Agent view's track-record line reads the session's track record and reputation once when the page opens ("No experience yet" at zero): `docs/api.md`, `docs/architecture.md`; code `src/ui/identity.tsx`.
 - `llms.txt` format reference: https://llmstxt.org/
@@ -105,6 +106,12 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - (Optional) **Voice**: Read aloud (streamed sentence by sentence) and dictation in Ask, run outcomes and Automations → Discuss; Settings → Voice is the kit's shared section showing the gateway's default routes (`src/ui/observer_voice.tsx`)
 
 ## What's new
+
+0.12.4 shows every session the gateway has, Docs assistant chats and AbstractNote's own sessions included, with a
+**Sessions** row of simple filters (All, Conversations, Automations, Notes and any other kind the gateway reports),
+when the gateway offers that filter. The Board is calmer and easier to read: sentence-case lanes, full-width card titles,
+untitled cards named by their workflow, durations and counts in words, and entity cards that read as a person's card
+rather than a code panel. See [CHANGELOG.md](CHANGELOG.md#0124---2026-11-07).
 
 0.12.3 replaces the Board's entity tiles with the shared entity card (the kit's `EntityCard`, made to be shared by every app): each
 entity shows its look and name, what it is doing now and for how long, a warning when its own time stopped after
@@ -270,7 +277,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -316,7 +323,7 @@ See `docs/development.md` for details.
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
     "@abstractframework/panel-chat": "^0.8.2",
-    "@abstractframework/ui-kit": "^0.9.17",
+    "@abstractframework/ui-kit": "^0.9.18",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -551,7 +558,10 @@ export default defineConfig({
 
 # Changelog
 
-## [Unreleased]
+## [0.12.4] - 2026-11-07
+
+On AbstractUIC 0.10.5 (`@abstractframework/ui-kit` ^0.9.18, floor raised from ^0.9.17). The Sessions row appears
+when the gateway offers the session `kind` filter; a gateway that does not shows every run, as before, with no chips.
 
 ### Added
 
@@ -573,6 +583,10 @@ export default defineConfig({
   counts left to the (i)); automation facts in words ("next in 1 hour 12 minutes"); "Starts fresh each run" instead
   of "independent context"; a finished card no longer repeats its pill ("failed") as its sentence, and shows the
   error instead when there is one; the entities head reads "Entities 12 of 17" with one link.
+- **Entity cards read as a person's card** (from the kit's `EntityCard` in ui-kit 0.9.18): the normal reading font
+  instead of code-style text, the portrait, name and now line on a faint wash of the entity's colour, separated from
+  the rest by a thin line. Same information, same words. The Entities strip keeps one height while the cards load
+  and after they arrive (its reserved height follows the new card: 227 px instead of 214 px).
 
 ## [0.12.3] - 2026-11-07
 
