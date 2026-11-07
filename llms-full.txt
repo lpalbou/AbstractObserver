@@ -105,6 +105,11 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
+0.12.2 makes the Board's Entities strip show up at once: the tiles are drawn as soon as the list of entities
+arrives, and each tile fills in when its own details arrive, so one entity with a long history no longer keeps the
+whole strip blank for seconds. Details that change slowly are kept and read again every 5 minutes or when the entity
+changes state, instead of being downloaded again every 30 seconds. See [CHANGELOG.md](CHANGELOG.md#0122---2026-11-07).
+
 0.12.1 picks up the shared voice fix: when the browser has paused the page's sound, the Read aloud and Speak buttons
 offer Play and say so, and Play resumes the same audio instead of preparing the reply again. See [CHANGELOG.md](CHANGELOG.md#0121---2026-11-07).
 
@@ -123,7 +128,7 @@ The **entity app** (memory graph + visits UI) is its own package,
 [AbstractEntity](https://github.com/lpalbou/AbstractEntity)
 (`npx @abstractframework/entity`, default port `3007`). The observer still
 *watches* entities — the Board's entities strip reads
-`GET /api/gateway/entities` + `/entities/{name}/card` — and its
+`GET /api/gateway/entities`, `/entities/{name}/cognition` and `/entities/{name}/card` — and its
 "Entities ↗" links point at the entity app deployment
 (`--entity-app-url`, default `http://127.0.0.1:3007`).
 
@@ -256,7 +261,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -538,6 +543,25 @@ export default defineConfig({
 # Changelog
 
 ## [Unreleased]
+
+## [0.12.2] - 2026-11-07
+
+Works with the same gateways as 0.12.1; no gateway change needed.
+
+### Fixed
+
+- **The Board's Entities strip shows up at once.** It used to show grey placeholders until every entity's details
+  had arrived, which took several seconds when one entity has a long history. Now each tile appears as soon as the
+  list of entities arrives (its name, look and state), and fills in on its own when its details arrive; a tile still
+  waiting keeps its place, so nothing on the page moves.
+- **Less downloading every 30 seconds.** The strip still checks every 30 seconds whether each entity is busy or idle,
+  but the larger details (age, last moment, open questions and problems, lessons, night signals) are kept and read
+  again only every 5 minutes, or straight away when the entity changes state. At most three are read at a time, so
+  the rest of the Board is never kept waiting.
+- When an entity's details cannot be read, its tile keeps its name and state and says "details unavailable right now"
+  (the reason shows on hover); it tries again 30 seconds later.
+- When the gateway asks Observer to slow down (too many requests), the Entities strip pauses as before and now
+  resumes on its own afterwards; it used to stay frozen until you reconnected.
 
 ## [0.12.1] - 2026-11-07
 
@@ -2300,8 +2324,9 @@ Errors use `{"detail": {"reason_code", "message", "field"?, "command_id"?}}`; th
 These power additional pages/drawers. If your gateway does not expose them, the corresponding UI areas will show errors or empty states.
 
 - **Entities strip (Board page)** — cheap reads only, never replay folds
-  - `GET /api/gateway/entities` — roster (names)
-  - `GET /api/gateway/entities/{name}/card` — per-entity card (state object, age, moments, `as_of_seq`)
+  - `GET /api/gateway/entities` — roster (names, state, identity): the tiles are drawn from it as soon as it answers; read every 30 s
+  - `GET /api/gateway/entities/{name}/cognition` — busy or idle, phase and spend for one tile; read every 30 s, before any card (404 on older gateways: the tile falls back to the card's last moment)
+  - `GET /api/gateway/entities/{name}/card` — per-entity card (state object, age, moments, open questions/problems, lessons, night signals): read at most three at a time, each tile filled when its own card answers; kept between refreshes and read again only after 5 minutes or when the roster row's `state.changed_at` changes
   - `GET /api/gateway/entities/{name}/identity?rev=N` — the look a tile draws (framework ADR 0052; AbstractGateway 0.20.0): the roster row's `identity.rev` with its `entity_id` is the tile's identity reference; the record at that revision gives the design, colour and voice. Read once per reference while the page is open (a poll reads nothing new; a new revision is read once). A row without `identity` keeps the tile as before; a refused read shows the gateway's sentence in full on the tile (wrapped under the name) and draws nothing.
 - **Track record (Observe → Agent)** — read when the agent page opens on a conversation, never on its poll (AbstractGateway 0.20.0)
   - `GET /api/gateway/sessions/{session_id}/track-record` and `/reputation` — runs, successes, failures and the overall trust with its support, written as "2 runs · 2 succeeded · 0 failed · trust 0.67 over 2 outcomes (2 of 2 finished; trust starts in the middle and moves with each outcome)" followed by "A success here only means the task finished: nobody has judged the quality of the work yet." (the Entity app's words), or "No experience yet" when nothing has an outcome; a refusal is shown as the gateway's sentence

@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-07
+
+Works with the same gateways as 0.12.1; no gateway change needed.
+
+### Fixed
+
+- **The Board's Entities strip shows up at once.** It used to show grey placeholders until every entity's details
+  had arrived, which took several seconds when one entity has a long history. Now each tile appears as soon as the
+  list of entities arrives (its name, look and state), and fills in on its own when its details arrive; a tile still
+  waiting keeps its place, so nothing on the page moves.
+- **Less downloading every 30 seconds.** The strip still checks every 30 seconds whether each entity is busy or idle,
+  but the larger details (age, last moment, open questions and problems, lessons, night signals) are kept and read
+  again only every 5 minutes, or straight away when the entity changes state. At most three are read at a time, so
+  the rest of the Board is never kept waiting.
+- When an entity's details cannot be read, its tile keeps its name and state and says "details unavailable right now"
+  (the reason shows on hover); it tries again 30 seconds later.
+- When the gateway asks Observer to slow down (too many requests), the Entities strip pauses as before and now
+  resumes on its own afterwards; it used to stay frozen until you reconnected.
+
 ## [0.12.1] - 2026-11-07
 
 On AbstractUIC 0.10.2 (`@abstractframework/ui-kit` ^0.9.15, `@abstractframework/panel-chat` ^0.8.2; floors raised
