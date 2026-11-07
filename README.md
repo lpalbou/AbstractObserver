@@ -12,6 +12,12 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
+0.12.4 shows every session the gateway has, Docs assistant chats and AbstractNote's own sessions included, with a
+**Sessions** row of simple filters (All, Conversations, Automations, Notes and any other kind the gateway reports),
+when the gateway offers that filter. The Board is calmer and easier to read: sentence-case lanes, full-width card titles,
+untitled cards named by their workflow, durations and counts in words, and entity cards that read as a person's card
+rather than a code panel. See [CHANGELOG.md](CHANGELOG.md#0124---2026-11-07).
+
 0.12.3 replaces the Board's entity tiles with the shared entity card (the kit's `EntityCard`, made to be shared by every app): each
 entity shows its look and name, what it is doing now and for how long, a warning when its own time stopped after
 failures, what it is into lately and its last moment, in plain words. The token count, the phase chip and the

@@ -630,6 +630,8 @@ export function normalize_run_summary(r: any): RunSummary {
     error: r?.error ?? null,
     waiting: r?.waiting ?? null,
     archived: r?.archived === true,
+    // The session's purpose (gateway session_kinds.py); absent on a gateway without kinds.
+    kind: str_or_null(r?.kind),
   };
 }
 

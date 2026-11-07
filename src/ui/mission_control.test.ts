@@ -283,7 +283,7 @@ describe("five lanes — one case per wait kind × lane (rows of gateway 0.13.1)
     const text = text_of(card);
     // 2026-10-15: the cadence and the next run are the schedule fact; the context mode is
     // the bar, not a subject line (the subject label equals the title, so it is not repeated).
-    expect(text).toContain("every 24h · next in 1h 12m");
+    expect(text).toContain("every 24h · next in 1 hour 12 minutes");
     expect(text).toContain("context · 100k budget");
     expect(text).not.toContain("growing context (100k)");
     expect(markup(card)).not.toContain("mc_trigger");
@@ -471,9 +471,10 @@ describe("card anatomy (design §Card anatomy)", () => {
 
   it("metrics render when the sweep knows them (tokens / tools / duration)", () => {
     const c = board([row({ run_id: "m", tokens_total: 54_205, tool_calls: 14, created_at: ago(24) })]).working[0];
-    expect(text_of(c)).toContain("54,205 tk");
-    expect(text_of(c)).toContain("14 tools");
-    expect(text_of(c)).toContain("24m");
+    expect(text_of(c)).toContain("54,205 tokens");
+    expect(text_of(c)).not.toMatch(/\btk\b/);
+    expect(text_of(c)).toContain("14 tool calls");
+    expect(text_of(c)).toContain("24 minutes");
   });
 
   it("the (i) of an automation run: Name it is disabled (and says why) without a host, wired with one, absent without `revise`", () => {
@@ -878,8 +879,8 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     // The schedule fact: the absolute time in its tooltip; its time phrase glued (no-break spaces).
     const sched = html.match(/<div class="mc_fact_cell mc_fact_schedule" title="([^"]*)">([\s\S]*?)<\/div>/)!;
     expect(sched[1]).toBe(`every 24h · next run ${next_abs}`);
-    expect(plain(sched[2])).toBe("every 24h · next in 1h 12m");
-    expect(sched[2]).toContain("in\u00a01h\u00a012m");
+    expect(plain(sched[2])).toBe("every 24h · next in 1 hour 12 minutes");
+    expect(sched[2]).toContain("in\u00a01\u00a0hour\u00a012\u00a0minutes");
     expect(html).not.toContain("mc_trigger");
     expect(html).not.toContain("mc_actor_clock");
     expect(plain(html)).not.toMatch(/\bclock\b/);
@@ -891,7 +892,7 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     for (const [source, words] of [["email.received", "When mail arrives in your main mailbox"], ["manual", "By hand"]] as const) {
       const b = fold_automation_brief({ ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, trigger: { source_id: source, source_version: 1, config: {} } } })!;
       const c2 = build_board({ active: [ctl], done: [], automations: new Map([["auto1", b]]), now_ms: NOW_MS }).scheduled[0];
-      expect(plain(html_of(c2))).toContain(`${words} · next in 1h 12m`);
+      expect(plain(html_of(c2))).toContain(`${words} · next in 1 hour 12 minutes`);
     }
     // A feed automation has no clock: it listens; never "feed.item@1", never "no next run".
     const feed_body = { ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, trigger: { source_id: "feed.item", source_version: 1, config: { connection_id: "c1" } }, schedule_rule_text: "feed.item@1", next_fire_at: null, next_run_at: null } };
@@ -909,11 +910,11 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     const c3 = build_board({ active: [ctl], done: [], automations: new Map([["auto1", served]]), now_ms: NOW_MS }).scheduled[0];
     const served_cell = html_of(c3).match(/<div class="mc_fact_cell mc_fact_schedule" title="([^"]*)">([\s\S]*?)<\/div>/)!;
     expect(served_cell[1]).toBe(`Every 24 hours (UTC) · next run ${next_abs} · 2026-10-14T03:02:00+02:00 (owner&#x27;s zone)`);
-    expect(plain(served_cell[2])).toBe("Every 24 hours (UTC) · next in 1h 12m");
+    expect(plain(served_cell[2])).toBe("Every 24 hours (UTC) · next in 1 hour 12 minutes");
     // The served `next_run_at` (round 16) is the next run; the runtime's `next_fire_at` only when nothing else is served.
     const served_next = fold_automation_brief({ ...DIGEST_BODY, summary: { ...DIGEST_BODY.summary, next_run_at: new Date(NOW_MS + 102 * 60_000).toISOString() } })!;
     const c4 = build_board({ active: [ctl], done: [], automations: new Map([["auto1", served_next]]), now_ms: NOW_MS }).scheduled[0];
-    expect(plain(html_of(c4))).toContain("every 24h · next in 1h 42m");
+    expect(plain(html_of(c4))).toContain("every 24h · next in 1 hour 42 minutes");
   });
 
   it("the (i) of a RUN: Run · Spend · Where sections; sources as tags, never parentheticals; long text folds by size; no '…'", () => {
@@ -928,7 +929,7 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     expect(run_rows.workflow).toMatchObject({ value: "basic-agent 0.0.5", aside: "basic-agent@0.0.5:81795ea9", aside_mono: true });
     expect(run_rows.run_id).toMatchObject({ value: "s1", mono: true });
     expect(run_rows.session).toMatchObject({ value: "acode-1", mono: true });
-    expect(run_rows.started).toMatchObject({ value: format_when(Date.parse(at(40)), NOW_MS), aside: "40m ago" });
+    expect(run_rows.started).toMatchObject({ value: format_when(Date.parse(at(40)), NOW_MS), aside: "40 minutes ago" });
     expect(run_rows.started_by).toMatchObject({ value: "gateway", source: "not a person" });
     expect(run_rows.wait_kind.value).toBe("your answer to a question");
     expect(run_rows.question.value).toBe("Which customer first?");
@@ -961,7 +962,7 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     expect(v("automation").target_workflow).toMatchObject({ value: "basic-agent 0.0.5", aside: "basic-agent@0.0.5:81795ea9" });
     expect(v("automation").revision.value).toBe("1");
     expect(v("schedule").trigger).toMatchObject({ value: "every 24h", source: "schedule" });
-    expect(v("schedule").next).toMatchObject({ value: format_utc(NOW_MS + 72 * 60_000), aside: "in 1h 12m" });
+    expect(v("schedule").next).toMatchObject({ value: format_utc(NOW_MS + 72 * 60_000), aside: "in 1 hour 12 minutes" });
     expect(v("schedule").last).toMatchObject({ value: "#4 completed", aside: `9m · ${format_when(Date.parse(ago(60)), NOW_MS)}` });
     expect(v("schedule").turns.value).toBe("5");
     expect(v("schedule").stop_after.value).toBe("30 runs");
@@ -990,9 +991,13 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     const done = row({ run_id: "d1", status: "completed", created_at: at(30), updated_at: at(6), tokens_total: 99_921, tool_calls: 11 });
     const card = build_board({ active: [], done: [done], now_ms: NOW_MS }).done[0];
     const outcome = { answer: "# International Digest\n**Date: 14 October 2026** · the week in review", artifacts: 3 };
-    expect(card_metrics(card, outcome)).toEqual(["24m", "99,921 tk", "11 tools", "3 artifacts"]);
+    expect(card_metrics(card, outcome)).toEqual(["took 24 minutes", "99,921 tokens", "11 tool calls", "3 artifacts"]);
+    // A zero is no fact on a card (operator 2026-11-07: "3s · 0 tk · 0 tools"); the (i) keeps the spend.
+    expect(card_metrics({ ...card, duration_ms: 3_000, tokens_total: 0, tool_calls: 0 }, { ...outcome, artifacts: 0 })).toEqual(["took 3 seconds"]);
+    // With the clock, a finished card also says when it finished.
+    expect(card_metrics(card, outcome, NOW_MS)).toEqual(["took 24 minutes", "99,921 tokens", "11 tool calls", "3 artifacts", "6 minutes ago"]);
     const html = html_of(card, { outcome });
-    expect(text_of(card, { ...H, outcome })).toContain("24m · 99,921 tk · 11 tools · 3 artifacts");
+    expect(text_of(card, { ...H, outcome })).toContain("took 24 minutes · 99,921 tokens · 11 tool calls · 3 artifacts · 6 minutes ago");
     expect(html).toContain('class="mc_glimpse mc_glimpse_answer"');
     const glimpse = plain(html.match(/class="mc_glimpse mc_glimpse_answer"[^>]*>([\s\S]*?)<div class="mc_card_foot"/)![1]);
     expect(glimpse).toContain("International Digest");
@@ -1001,7 +1006,7 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     // The sentence ("completed in 24m") gives way to the answer; before the outcome is read it stays.
     expect(html).not.toContain("mc_state_text");
     expect(html_of(card)).toContain("completed in 24m");
-    expect(card_metrics(card, null)).toEqual(["24m", "99,921 tk", "11 tools"]);
+    expect(card_metrics(card, null)).toEqual(["took 24 minutes", "99,921 tokens", "11 tool calls"]);
     // A failure keeps its error as the line.
     const failed = build_board({ active: [], done: [row({ run_id: "f1", status: "failed", error: "provider timeout" })], now_ms: NOW_MS }).done[0];
     expect(html_of(failed, { outcome })).not.toContain("mc_glimpse_answer");
@@ -1094,7 +1099,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(strip_of(loaded)[2]).not.toContain("aria-busy");
     expect((loaded.match(/<a class="af-entity-card__head"/g) || []).length).toBe(2);
     expect(loaded).not.toContain('role="status" aria-label="loading entities"');
-    expect(loaded).toContain("Entities (2 of 16 — open the entity app for all)");
+    expect(loaded).toContain('<span>Entities<span class="mc_entities_count" title="The entity app lists them all">2 of 16</span></span>');
+    expect(loaded).toContain("Open the entity app →");
     expect(loaded).not.toContain("no entities");
     // None: the one-line head alone — the empty class, not the reserved box (the roster is in,
     // so the lanes settle up once instead of facing a 212 px blank).
@@ -1177,11 +1183,11 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     const facts = automation_facts_words(CTX, NOW_MS);
     const fired_abs = format_when(NOW_MS - 12 * 86_400_000 - 3_600_000, NOW_MS);
     const nb = (t: string) => t.split(" ").join("\u00a0");
-    expect(facts.schedule).toEqual({ text: "every 24h · next in 1h 12m", title: `every 24h · next run ${format_when(NOW_MS + 72 * 60_000, NOW_MS)}`, parts: ["every 24h", `next ${nb("in 1h 12m")}`] });
-    expect(facts.last).toEqual({ text: "last #14 completed 12d 1h ago · 14 turns", title: `#14 completed · fired ${fired_abs} · took 1h 0m`, failed: false, parts: [`last #14 completed ${nb("12d 1h ago")}`, nb("14 turns")], failure: "" });
+    expect(facts.schedule).toEqual({ text: "every 24h · next in 1 hour 12 minutes", title: `every 24h · next run ${format_when(NOW_MS + 72 * 60_000, NOW_MS)}`, parts: ["every 24h", `next ${nb("in 1 hour 12 minutes")}`] });
+    expect(facts.last).toEqual({ text: "last #14 completed 12 days 1 hour ago · 14 turns", title: `#14 completed · fired ${fired_abs} · took 1 hour`, failed: false, parts: [`last #14 completed ${nb("12 days 1 hour ago")}`, nb("14 turns")], failure: "" });
     const last_cell = html.match(/<div class="mc_fact_cell mc_fact_last" title="([^"]*)">([\s\S]*?)<\/div>/)!;
-    expect(last_cell[1]).toBe(`#14 completed · fired ${fired_abs} · took 1h 0m`);
-    expect(plain(last_cell[2])).toBe("last #14 completed 12d 1h ago · 14 turns");
+    expect(last_cell[1]).toBe(`#14 completed · fired ${fired_abs} · took 1 hour`);
+    expect(plain(last_cell[2])).toBe("last #14 completed 12 days 1 hour ago · 14 turns");
     // The separator is glued to the fact before it: a wrap never starts a line with "·".
     expect(last_cell[2]).toContain('<span class="mc_sep">\u00a0·</span>');
     // Row 3: the bar reads used / budget from the served numbers, its label on the bar's line
@@ -1213,11 +1219,11 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(running.schedule.text).toBe("every 24h · run #15 in progress");
     // The in-progress occurrence IS the last one: "started …", not a second "last".
     const started = automation_facts_words({ ...CTX, current: { index: 14, run_id: "occ14", status: "running" } }, NOW_MS);
-    expect(started.last.text).toBe("#14 started 12d 1h ago · 14 turns");
+    expect(started.last.text).toBe("#14 started 12 days 1 hour ago · 14 turns");
     const words = "Email result failed — the mailbox refused the message because the recipient is not on the allowed list of this automation";
     const failed = automation_facts_words({ ...CTX, last: { ...CTX.last!, status: "failed" }, last_notification_text: words }, NOW_MS);
     expect(failed.last.failed).toBe(true);
-    expect(failed.last.text).toBe("last #14 ✗ failed 12d 1h ago · 14 turns");
+    expect(failed.last.text).toBe("last #14 ✗ failed 12 days 1 hour ago · 14 turns");
     expect(failed.last.failure).toBe(words);
     expect(failed.last.title).toContain(words);
     const failed_excerpt = automation_facts_words({ ...CTX, last: { ...CTX.last!, status: "failed" }, last_excerpt: "provider timeout" }, NOW_MS);
@@ -1241,7 +1247,7 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(context_budget_view({ ...CTX, growing_max_tokens: null })).toMatchObject({ budget: null, label: "context", ratio: null });
     expect(context_budget_view({ ...CTX, context_mode: "independent" })).toEqual({ mode: "independent", used: null, budget: null, label: "independent context", ratio: null });
     const html = html_of(auto_card({ ...CTX, context_mode: "independent" }));
-    expect(html).toContain('<span class="mc_ctx_chip" title="independent context: every run starts from the task alone">independent context</span>');
+    expect(html).toContain('<span class="mc_ctx_chip" title="independent context: every run starts from the task alone">Starts fresh each run</span>');
     expect(html).not.toContain("mc_ctx_bar");
     // The served number: fold_automation_brief reads summary.context_used_tokens (null when absent or not a count).
     expect(fold_automation_brief({ ...CTX_BODY, summary: { ...CTX_BODY.summary, context_used_tokens: "31000" } })!.context_used_tokens).toBeNull();
@@ -1355,7 +1361,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     for (const [word, cls] of [["running", "info"], ["failed", "danger"], ["waiting", "warn"], ["completed", "ok"], ["scheduled", "info"]]) {
       expect(run_status_class(word)).toBe(cls);
     }
-    expect(html_of(auto_card(CTX))).toContain('<span class="mc_status info">scheduled</span>');
+    // "scheduled" in the Scheduled lane would only repeat the lane's name (design review 2026-11-07).
+    expect(html_of(auto_card(CTX))).not.toContain('<span class="mc_status info">scheduled</span>');
     // Needs-you: the title and the pill share the head row; the since-time is absolute already.
     const q = build_board({ active: [row({ run_id: "q1", status: "waiting", waiting: { reason: "user" }, session_id: "acode-1", updated_at: at(3) })], done: [], now_ms: NOW_MS }).needs_you[0];
     const head = html_of(q).match(/<div class="mc_card_head">[\s\S]*?<\/div>/)![0];
@@ -1512,9 +1519,9 @@ describe("operator round 2026-10-15 evening (lane F): no stat strip, one card fl
     const card = auto_card(long);
     const text = plain(html_of(card, { on_open_automation: noop }));
     expect(text).not.toContain("…");
-    expect(text).toContain("last #1234 ✗ failed 22h 48m ago · 1234 turns");
+    expect(text).toContain("last #1234 ✗ failed 22 hours 48 minutes ago · 1234 turns");
     expect(text).toContain("the retry budget is spent");
-    expect(text).toContain("skipping public holidays · next in 1h 12m");
+    expect(text).toContain("skipping public holidays · next in 1 hour 12 minutes");
     // No clipping box on the facts either (CSS ellipsis would draw the "…" the text lacks).
     for (const sel of [".mc_facts", ".mc_fact_cell", ".mc_fact_last", ".mc_fact_fail", ".mc_ctx_label"]) expect(rule_of(sel), sel).not.toMatch(/text-overflow:\s*ellipsis|line-clamp/);
     // Both context forms render cleanly: used / budget with the bar, the budget alone without one.
@@ -1693,7 +1700,7 @@ describe("render cost in a browser (operator 2026-10-15: 'and slow')", () => {
       });
       // A poll that moves ONE row (a Done run's tokens): that card only.
       const moved = await step(() => render(clone(rows0).map((x) => (x.run_id === "dn3" ? { ...x, tokens_total: 99_999 } : x)), 3));
-      return { first, count, unchanged, moved, shows_moved: document.body.textContent!.includes("99,999 tk") };
+      return { first, count, unchanged, moved, shows_moved: document.body.textContent!.includes("99,999 tokens") };
     }, rows);
     expect(r.count).toBe(57);
     expect(r.first.cards).toBeGreaterThanOrEqual(57);

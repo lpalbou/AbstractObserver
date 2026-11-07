@@ -63,6 +63,13 @@ the first poll. Hover a title for the full task text, (i) for an automation's pa
 inputs and outputs as pins with their values, its context window, the run tree, spend, and
 **Ask**.
 
+The Board and the Observe list show **every session** the gateway has, Docs assistant chats and
+AbstractNote's own sessions included. When the gateway supports it, a **Sessions** row above the
+lanes (and in the Observe list) chooses which: **All**, **Conversations**, **Automations**, **Notes**,
+and any other kind the gateway has reported. Each choice asks the gateway for those sessions (the
+newest 200 of them), so busy background work never crowds out the conversations. The chips show no
+counts: the gateway gives no total per kind. An older gateway shows every run, with no chips.
+
 ## Observe a run
 Go to **Observe** (or click a Board card):
 - pick a run from **Runs**

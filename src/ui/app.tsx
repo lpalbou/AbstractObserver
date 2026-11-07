@@ -171,6 +171,8 @@ import { type RuntimeMetadata } from "./runtime_metadata";
 import { run_status_class, run_status_word, stop_reason_of, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
 import { ObserverVoiceSettings, SpeakButton, VoiceDictate, use_observer_voice, use_read_aloud, use_voice_defaults, use_voice_prefs } from "./observer_voice";
 import { useListOpen } from "./list_disclosure";
+import { SESSION_FILTER_ALL, kinds_reported, list_session_roots, listing_kind, row_matches_query, runs_list_filters_of, session_filter_options, session_filter_query, type SessionFilter } from "./session_kinds";
+import { SessionFilterRow } from "./session_filter_row";
 import "./system.css";
 // Usability layer LAST: it corrects actionable-information presentation and
 // must win equal-specificity fights with every page sheet above.
@@ -230,6 +232,8 @@ type WorkflowOption = {
   /** Interfaces this entrypoint is currently the gateway default agent for. */
   agent_default_interfaces: string[];
   label: string;
+  /** The entrypoint's own name, as the gateway lists it ("AbstractAssistant Orchestrator"). */
+  name?: string;
   description?: string;
   /** True when the entrypoint declares at least one interface contract —
    * the launchable set (operator 2026-07-14: Launch surfaces ONLY
@@ -567,6 +571,16 @@ export function App(): React.ReactElement {
   const [workflow_options, set_workflow_options] = useState<WorkflowOption[]>([]);
   const [run_options, set_run_options] = useState<RunSummary[]>([]);
   const [all_run_options, set_all_run_options] = useState<RunSummary[]>([]);
+  /** The Board's and the Observe list's "Show" chips (session_kinds.ts): one choice for both. */
+  const [session_filter, set_session_filter] = useState<SessionFilter>(SESSION_FILTER_ALL);
+  /** The chip the NEXT sweep asks the gateway for (refresh_runs reads it; a sweep that lands after
+   * the chip changed is dropped). */
+  const session_filter_ref = useRef<SessionFilter>(SESSION_FILTER_ALL);
+  /** `GET /runs` filters the gateway advertises (capabilities); null until read or when absent. */
+  const [runs_filters, set_runs_filters] = useState<string[] | null>(null);
+  /** Every kind other than a conversation the gateway has reported on a row this connection
+   * (the chips only grow: choosing Notes never hides the Docs chip). */
+  const [seen_kinds, set_seen_kinds] = useState<string[]>([]);
   const [runs_loading, set_runs_loading] = useState(false);
   const [runs_refreshed_at, set_runs_refreshed_at] = useState<number | null>(null);
   // null until the first roster + cards read lands: the board strip shows skeleton tiles in its
@@ -1137,6 +1151,18 @@ export function App(): React.ReactElement {
     return out;
   }, [workflow_options]);
 
+  /** The workflows' own names by `bundle_id:flow_id`: an untitled Board card says what ran in the
+   * gateway's words instead of its id (operator 2026-11-07). */
+  const workflow_name_by_id = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const w of workflow_options) {
+      const key = String(w.workflow_id || "").trim();
+      const name = String(w.name || "").trim();
+      if (key && name) out[key] = name;
+    }
+    return out;
+  }, [workflow_options]);
+
   /* LAUNCH PICKER (operator 2026-10-01, C3F): Observer is a LAUNCHER, not an
    * agent client — the kit WorkflowPicker in its any-interface mode lists
    * every workflow the signed-in person may run (GET /bundles: the gateway
@@ -1341,6 +1367,7 @@ export function App(): React.ReactElement {
           bundle_ref: String(b?.bundle_ref || "").trim(),
           flow_id: fid,
           label,
+          name: name || undefined,
           description: description || undefined,
           has_interface,
           agent_default_interfaces,
@@ -1452,7 +1479,8 @@ export function App(): React.ReactElement {
       // First success clears any rate-limit backoff.
       rate_limit_backoff_ref.current = 0;
       rate_limited_until_ref.current = 0;
-      if (snapshot_key && running && waiting) window.setTimeout(() => write_runs_snapshot(local_storage(), snapshot_key, poll.snapshot()), 0);
+      // The persisted board is the All board (a chip's rows would paint a filtered slice on reload).
+      if (snapshot_key && running && waiting && session_filter_ref.current === SESSION_FILTER_ALL) window.setTimeout(() => write_runs_snapshot(local_storage(), snapshot_key, poll.snapshot()), 0);
     } catch (e: any) {
       on_failure(e, "Refresh runs failed");
       return;
@@ -1464,20 +1492,18 @@ export function App(): React.ReactElement {
     poll.begin_sweep(Date.now());
     // Roots first; the archived listing (a second full scan of the store, 8–10 s under
     // contention) only when the roots page says archived conversations exist (R3.1 §5).
-    void gateway_client
-      .list_runs({ limit: 200, root_only: true, include_metrics: true })
-      .then(async (roots) => {
-        const archived_count = Number((roots as any)?.archived_sessions);
-        if (Number.isFinite(archived_count) && archived_count <= 0) return [roots, { items: [] }] as [any, any];
-        // Archived conversations leave the root listing; Observer still shows them (audit view).
-        const archived = await gateway_client.list_runs({ limit: 200, root_only: true, archived_only: true, include_metrics: true });
-        return [roots, archived] as [any, any];
-      })
+    // EVERY session (operator 2026-11-07): the sweep asks the gateway for the chip in use (`kind=all`
+    // for All, `kind=<kind>` for a kind) when it advertises the `kind` filter (session_kinds.ts).
+    const sweep_filter = session_filter_ref.current;
+    void list_session_roots(gateway_client, sweep_filter)
       .then(
       ([roots, archived]) => {
         // Same epoch guard, plus: a late sweep of a replaced client never
         // writes over the current one's rows.
         if (epoch !== discovery_epoch_ref.current || !is_current_poll(poll)) return poll.fail_sweep();
+        // The chip changed while this listing was out: its rows are another chip's (the change
+        // already reset the sweep and asked again).
+        if (session_filter_ref.current !== sweep_filter) return;
         const root_items = with_archived_roots(items_of(roots), items_of(archived));
         poll.apply_sweep(normalize_runs(root_items), Date.now());
         publish();
@@ -1525,7 +1551,7 @@ export function App(): React.ReactElement {
       refresh_runs(gateway_for_connect),
       gateway_for_connect.discovery_tools(),
       gateway_for_connect.discovery_providers({ include_models: false }),
-      gateway_for_connect.discovery_capabilities(),
+      gateway_for_connect.capabilities_once(),
     ]);
     // EPOCH GUARD (adversary 2026-07-13): a sign-out that happened during
     // the awaits must not have its cleared state repopulated by these
@@ -1542,6 +1568,7 @@ export function App(): React.ReactElement {
       return;
     }
 
+    set_runs_filters(caps_res.status === "fulfilled" ? runs_list_filters_of(caps_res.value) : null);
     set_automations_cap(
       caps_res.status === "fulfilled"
         ? automations_capability(caps_res.value)
@@ -3434,7 +3461,7 @@ export function App(): React.ReactElement {
     set_saved_chat_threads_error("");
     set_saved_chat_threads_loading(true);
     try {
-      const runs_res = await gateway.list_runs({ limit: 200, workflow_id: wid, root_only: true });
+      const runs_res = await gateway.list_runs({ limit: 200, workflow_id: wid, root_only: true, ...listing_kind(await gateway.runs_list_filters()) });
       const items = Array.isArray(runs_res?.items) ? runs_res.items : [];
       const runs: Array<{ run_id: string; ledger_len: number }> = [];
       for (const it of items) {
@@ -4615,16 +4642,52 @@ export function App(): React.ReactElement {
     });
   }, [all_run_options, run_options, run_id, run_state, records.length, subrun_ids, session_id_for_run]);
 
+  // Every session the gateway has, with simple filters (operator 2026-11-07). Each chip ASKS the
+  // gateway for its sessions (the sweep, session_kinds.ts); here the same query only matches the
+  // complete active listings, whose rows the sweep does not carry.
+  useEffect(() => {
+    const fresh = kinds_reported(runtime_run_rows);
+    if (fresh.some((k) => !seen_kinds.includes(k))) set_seen_kinds((prev) => [...prev, ...fresh.filter((k) => !prev.includes(k))]);
+  }, [runtime_run_rows, seen_kinds]);
+  useEffect(() => {
+    set_seen_kinds([]);
+  }, [gateway]);
+  const session_options = useMemo(() => session_filter_options(runs_filters, seen_kinds), [runs_filters, seen_kinds]);
+  const shown_session_filter = session_options.some((o) => o.value === session_filter) ? session_filter : SESSION_FILTER_ALL;
+  const session_query = useMemo(() => session_filter_query(shown_session_filter, runs_filters), [shown_session_filter, runs_filters]);
+  // One truth for the chip: when the chip in use is no longer offered (another gateway, or a gateway
+  // that lacks its filter), the sweep must not keep asking for it while the row shows All.
+  useEffect(() => {
+    if (shown_session_filter === session_filter_ref.current) return;
+    session_filter_ref.current = shown_session_filter;
+    set_session_filter(shown_session_filter);
+    runs_poll_peek(gateway)?.reset_sweep();
+    void refresh_runs(gateway, { force: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown_session_filter]);
+  const choose_session_filter = (value: SessionFilter) => {
+    if (value === session_filter_ref.current) return;
+    set_session_filter(value);
+    session_filter_ref.current = value;
+    // The Done lane loads again (its rows were the previous chip's) and the gateway is asked now.
+    runs_poll_peek(gateway)?.reset_sweep();
+    void refresh_runs(gateway, { force: true });
+  };
+  const board_runs = useMemo(() => run_options.filter((r) => row_matches_query(r, session_query)), [run_options, session_query]);
+  const board_all_runs = useMemo(() => all_run_options.filter((r) => row_matches_query(r, session_query)), [all_run_options, session_query]);
+  const observe_rows = useMemo(() => runtime_run_rows.filter((r) => row_matches_query(r, session_query)), [runtime_run_rows, session_query]);
+  const session_filter_row = <SessionFilterRow options={session_options} value={shown_session_filter} on_change={choose_session_filter} />;
+
   const observe_sections = useMemo<RunTreeSection[]>(
     () =>
-      build_run_tree_sections(runtime_run_rows, {
+      build_run_tree_sections(observe_rows, {
         query: observe_search,
         filter: observe_filter,
         group_by: observe_group_by,
         workflow_label_by_id,
         parent_hint: (rid) => subrun_parent_ref.current[rid] || "",
       }),
-    [runtime_run_rows, observe_search, observe_filter, observe_group_by, workflow_label_by_id],
+    [observe_rows, observe_search, observe_filter, observe_group_by, workflow_label_by_id],
   );
 
 
@@ -5092,8 +5155,10 @@ export function App(): React.ReactElement {
           ) : (
             <MissionControlPage
               gateway_connected={gateway_connected}
-              runs={run_options}
-              all_runs={all_run_options}
+              runs={board_runs}
+              all_runs={board_all_runs}
+              filters={session_filter_row}
+              workflow_names={workflow_name_by_id}
               runs_refreshed_at={runs_refreshed_at}
               runs_stale={runs_stale}
               notice={connection_notice_text}
@@ -5768,7 +5833,8 @@ export function App(): React.ReactElement {
                 loading={runs_loading}
                 connected={gateway_connected}
                 on_sign_in={() => gateway_connection.openModal()}
-                total_runs={runtime_run_rows.length}
+                total_runs={observe_rows.length}
+                kind_filter={session_filter_row}
                 workflow_label_by_id={workflow_label_by_id}
                 automation_titles={automation_titles}
                 on_search={set_observe_search}

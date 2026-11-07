@@ -977,6 +977,15 @@ export class RunsPoll {
     this.sweep_inflight = false;
   }
 
+  /** Forget the last sweep (its rows belonged to another "Sessions" chip): the Done lane loads
+   * again and the next refresh sweeps at once; a listing still out is dropped by its caller. */
+  reset_sweep(): void {
+    this.sweep_rows = [];
+    this.sweep_at = null;
+    this.sweep_started_at = null;
+    this.sweep_inflight = false;
+  }
+
   /** Take over another cache's last sweep (rows + landing time) without its
    * schedule: this cache still sweeps at once on its own client. */
   adopt_sweep(prev: RunsPoll): void {
