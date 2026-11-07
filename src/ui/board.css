@@ -1641,11 +1641,11 @@ a.btn.mc_btn_quiet {
    * flex .mc_page squeeze the strip below its content (the lanes own the scroll). */
   flex: none;
   /* The loaded row: head + row padding + one compact kit EntityCard (who, now, one interest, the
-   * last moment) + the strip's padding and border = 213.7 at font scale 1 with the kit card's
-   * 2026-11-07 head band (measured in space_dom.test.tsx, which pins the loading row to the loaded
-   * row). A card with a warning or a stale note is taller and grows the row; the kit adds only
-   * that row. */
-  min-height: var(--mc-entities-min, 214px);
+   * last moment) + the strip's padding and border = 226.8 at font scale 1 with ui-kit 0.9.18's
+   * compact card (measured in space_dom.test.tsx without this floor: loading, pending and loaded
+   * rows all 226.84 px in Chromium; the test pins the loading row to the loaded row). A card with
+   * a warning or a stale note is taller and grows the row; the kit adds only that row. */
+  min-height: var(--mc-entities-min, 227px);
 }
 
 @keyframes mc_shimmer {
