@@ -184,6 +184,15 @@ describe("each chip asks the gateway for its own sessions (coordinator 2026-11-0
     expect(app).not.toMatch(/filter_sessions\(|session_group\(/);
   });
 
+  it("a chip no longer offered falls back to All for the sweep too, not only on screen (review 0.12.4)", () => {
+    const app = readFileSync(resolve(__dirname, "app.tsx"), "utf8");
+    const sync = app.slice(app.indexOf("One truth for the chip"), app.indexOf("const choose_session_filter"));
+    expect(sync).toContain("if (shown_session_filter === session_filter_ref.current) return;");
+    expect(sync).toContain("session_filter_ref.current = shown_session_filter;");
+    expect(sync).toContain("runs_poll_peek(gateway)?.reset_sweep();");
+    expect(sync).toMatch(/\}, \[shown_session_filter\]\);/);
+  });
+
   it("renders kit filter chips with no counts; the one in use is pressed", () => {
     const html = renderToStaticMarkup(<SessionFilterRow options={session_filter_options(FILTERS, ["notes", "docs"])} value="notes" on_change={() => {}} />);
     expect(html).toContain('aria-label="Sessions"');

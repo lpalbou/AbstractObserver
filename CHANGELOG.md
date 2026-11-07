@@ -16,6 +16,9 @@ when the gateway offers the session `kind` filter; a gateway that does not shows
   of the newest 200. No counts (the gateway returns no per-kind total). A gateway without kinds is asked nothing new
   and shows no chips.
 
+- **A chip that is no longer offered falls back to All everywhere**: after switching to a gateway without that kind
+  (or without its filter), the sweep asks for every session again, matching the row that shows All.
+
 ### Changed
 
 - **A calmer, more readable Board** (operator 2026-11-07: "the overall design is fairly ugly"). Lane names in

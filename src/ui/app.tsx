@@ -4655,6 +4655,16 @@ export function App(): React.ReactElement {
   const session_options = useMemo(() => session_filter_options(runs_filters, seen_kinds), [runs_filters, seen_kinds]);
   const shown_session_filter = session_options.some((o) => o.value === session_filter) ? session_filter : SESSION_FILTER_ALL;
   const session_query = useMemo(() => session_filter_query(shown_session_filter, runs_filters), [shown_session_filter, runs_filters]);
+  // One truth for the chip: when the chip in use is no longer offered (another gateway, or a gateway
+  // that lacks its filter), the sweep must not keep asking for it while the row shows All.
+  useEffect(() => {
+    if (shown_session_filter === session_filter_ref.current) return;
+    session_filter_ref.current = shown_session_filter;
+    set_session_filter(shown_session_filter);
+    runs_poll_peek(gateway)?.reset_sweep();
+    void refresh_runs(gateway, { force: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown_session_filter]);
   const choose_session_filter = (value: SessionFilter) => {
     if (value === session_filter_ref.current) return;
     set_session_filter(value);
