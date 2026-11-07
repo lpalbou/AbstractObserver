@@ -156,10 +156,11 @@ import {
 } from "./artifact_rendering";
 import { FlowGraph } from "./flow_graph";
 import { MindmapPanel } from "./mindmap_panel";
-import { ENTITY_TILES_MAX, MissionControlPage, derive_phase_graph, extract_dreams_brief, extract_open_briefs, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
+import { MissionControlPage, derive_phase_graph, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
+import { create_entity_tiles_loader, start_entity_tiles_poll } from "./entity_tiles";
 import { RUNNING_LIMIT, WAITING_LIMIT, is_current_poll, runs_poll_for, runs_poll_peek, local_storage, read_runs_snapshot, runs_snapshot_key, write_runs_snapshot } from "./board_data";
 import { AgentPage, merged_subject } from "./agent_page";
-import { IdentityLooks, entity_row_ref, type IdentityRef, type RecordRead } from "./identity";
+import { IdentityLooks, type RecordRead } from "./identity";
 import { fold_node_facts } from "./flow_node_facts";
 import { fold_automation_brief, make_context, state_line, type AutomationBrief } from "./state_line";
 import { wait_card_text } from "./wait_card";
@@ -1951,8 +1952,14 @@ export function App(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway_connected]);
 
-  // Entity tiles for the board: roster + the CHEAP per-entity card (gateway
-  // c1038 — card + as_of_seq; never whole-life replay folds). 30s cadence.
+  // Entity tiles for the board (entity_tiles.ts): drawn from the roster at once, each tile then
+  // filled by its own cognition read (every 30 s) and its own card read (a few at a time, kept
+  // and read again only when older than 5 minutes or the entity's state changed). One slow card
+  // never holds the strip. What the loader knows belongs to one gateway + signed-in account: the
+  // effect restarts when either changes, and the loader drops everything if its scope moves.
+  const entity_principal = String(connection_status?.gateway?.principal?.user_id || "").trim();
+  const entity_scope_ref = useRef("");
+  entity_scope_ref.current = `${settings.gateway_auth_mode}|${settings.gateway_url}|${entity_principal}`;
   useEffect(() => {
     if (!gateway_connected) {
       set_board_entities(null);
@@ -1961,110 +1968,33 @@ export function App(): React.ReactElement {
       return;
     }
     let stop = false;
-    let timer: number | null = null;
-    const load = async () => {
+    set_board_entities(null);
+    const loader = create_entity_tiles_loader({
+      gateway,
+      scope: () => entity_scope_ref.current,
+      sink: {
+        tiles: (t) => {
+          if (!stop) set_board_entities(t);
+        },
+        total: (n) => {
+          if (!stop) set_board_entities_total(n);
+        },
+        error: (m) => {
+          if (!stop) set_board_entities_error(m);
+        },
+      },
       // Stand down during a gateway auth-lockout window (429 courtesy).
-      if (rate_limited_until_ref.current > Date.now()) return;
-      try {
-        const roster = await gateway.list_entities();
-        // The roster's size lands before the cards: the strip's skeleton row takes its width now.
-        if (!stop) set_board_entities_total(roster.entities.length);
-        // Each tile keeps its row's identity ref (framework ADR 0052): the board draws the look it names.
-        const rows = roster.entities
-          .map((e: any) => ({ name: String(e?.name || e?.slug || "").trim(), identity_ref: entity_row_ref(e) }))
-          .filter((r: { name: string }) => Boolean(r.name))
-          .slice(0, ENTITY_TILES_MAX);
-        const tiles: BoardEntityTile[] = await Promise.all(
-          rows.map(async ({ name, identity_ref }: { name: string; identity_ref: IdentityRef | null }): Promise<BoardEntityTile> => {
-            try {
-              // Card + the B3 cognition wire (gateway c1390) side by side;
-              // cognition is OPTIONAL (pre-wire gateways 404 it — tile
-              // degrades to the moment-age heuristic, never fabricates).
-              const [card, cog] = await Promise.all([
-                gateway.get_entity_card(name),
-                gateway.get_entity_cognition(name).catch(() => null),
-              ]);
-              // Live card shape (verified against castor 2026-07-12):
-              // state is an OBJECT {state, changed_at, reason, written_by};
-              // moments entries carry {kind, at}, no title.
-              const state_obj = card?.state && typeof card.state === "object" ? card.state : null;
-              const moments = Array.isArray(card?.moments) ? card.moments : [];
-              const last = moments.length ? moments[moments.length - 1] : null;
-              const lifetime = cog?.spend?.lifetime;
-              const live_visit = cog?.spend?.live_visit;
-              const warnings = Array.isArray(cog?.warnings) ? cog.warnings.map((w: any) => String(w || "")).filter(Boolean) : [];
-              // Access-hint lane (plan §observer 2): open questions/problems
-              // briefs off the card, render-when-present — pre-M-A cards
-              // simply have no entry_id and the chips degrade to text.
-              const briefs = extract_open_briefs(card);
-              return {
-                name,
-                identity_ref,
-                state: String(state_obj?.state ?? (typeof card?.state === "string" ? card.state : "")).trim(),
-                age_days: typeof card?.age_days === "number" ? card.age_days : null,
-                last_moment: String(last?.kind || "").trim(),
-                last_moment_at: String(last?.at || "").trim(),
-                working: typeof cog?.working === "boolean" ? cog.working : null,
-                tokens_total: typeof lifetime?.tokens_total === "number" ? lifetime.tokens_total : null,
-                live_visit_tokens: typeof live_visit?.tokens_total === "number" ? live_visit.tokens_total : null,
-                spend_warning: warnings.join(" | "),
-                live_phase: typeof cog?.phase === "string" ? cog.phase : "",
-                open_questions: briefs.questions,
-                open_questions_total: briefs.questions_total,
-                open_problems: briefs.problems,
-                open_problems_total: briefs.problems_total,
-                lessons: briefs.lessons,
-                lessons_total: briefs.lessons_total,
-                dreams_brief: extract_dreams_brief(card),
-                error: "",
-              };
-            } catch (e: any) {
-              return {
-                name,
-                identity_ref,
-                state: "",
-                age_days: null,
-                last_moment: "",
-                last_moment_at: "",
-                working: null,
-                tokens_total: null,
-                live_visit_tokens: null,
-                spend_warning: "",
-                live_phase: "",
-                open_questions: [],
-                open_questions_total: 0,
-                open_problems: [],
-                open_problems_total: 0,
-                lessons: [],
-                lessons_total: 0,
-                dreams_brief: null,
-                error: String(e?.message || e || "card failed"),
-              };
-            }
-          }),
-        );
-        if (!stop) {
-          set_board_entities(tiles);
-          set_board_entities_total(roster.entities.length);
-          set_board_entities_error("");
-        }
-      } catch (e: any) {
-        // No entity door on this gateway is a normal deployment, not an error.
-        if (!stop) {
-          set_board_entities([]);
-          const msg = String(e?.message || e || "");
-          set_board_entities_error(/404|not found/i.test(msg) ? "" : msg);
-        }
-      }
-      if (!stop) timer = window.setTimeout(() => void load(), 30_000);
-    };
-    void load();
+      is_rate_limited: () => rate_limited_until_ref.current > Date.now(),
+      // Answers arriving together render once per frame.
+      schedule: (fn) => void window.requestAnimationFrame(() => fn()),
+    });
+    const stop_poll = start_entity_tiles_poll(loader);
     return () => {
       stop = true;
-      if (timer !== null) window.clearTimeout(timer);
+      stop_poll();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gateway_connected, gateway]);
+  }, [gateway_connected, gateway, entity_principal]);
 
   // Board-initiated wait answers: independent of the attached run (the
   // whole point — approve from the Review column without switching context).

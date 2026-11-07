@@ -194,8 +194,9 @@ async function measure(markup: string, extra_css = "") {
   return r;
 }
 
-/** The board with the Entities strip in one state: before the roster (null), N loaded tiles, or none. */
-function board_with(entities: EntityTile[] | null, total: number): string {
+/** The board with the Entities strip in one state: before the roster (null), N loaded tiles, or none.
+ * `pending`: the tiles as the roster draws them, before any cognition or card answer. */
+function board_with(entities: EntityTile[] | null, total: number, pending = false): string {
   const tile = (name: string): EntityTile => ({
     name, state: "awake:working", age_days: 12, last_moment: "visit_closed", last_moment_at: new Date().toISOString(), working: true,
     tokens_total: 120_000, live_visit_tokens: 3_000, spend_warning: "", live_phase: "work",
@@ -209,7 +210,7 @@ function board_with(entities: EntityTile[] | null, total: number): string {
         runs={RUNS}
         all_runs={RUNS}
         runs_refreshed_at={Date.now()}
-        entities={entities === null ? null : entities.map((e) => tile(e.name))}
+        entities={entities === null ? null : entities.map((e) => (pending ? { ...tile(e.name), card_state: "pending", cognition_pending: true } : tile(e.name)))}
         entities_total={total}
         entities_error=""
         refreshing={false}
@@ -244,6 +245,8 @@ describe("the Entities strip never moves the lanes (desktop, rendered DOM)", () 
     const sized = await measure_strip(board_with(null, 4));
     const loaded = await measure_strip(board_with(names, 4));
     const none = await measure_strip(board_with([], 0));
+    // Drawn from the roster before any card (0.12.2): the same row, placeholders holding the lines.
+    const pending = await measure_strip(board_with(names, 4, true));
     // Without the floor the skeleton row is the loaded row's own height (the floor is its measure,
     // not a blanket); a loaded row never exceeds the floor, so data landing never grows the strip.
     const NO_FLOOR = ".mc_entities_reserved { min-height: 0; }";
@@ -253,7 +256,9 @@ describe("the Entities strip never moves the lanes (desktop, rendered DOM)", () 
     expect(loaded.strip_h, JSON.stringify({ loaded, natural })).toBeLessThanOrEqual(natural.loaded.strip_h + 4);
     expect(loading.strip_h).toBeGreaterThan(0);
     expect(loaded.strip_h).toBeGreaterThan(0);
-    for (const r of [sized, loaded]) {
+    const natural_pending = await measure_strip(board_with(names, 4, true), NO_FLOOR);
+    expect(Math.abs(natural_pending.strip_h - natural.loaded.strip_h), JSON.stringify({ natural_pending, natural })).toBeLessThanOrEqual(4);
+    for (const r of [sized, loaded, pending]) {
       expect(Math.abs(r.strip_h - loading.strip_h), JSON.stringify({ loading, r })).toBeLessThanOrEqual(1);
       expect(Math.abs(r.lanes_top - loading.lanes_top), JSON.stringify({ loading, r })).toBeLessThanOrEqual(1);
     }
