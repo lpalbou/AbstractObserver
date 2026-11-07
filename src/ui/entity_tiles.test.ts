@@ -406,6 +406,9 @@ describe("Board Entities strip: the fallback on an older gateway (no `reads.tile
 
   it("card_facts takes the engraved own-time spelling and never shows a moment the kit has no words for", () => {
     expect(card_facts({ moments: [{ kind: "own_time_started", at: "2026-08-01T11:00:00Z" }, { kind: "queue_census", at: "2026-08-02T00:00:00Z" }] }).last_moment).toEqual({ kind: "personal_started", at: "2026-08-01T11:00:00Z" });
+    expect(card_facts({ moments: [{ kind: "phase_changed", at: "2026-08-01T11:00:00Z", details: { to: "personal" } }] }).last_moment).toEqual({ kind: "phase_changed", at: "2026-08-01T11:00:00Z", to: "personal" });
+    expect(card_facts({ moments: [{ kind: "work_order_changed", at: "2026-08-01T11:00:00Z", change: "set" }] }).last_moment).toEqual({ kind: "work_order_changed", at: "2026-08-01T11:00:00Z", change: "set" });
+    expect(card_facts({ moments: [{ kind: "phase_changed", at: "2026-08-01T11:00:00Z", details: { to: "nowhere" } }] }).last_moment).toBeNull(); // no words for it
     expect(card_facts({}).last_moment).toBeNull();
     expect(card_facts(null).counts).toEqual({ open_questions: 0, open_problems: 0, lessons: 0, interests: 0, sleeps: null });
   });

@@ -126,7 +126,7 @@
 .mc_entity_cell {
   display: flex;
   flex: 0 0 auto;
-  width: min(240px, 78vw);
+  width: min(280px, 82vw);
 }
 
 .mc_entity_cell > .mc_entity_card {

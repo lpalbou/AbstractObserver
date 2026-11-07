@@ -122,7 +122,10 @@ export function card_facts(card: any): CardFacts {
     const details = m.details && typeof m.details === "object" ? m.details : {};
     // The birth recording of a default identity is not a change anyone made (ADR 0052 §7).
     if (kind === "identity_changed" && details.cause === "recorded_default") continue;
-    const candidate = { kind, at: String(m.at), ...(typeof details.to === "string" ? { to: details.to } : {}), ...(typeof details.change === "string" ? { change: details.change } : {}) };
+    // `to` (a phase change) and `change` (a work order) ride the moment itself or its details.
+    const to = typeof m.to === "string" ? m.to : details.to;
+    const change = typeof m.change === "string" ? m.change : details.change;
+    const candidate = { kind, at: String(m.at), ...(typeof to === "string" ? { to } : {}), ...(typeof change === "string" ? { change } : {}) };
     if (!entityMomentWords(candidate)) continue; // a kind the kit has no words for is not a moment shown
     last_moment = candidate;
     break;

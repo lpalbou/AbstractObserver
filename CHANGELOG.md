@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-07
+
+On AbstractUIC 0.10.4 (`@abstractframework/ui-kit` ^0.9.17, floor raised from ^0.9.15, for its shared entity card).
+Best with AbstractGateway 0.21.0, which serves the small per-entity read the card is made from; older gateways still
+work (see below).
+
+### Changed
+
+- **The Board's Entities strip uses the shared entity card**, the same card the entity app shows. Each entity has
+  one card: its look and name, what it is doing now and for how long ("Resting · for 48 minutes", "In a visit · busy
+  now · for 12 minutes", "Stopped · for 4 days"), a warning when its own time stopped after repeated failures, what
+  it is into lately, and its last moment ("A visit ended · 1 hour ago"). The card's head opens the entity in the
+  entity app, in a new tab.
+- **Gone from the strip:** the token count ("4.2M tk"), the coloured phase chip, the "idle · 2.3d ago" line, and the
+  "78 questions · 29 problems · 33 lessons · night: 48 signals" pill under each tile with the list it opened.
+- **One small read per entity.** With AbstractGateway 0.21.0 each card is filled by one read of about 2 KB every 30
+  seconds, at most three at a time, instead of a busy-or-idle read plus a much larger details read. The look comes
+  with it: no separate read of each entity's identity any more.
+- **Nothing goes blank when a read fails.** A card whose newer details cannot be read keeps the older ones and says
+  "Details from 12 minutes ago; newer ones could not be read"; a card that was never read says "Details unavailable
+  right now" (the reason shows on hover). If the list of entities cannot be read again, the cards stay and a short
+  line says when they were read.
+
+### Kept
+
+- With a gateway older than 0.21.0, the strip reads what it read in 0.12.2 (busy or idle every 30 seconds, the
+  larger details every 5 minutes or when the entity changes state) and shows it in the same card.
+- What the strip remembers still belongs to the gateway and account you are signed in with, and the strip still
+  pauses while the gateway asks Observer to slow down, then resumes on its own.
+
 ## [0.12.2] - 2026-11-07
 
 Works with the same gateways as 0.12.1; no gateway change needed.
