@@ -64,10 +64,11 @@ inputs and outputs as pins with their values, its context window, the run tree, 
 **Ask**.
 
 The Board and the Observe list show **every session** the gateway has, Docs assistant chats and
-AbstractNote's own sessions included. When the gateway reports what each session is for, a
-**Sessions** row above the lanes (and in the Observe list) filters them: **All**, **Conversations**,
-**Automations**, **Notes**, and any other kind the gateway reports, each with its number of
-sessions. A gateway that reports no kinds shows every run, with no filter.
+AbstractNote's own sessions included. When the gateway supports it, a **Sessions** row above the
+lanes (and in the Observe list) chooses which: **All**, **Conversations**, **Automations**, **Notes**,
+and any other kind the gateway has reported. Each choice asks the gateway for those sessions (the
+newest 200 of them), so busy background work never crowds out the conversations. The chips show no
+counts: the gateway gives no total per kind. An older gateway shows every run, with no chips.
 
 ## Observe a run
 Go to **Observe** (or click a Board card):

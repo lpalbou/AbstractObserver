@@ -3,6 +3,8 @@
 // smart, we should have simple filters in the UI"). Gateway 0.21.0's turn listings hide Docs
 // assistant chats and note sessions unless asked for `kind=all`; an older gateway refuses unknown
 // parameters and reports no kinds (no filter then).
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -13,14 +15,14 @@ import { MissionControlPage } from "./mission_control";
 import type { RunSummary } from "./run_status";
 import { SessionFilterRow } from "./session_filter_row";
 import {
-  filter_sessions,
+  kinds_reported,
   list_session_roots,
   listing_kind,
-  reports_kinds,
+  row_matches_query,
   runs_list_filters_of,
   session_filter_label,
   session_filter_options,
-  session_group,
+  session_filter_query,
 } from "./session_kinds";
 
 const CAPS_WITH_KIND = { capabilities: { contracts: { common: { runs: { list: { available: true, filters: ["archived_only", "kind", "limit", "root_only"] } } } } } };
@@ -104,53 +106,90 @@ describe("asking the gateway for every session", () => {
   });
 });
 
-describe("the Show filter", () => {
-  const conversation = row("c1", { kind: "conversation", session_kind: "chat" });
-  const conversation_turn2 = row("c2", { kind: "conversation", session_kind: "chat", session_id: "s-c1" });
-  const automation = row("a1", { kind: "conversation", session_kind: "automation", role: "controller", automation_id: "a1" });
-  const occurrence = row("o1", { kind: "conversation", session_kind: "occurrence", role: "occurrence", automation_id: "a1" });
-  // A note automation's occurrence: a note session (the gateway says so), not an automation.
-  const note_occurrence = row("n1", { kind: "notes", session_kind: "occurrence", role: "occurrence", automation_id: "a2" });
-  const docs = row("d1", { kind: "docs", session_kind: "chat" });
-  const later_kind = row("x1", { kind: "research_log" });
-  const rows = [conversation, conversation_turn2, automation, occurrence, note_occurrence, docs, later_kind];
-
-  it("groups by the gateway's kind first, then the automation attribution", () => {
-    expect(rows.map(session_group)).toEqual(["conversations", "conversations", "automations", "automations", "notes", "docs", "research_log"]);
+describe("each chip asks the gateway for its own sessions (coordinator 2026-11-07: never a filtered slice of the mixed newest-200 window)", () => {
+  const FILTERS = ["kind", "limit", "root_only", "session_kind", "archived_only"];
+  const calls: any[] = [];
+  const client = (filters: string[] | null, archived = 2) => ({
+    runs_list_filters: async () => filters,
+    list_runs: async (opts: any) => {
+      calls.push(opts);
+      return { items: [], archived_sessions: archived };
+    },
   });
 
-  it("offers All, Conversations, Automations, then every other reported kind, with session counts", () => {
-    expect(session_filter_options(rows)).toEqual([
-      { value: "all", label: "All", count: 6 },
-      { value: "conversations", label: "Conversations", count: 1 },
-      { value: "automations", label: "Automations", count: 2 },
-      { value: "notes", label: "Notes", count: 1 },
-      { value: "docs", label: "Docs assistant", count: 1 },
-      { value: "research_log", label: "Research log", count: 1 },
+  it("All asks kind=all; a kind chip asks that kind; Conversations and Automations add the gateway's session_kind filter", async () => {
+    const asked = async (filter: string) => {
+      calls.length = 0;
+      await list_session_roots(client(FILTERS), filter);
+      return calls.map((c) => ({ kind: c.kind, session_kind: c.session_kind, archived_only: c.archived_only === true, limit: c.limit }));
+    };
+    expect(await asked("all")).toEqual([
+      { kind: "all", session_kind: undefined, archived_only: false, limit: 200 },
+      { kind: "all", session_kind: undefined, archived_only: true, limit: 200 },
     ]);
-    expect(session_filter_label("research_log")).toBe("Research log");
+    expect((await asked("notes")).map((c) => [c.kind, c.session_kind])).toEqual([["notes", undefined], ["notes", undefined]]);
+    expect((await asked("docs"))[0]).toMatchObject({ kind: "docs", limit: 200 });
+    expect((await asked("conversations"))[0]).toMatchObject({ kind: "conversation", session_kind: "chat,discussion" });
+    expect((await asked("automations"))[0]).toMatchObject({ kind: "conversation", session_kind: "automation,occurrence" });
   });
 
-  it("filters the rows; All shows everything", () => {
-    expect(filter_sessions(rows, "notes").map((r) => r.run_id)).toEqual(["n1"]);
-    expect(filter_sessions(rows, "conversations").map((r) => r.run_id)).toEqual(["c1", "c2"]);
-    expect(filter_sessions(rows, "automations").map((r) => r.run_id)).toEqual(["a1", "o1"]);
-    expect(filter_sessions(rows, "all")).toHaveLength(rows.length);
+  it("the query is exactly what each chip means (one source for the request and the active rows)", () => {
+    expect(session_filter_query("all", FILTERS)).toEqual({ kind: "all" });
+    expect(session_filter_query("notes", FILTERS)).toEqual({ kind: "notes" });
+    expect(session_filter_query("conversations", ["kind"])).toEqual({ kind: "conversation" });
+    expect(session_filter_query("notes", null)).toEqual({});
   });
 
-  it("a gateway that reports no kinds gets no filter: every run shows, as before", () => {
-    const old = [row("c1", { session_kind: "chat" }), row("a1", { session_kind: "automation", automation_id: "a1" })];
-    expect(reports_kinds(old)).toBe(false);
-    expect(session_filter_options(old)).toEqual([]);
-    expect(filter_sessions(old, "automations")).toHaveLength(2);
+  it("a gateway without the kind filter is asked nothing new and gets no chips", async () => {
+    calls.length = 0;
+    await list_session_roots(client(["limit", "root_only"]), "notes");
+    expect(calls.every((c) => !("kind" in c) && !("session_kind" in c))).toBe(true);
+    expect(session_filter_options(["limit", "root_only"], ["notes"])).toEqual([]);
+    expect(session_filter_options(null, ["notes"])).toEqual([]);
     expect(renderToStaticMarkup(<SessionFilterRow options={[]} value="all" on_change={() => {}} />)).toBe("");
   });
 
-  it("renders kit filter chips; the one in use is pressed", () => {
-    const html = renderToStaticMarkup(<SessionFilterRow options={session_filter_options(rows)} value="notes" on_change={() => {}} />);
+  it("chips: All, Conversations, Automations (when session_kind is advertised), then every other kind the gateway has reported on a row; no counts", () => {
+    expect(session_filter_options(FILTERS, ["research_log", "notes", "docs"])).toEqual([
+      { value: "all", label: "All" },
+      { value: "conversations", label: "Conversations" },
+      { value: "automations", label: "Automations" },
+      { value: "notes", label: "Notes" },
+      { value: "docs", label: "Docs assistant" },
+      { value: "research_log", label: "Research log" },
+    ]);
+    expect(session_filter_options(["kind"], []).map((o) => o.value)).toEqual(["all", "conversations"]);
+    expect(kinds_reported([row("a", { kind: "notes" }), row("b", { kind: "conversation" }), row("c"), row("d", { kind: "docs" })])).toEqual(["notes", "docs"]);
+    expect(session_filter_label("research_log")).toBe("Research log");
+  });
+
+  it("the complete active listings (running, waiting) are matched by the same query; the window itself is never filtered here", () => {
+    const q = session_filter_query("conversations", FILTERS);
+    expect(row_matches_query(row("c", { kind: "conversation", session_kind: "chat" }), q)).toBe(true);
+    expect(row_matches_query(row("o", { kind: "conversation", session_kind: "occurrence" }), q)).toBe(false);
+    expect(row_matches_query(row("n", { kind: "notes", session_kind: "chat" }), q)).toBe(false);
+    expect(row_matches_query(row("n", { kind: "notes" }), session_filter_query("all", FILTERS))).toBe(true);
+    expect(row_matches_query(row("n", { kind: "notes" }), {})).toBe(true);
+  });
+
+  it("the app's sweep asks for the chip in use, and choosing a chip resets the Done rows and asks again", () => {
+    const app = readFileSync(resolve(__dirname, "app.tsx"), "utf8");
+    expect(app).toMatch(/const sweep_filter = session_filter_ref\.current;\s*void list_session_roots\(gateway_client, sweep_filter\)/);
+    expect(app).toMatch(/if \(session_filter_ref\.current !== sweep_filter\) return;/);
+    const choose = app.slice(app.indexOf("const choose_session_filter"), app.indexOf("const board_runs"));
+    expect(choose).toContain("session_filter_ref.current = value;");
+    expect(choose).toContain("runs_poll_peek(gateway)?.reset_sweep();");
+    expect(choose).toContain("refresh_runs(gateway, { force: true })");
+    // The rows are never a client-side slice of the mixed window: no grouping of rows by kind here.
+    expect(app).not.toMatch(/filter_sessions\(|session_group\(/);
+  });
+
+  it("renders kit filter chips with no counts; the one in use is pressed", () => {
+    const html = renderToStaticMarkup(<SessionFilterRow options={session_filter_options(FILTERS, ["notes", "docs"])} value="notes" on_change={() => {}} />);
     expect(html).toContain('aria-label="Sessions"');
     expect(html).toMatch(/data-af-value="notes" aria-pressed="true"/);
     expect(html).toMatch(/data-af-value="all" aria-pressed="false"/);
+    expect(html).not.toContain("af-filterbar__count");
     for (const word of ["All", "Conversations", "Automations", "Notes", "Docs assistant"]) expect(html).toContain(`>${word}<`);
   });
 
@@ -160,7 +199,7 @@ describe("the Show filter", () => {
         gateway_connected
         runs={[]}
         all_runs={[]}
-        filters={<SessionFilterRow options={session_filter_options(rows)} value="all" on_change={() => {}} />}
+        filters={<SessionFilterRow options={session_filter_options(["kind", "session_kind"], ["notes"])} value="all" on_change={() => {}} />}
         runs_refreshed_at={Date.now()}
         entities={[]}
         entities_total={0}

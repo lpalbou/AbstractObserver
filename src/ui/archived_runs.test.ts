@@ -29,7 +29,7 @@ describe("archived conversations stay observable", () => {
   it("refresh_runs also asks for archived roots and merges them", () => {
     // The sweep's listings live in session_kinds.ts (list_session_roots: every session, kind=all
     // when the gateway understands it; session_kinds.test.tsx drives it with a fake client).
-    expect(appSource).toMatch(/list_session_roots\(gateway_client\)/);
+    expect(appSource).toMatch(/list_session_roots\(gateway_client, sweep_filter\)/);
     expect(appSource).toMatch(/const root_items = with_archived_roots\(/);
   });
   it("list_runs sends archived_only=true", async () => {

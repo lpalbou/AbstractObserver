@@ -557,10 +557,12 @@ export default defineConfig({
 
 - **Every session the gateway has, with a Sessions filter** (operator 2026-11-07: "Observer is for technical users, so
   we absolutely need to show anything running on the gateway. However be smart, we should have simple filters").
-  The Board's and the Observe list's turn listings ask for `kind=all` when the gateway advertises the `kind` filter,
-  so Docs assistant chats and AbstractNote's sessions are listed too; a **Sessions** row (kit filter chips) filters
-  by All, Conversations, Automations, Notes and any other kind the gateway reports, with session counts. A gateway
-  without kinds is asked nothing new and shows no filter.
+  When the gateway advertises the `kind` filter, a **Sessions** row (kit filter chips: All, Conversations,
+  Automations, Notes and any other kind the gateway reports) asks the gateway for each choice's own sessions
+  (`kind=all`, `kind=<kind>`, with its `session_kind` filter for Conversations and Automations), so Docs assistant
+  chats and AbstractNote's sessions are listed and a busy background automation never crowds the conversations out
+  of the newest 200. No counts (the gateway returns no per-kind total). A gateway without kinds is asked nothing new
+  and shows no chips.
 
 ### Changed
 
@@ -1674,10 +1676,11 @@ inputs and outputs as pins with their values, its context window, the run tree, 
 **Ask**.
 
 The Board and the Observe list show **every session** the gateway has, Docs assistant chats and
-AbstractNote's own sessions included. When the gateway reports what each session is for, a
-**Sessions** row above the lanes (and in the Observe list) filters them: **All**, **Conversations**,
-**Automations**, **Notes**, and any other kind the gateway reports, each with its number of
-sessions. A gateway that reports no kinds shows every run, with no filter.
+AbstractNote's own sessions included. When the gateway supports it, a **Sessions** row above the
+lanes (and in the Observe list) chooses which: **All**, **Conversations**, **Automations**, **Notes**,
+and any other kind the gateway has reported. Each choice asks the gateway for those sessions (the
+newest 200 of them), so busy background work never crowds out the conversations. The chips show no
+counts: the gateway gives no total per kind. An older gateway shows every run, with no chips.
 
 ## Observe a run
 Go to **Observe** (or click a Board card):
@@ -2358,7 +2361,7 @@ Used by `src/ui/app.tsx` for basic discovery, run launch, and run observation.
   - `GET /api/gateway/runs/{run_id}` — run state (status, paused, waiting, schedule metadata, etc.)
   - `GET /api/gateway/runs/{run_id}/input_data` — inputs used for the run (shown in UI)
   - `POST /api/gateway/runs/start` — start a run (body includes `input_data` and optional `bundle_id`, `flow_id`, `session_id`; the gateway default agent is `flow_id: "@default"` + `interface`, without `bundle_id`)
-  - `GET /api/gateway/runs?root_only=true&kind=all` (and with `archived_only=true`) — every session, whatever it is for. A turn listing shows conversations only unless asked for `kind=all`; Observer sends `kind` only when the gateway advertises it (`capabilities.contracts.common.runs.list.filters`, read once from `GET /api/gateway/discovery/capabilities`), since an older gateway refuses unknown parameters. Each row's `kind` (`conversation`, `docs`, `notes`, …) drives the Board's and the Observe list's **Sessions** filter.
+  - `GET /api/gateway/runs?root_only=true&kind=all` (and with `archived_only=true`) — every session, whatever it is for. A turn listing shows conversations only unless asked for `kind=all`; Observer sends `kind` only when the gateway advertises it (`capabilities.contracts.common.runs.list.filters`, read once from `GET /api/gateway/discovery/capabilities`), since an older gateway refuses unknown parameters. The Board's and the Observe list's **Sessions** chips each ask for their own sessions: All `kind=all`, Notes `kind=notes` (any reported kind: `kind=<kind>`), Conversations `kind=conversation&session_kind=chat,discussion`, Automations `kind=conversation&session_kind=automation,occurrence`; the running and waiting listings are matched by the same query. The kinds offered are those the gateway has reported in a row's `kind`.
   - `GET /api/gateway/runs?root_only=true&archived_only=true` — runs of ARCHIVED sessions (a conversation archived in AbstractCode, `POST /sessions/{id}/archive`). A `root_only` listing leaves them out, so the Board fetches them too and appends them after the active runs, each marked **Archived** (the gateway's `archived: true`); Observer has no sessions list and no Archive button of its own. Needs AbstractGateway 0.13.0 or later; an older gateway ignores `archived_only`, and the Board then shows only the active runs.
   - Listing rows are read with their automation attribution when the gateway sends it (`session_kind`, `automation_id`, `role`, `occurrence_index`) and `actor_id`; the Board, Observe navigator and System queues tag and group runs from these fields.
 - **Ledger (durable source of truth)**

@@ -171,7 +171,7 @@ import { type RuntimeMetadata } from "./runtime_metadata";
 import { run_status_class, run_status_word, stop_reason_of, type RunFilterMode, type RunSummary, type RunTreeSection } from "./run_status";
 import { ObserverVoiceSettings, SpeakButton, VoiceDictate, use_observer_voice, use_read_aloud, use_voice_defaults, use_voice_prefs } from "./observer_voice";
 import { useListOpen } from "./list_disclosure";
-import { SESSION_FILTER_ALL, filter_sessions, list_session_roots, listing_kind, session_filter_options, type SessionFilter } from "./session_kinds";
+import { SESSION_FILTER_ALL, kinds_reported, list_session_roots, listing_kind, row_matches_query, runs_list_filters_of, session_filter_options, session_filter_query, type SessionFilter } from "./session_kinds";
 import { SessionFilterRow } from "./session_filter_row";
 import "./system.css";
 // Usability layer LAST: it corrects actionable-information presentation and
@@ -573,6 +573,14 @@ export function App(): React.ReactElement {
   const [all_run_options, set_all_run_options] = useState<RunSummary[]>([]);
   /** The Board's and the Observe list's "Show" chips (session_kinds.ts): one choice for both. */
   const [session_filter, set_session_filter] = useState<SessionFilter>(SESSION_FILTER_ALL);
+  /** The chip the NEXT sweep asks the gateway for (refresh_runs reads it; a sweep that lands after
+   * the chip changed is dropped). */
+  const session_filter_ref = useRef<SessionFilter>(SESSION_FILTER_ALL);
+  /** `GET /runs` filters the gateway advertises (capabilities); null until read or when absent. */
+  const [runs_filters, set_runs_filters] = useState<string[] | null>(null);
+  /** Every kind other than a conversation the gateway has reported on a row this connection
+   * (the chips only grow: choosing Notes never hides the Docs chip). */
+  const [seen_kinds, set_seen_kinds] = useState<string[]>([]);
   const [runs_loading, set_runs_loading] = useState(false);
   const [runs_refreshed_at, set_runs_refreshed_at] = useState<number | null>(null);
   // null until the first roster + cards read lands: the board strip shows skeleton tiles in its
@@ -1471,7 +1479,8 @@ export function App(): React.ReactElement {
       // First success clears any rate-limit backoff.
       rate_limit_backoff_ref.current = 0;
       rate_limited_until_ref.current = 0;
-      if (snapshot_key && running && waiting) window.setTimeout(() => write_runs_snapshot(local_storage(), snapshot_key, poll.snapshot()), 0);
+      // The persisted board is the All board (a chip's rows would paint a filtered slice on reload).
+      if (snapshot_key && running && waiting && session_filter_ref.current === SESSION_FILTER_ALL) window.setTimeout(() => write_runs_snapshot(local_storage(), snapshot_key, poll.snapshot()), 0);
     } catch (e: any) {
       on_failure(e, "Refresh runs failed");
       return;
@@ -1483,14 +1492,18 @@ export function App(): React.ReactElement {
     poll.begin_sweep(Date.now());
     // Roots first; the archived listing (a second full scan of the store, 8–10 s under
     // contention) only when the roots page says archived conversations exist (R3.1 §5).
-    // EVERY session (operator 2026-11-07): a turn listing shows conversations only unless asked
-    // for `kind=all`, which a gateway advertising the `kind` filter understands (session_kinds.ts).
-    void list_session_roots(gateway_client)
+    // EVERY session (operator 2026-11-07): the sweep asks the gateway for the chip in use (`kind=all`
+    // for All, `kind=<kind>` for a kind) when it advertises the `kind` filter (session_kinds.ts).
+    const sweep_filter = session_filter_ref.current;
+    void list_session_roots(gateway_client, sweep_filter)
       .then(
       ([roots, archived]) => {
         // Same epoch guard, plus: a late sweep of a replaced client never
         // writes over the current one's rows.
         if (epoch !== discovery_epoch_ref.current || !is_current_poll(poll)) return poll.fail_sweep();
+        // The chip changed while this listing was out: its rows are another chip's (the change
+        // already reset the sweep and asked again).
+        if (session_filter_ref.current !== sweep_filter) return;
         const root_items = with_archived_roots(items_of(roots), items_of(archived));
         poll.apply_sweep(normalize_runs(root_items), Date.now());
         publish();
@@ -1555,6 +1568,7 @@ export function App(): React.ReactElement {
       return;
     }
 
+    set_runs_filters(caps_res.status === "fulfilled" ? runs_list_filters_of(caps_res.value) : null);
     set_automations_cap(
       caps_res.status === "fulfilled"
         ? automations_capability(caps_res.value)
@@ -4628,14 +4642,31 @@ export function App(): React.ReactElement {
     });
   }, [all_run_options, run_options, run_id, run_state, records.length, subrun_ids, session_id_for_run]);
 
-  // Every session the gateway has, with simple filters (operator 2026-11-07). A choice the rows no
-  // longer offer falls back to All (never an empty board for a filter that is not shown).
-  const session_options = useMemo(() => session_filter_options(runtime_run_rows), [runtime_run_rows]);
+  // Every session the gateway has, with simple filters (operator 2026-11-07). Each chip ASKS the
+  // gateway for its sessions (the sweep, session_kinds.ts); here the same query only matches the
+  // complete active listings, whose rows the sweep does not carry.
+  useEffect(() => {
+    const fresh = kinds_reported(runtime_run_rows);
+    if (fresh.some((k) => !seen_kinds.includes(k))) set_seen_kinds((prev) => [...prev, ...fresh.filter((k) => !prev.includes(k))]);
+  }, [runtime_run_rows, seen_kinds]);
+  useEffect(() => {
+    set_seen_kinds([]);
+  }, [gateway]);
+  const session_options = useMemo(() => session_filter_options(runs_filters, seen_kinds), [runs_filters, seen_kinds]);
   const shown_session_filter = session_options.some((o) => o.value === session_filter) ? session_filter : SESSION_FILTER_ALL;
-  const board_runs = useMemo(() => filter_sessions(run_options, shown_session_filter), [run_options, shown_session_filter]);
-  const board_all_runs = useMemo(() => filter_sessions(all_run_options, shown_session_filter), [all_run_options, shown_session_filter]);
-  const observe_rows = useMemo(() => filter_sessions(runtime_run_rows, shown_session_filter), [runtime_run_rows, shown_session_filter]);
-  const session_filter_row = <SessionFilterRow options={session_options} value={shown_session_filter} on_change={set_session_filter} />;
+  const session_query = useMemo(() => session_filter_query(shown_session_filter, runs_filters), [shown_session_filter, runs_filters]);
+  const choose_session_filter = (value: SessionFilter) => {
+    if (value === session_filter_ref.current) return;
+    set_session_filter(value);
+    session_filter_ref.current = value;
+    // The Done lane loads again (its rows were the previous chip's) and the gateway is asked now.
+    runs_poll_peek(gateway)?.reset_sweep();
+    void refresh_runs(gateway, { force: true });
+  };
+  const board_runs = useMemo(() => run_options.filter((r) => row_matches_query(r, session_query)), [run_options, session_query]);
+  const board_all_runs = useMemo(() => all_run_options.filter((r) => row_matches_query(r, session_query)), [all_run_options, session_query]);
+  const observe_rows = useMemo(() => runtime_run_rows.filter((r) => row_matches_query(r, session_query)), [runtime_run_rows, session_query]);
+  const session_filter_row = <SessionFilterRow options={session_options} value={shown_session_filter} on_change={choose_session_filter} />;
 
   const observe_sections = useMemo<RunTreeSection[]>(
     () =>

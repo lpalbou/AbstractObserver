@@ -6,10 +6,12 @@
 
 - **Every session the gateway has, with a Sessions filter** (operator 2026-11-07: "Observer is for technical users, so
   we absolutely need to show anything running on the gateway. However be smart, we should have simple filters").
-  The Board's and the Observe list's turn listings ask for `kind=all` when the gateway advertises the `kind` filter,
-  so Docs assistant chats and AbstractNote's sessions are listed too; a **Sessions** row (kit filter chips) filters
-  by All, Conversations, Automations, Notes and any other kind the gateway reports, with session counts. A gateway
-  without kinds is asked nothing new and shows no filter.
+  When the gateway advertises the `kind` filter, a **Sessions** row (kit filter chips: All, Conversations,
+  Automations, Notes and any other kind the gateway reports) asks the gateway for each choice's own sessions
+  (`kind=all`, `kind=<kind>`, with its `session_kind` filter for Conversations and Automations), so Docs assistant
+  chats and AbstractNote's sessions are listed and a busy background automation never crowds the conversations out
+  of the newest 200. No counts (the gateway returns no per-kind total). A gateway without kinds is asked nothing new
+  and shows no chips.
 
 ### Changed
 
