@@ -2107,21 +2107,6 @@ button.primary:hover:not(:disabled) {
   font-size: calc(11px * var(--font-scale));
 }
 
-/* Entity tile freshness (B3): a life doing something reads at a glance */
-.mc_entity_live {
-  color: var(--info);
-  font-size: calc(11px * var(--font-scale));
-  font-weight: 600;
-  animation: mc_live_pulse 2.2s ease-in-out infinite;
-}
-@keyframes mc_live_pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mc_entity_live { animation: none; }
-}
-
 /* Steer composer row (uic kit SteerComposer; .af-steer* ships in theme.css) */
 .observe_steer_row {
   margin-top: 8px;
@@ -4892,50 +4877,6 @@ button.primary:hover:not(:disabled) {
 .mc_entity_link { color: var(--info); text-decoration: none; font-size: var(--font-size-sm); }
 .mc_entity_link:hover { text-decoration: underline; }
 .mc_entities_row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
-.mc_entity {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 150px;
-  max-width: 220px;
-  padding: 8px 10px;
-  border: 1px solid var(--ui-overlay-border, rgba(255, 255, 255, 0.12));
-  border-radius: var(--radius-lg, 10px);
-  text-decoration: none;
-  color: var(--text-primary);
-  background: var(--bg-primary, rgba(0, 0, 0, 0.12));
-  flex-shrink: 0;
-}
-.mc_entity:hover { border-color: var(--info); }
-.mc_entity_name { font-weight: 600; font-size: var(--font-size-md); }
-.mc_entity_phase {
-  align-self: flex-start;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: var(--font-size-xxs);
-  font-weight: 600;
-  border: 1px solid var(--ui-chip-border, var(--border-default));
-  background: var(--ui-chip-bg, rgba(0, 0, 0, 0.22));
-  color: var(--text-secondary);
-}
-/* The four RULED phases are mutually color-distinct; green belongs to
- * WORK exclusively (fable5: awake in success-green blurred phase vs
- * liveness). Non-ruled pre-alignment words (awake/paused/resting) render
- * neutral/muted — never a ruled phase's color. */
-.mc_phase_visit { border-color: var(--info); color: var(--info); background: var(--info-subtle); }
-.mc_phase_work { border-color: var(--success); color: var(--success); background: var(--success-subtle); }
-.mc_phase_personal { border-color: var(--entity-diary, #b48ead); color: var(--entity-diary, #b48ead); }
-.mc_phase_sleep { border-color: var(--text-muted); color: var(--text-muted); }
-.mc_phase_paused { opacity: 0.7; }
-.mc_phase_resting { opacity: 0.8; border-style: dashed; }
-.mc_phase_unknown, .mc_phase_other { opacity: 0.7; border-style: dashed; }
-.mc_entity_moment {
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .mc_board {
   display: grid;
@@ -5026,20 +4967,6 @@ button.primary:hover:not(:disabled) {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
-}
-
-/* STOPPED outranks every other chip — the kill switch renders as an
- * emergency state, never a routine phase (liveness axis, c1523 ask 4).
- * paused (today's engraved hard-freeze) wears the same treatment until
- * semantics' spelling ruling reconciles the two. */
-.mc_phase_stopped,
-.mc_phase_paused {
-  border-color: var(--error);
-  color: var(--error);
-  background: var(--error-subtle);
-  font-weight: 700;
-  text-transform: uppercase;
-  opacity: 1;
 }
 
 /* Failed board cards carry their WHY inline (fable5 layout P1-14). */

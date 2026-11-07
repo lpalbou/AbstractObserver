@@ -22,6 +22,7 @@ import { AfSwitch, type AutomationSummary } from "@abstractframework/ui-kit";
 import { GatewayClient } from "../lib/gateway_client";
 import { INITIAL_AUTOMATIONS_STATE } from "./automations";
 import { AutomationsPage, type AutomationsHandlers } from "./automations_page";
+import { gateway_tile } from "./__fixtures__/entity_tile";
 import { MissionControlPage, type EntityTile } from "./mission_control";
 import { WorkflowRunNavigator } from "./run_panels";
 import { RuntimeActivityConsole } from "./runtime_page";
@@ -194,15 +195,10 @@ async function measure(markup: string, extra_css = "") {
   return r;
 }
 
-/** The board with the Entities strip in one state: before the roster (null), N loaded tiles, or none.
- * `pending`: the tiles as the roster draws them, before any cognition or card answer. */
+/** The board with the Entities strip in one state: before the roster (null), N loaded cards, or none.
+ * `pending`: the cards as the roster draws them, before any tile answers. */
 function board_with(entities: EntityTile[] | null, total: number, pending = false): string {
-  const tile = (name: string): EntityTile => ({
-    name, state: "awake:working", age_days: 12, last_moment: "visit_closed", last_moment_at: new Date().toISOString(), working: true,
-    tokens_total: 120_000, live_visit_tokens: 3_000, spend_warning: "", live_phase: "work",
-    open_questions: [{ record_id: "q1", entry_id: "e1", title: "A question", statement: "A question" }], open_questions_total: 2,
-    open_problems: [], open_problems_total: 0, lessons: [], lessons_total: 1, dreams_brief: null, error: "",
-  } as EntityTile);
+  const tile = (name: string): EntityTile => ({ name, look: null, tile: gateway_tile(name), status: "ready", as_of_ms: null, reason: "" });
   return shell(
     renderToStaticMarkup(
       <MissionControlPage
@@ -210,7 +206,7 @@ function board_with(entities: EntityTile[] | null, total: number, pending = fals
         runs={RUNS}
         all_runs={RUNS}
         runs_refreshed_at={Date.now()}
-        entities={entities === null ? null : entities.map((e) => (pending ? { ...tile(e.name), card_state: "pending", cognition_pending: true } : tile(e.name)))}
+        entities={entities === null ? null : entities.map((e) => (pending ? { ...tile(e.name), tile: null, status: "loading" } : tile(e.name)))}
         entities_total={total}
         entities_error=""
         refreshing={false}
@@ -239,13 +235,13 @@ async function measure_strip(markup: string, extra_css = "") {
 }
 
 describe("the Entities strip never moves the lanes (desktop, rendered DOM)", () => {
-  it("before the roster and with tiles (hints badges included) the strip is one height and the lanes start at one top; with none it collapses to its head", async () => {
+  it("before the roster, with cards loading and with cards read, the strip is one height and the lanes start at one top; with none it collapses to its head", async () => {
     const names = Array.from({ length: 4 }, (_, i) => ({ name: `entity-${i}` }) as EntityTile);
     const loading = await measure_strip(board_with(null, 0));
     const sized = await measure_strip(board_with(null, 4));
     const loaded = await measure_strip(board_with(names, 4));
     const none = await measure_strip(board_with([], 0));
-    // Drawn from the roster before any card (0.12.2): the same row, placeholders holding the lines.
+    // Drawn from the roster before any tile: the same row, the kit card's loading state holding its size.
     const pending = await measure_strip(board_with(names, 4, true));
     // Without the floor the skeleton row is the loaded row's own height (the floor is its measure,
     // not a blanket); a loaded row never exceeds the floor, so data landing never grows the strip.

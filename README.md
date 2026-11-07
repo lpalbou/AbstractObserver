@@ -12,6 +12,12 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 
 ## What's new
 
+0.12.3 replaces the Board's entity tiles with the shared entity card (the kit's `EntityCard`, made to be shared by every app): each
+entity shows its look and name, what it is doing now and for how long, a warning when its own time stopped after
+failures, what it is into lately and its last moment, in plain words. The token count, the phase chip and the
+"78 questions · 29 problems · 33 lessons · night: 48 signals" pill under each tile are gone. With AbstractGateway
+0.21.0 each card is one small read every 30 seconds. See [CHANGELOG.md](CHANGELOG.md#0123---2026-11-07).
+
 0.12.2 makes the Board's Entities strip show up at once: the tiles are drawn as soon as the list of entities
 arrives, and each tile fills in when its own details arrive, so one entity with a long history no longer keeps the
 whole strip blank for seconds. Details that change slowly are kept and read again every 5 minutes or when the entity
@@ -35,8 +41,9 @@ shared composer, and uses the kit's one account widget. See [CHANGELOG.md](CHANG
 The **entity app** (memory graph + visits UI) is its own package,
 [AbstractEntity](https://github.com/lpalbou/AbstractEntity)
 (`npx @abstractframework/entity`, default port `3007`). The observer still
-*watches* entities — the Board's entities strip reads
-`GET /api/gateway/entities`, `/entities/{name}/cognition` and `/entities/{name}/card` — and its
+*watches* entities — the Board's entities strip draws one shared entity card per entity from
+`GET /api/gateway/entities` and `/entities/{name}/tile` (on gateways before 0.21.0, from `/entities/{name}/cognition`
+and `/entities/{name}/card`) — and its
 "Entities ↗" links point at the entity app deployment
 (`--entity-app-url`, default `http://127.0.0.1:3007`).
 

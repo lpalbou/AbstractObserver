@@ -156,11 +156,11 @@ import {
 } from "./artifact_rendering";
 import { FlowGraph } from "./flow_graph";
 import { MindmapPanel } from "./mindmap_panel";
-import { MissionControlPage, derive_phase_graph, type EntityTile as BoardEntityTile, type PhaseGraph } from "./mission_control";
+import { MissionControlPage, type EntityTile as BoardEntityTile } from "./mission_control";
 import { create_entity_tiles_loader, start_entity_tiles_poll } from "./entity_tiles";
 import { RUNNING_LIMIT, WAITING_LIMIT, is_current_poll, runs_poll_for, runs_poll_peek, local_storage, read_runs_snapshot, runs_snapshot_key, write_runs_snapshot } from "./board_data";
 import { AgentPage, merged_subject } from "./agent_page";
-import { IdentityLooks, type RecordRead } from "./identity";
+import { type RecordRead } from "./identity";
 import { fold_node_facts } from "./flow_node_facts";
 import { fold_automation_brief, make_context, state_line, type AutomationBrief } from "./state_line";
 import { wait_card_text } from "./wait_card";
@@ -878,7 +878,6 @@ export function App(): React.ReactElement {
     [settings.gateway_auth_mode, settings.gateway_url, settings.auth_token]
   );
   /** Entity looks read once per identity ref over this connection (framework ADR 0052). */
-  const identity_looks = useMemo(() => new IdentityLooks((name, rev) => gateway.get_entity_identity(name, rev)), [gateway]);
   /** Automations page state machine over this connection (ui-kit client). */
   const automations_ctl = useMemo(
     () =>
@@ -1889,73 +1888,9 @@ export function App(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway_connected, gateway]);
 
-  // THE phase graph (one-graph mechanism, laurent dm#79): fetched once per
-  // connection from the gateway-vendored artifact; null = pre-wire gateway
-  // (the labeled fallback vocabulary applies, board renders as before).
-  const [phase_graph, set_phase_graph] = useState<PhaseGraph | null>(null);
-  useEffect(() => {
-    if (!gateway_connected) {
-      set_phase_graph(null);
-      return;
-    }
-    let stop = false;
-    (async () => {
-      try {
-        const payload = await gateway.get_entity_phases_spec();
-        if (stop) return;
-        const graph = derive_phase_graph(payload);
-        set_phase_graph(graph);
-        // Drift honesty (the c3563 sha promise, adversary F3): compare the
-        // served bytes' identity against the last one this browser saw —
-        // a sha change WITHOUT a version bump is exactly the drift class
-        // the mechanism exists to make loud.
-        if (graph) {
-          try {
-            const prev_raw = localStorage.getItem("abstractobserver_phase_graph_id_v1");
-            const prev = prev_raw ? JSON.parse(prev_raw) : null;
-            if (prev && prev.sha256 && graph.sha256 && prev.sha256 !== graph.sha256 && prev.version === graph.version) {
-              push_log({
-                ts: now_iso(),
-                kind: "error",
-                title: "Phase-graph drift: served bytes changed without a version bump",
-                preview: clamp_preview(`v${graph.version}: ${String(prev.sha256).slice(0, 12)}… -> ${String(graph.sha256).slice(0, 12)}…`),
-                data: { prev, now: { sha256: graph.sha256, version: graph.version } },
-              });
-            }
-            localStorage.setItem("abstractobserver_phase_graph_id_v1", JSON.stringify({ sha256: graph.sha256, version: graph.version }));
-          } catch {}
-        }
-      } catch (err: any) {
-        // Pre-wire gateway (404) keeps the labeled fallback SILENTLY —
-        // that deployment is normal. Any OTHER failure (503 re-vendor
-        // lane, timeout, network) also falls back but says so in the log
-        // pane (adversary F6: "absent endpoint" and "temporarily broken"
-        // are different truths). No retry loop — the next connect refetches.
-        if (!stop) {
-          set_phase_graph(null);
-          const msg = String(err?.message || err || "");
-          if (!/404|not found/i.test(msg)) {
-            push_log({
-              ts: now_iso(),
-              kind: "info",
-              title: "Phase-graph fetch failed — pre-wire fallback vocabulary in use (#FALLBACK)",
-              preview: clamp_preview(msg),
-              data: { error: msg },
-            });
-          }
-        }
-      }
-    })();
-    return () => {
-      stop = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gateway_connected]);
-
-  // Entity tiles for the board (entity_tiles.ts): drawn from the roster at once, each tile then
-  // filled by its own cognition read (every 30 s) and its own card read (a few at a time, kept
-  // and read again only when older than 5 minutes or the entity's state changed). One slow card
-  // never holds the strip. What the loader knows belongs to one gateway + signed-in account: the
+  // Entity cards for the board (entity_tiles.ts): drawn from the roster at once, each then filled
+  // by its own tile read every 30 s (gateway 0.21.0 `reads.tile`), or on an older gateway by the
+  // card + cognition reads. What the loader knows belongs to one gateway + signed-in account: the
   // effect restarts when either changes, and the loader drops everything if its scope moves.
   const entity_principal = String(connection_status?.gateway?.principal?.user_id || "").trim();
   const entity_scope_ref = useRef("");
@@ -5163,7 +5098,6 @@ export function App(): React.ReactElement {
               runs_stale={runs_stale}
               notice={connection_notice_text}
               entities={board_entities}
-              identity_looks={identity_looks}
               entities_total={board_entities_total}
               entities_error={board_entities_error}
               on_open_run={(rid) => {
@@ -5178,8 +5112,6 @@ export function App(): React.ReactElement {
                 void automations_ctl.refresh().then(() => automations_ctl.select(automation_id));
               }}
               entity_app_href={entity_app_url}
-              on_read_diary={(name, entry_id) => gateway.read_entity_diary_entry(name, entry_id)}
-              phase_graph={phase_graph}
               client={gateway}
               on_rename_automation={(automation_id, title, expected_revision) => automations_ctl.revise(automation_id, { title }, expected_revision ?? null)}
               on_revise_automation={(automation_id, changes, expected_revision) => automations_ctl.revise(automation_id, changes, expected_revision)}

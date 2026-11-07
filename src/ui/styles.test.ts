@@ -111,9 +111,9 @@ describe("AbstractObserver styles", () => {
 
   it("chip family shares ONE metric recipe (2px 8px, 999px radius)", () => {
     // Wave A/B claim, pinned: status_pill / pill / mc_pill / mc_status /
-    // mc_entity_phase / chip all wear the same chip metrics.
+    // chip all wear the same chip metrics.
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-    for (const sel of ["status_pill", "pill", "mc_pill", "mc_entity_phase", "chip"]) {
+    for (const sel of ["status_pill", "pill", "mc_pill", "chip"]) {
       const block = css.match(new RegExp(`\\.${sel}\\s*\\{[^}]*\\}`));
       expect(block, `.${sel} rule missing`).toBeTruthy();
       expect(block![0], `.${sel} padding drifted off the chip recipe`).toMatch(/padding:\s*2px 8px/);

@@ -1,38 +1,36 @@
-// The Board's Entities strip, loaded tile by tile (operator 2026-11-07: "it is absurd for a tiny
-// card about the entity to request so much data that you will never show").
+// The Board's Entities strip: one shared kit `EntityCard` per entity (operator 2026-11-07: "there
+// is zero information", "an ENTITY CARD should be a sharable component").
 //
-// What a tile needs comes from three gateway reads of very different cost:
-//   - the roster (`GET /entities`, ~20 ms for 17 entities) already names each entity, its look
-//     and its state — the tiles are drawn from it at once;
-//   - the cognition wire (`/entities/{name}/cognition`, 5-450 ms) carries the live facts (busy or
-//     idle, phase, spend) — read for every tile on every refresh;
-//   - the card (`/entities/{name}/card`) carries the slow facts (age, last moment, open questions
-//     and problems, lessons, night signals) and can be large and slow (88 KB and 1-6 s for a long
-//     life) — read a few at a time, kept between refreshes and read again only when it is old or
-//     the entity's state changed.
-// Each tile updates when its own answer arrives: one slow card never holds the others back.
-// Nothing blanks: a failed roster, cognition or card read keeps what was last known (and says how
-// old it is); everything known belongs to ONE gateway and signed-in account (the loader's scope).
+// Two ways to fill a card, chosen by what the gateway's roster (`GET /entities`) says:
+//   - the TILE read (gateway 0.21.0, backlog 1012): the roster carries `reads.tile`, and each card
+//     is one `GET /entities/{name}/tile` (about 2 KB: who, now, into lately, on its mind, last
+//     moment, age, mind, counts), read again every 30 s. Nothing else is read per entity.
+//   - the FALLBACK, only on an older gateway whose roster carries no `reads.tile`: the card +
+//     cognition reads of 0.12.2 (cognition every 30 s, cards a few at a time, kept 5 minutes or
+//     until the entity's state changed), turned into the same tile shape here, so one card draws
+//     both.
+// The roster draws every card at once (name and look, "loading" until its facts arrive); each card
+// updates when its own answer arrives. Nothing blanks: a failed roster read keeps the last cards and
+// says since when; a failed tile or card read keeps the older facts ("stale", with their read
+// time), or says the details are unavailable when nothing was known. Everything known belongs to
+// ONE gateway and signed-in account (the loader's scope). During a gateway auth-lockout window
+// (429 courtesy) nothing is requested.
 
-import { entity_row_ref, type IdentityRef } from "./identity";
-import { ENTITY_TILES_MAX, extract_dreams_brief, extract_open_briefs, type EntityTile } from "./mission_control";
+import { entityMomentWords, type EntityTile as KitEntityTile, type EntityTilePhase } from "@abstractframework/ui-kit";
 
-/** Roster + cognition cadence (unchanged since the strip shipped). */
+import { ENTITY_TILES_MAX, type EntityTile, type EntityTileLook } from "./mission_control";
+
+/** Roster + tile (or cognition) cadence. */
 export const ENTITY_REFRESH_MS = 30_000;
-/** A card is read again after 5 minutes even when the state did not change. What it carries moves
- * slowly — age in days, open questions/problems and lessons change on diary writes, night signals
- * on a sleep pass — and the live facts (busy/idle, phase, spend) come from cognition every 30 s.
- * A state change (the roster row's `state.changed_at`) refreshes the card at the next 30 s tick;
- * the 5-minute floor catches what changes without one (a new moment or question mid-phase) while
- * cutting the card traffic tenfold against the old every-30-s read. */
+/** Fallback only: a card is read again after 5 minutes even when the state did not change (what
+ * it carries moves slowly; the live facts come from cognition every 30 s), or at the next tick
+ * when the roster row's `state.changed_at` moved. */
 export const ENTITY_CARD_TTL_MS = 5 * 60_000;
-/** Cards in flight at once. Browsers open ~6 connections per host (HTTP/1.1): three leave three
- * for the roster, cognition and every other Board read, and two long lives' slow cards (1-6 s
- * measured) can each hold a slot while the quick cards keep flowing through the third. */
+/** Reads in flight at once (tiles, or the fallback's cards). Browsers open ~6 connections per host
+ * (HTTP/1.1): three leave three for the roster and every other Board read. A tile is usually a
+ * cached projection (tens of ms); a grown life recomputes once and can take seconds. */
 export const ENTITY_CARD_CONCURRENCY = 3;
-/** On a gateway without the cognition wire (404), busy/idle comes from the card's last moment: the
- * card is then read at every 30 s refresh (any card older than half a refresh is stale), so that
- * fact is never older than it was before 0.12.2. */
+/** Fallback on a gateway without the cognition wire (404): the card is read at every refresh. */
 export const ENTITY_CARD_TTL_NO_COGNITION_MS = ENTITY_REFRESH_MS / 2;
 
 const is_not_found = (msg: string) => /\b404\b|not found/i.test(msg);
@@ -40,53 +38,30 @@ const message_of = (e: any, fallback: string) => String(e?.message || e || fallb
 
 /** The gateway reads the strip makes (GatewayClient satisfies it). */
 export type EntityTilesGateway = {
-  list_entities(): Promise<{ entities: any[] }>;
+  list_entities(): Promise<{ entities: any[]; reads?: any }>;
+  get_entity_tile(name: string): Promise<any>;
   get_entity_card(name: string): Promise<any>;
   get_entity_cognition(name: string): Promise<any>;
 };
 
 export type EntityTilesSink = {
-  /** The strip's tiles, roster order, a NEW array each time (never mutated in place); null = not
+  /** The strip's cards, roster order, a NEW array each time (never mutated in place); null = not
    * known yet (another gateway or account: the strip goes back to its placeholders). */
   tiles(tiles: EntityTile[] | null): void;
   /** The roster's full size (the head's "N of total"). */
   total(n: number): void;
   /** The strip's one-line error: "" when there is none (or the gateway has no entity door). When
-   * the roster cannot be read again, the last tiles stay and this line says since when. */
+   * the roster cannot be read again, the last cards stay and this line says since when. */
   error(message: string): void;
 };
 
-type CardFields = Pick<
-  EntityTile,
-  | "age_days"
-  | "last_moment"
-  | "last_moment_at"
-  | "open_questions"
-  | "open_questions_total"
-  | "open_problems"
-  | "open_problems_total"
-  | "lessons"
-  | "lessons_total"
-  | "dreams_brief"
->;
-type CognitionFields = Pick<EntityTile, "working" | "tokens_total" | "live_visit_tokens" | "spend_warning" | "live_phase">;
-
-const NO_CARD: CardFields = {
-  age_days: null,
-  last_moment: "",
-  last_moment_at: "",
-  open_questions: [],
-  open_questions_total: 0,
-  open_problems: [],
-  open_problems_total: 0,
-  lessons: [],
-  lessons_total: 0,
-  dreams_brief: null,
-};
-const NO_COGNITION: CognitionFields = { working: null, tokens_total: null, live_visit_tokens: null, spend_warning: "", live_phase: "" };
+/** True when the roster advertises the tile read (gateway 0.21.0: `reads.tile.available`). */
+export function roster_has_tile_read(roster: any): boolean {
+  return roster?.reads?.tile?.available === true;
+}
 
 /** The state word of a roster row or a card: the state is an OBJECT {state, changed_at, reason,
- * written_by} (verified against castor 2026-07-12); a bare string is accepted. */
+ * written_by}; a bare string is accepted. */
 function state_word(x: any): string {
   const s = x?.state;
   if (s && typeof s === "object") return String(s.state ?? "").trim();
@@ -98,81 +73,153 @@ function state_changed_at(x: any): string {
   return s && typeof s === "object" ? String(s.changed_at ?? "") : "";
 }
 
-/** The card's fields a tile shows (moments entries carry {kind, at}, no title). */
-export function card_fields(card: any): CardFields {
-  const moments = Array.isArray(card?.moments) ? card.moments : [];
-  const last = moments.length ? moments[moments.length - 1] : null;
-  // Access-hint lane (plan §observer 2): open questions/problems briefs off the card,
-  // render-when-present — pre-M-A cards simply have no entry_id and the chips degrade to text.
-  const briefs = extract_open_briefs(card);
-  return {
-    age_days: typeof card?.age_days === "number" ? card.age_days : null,
-    last_moment: String(last?.kind || "").trim(),
-    last_moment_at: String(last?.at || "").trim(),
-    open_questions: briefs.questions,
-    open_questions_total: briefs.questions_total,
-    open_problems: briefs.problems,
-    open_problems_total: briefs.problems_total,
-    lessons: briefs.lessons,
-    lessons_total: briefs.lessons_total,
-    dreams_brief: extract_dreams_brief(card),
-  };
+/** The look a roster row names (its identity record's design and colour), or null. */
+export function roster_look(row: any): EntityTileLook | null {
+  const avatar = row?.identity?.avatar;
+  if (!avatar || typeof avatar !== "object") return null;
+  const style = typeof avatar.style === "string" && avatar.style.trim() ? avatar.style.trim() : null;
+  const color = typeof avatar.color === "string" && avatar.color.trim() ? avatar.color.trim() : null;
+  return style || color ? { style, color } : null;
 }
 
-/** The cognition wire's fields (gateway c1390). null = wire absent (pre-wire gateways 404 it):
- * the tile degrades to the moment-age heuristic, never fabricates. */
-export function cognition_fields(cog: any): CognitionFields {
-  if (!cog) return NO_COGNITION;
-  const lifetime = cog?.spend?.lifetime;
-  const live_visit = cog?.spend?.live_visit;
-  const warnings = Array.isArray(cog?.warnings) ? cog.warnings.map((w: any) => String(w || "")).filter(Boolean) : [];
-  return {
-    working: typeof cog?.working === "boolean" ? cog.working : null,
-    tokens_total: typeof lifetime?.tokens_total === "number" ? lifetime.tokens_total : null,
-    live_visit_tokens: typeof live_visit?.tokens_total === "number" ? live_visit.tokens_total : null,
-    spend_warning: warnings.join(" | "),
-    live_phase: typeof cog?.phase === "string" ? cog.phase : "",
-  };
-}
+// --------------------------------------------------------------------------- the fallback's tile
 
-type RosterRow = { name: string; identity_ref: IdentityRef | null; state: string; changed_at: string };
-
-type CardEntry = {
-  fields: CardFields;
-  /** The card's own state word: the tile's fallback when the roster row carries none. */
-  state: string;
-  /** When the card was read (loader clock). */
-  fetched_at: number;
-  /** The roster row's `state.changed_at` when the read was queued: a different one means the
-   * entity moved since, and the card is read again. */
-  changed_at: string;
+const RULED_PHASES: ReadonlyArray<EntityTilePhase> = ["visit", "work", "personal", "sleep"];
+/** The engraved spellings of the own-time moments (append-only streams carry both). */
+const ENGRAVED_TWINS: Record<string, string> = {
+  own_time_started: "personal_started",
+  own_time_stop_requested: "personal_stop_requested",
+  own_time_frozen: "personal_frozen",
 };
 
+type CardFacts = Pick<KitEntityTile, "age_days" | "into_lately" | "on_its_mind" | "latest_lesson" | "last_moment" | "counts">;
+type CognitionFacts = { phase: EntityTilePhase; state: string | null; detail: KitEntityTile["now"]["detail"]; busy: boolean; trouble: KitEntityTile["now"]["trouble"] };
+
+const text_of = (row: any): string => String(row?.statement || "").trim() || String(row?.title || "").trim();
+const at_of = (row: any): string | null => String(row?.observed_at || "").trim() || null;
+const rows_of = (v: any): any[] => (Array.isArray(v) ? v.filter((r) => r && typeof r === "object" && text_of(r)) : []);
+const newest = (rows: any[]): any | null => rows.reduce((best, r) => (best === null || String(r.observed_at || "") >= String(best.observed_at || "") ? r : best), null);
+
+/** An older gateway's `/card` as the tile's facts (the same sections the gateway's tile projects):
+ * newest interests, the newest open problem or question, the latest lesson, the last moment a
+ * person recognises (one the kit has words for), age and counts. */
+export function card_facts(card: any): CardFacts {
+  const interests = rows_of(card?.discoveries?.interests).sort((a, b) => String(b.observed_at || "").localeCompare(String(a.observed_at || "")));
+  const questions = Array.isArray(card?.questions?.open) ? card.questions.open.filter((r: any) => r && typeof r === "object") : [];
+  const problems = Array.isArray(card?.problems?.open) ? card.problems.open.filter((r: any) => r && typeof r === "object") : [];
+  const lessons = Array.isArray(card?.lessons?.lessons) ? card.lessons.lessons.filter((r: any) => r && typeof r === "object") : [];
+  const problem = newest(rows_of(problems));
+  const question = newest(rows_of(questions));
+  // The newest of the two; a problem wins a tie (the gateway tile's rule).
+  const mind_row = problem && (!question || String(problem.observed_at || "") >= String(question.observed_at || "")) ? { kind: "problem" as const, row: problem } : question ? { kind: "question" as const, row: question } : null;
+  const lesson = newest(rows_of(lessons));
+  const moments = (Array.isArray(card?.moments) ? card.moments : [])
+    .filter((m: any) => m && typeof m === "object" && String(m.at || "").trim())
+    .sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)));
+  let last_moment: KitEntityTile["last_moment"] = null;
+  for (const m of moments) {
+    const kind = ENGRAVED_TWINS[String(m.kind || "")] ?? String(m.kind || "");
+    const details = m.details && typeof m.details === "object" ? m.details : {};
+    // The birth recording of a default identity is not a change anyone made (ADR 0052 §7).
+    if (kind === "identity_changed" && details.cause === "recorded_default") continue;
+    // `to` (a phase change) and `change` (a work order) ride the moment itself or its details.
+    const to = typeof m.to === "string" ? m.to : details.to;
+    const change = typeof m.change === "string" ? m.change : details.change;
+    const candidate = { kind, at: String(m.at), ...(typeof to === "string" ? { to } : {}), ...(typeof change === "string" ? { change } : {}) };
+    if (!entityMomentWords(candidate)) continue; // a kind the kit has no words for is not a moment shown
+    last_moment = candidate;
+    break;
+  }
+  return {
+    age_days: typeof card?.age_days === "number" ? card.age_days : null,
+    into_lately: interests.slice(0, 3).map((r) => ({ text: text_of(r), at: at_of(r), explored: Boolean(r.explored) })),
+    on_its_mind: mind_row ? { kind: mind_row.kind, text: text_of(mind_row.row), at: at_of(mind_row.row) } : null,
+    latest_lesson: lesson ? { text: text_of(lesson), at: at_of(lesson) } : null,
+    last_moment,
+    counts: {
+      open_questions: questions.length,
+      open_problems: problems.length,
+      lessons: typeof card?.lessons?.total === "number" ? card.lessons.total : lessons.length,
+      interests: interests.length,
+      sleeps: null,
+    },
+  };
+}
+
+/** An older gateway's `/cognition` as the tile's "now": the one composite phase (a phase that is
+ * not a ruled word = stopped, the gateway tile's fold), busy, and the own-time-failed trouble. */
+export function cognition_facts(cog: any): CognitionFacts {
+  const phase: EntityTilePhase = RULED_PHASES.includes(cog?.phase) ? cog.phase : "stopped";
+  const loop = cog?.loop && typeof cog.loop === "object" ? cog.loop : {};
+  const detail = phase === "sleep" && ["resting", "dreaming", "bounded"].includes(cog?.sleep_detail) ? cog.sleep_detail : null;
+  return {
+    phase,
+    state: state_word(cog) || null,
+    detail,
+    busy: cog?.working === true,
+    trouble: !loop.running && loop.stopped_by === "failures" ? { kind: "own_time_failed", at: String(loop.updated_at || "") || null } : null,
+  };
+}
+
+/** The tile's "now" when the gateway has no cognition wire: only what the state word says for
+ * sure (stopped, asleep); "awake" alone does not say whether it is in a visit or resting. */
+function now_from_state(word: string): KitEntityTile["now"] | null {
+  if (word === "paused") return { phase: "stopped", state: word, detail: null, busy: false, since: null, trouble: null };
+  if (word === "asleep") return { phase: "sleep", state: word, detail: null, busy: false, since: null, trouble: null };
+  return null;
+}
+
+/** The kit tile drawn from an older gateway's card (+ cognition when the wire exists). */
+export function fallback_tile(name: string, look: EntityTileLook | null, card: CardFacts, cognition: CognitionFacts | null, state: string): KitEntityTile {
+  const now = cognition ? { ...cognition, since: null } : now_from_state(state);
+  return {
+    tile_version: 1,
+    name,
+    slug: name,
+    look,
+    born: null,
+    mind: null,
+    ...card,
+    // `now` may be unknown (no cognition wire, state "awake"): the card then shows no now line.
+    now: now as KitEntityTile["now"],
+  };
+}
+
+// --------------------------------------------------------------------------- the loader
+
+type RosterRow = { name: string; look: EntityTileLook | null; state: string; changed_at: string };
+
+/** One entity's last tile read (tile path). */
+type TileRead = { tile: KitEntityTile | null; read_at: number | null; error: string };
+
+type CardEntry = { facts: CardFacts; state: string; fetched_at: number; changed_at: string };
+
 export type EntityTilesLoader = {
-  /** One tick: the roster, then cognition for every tile, cards queued as needed. Resolves once the
-   * roster and the cognition reads have settled (cards keep arriving after). Returns false when it
-   * stood down (rate-limit window) or was stopped. */
+  /** One tick: the roster, then the tiles (or, on an older gateway, cognition for every card and
+   * the stale cards queued). Resolves once the roster and those reads have settled (fallback cards
+   * keep arriving after). Returns false when it stood down (rate-limit window) or was stopped. */
   refresh(): Promise<boolean>;
   /** Ends the loader: nothing it receives afterwards reaches the sink. */
   stop(): void;
 };
 
 /** Everything the loader knows, for ONE gateway + signed-in account. A new scope starts empty:
- * no tile, card or cognition fact of another account is ever shown or reused, and answers to
- * requests made under an older scope are dropped. */
+ * no fact of another account is ever shown or reused, and answers to requests made under an older
+ * scope are dropped. */
 type ScopeState = {
   scope: string;
-  /** Current tiles by name, roster order kept in `order`. */
-  tiles: Map<string, EntityTile>;
+  /** "tile" when the roster advertises the tile read, else "card" (older gateway). */
+  mode: "tile" | "card";
+  rows: Map<string, RosterRow>;
   order: string[];
-  /** When the roster was last read (loader clock): the stale note's time. */
   roster_at: number | null;
-  /** Card cache by entity name, kept across refreshes. */
+  // tile path
+  reads: Map<string, TileRead>;
+  // fallback path
   cards: Map<string, CardEntry>;
-  /** Last card failure per entity (cleared by a good read). */
   card_errors: Map<string, string>;
-  roster_states: Map<string, string>;
-  /** Entities whose cognition read answered 404 (pre-wire gateway): their cards are read every tick. */
+  cognition: Map<string, CognitionFacts | null>;
+  cognition_settled: Set<string>;
   no_cognition: Set<string>;
   queue: Array<{ name: string; changed_at: string }>;
   queued: Set<string>;
@@ -181,12 +228,15 @@ type ScopeState = {
 
 const new_scope = (scope: string): ScopeState => ({
   scope,
-  tiles: new Map(),
+  mode: "tile",
+  rows: new Map(),
   order: [],
   roster_at: null,
+  reads: new Map(),
   cards: new Map(),
   card_errors: new Map(),
-  roster_states: new Map(),
+  cognition: new Map(),
+  cognition_settled: new Set(),
   no_cognition: new Set(),
   queue: [],
   queued: new Set(),
@@ -200,10 +250,31 @@ function clock_words(ms: number, now_ms: number): string {
   return new Date(now_ms).toDateString() === d.toDateString() ? time : `${d.toLocaleDateString()} ${time}`;
 }
 
-/** The strip's line when the roster could not be read again and the last tiles stay (plain words:
+/** The strip's line when the roster could not be read again and the last cards stay (plain words:
  * the gateway's error text is for the log, not the Board). */
 export function stale_roster_note(read_at_ms: number, now_ms: number): string {
   return `Could not refresh the entities; showing what was read at ${clock_words(read_at_ms, now_ms)}.`;
+}
+
+/** One strip card from what the scope knows. */
+function board_tile(st: ScopeState, name: string): EntityTile {
+  const row = st.rows.get(name);
+  const look = row?.look ?? null;
+  if (st.mode === "tile") {
+    const r = st.reads.get(name);
+    if (r?.tile) return { name, look, tile: r.tile, status: r.error ? "stale" : "ready", as_of_ms: r.error ? r.read_at : null, reason: r.error };
+    if (r?.error) return { name, look, tile: null, status: "unavailable", as_of_ms: null, reason: r.error };
+    return { name, look, tile: null, status: "loading", as_of_ms: null, reason: "" };
+  }
+  const entry = st.cards.get(name);
+  const err = st.card_errors.get(name) || "";
+  // A card waits for its first cognition answer too, so its "now" line does not change under the reader.
+  if (entry && st.cognition_settled.has(name)) {
+    const tile = fallback_tile(name, look, entry.facts, st.cognition.get(name) ?? null, row?.state || entry.state);
+    return { name, look, tile, status: err ? "stale" : "ready", as_of_ms: err ? entry.fetched_at : null, reason: err };
+  }
+  if (!entry && err) return { name, look, tile: null, status: "unavailable", as_of_ms: null, reason: err };
+  return { name, look, tile: null, status: "loading", as_of_ms: null, reason: "" };
 }
 
 export function create_entity_tiles_loader(opts: {
@@ -218,7 +289,7 @@ export function create_entity_tiles_loader(opts: {
   card_ttl_ms?: number;
   card_concurrency?: number;
   /** How per-entity updates reach the sink: the app batches them to one render per frame. Tests
-   * pass a synchronous scheduler. The roster's tiles are always emitted at once. */
+   * pass a synchronous scheduler. The roster's cards are always emitted at once. */
   schedule?: (fn: () => void) => void;
 }): EntityTilesLoader {
   const { gateway, sink } = opts;
@@ -236,41 +307,47 @@ export function create_entity_tiles_loader(opts: {
   const emit_now = () => {
     flush_pending = false;
     if (stopped) return;
-    sink.tiles(S.order.map((n) => S.tiles.get(n)!).filter(Boolean));
+    sink.tiles(S.order.map((n) => board_tile(S, n)));
   };
-  const emit_soon = () => {
-    if (flush_pending || stopped) return;
+  const emit_soon = (st: ScopeState) => {
+    if (flush_pending || stopped || st !== S) return;
     flush_pending = true;
     schedule(emit_now);
   };
+  const live = (st: ScopeState) => !stopped && st === S;
 
-  /** Applies an answer to the current tile — only when it was asked under the current scope. */
-  const patch = (st: ScopeState, name: string, fields: Partial<EntityTile>) => {
-    if (stopped || st !== S) return;
-    const t = S.tiles.get(name);
-    if (!t) return;
-    S.tiles.set(name, { ...t, ...fields });
-    emit_soon();
+  // ---- tile path: every tile read again at each tick, a few at a time.
+  const read_tiles = async (st: ScopeState, names: string[]): Promise<void> => {
+    const todo = [...names];
+    const worker = async () => {
+      while (todo.length && live(st)) {
+        if (rate_limited()) {
+          todo.length = 0; // stand down: the next tick reads them again
+          return;
+        }
+        const name = todo.shift()!;
+        try {
+          const tile = await gateway.get_entity_tile(name);
+          if (!live(st)) return;
+          st.reads.set(name, { tile, read_at: now(), error: "" });
+        } catch (e: any) {
+          if (!live(st)) return;
+          // A failed read keeps the older tile (shown as stale with its read time) and is tried
+          // again at the next tick.
+          const prev = st.reads.get(name);
+          st.reads.set(name, { tile: prev?.tile ?? null, read_at: prev?.read_at ?? null, error: message_of(e, "tile failed") });
+        }
+        emit_soon(st);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, names.length) }, worker));
   };
 
-  /** The card part of a tile from what is known: the cached card (with its age when the last read
-   * of it failed), else pending or failed. */
-  const card_part = (st: ScopeState, name: string): Partial<EntityTile> => {
-    const roster_state = st.roster_states.get(name) || "";
-    const entry = st.cards.get(name);
-    const err = st.card_errors.get(name) || "";
-    if (entry) {
-      return { ...entry.fields, state: roster_state || entry.state, card_state: "loaded", error: err, card_as_of_ms: err ? entry.fetched_at : null };
-    }
-    if (err) return { ...NO_CARD, state: roster_state, card_state: "failed", error: err, card_as_of_ms: null };
-    return { ...NO_CARD, state: roster_state, card_state: "pending", error: "", card_as_of_ms: null };
-  };
-
+  // ---- fallback path (older gateway): cognition for every card, cards when stale.
   const pump = () => {
     const st = S;
     while (!stopped && st.in_flight.size < concurrency && st.queue.length) {
       if (rate_limited()) {
-        // Stand down: drop the queue; the next tick queues whatever is still stale.
         for (const q of st.queue) st.queued.delete(q.name);
         st.queue.length = 0;
         return;
@@ -283,20 +360,18 @@ export function create_entity_tiles_loader(opts: {
         .then(
           (card) => {
             if (stopped) return;
-            st.cards.set(name, { fields: card_fields(card), state: state_word(card), fetched_at: now(), changed_at });
+            st.cards.set(name, { facts: card_facts(card), state: state_word(card), fetched_at: now(), changed_at });
             st.card_errors.delete(name);
           },
           (e: any) => {
             if (stopped) return;
-            // A failed read keeps what the tile knew (older card fields, shown with their age, or
-            // the roster's) and is retried at the next tick: the cache entry keeps its old read time.
             st.card_errors.set(name, message_of(e, "card failed"));
           },
         )
         .finally(() => {
           st.in_flight.delete(name);
-          if (stopped || st !== S) return;
-          patch(st, name, card_part(st, name));
+          if (!live(st)) return;
+          emit_soon(st);
           pump();
         });
     }
@@ -310,11 +385,50 @@ export function create_entity_tiles_loader(opts: {
     return entry.changed_at !== changed_at;
   };
 
+  const read_cards = async (st: ScopeState, rows: RosterRow[]): Promise<void> => {
+    // Cognition first (cheap, live): every request is issued before any card. A 404 means the wire
+    // is absent; any other failure keeps the last answer.
+    const cognition = rows.map((r) =>
+      gateway.get_entity_cognition(r.name).then(
+        (cog) => {
+          if (!live(st)) return;
+          st.no_cognition.delete(r.name);
+          st.cognition.set(r.name, cognition_facts(cog));
+          st.cognition_settled.add(r.name);
+          emit_soon(st);
+        },
+        (e: any) => {
+          if (!live(st)) return;
+          if (is_not_found(message_of(e, ""))) {
+            st.no_cognition.add(r.name);
+            st.cognition.set(r.name, null);
+          }
+          st.cognition_settled.add(r.name);
+          emit_soon(st);
+        },
+      ),
+    );
+    for (const r of rows) {
+      if (st.queued.has(r.name) || st.in_flight.has(r.name)) continue;
+      if (!card_is_stale(st, r.name, r.changed_at)) continue;
+      st.queue.push({ name: r.name, changed_at: r.changed_at });
+      st.queued.add(r.name);
+    }
+    pump();
+    await Promise.all(cognition);
+  };
+
+  const forget_missing = (st: ScopeState, names: Set<string>) => {
+    for (const m of [st.reads, st.cards, st.card_errors, st.cognition] as Map<string, unknown>[]) {
+      for (const n of [...m.keys()]) if (!names.has(n)) m.delete(n);
+    }
+    for (const s of [st.cognition_settled, st.no_cognition]) for (const n of [...s]) if (!names.has(n)) s.delete(n);
+  };
+
   const refresh = async (): Promise<boolean> => {
     if (stopped) return false;
-    // Stand down during a gateway auth-lockout window (429 courtesy).
     if (rate_limited()) return false;
-    // Another gateway or account: start from nothing (the old answers are dropped by `st !== S`).
+    // Another gateway or account: start from nothing (old answers are dropped by `live(st)`).
     const scope = scope_of();
     if (scope !== S.scope) {
       S = new_scope(scope);
@@ -323,32 +437,28 @@ export function create_entity_tiles_loader(opts: {
     }
     const st = S;
     let rows: RosterRow[];
+    let has_tile_read: boolean;
     try {
       const roster = await gateway.list_entities();
-      if (stopped || st !== S) return false;
+      if (!live(st)) return false;
       sink.total(roster.entities.length);
-      // Each tile keeps its row's identity ref (framework ADR 0052): the board draws the look it names.
+      has_tile_read = roster_has_tile_read(roster);
       rows = roster.entities
-        .map((e: any) => ({
-          name: String(e?.name || e?.slug || "").trim(),
-          identity_ref: entity_row_ref(e),
-          state: state_word(e),
-          changed_at: state_changed_at(e),
-        }))
+        .map((e: any) => ({ name: String(e?.name || e?.slug || "").trim(), look: roster_look(e), state: state_word(e), changed_at: state_changed_at(e) }))
         .filter((r: RosterRow) => Boolean(r.name))
         .slice(0, ENTITY_TILES_MAX);
     } catch (e: any) {
-      if (stopped || st !== S) return false;
+      if (!live(st)) return false;
       const msg = message_of(e, "");
-      // No entity door on this gateway is a normal deployment, not an error: no tiles.
+      // No entity door on this gateway is a normal deployment, not an error: no cards.
       if (is_not_found(msg)) {
-        st.tiles = new Map();
+        st.rows = new Map();
         st.order = [];
         sink.tiles([]);
         sink.error("");
         return true;
       }
-      // Any other failure keeps the last tiles and says since when (never blanks the strip).
+      // Any other failure keeps the last cards and says since when (never blanks the strip).
       if (st.order.length && st.roster_at !== null) {
         emit_now();
         sink.error(stale_roster_note(st.roster_at, now()));
@@ -359,61 +469,20 @@ export function create_entity_tiles_loader(opts: {
       return true;
     }
 
-    // Tiles from the roster at once: what the previous tick knew (cognition, the cached card)
-    // stays on the tile until the new answers replace it — nothing blanks on a refresh.
+    st.mode = has_tile_read ? "tile" : "card";
     const names = new Set(rows.map((r) => r.name));
-    for (const r of rows) st.roster_states.set(r.name, r.state);
-    for (const n of [...st.cards.keys()]) if (!names.has(n)) st.cards.delete(n);
-    for (const n of [...st.card_errors.keys()]) if (!names.has(n)) st.card_errors.delete(n);
-    for (const n of [...st.roster_states.keys()]) if (!names.has(n)) st.roster_states.delete(n);
-    for (const n of [...st.no_cognition]) if (!names.has(n)) st.no_cognition.delete(n);
-    const next = new Map<string, EntityTile>();
-    for (const r of rows) {
-      const prev = st.tiles.get(r.name);
-      next.set(r.name, {
-        name: r.name,
-        identity_ref: r.identity_ref,
-        ...(prev ? pick_cognition(prev) : { ...NO_COGNITION, cognition_pending: true }),
-        ...card_part(st, r.name),
-      } as EntityTile);
-    }
-    st.tiles = next;
+    forget_missing(st, names);
+    st.rows = new Map(rows.map((r) => [r.name, r]));
     st.order = rows.map((r) => r.name);
     st.roster_at = now();
     flush_pending = false;
-    sink.tiles(st.order.map((n) => st.tiles.get(n)!));
+    // Every card from the roster at once: what the previous tick knew stays until a new answer
+    // replaces it — nothing blanks on a refresh.
+    sink.tiles(st.order.map((n) => board_tile(st, n)));
     sink.error("");
 
-    // Cognition first (cheap, live): every request is issued before any card, so the browser's
-    // per-host queue serves them first. A 404 means the wire is absent (the tile falls back to the
-    // card's last moment); any other failure keeps the last busy/idle and spend facts.
-    const cognition = rows.map((r) =>
-      gateway.get_entity_cognition(r.name).then(
-        (cog) => {
-          if (st !== S) return;
-          st.no_cognition.delete(r.name);
-          patch(st, r.name, { ...cognition_fields(cog), cognition_pending: false });
-        },
-        (e: any) => {
-          if (st !== S) return;
-          if (is_not_found(message_of(e, ""))) {
-            st.no_cognition.add(r.name);
-            patch(st, r.name, { ...NO_COGNITION, cognition_pending: false });
-          } else {
-            patch(st, r.name, { cognition_pending: false });
-          }
-        },
-      ),
-    );
-    // Cards: only the stale ones, never twice in the queue or while one is in flight.
-    for (const r of rows) {
-      if (st.queued.has(r.name) || st.in_flight.has(r.name)) continue;
-      if (!card_is_stale(st, r.name, r.changed_at)) continue;
-      st.queue.push({ name: r.name, changed_at: r.changed_at });
-      st.queued.add(r.name);
-    }
-    pump();
-    await Promise.all(cognition);
+    if (st.mode === "tile") await read_tiles(st, st.order);
+    else await read_cards(st, rows);
     return !stopped;
   };
 
@@ -444,16 +513,5 @@ export function start_entity_tiles_poll(loader: EntityTilesLoader, interval_ms =
     stop = true;
     loader.stop();
     if (timer !== null) clearTimeout(timer);
-  };
-}
-
-function pick_cognition(t: EntityTile): CognitionFields & Pick<EntityTile, "cognition_pending"> {
-  return {
-    working: t.working,
-    tokens_total: t.tokens_total,
-    live_visit_tokens: t.live_visit_tokens,
-    spend_warning: t.spend_warning,
-    live_phase: t.live_phase,
-    cognition_pending: t.cognition_pending,
   };
 }

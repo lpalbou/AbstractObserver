@@ -29,7 +29,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useStat
 import { createPortal } from "react-dom";
 import "./board.css";
 
-import { AfChip, AfMemoryHintChip, Icon, automationControls, whenWords, type AutomationChanges, type AutomationSummary, type ControlState, type IconName } from "@abstractframework/ui-kit";
+import { AfChip, EntityCard, Icon, automationControls, whenWords, type AutomationChanges, type AutomationSummary, type ControlState, type EntityCardStatus, type EntityTile as KitEntityTile, type IconName } from "@abstractframework/ui-kit";
 import { tool_call_sentence, tool_call_verb, tools_phrase } from "./tool_call_words";
 import { Markdown } from "@abstractframework/panel-chat";
 
@@ -49,9 +49,7 @@ import {
   type BoardDataClient,
   type RunOutcome, useSubrunFates, type SubrunFate } from "./board_data";
 import { parse_iso_ms, run_duration_ms, terminal_run_status } from "./format";
-import { EntityLook, type IdentityLooks, type IdentityRef } from "./identity";
 import { LoadingState } from "./loading";
-import { Modal } from "./modal";
 import { run_status_class, stop_reason_of, type RunSummary } from "./run_status";
 import {
   DEFAULT_STALL_AFTER_MS,
@@ -1084,358 +1082,32 @@ export function filter_done_window(
 
 // --- entities strip -------------------------------------------------------------
 
+/** An entity's look as the shared card draws it: its identity design and colour. */
+export type EntityTileLook = { style: string | null; color: string | null };
+
+/** One card of the Board's Entities strip (entity_tiles.ts fills it): the kit `EntityCard`'s
+ * inputs. `tile` is the gateway's tile (`GET /entities/{name}/tile`), or the same shape built
+ * from an older gateway's card + cognition; null until read. */
 export type EntityTile = {
   name: string;
-  /** The identity its roster row names (framework ADR 0052), or null when the row carries none:
-   * the tile then looks as it always did. */
-  identity_ref: IdentityRef | null;
-  state: string;
-  age_days: number | null;
-  last_moment: string;
-  /** ISO timestamp of the last recorded moment — drives the tile's
-   * "active Xs ago" freshness (B3: the operator must see whether a life is
-   * doing something without opening it). Empty = unknown. */
-  last_moment_at: string;
-  /** AUTHORITATIVE working truth from the cognition wire (gateway c1390:
-   * store-read loop/visit state, never fabricated). null = wire absent
-   * (pre-wire gateway) — the tile falls back to the moment-age heuristic. */
-  working: boolean | null;
-  /** Lifetime billed tokens from the home run ledger (spend.lifetime).
-   * null = wire absent. */
-  tokens_total: number | null;
-  /** Billed tokens of the OPEN visit's run tree (spend.live_visit);
-   * null when no visit is open or wire absent. */
-  live_visit_tokens: number | null;
-  /** Labeled spend gaps from the wire (e.g. loop-spend #FALLBACK) — ride
-   * the tooltip so a partial number is never read as total. */
-  spend_warning: string;
-  /** COMPOSITE phase from the cognition wire (one-active-phase ruling,
-   * c1455: the board renders THE active phase from the SAME source as the
-   * apps). Empty = wire absent — fall back to the card-state mapping. */
-  live_phase: string;
-  /** Open diary questions/problems from the /card (bounded briefs; the
-   * access-hint render commitment, plan improving-entity-capabilities
-   * §observer 2). Empty = section absent or nothing open — no chip. */
-  open_questions: EntityCardBrief[];
-  open_questions_total: number;
-  open_problems: EntityCardBrief[];
-  open_problems_total: number;
-  /** Lessons from the card's build-5 section (newest-first briefs + true
-   * total). Distilled knowledge, only accumulates — a count, never a
-   * ratio (the card's own provenance rule). */
-  lessons: EntityCardBrief[];
-  lessons_total: number;
-  /** Wave-5 night signals: standing dreams carrying signal streams
-   * (null = section absent — pre-signal store or pre-brief gateway). */
-  dreams_brief: DreamSignalsBrief | null;
-  error: string;
-  /** Where the card-derived fields stand (entity_tiles.ts reads the card apart from the roster):
-   * "pending" = not read yet, the tile shows quiet placeholders in their place; "failed" = the
-   * read failed and nothing older is known, the tile shows a short note. Absent = "loaded". */
-  card_state?: "pending" | "loaded" | "failed";
-  /** True until the cognition wire's first answer for this tile (placeholders, not "unknown"). */
-  cognition_pending?: boolean;
-  /** When the card fields shown were read, set only when the latest read of the card failed: the
-   * tile then says how old they are ("as of 12m ago") instead of passing them as current. */
-  card_as_of_ms?: number | null;
+  /** From the roster row (drawn before the tile arrives). */
+  look: EntityTileLook | null;
+  tile: KitEntityTile | null;
+  /** "loading" (nothing read yet), "ready", "stale" (the last read failed; `tile` is older, read
+   * at `as_of_ms`), "unavailable" (it could not be read and nothing is known). */
+  status: EntityCardStatus;
+  as_of_ms: number | null;
+  /** Why the last read failed (the card's tooltip only). */
+  reason: string;
 };
 
-/** One open question/problem brief off the entity card. The card's row
- * briefs carry `entry_id` only when the projection quotes the book key
- * (memory's M-A mint) — absent keys render as plain text, never a dead
- * button (the chip's honesty rule). */
-export type EntityCardBrief = {
-  record_id: string;
-  title: string;
-  statement: string;
-  entry_id: string | null;
-};
-
-/** Tile bound: enough to see what an entity carries open without turning
- * the strip into the entity app (the deep view stays there). */
-export const TILE_HINTS_BOUND = 4;
-
-/** The card's dreams-signals brief (wave-5 lane (a), memory c3725):
- * {count, kinds, felt_tones} folded over STANDING signal-carrying dreams.
- * COUNT COUNTS SIGNALS, not dreams (engine-verified: entity_card.py
- * increments per signal entry; live wire served 24 = 12+12 across two
- * standing dreams). Absent = no standing dream carries signals
- * (pre-signal dreams self-identify by absence — zero migration). */
-export type DreamSignalsBrief = {
-  count: number;
-  kinds: string[];
-  felt_tones: string[];
-  /** Signal-carrying dream count (memory c3810's unit fix — additive;
-   * null on pre-fix briefs). */
-  dreams: number | null;
-};
-
-export function extract_dreams_brief(card: any): DreamSignalsBrief | null {
-  const b = (card as any)?.discoveries?.dreams_signals_brief;
-  if (!b || typeof b !== "object" || Array.isArray(b)) return null;
-  // Count must be a positive integer — "2.7 dreams" is the same junk
-  // class as a stringly count, and both drop rather than render.
-  const count = typeof b.count === "number" && Number.isInteger(b.count) && b.count > 0 ? b.count : 0;
-  if (!count) return null;
-  // Entries must already be words: a version-skewed gateway serving
-  // richer rows ({kind, count}) must drop, never render [object Object].
-  const words = (v: any): string[] =>
-    Array.isArray(v) ? v.filter((x: any) => typeof x === "string").map((x: string) => x.trim()).filter(Boolean) : [];
-  const dreams = typeof b.dreams === "number" && Number.isInteger(b.dreams) && b.dreams > 0 ? b.dreams : null;
-  return { count, kinds: words(b.kinds), felt_tones: words(b.felt_tones), dreams };
-}
-
-function card_brief(row: any): EntityCardBrief | null {
-  if (!row || typeof row !== "object") return null;
-  const title = String(row.title || "").trim();
-  const statement = String(row.statement || "").trim();
-  if (!title && !statement) return null;
-  const entry_id = typeof row.entry_id === "string" && row.entry_id.trim() ? row.entry_id.trim() : null;
-  return { record_id: String(row.record_id || "").trim(), title, statement, entry_id };
-}
-
-/** Pure read of the /card questions/problems/lessons sections into tile
- * briefs. Layer contract (chip ruling c2623/c2626): /card items carry
- * entry_id TOP-LEVEL — this composer reads exactly that layer, never a
- * grep. Lessons (build 5, c3182) have no open/resolved split — the card
- * serves { lessons: [briefs newest-first], total } because lessons only
- * accumulate; absent section = pre-build-5 gateway, renders nothing. */
-export function extract_open_briefs(card: any): {
-  questions: EntityCardBrief[];
-  questions_total: number;
-  problems: EntityCardBrief[];
-  problems_total: number;
-  lessons: EntityCardBrief[];
-  lessons_total: number;
-} {
-  const section = (name: string): EntityCardBrief[] => {
-    const open = (card as any)?.[name]?.open;
-    if (!Array.isArray(open)) return [];
-    return open.map(card_brief).filter((b): b is EntityCardBrief => b !== null);
-  };
-  const questions = section("questions");
-  const problems = section("problems");
-  const lessons_raw = (card as any)?.lessons?.lessons;
-  const lessons = Array.isArray(lessons_raw)
-    ? lessons_raw.map(card_brief).filter((b): b is EntityCardBrief => b !== null)
-    : [];
-  const lessons_total =
-    typeof (card as any)?.lessons?.total === "number" ? (card as any).lessons.total : lessons.length;
-  return {
-    questions: questions.slice(0, TILE_HINTS_BOUND),
-    questions_total: questions.length,
-    problems: problems.slice(0, TILE_HINTS_BOUND),
-    problems_total: problems.length,
-    lessons: lessons.slice(0, TILE_HINTS_BOUND),
-    lessons_total,
-  };
-}
-
-/** Compact token count for tile chips: 812 -> "812", 12_340 -> "12.3k",
- * 4_200_000 -> "4.2M". Null-safe (null renders nothing — never fabricate). */
+/** Compact token count: 812 -> "812", 12_340 -> "12k", 4_200_000 -> "4.2M". Null-safe (null
+ * renders nothing — never fabricate). */
 export function format_tokens(n: number | null): string {
   if (n === null || !Number.isFinite(n) || n < 0) return "";
   if (n < 1_000) return String(Math.round(n));
   if (n < 1_000_000) return `${(n / 1_000).toFixed(n < 10_000 ? 1 : 0)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-/** Milliseconds since an entity's last recorded moment; null when the card
- * carried no parseable timestamp (render nothing — never fabricate). */
-export function entity_activity_age(last_moment_at: string, now_ms = Date.now()): number | null {
-  const raw = String(last_moment_at || "").trim();
-  if (!raw) return null;
-  const ts = Date.parse(raw);
-  if (!Number.isFinite(ts)) return null;
-  return Math.max(0, now_ms - ts);
-}
-
-/** "● active" window for entity tiles: one board-poll generation. */
-export const ACTIVE_WINDOW_MS = 60_000;
-
-export function format_age(ms: number | null, now_ms = Date.now()): string {
-  if (ms === null || !Number.isFinite(ms)) return "";
-  const delta = Math.max(0, now_ms - ms);
-  if (delta < 60_000) return `${Math.round(delta / 1000)}s`;
-  if (delta < 3_600_000) return `${Math.round(delta / 60_000)}m`;
-  if (delta < 86_400_000) return `${(delta / 3_600_000).toFixed(1)}h`;
-  return `${(delta / 86_400_000).toFixed(1)}d`;
-}
-
-/** Chip label fallback when a brief has no title: the statement, clamped
- * for the strip (the full statement rides the tooltip untruncated). */
-function clamp_brief(s: string): string {
-  const t = String(s || "").trim();
-  return t.length > 72 ? `${t.slice(0, 70)}…` : t;
-}
-
-/** The wire-derived phase graph (one-graph mechanism, laurent dm#79 /
- * c3563 consumer contract): phase words + synonym map derived FROM the
- * gateway-served artifact, never a second hand-written copy. */
-export type PhaseGraph = {
-  /** Ruled phase words (graph keys, e.g. visit/work/personal/sleep). */
-  phases: string[];
-  /** Substring → phase word, from each phase's key + spoken_synonyms. */
-  synonyms: Array<{ needle: string; phase: string }>;
-  /** Mode-axis words from the v8 machine-readable state_mode_axis block
-   * (word → target phase, role-validated) — absent on v6/v7 artifacts,
-   * where the local residue tables apply. */
-  modes: Array<{ needle: string; phase: string }>;
-  /** The no-signal settling default (spec.initial_phase — sleep). */
-  initial: string;
-  /** Artifact identity for drift honesty (version + byte sha). */
-  version: number | null;
-  sha256: string;
-};
-
-/** Pure derivation of the render vocabulary from the served spec payload
- * ({spec, sha256, ...}). Returns null when the payload carries no usable
- * graph — the caller keeps the labeled pre-wire fallback, never a blank
- * board. */
-/** Separator normalization for needle matching: the wire carries
- * own_time / own-time / "own time" for one spoken synonym — fold [_-] to
- * spaces on BOTH sides so the graph path never diverges from the fallback
- * on a separator (adversary F1: own_time rendered raw under the graph). */
-function _norm(s: string): string {
-  return s.toLowerCase().replace(/[_-]+/g, " ");
-}
-
-export function derive_phase_graph(payload: any): PhaseGraph | null {
-  const spec = payload?.spec && typeof payload.spec === "object" ? payload.spec : null;
-  const phases_obj = spec?.phases && typeof spec.phases === "object" && !Array.isArray(spec.phases) ? spec.phases : null;
-  if (!phases_obj) return null;
-  const phases = Object.keys(phases_obj).filter((k) => k && typeof k === "string");
-  if (!phases.length) return null;
-  const synonyms: Array<{ needle: string; phase: string }> = [];
-  for (const p of phases) {
-    synonyms.push({ needle: _norm(p), phase: p });
-    const spoken = (phases_obj as any)[p]?.spoken_synonyms;
-    if (Array.isArray(spoken)) {
-      for (const s of spoken) {
-        const n = _norm(String(s || "").trim());
-        if (n) synonyms.push({ needle: n, phase: p });
-      }
-    }
-  }
-  // AWAKE-NEVER-RENDERS names the no-signal default as SLEEP specifically —
-  // a last-key fallback could fabricate an ACTIVITY claim on a reordered
-  // artifact (adversary F2). Absent/invalid initial_phase: prefer sleep;
-  // a graph without sleep is unusable for settling — labeled fallback.
-  const declared = typeof spec.initial_phase === "string" && phases.includes(spec.initial_phase) ? spec.initial_phase : null;
-  const initial = declared ?? (phases.includes("sleep") ? "sleep" : null);
-  if (!initial) return null;
-  // v8 machine-readable mode axis (my own consumer ask, banked at the
-  // bump): each word maps to its declared phase, target-validated against
-  // the graph — the local residue tables die where this block exists.
-  const modes: Array<{ needle: string; phase: string }> = [];
-  const mode_words = (spec as any)?.state_mode_axis?.words;
-  if (mode_words && typeof mode_words === "object" && !Array.isArray(mode_words)) {
-    for (const [word, decl] of Object.entries(mode_words)) {
-      const target = String((decl as any)?.phase || "").trim();
-      const n = _norm(String(word || "").trim());
-      if (n && phases.includes(target)) modes.push({ needle: n, phase: target });
-    }
-  }
-  return {
-    phases,
-    synonyms,
-    modes,
-    initial,
-    version: typeof spec.version === "number" ? spec.version : null,
-    sha256: String(payload?.sha256 || "").trim(),
-  };
-}
-
-/** STATE/MODE-AXIS fold: machine vocabulary that is never a phase (the
- * graph's axes_note: awake|asleep|paused are wire truth, never display
- * truth). Targets land on graph words only. v7 mode roles (axes_note,
- * documented on entity's c3610 bump): visiting DECIDES visit (rides the
- * synonym match), dreaming DECORATES asleep, RESTING = loop-alive
- * between days INSIDE PERSONAL — my v6-era rest→sleep fold was wrong
- * and is corrected here (owned at c3613). These lists are the residual
- * hand copy until the artifact gains a machine-readable state_mode
- * block (proposed on the bump thread); pinned in tests meanwhile. */
-const STATE_AXIS_SLEEP_WORDS = ["asleep", "sleep", "dream"];
-const STATE_AXIS_PERSONAL_WORDS = ["rest"];
-const STATE_AXIS_SETTLING_WORDS = ["awake", "idle"];
-
-// Entity life_state → the ruled phase words. Graph-derived when the wire
-// spec is present (one-graph mechanism); the hardcoded map below is the
-// LABELED PRE-WIRE FALLBACK only (byte-compatible with the pre-mechanism
-// behavior; deleted the day pre-wire gateways stop existing).
-// AWAKE IS NOT A DWELLING (laurent c203/c3548): the state-axis word maps
-// to the settling default (sleep), never a phase chip of its own.
-export function entity_phase(state: string, graph?: PhaseGraph | null): string {
-  const s = String(state || "").trim().toLowerCase();
-  if (!s) return "unknown";
-  if (graph) {
-    const n = _norm(s);
-    // Phase words + spoken synonyms from THE artifact (longest needle
-    // first so "own time" beats a hypothetical shorter overlap; sort
-    // stability makes equal-length ties deterministic by artifact order).
-    const hits = graph.synonyms
-      .filter((m) => n.includes(m.needle))
-      .sort((a, b) => b.needle.length - a.needle.length);
-    if (hits.length) return hits[0]!.phase;
-    // v8 machine-readable mode words (artifact-declared, target-validated)
-    // take precedence over the local residue tables — the artifact's word
-    // wins wherever it is declared.
-    const mode_hits = graph.modes
-      .filter((m) => n.includes(m.needle))
-      .sort((a, b) => b.needle.length - a.needle.length);
-    if (mode_hits.length) return mode_hits[0]!.phase;
-    // Legacy composite spelling: awake:working / tasked — the task word
-    // is work's entry vocabulary (graph: work entered_by a task given).
-    // no_task is a transition CAUSE meaning the opposite (adversary F8's
-    // inversion catch) — it settles, never claims work.
-    if (s.includes("task") && !s.includes("no_task") && graph.phases.includes("work")) return "work";
-    // State/mode-axis RESIDUE tables (pre-v8 artifacts without the
-    // machine-readable block; also the bare-word forms the block does not
-    // carry, e.g. "asleep"/"rest" vs the block's "dreaming"/"resting").
-    if (STATE_AXIS_SLEEP_WORDS.some((w) => s.includes(w))) return graph.initial;
-    if (STATE_AXIS_PERSONAL_WORDS.some((w) => s.includes(w)) && graph.phases.includes("personal")) return "personal";
-    if (STATE_AXIS_SETTLING_WORDS.some((w) => s.includes(w))) return graph.initial;
-    // Liveness axis (above the machine, distinct render contract).
-    if (s.includes("stop")) return "stopped";
-    if (s.includes("pause")) return "paused";
-    return s;
-  }
-  // ---- labeled pre-wire fallback (no served graph): byte-compatible
-  // with the pre-mechanism behavior (one bug excepted: the no_task
-  // inversion is fixed on BOTH paths — a cause word never claims work),
-  // deleted when pre-wire gateways die.
-  if (s.includes("visit")) return "visit";
-  if (s.includes("sleep") || s.includes("dream")) return "sleep";
-  if (s.includes("personal") || s.includes("own_time") || s.includes("own time")) return "personal";
-  if ((s.includes("task") && !s.includes("no_task")) || s.includes("work")) return "work";
-  if (s.includes("awake") || s.includes("idle")) return "sleep";
-  if (s.includes("stop")) return "stopped";
-  if (s.includes("pause")) return "paused";
-  if (s.includes("rest")) return "resting";
-  return s;
-}
-
-/** Phase keys with a dedicated mc_phase_* style. Graph-derived when the
- * wire spec is present (known_phase_keys below); this static set is the
- * pre-wire fallback. "awake" left the set with the c203 fold (it maps to
- * sleep — the chip can never carry it). Under the WIRE graph, "resting"
- * folds to sleep (rest is a sleep-mode word); the fallback keeps it for
- * byte-compatibility. Liveness words (stopped/paused) stay — the kill
- * switch renders distinctly per the graph's own render contract. */
-export const KNOWN_PHASE_KEYS = new Set(["visit", "work", "personal", "sleep", "paused", "resting", "stopped", "unknown"]);
-
-/** Keys that actually have an mc_phase_* rule in styles.css. A graph word
- * WITHOUT a style must wear the bounded "other" class, not an unstyled
- * class name (adversary F5: a bumped artifact adding "meditate" would
- * otherwise mint mc_phase_meditate matching no rule — neither ruled color
- * nor the dashed "other" boundary). Adding the style + this entry is the
- * deliberate two-line act a new phase word costs this app. */
-const STYLED_PHASE_KEYS = new Set(["visit", "work", "personal", "sleep", "paused", "resting", "stopped", "unknown"]);
-
-export function known_phase_keys(graph?: PhaseGraph | null): Set<string> {
-  if (!graph) return KNOWN_PHASE_KEYS;
-  const styled_graph_words = graph.phases.filter((p) => STYLED_PHASE_KEYS.has(p));
-  return new Set([...styled_graph_words, "paused", "stopped", "unknown"]);
 }
 
 export type MissionControlProps = {
@@ -1449,12 +1121,10 @@ export type MissionControlProps = {
   runs_stale?: boolean;
   /** The app's coalesced connection notice ("runs listing timed out · 02:01 ×2"), if any. */
   notice?: string;
-  /** The entity tiles; null until the FIRST roster + cards read lands (the strip shows skeleton
-   * tiles in its reserved height), [] once read and empty (a one-line "no entities" head). */
+  /** The entity cards; null until the FIRST roster read lands (the strip shows loading cards in
+   * its reserved height), [] once read and empty (a one-line "no entities" head). */
   entities: EntityTile[] | null;
-  /** Reads each tile's look once per identity ref (identity.tsx). */
-  identity_looks: IdentityLooks;
-  /** The roster's size (known before the cards: the skeleton row has as many tiles). */
+  /** The roster's size (known before the tiles: the loading row has as many cards). */
   entities_total: number;
   entities_error: string;
   on_open_run: (run_id: string) => void;
@@ -1462,14 +1132,6 @@ export type MissionControlProps = {
   /** Open an automation on the Automations page (the (i) popover's action). */
   on_open_automation: (automation_id: string) => void;
   entity_app_href: string;
-  /** Operator diary door transport (kit renders, app owns transport). The
-   * read is MARKER-FIRST gateway-side — every click lands a diary_read
-   * event in the entity's stream, which is why the chip's click-only rule
-   * is load-bearing here. Absent = chips render as plain text. */
-  on_read_diary?: (name: string, entry_id: string) => Promise<any>;
-  /** The wire-derived phase graph (one-graph mechanism). null/absent =
-   * pre-wire gateway — the labeled fallback vocabulary applies. */
-  phase_graph?: PhaseGraph | null;
   /** The gateway client the lazy caches read through (automation briefs,
    * excerpts, pulses, wait details). Absent = the board renders rows only. */
   client?: BoardDataClient | null;
@@ -1536,31 +1198,21 @@ function InlineSkeleton(props: { what: string; width?: string }): React.ReactEle
 /** The strip's class while the roster loads and once tiles are in: `.mc_entities_reserved` reserves the
  * loaded row's height, so the Entities strip never shifts the lanes (operator 2026-10-15). */
 export const ENTITIES_STRIP_CLASS = "mc_entities mc_entities_reserved";
-/** The strip once the roster is in and EMPTY: its head alone, no reserved box (a 242 px blank
+/** The strip once the roster is in and EMPTY: its head alone, no reserved box (a 212 px blank
  * would be the biggest empty area on the page); the lanes settle up once, when the roster lands. */
 export const ENTITIES_STRIP_EMPTY_CLASS = "mc_entities mc_entities_empty";
 /** Skeleton tiles under the Entities head before the roster is known. */
 export const SKELETON_ENTITIES = 4;
 /** The most tiles the strip shows (the head says "N of total — open the entity app for all"). */
 export const ENTITY_TILES_MAX = 12;
-/** The words a tile shows when its card could not be read (the reason rides the tooltip). */
-export const ENTITY_CARD_FAILED_NOTE = "details unavailable right now";
-
-/** Tile-shaped shimmering placeholders: name, phase chip, moment, liveness, spend, then the hints
- * badge under the tile — the loaded cell's lines, so the skeleton row is the loaded row's height. */
-export function SkeletonEntityTiles(props: { n: number }): React.ReactElement {
+/** Loading cards under the Entities head before the roster is known: the shared card's loading
+ * state holds its final size, so the row does not move when the roster and tiles land. */
+export function SkeletonEntityTiles(props: { n: number; now_ms: number }): React.ReactElement {
   return (
     <>
       {Array.from({ length: props.n }, (_, i) => (
-        <div key={i} className="mc_entity_cell">
-          <div className="mc_entity mc_entity_skeleton" aria-hidden="true">
-            <SkeletonLine className="mc_sk_title" width={i % 2 ? "64%" : "48%"} />
-            <SkeletonLine className="mc_sk_chip" />
-            <SkeletonLine width="70%" />
-            <SkeletonLine width="42%" />
-            <SkeletonLine width="56%" />
-          </div>
-          <SkeletonLine className="mc_sk_hints" width="120px" />
+        <div key={i} className="mc_entity_cell" aria-hidden="true">
+          <EntityCard tile={null} status="loading" nowMs={props.now_ms} density="compact" className="mc_entity_card" />
         </div>
       ))}
     </>
@@ -3372,13 +3024,7 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
     vis.refresh();
   }, [card_ids_sig, vis.refresh]);
 
-  // Access-hint lane (§observer 2): which tile's open questions/problems
-  // are expanded, and the diary entry an operator click resolved. The
-  // diary READ happens only inside the chip's onOpen (rule zero: render
-  // never touches memory state; the gateway marks every read).
-  const [hints_open, set_hints_open] = useState<string>("");
-  const [diary_view, set_diary_view] = useState<{ entity: string; entry: any; seq: number | null } | null>(null);
-  /** null = the roster and cards are still in flight (first paint); [] = read, none. */
+  /** null = the roster is still in flight (first paint); [] = read, none. */
   const entities_loading = props.entities === null;
   const tiles: EntityTile[] = props.entities ?? [];
 
@@ -3516,259 +3162,33 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
         {entities_loading ? (
           <div className="mc_entities_row" role="status" aria-label="loading entities">
             <LoadingState what="entities" />
-            <SkeletonEntityTiles n={props.entities_total ? Math.min(props.entities_total, ENTITY_TILES_MAX) : SKELETON_ENTITIES} />
+            <SkeletonEntityTiles n={props.entities_total ? Math.min(props.entities_total, ENTITY_TILES_MAX) : SKELETON_ENTITIES} now_ms={now_ms} />
           </div>
         ) : null}
         {tiles.length ? (
-        <div className="mc_entities_row">
-          {tiles.map((e) => (
-            <div key={e.name} className="mc_entity_cell">
-            <a
-              className="mc_entity"
-              href={`${props.entity_app_href}${props.entity_app_href.includes("?") ? "&" : "?"}entity=${encodeURIComponent(e.name)}&live=1`}
-              target="_blank"
-              rel="noreferrer"
-              title={[e.error, e.age_days !== null ? `${e.age_days.toFixed(0)} days old` : "", e.last_moment].filter(Boolean).join(" — ") || e.name}
-            >
-              <span className="mc_entity_title">
-                <span className="mc_entity_name">{e.name}</span>
-                {e.identity_ref ? <EntityLook looks={props.identity_looks} name={e.name} identity_ref={e.identity_ref} size={32} /> : null}
-              </span>
-              {/* ONE ACTIVE PHASE (c1455 ruling): prefer the cognition
-                * wire's composite phase — the same source both apps
-                * render — over the card-state heuristic. The chip's
-                * tooltip names the SOURCE so a degraded read is never
-                * mistaken for the wire's truth. */}
-              {(() => {
-                const raw = String(e.live_phase || e.state || "").trim();
-                const phase_word = entity_phase(raw, props.phase_graph);
-                const phase_cls = known_phase_keys(props.phase_graph).has(phase_word) ? phase_word : "other";
-                // Wire-word honesty, generalized (adversary F7): whenever
-                // the fold changed the word, the tooltip carries the raw
-                // wire word verbatim — settling gets its badge from the
-                // graph's own initial, never a hardcoded destination.
-                const settled_word = props.phase_graph?.initial ?? "sleep";
-                const is_settling = /awake|idle/i.test(raw) && phase_word === settled_word;
-                const wire_note = raw && raw.toLowerCase() !== phase_word ? ` — wire word: ${raw}${is_settling ? " (settling)" : ""}` : "";
-                return (
-                  <span
-                    className={`mc_entity_phase mc_phase_${phase_cls}`}
-                    title={(e.live_phase ? "phase (cognition wire)" : "phase from card state — cognition wire unavailable") + wire_note}
-                  >
-                    {phase_word}
-                  </span>
-                );
-              })()}
-              {/* Moment kinds arrive as snake_case event names — display
-                * de-snakes for reading; the tooltip keeps the verbatim. */}
-              {/* The card arrives after the roster (entity_tiles.ts): until then a quiet placeholder
-                * holds the line, a failed read says so in a few words (the reason on hover). */}
-              {e.card_state === "pending" ? (
-                <SkeletonLine className="mc_entity_sk" width="70%" />
-              ) : e.card_state === "failed" ? (
-                <span className="mc_entity_moment mc_entity_card_note" title={e.error}>{ENTITY_CARD_FAILED_NOTE}</span>
-              ) : e.card_as_of_ms ? (
-                <span className="mc_entity_moment mc_entity_card_note" title={`${e.last_moment ? `${e.last_moment} — ` : ""}could not read newer details: ${e.error}`}>
-                  {`as of ${format_age(e.card_as_of_ms, now_ms)} ago${e.last_moment ? ` · ${e.last_moment.replace(/_/g, " ")}` : ""}`}
-                </span>
-              ) : e.last_moment ? (
-                <span className="mc_entity_moment" title={e.last_moment}>{e.last_moment.replace(/_/g, " ")}</span>
-              ) : null}
-              {/* WORKING / FRESHNESS (B3, 2026-07-13): the cognition wire's
-                * store-read `working` is authoritative when present
-                * (gateway c1390); pre-wire gateways fall back to the
-                * moment-age heuristic. Unknown shows nothing — never
-                * fabricate liveness. */}
-              {(() => {
-                // "busy", never "working" — WORK is a ruled PHASE word;
-                // execution liveness must not wear it (fable5 P1,
-                // c1475 wave).
-                if (e.cognition_pending) return <SkeletonLine className="mc_entity_sk" width="42%" />;
-                if (e.working === true) {
-                  return (
-                    <span className="mc_entity_live" title="busy now (loop mid-day or live visit — store-read, never fabricated)">
-                      ● busy
-                    </span>
-                  );
-                }
-                const age = entity_activity_age(e.last_moment_at, now_ms);
-                if (e.working === false) {
-                  return (
-                    <span className="mc_entity_live muted" title="idle (cognition wire)">
-                      idle{age !== null ? ` · ${format_age(now_ms - age, now_ms)} ago` : ""}
-                    </span>
-                  );
-                }
-                if (age === null) return null;
-                return age <= ACTIVE_WINDOW_MS ? (
-                  <span className="mc_entity_live" title={`last moment ${format_age(now_ms - age, now_ms)} ago`}>
-                    ● active
-                  </span>
-                ) : (
-                  <span className="mc_entity_live muted" title="time since the last recorded moment">
-                    {format_age(now_ms - age, now_ms)} ago
-                  </span>
-                );
-              })()}
-              {/* SPEND (B3 second half): lifetime billed tokens from the
-                * home run ledger + the open visit's live spend. Warnings
-                * from the wire ride the tooltip so a partial number is
-                * never read as total. */}
-              {e.cognition_pending ? (
-                <SkeletonLine className="mc_entity_sk" width="56%" />
-              ) : e.tokens_total !== null ? (
-                <span
-                  className="muted mc_entity_spend"
-                  title={`lifetime billed tokens (home run ledger)${e.live_visit_tokens !== null ? `; open visit: ${format_tokens(e.live_visit_tokens)} tk` : ""}${e.spend_warning ? `; ${e.spend_warning}` : ""}`}
-                >
-                  {format_tokens(e.tokens_total)} tk{e.live_visit_tokens !== null ? ` (+${format_tokens(e.live_visit_tokens)})` : ""}
-                  {e.spend_warning ? "*" : ""}
-                </span>
-              ) : null}
-            </a>
-            {/* Access-hint lane (§observer 2 + build-5 twin): what this
-              * entity carries OPEN plus what it has DISTILLED, rendered
-              * from the card's briefs. A count badge — the deep view
-              * stays the entity app. Until the card is read, the badge's line is held. */}
-            {e.card_state === "pending" ? (
-              <SkeletonLine className="mc_sk_hints" width="120px" />
-            ) : e.open_questions_total || e.open_problems_total || e.lessons_total || e.dreams_brief ? (
-              <button
-                type="button"
-                className="mc_entity_hints_btn"
-                aria-expanded={hints_open === e.name}
-                title="open questions / problems + distilled lessons + night signals from the entity card — click to expand"
-                onClick={() => set_hints_open(hints_open === e.name ? "" : e.name)}
-              >
-                {[
-                  e.open_questions_total ? `${e.open_questions_total} question${e.open_questions_total > 1 ? "s" : ""}` : "",
-                  e.open_problems_total ? `${e.open_problems_total} problem${e.open_problems_total > 1 ? "s" : ""}` : "",
-                  e.lessons_total ? `${e.lessons_total} lesson${e.lessons_total > 1 ? "s" : ""}` : "",
-                  // "night:" prefix — the count is SIGNALS across standing
-                  // dreams (engine fold verified live: 24 = 12+12 over two
-                  // dreams); "dreams" here would have been a lie by unit.
-                  e.dreams_brief ? `night: ${e.dreams_brief.count} signal${e.dreams_brief.count > 1 ? "s" : ""}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </button>
-            ) : null}
-            </div>
-          ))}
-        </div>
-        ) : null}
-        {(() => {
-          if (!hints_open) return null;
-          const e = tiles.find((t) => t.name === hints_open);
-          if (!e || (!e.open_questions.length && !e.open_problems.length && !e.lessons.length && !e.dreams_brief)) return null;
-          // Transport wrapper: the chip calls it on a DELIBERATE click;
-          // the gateway marks the read in the entity's stream before the
-          // words return — the modal says so (visibility is truth-keeping).
-          const open_entry = props.on_read_diary
-            ? async (entry_id: string) => {
-                const payload = await props.on_read_diary!(e.name, entry_id);
-                set_diary_view({
-                  entity: e.name,
-                  entry: payload?.entry ?? payload,
-                  seq: typeof payload?.read_recorded_at_seq === "number" ? payload.read_recorded_at_seq : null,
-                });
-              }
-            : undefined;
-          const hidden =
-            e.open_questions_total - e.open_questions.length +
-            (e.open_problems_total - e.open_problems.length) +
-            (e.lessons_total - e.lessons.length);
-          return (
-            <div className="mc_entity_hints_panel">
-              {e.open_questions.map((b, i) => (
-                <AfMemoryHintChip
-                  key={`q_${b.record_id || i}`}
-                  kind="question"
-                  label={b.title || clamp_brief(b.statement)}
-                  entryId={b.entry_id}
-                  onOpen={open_entry}
-                  title={b.statement || b.title}
+          <div className="mc_entities_row">
+            {/* One shared kit card per entity (ui-kit EntityCard, compact): who, what it is doing
+              * now and for how long, one interest, the last moment. Its head opens the entity app. */}
+            {tiles.map((e) => (
+              <div key={e.name} className="mc_entity_cell">
+                <EntityCard
+                  tile={e.tile}
+                  status={e.status}
+                  name={e.name}
+                  look={e.look}
+                  asOfMs={e.as_of_ms}
+                  reason={e.reason || undefined}
+                  nowMs={now_ms}
+                  density="compact"
+                  href={`${props.entity_app_href}${props.entity_app_href.includes("?") ? "&" : "?"}entity=${encodeURIComponent(e.name)}&live=1`}
+                  target="_blank"
+                  className="mc_entity_card"
                 />
-              ))}
-              {e.open_problems.map((b, i) => (
-                <AfMemoryHintChip
-                  key={`p_${b.record_id || i}`}
-                  kind="problem"
-                  label={b.title || clamp_brief(b.statement)}
-                  entryId={b.entry_id}
-                  onOpen={open_entry}
-                  title={b.statement || b.title}
-                />
-              ))}
-              {/* Lessons: machine-formed ones carry no entry_id and render
-                * as plain text (chip honesty rule); elected ones with a
-                * book key open through the same diary door. */}
-              {e.lessons.map((b, i) => (
-                <AfMemoryHintChip
-                  key={`l_${b.record_id || i}`}
-                  kind="lesson"
-                  label={b.title || clamp_brief(b.statement)}
-                  entryId={b.entry_id}
-                  onOpen={open_entry}
-                  title={b.statement || b.title}
-                />
-              ))}
-              {/* Night signals (wave-5): a compact factual line — count,
-                * kinds, felt tones as WORDS. Structure decided the
-                * signals; feelings only color — no meter, no weight,
-                * nothing clickable here (the experience layer is the
-                * entity app's inspector). */}
-              {e.dreams_brief ? (
-                <span
-                  className="mc_entity_dreams muted"
-                  title="night signals carried by STANDING dreams (the sleep pass's maintenance stream; count = signals, not dreams); felt tones color the content, they never rank it — the entity app renders the full stream"
-                >
-                  night signals: {e.dreams_brief.count}
-                  {e.dreams_brief.dreams ? ` across ${e.dreams_brief.dreams} dream${e.dreams_brief.dreams > 1 ? "s" : ""}` : ""}
-                  {/* kinds is a UNION across standing dreams (unbounded by
-                    * the per-dream <=12 contract) — bound the strip line,
-                    * overflow stays a count (law-clean). */}
-                  {e.dreams_brief.kinds.length
-                    ? ` — ${e.dreams_brief.kinds.slice(0, 6).join(", ")}${e.dreams_brief.kinds.length > 6 ? ` +${e.dreams_brief.kinds.length - 6} more` : ""}`
-                    : ""}
-                  {e.dreams_brief.felt_tones.length ? ` · felt: ${e.dreams_brief.felt_tones.slice(0, 6).join(", ")}` : ""}
-                </span>
-              ) : null}
-              {hidden > 0 ? (
-                <span className="muted mc_entity_hints_more">+{hidden} more — open the entity app</span>
-              ) : null}
-            </div>
-          );
-        })()}
-      </div>
-
-      {diary_view ? (
-        <Modal
-          open
-          title={`${diary_view.entity} — diary entry`}
-          onClose={() => set_diary_view(null)}
-        >
-          <div className="mc_diary_entry">
-            <div className="mc_diary_meta muted">
-              {[
-                diary_view.entry?.kind ? `kind: ${diary_view.entry.kind}` : "",
-                diary_view.entry?.visibility ? `visibility: ${diary_view.entry.visibility}` : "",
-                diary_view.entry?.written_at ? `written: ${diary_view.entry.written_at}` : "",
-                diary_view.entry?.entry_id ? `id: ${diary_view.entry.entry_id}` : "",
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </div>
-            {/* Reads disclose: the gateway marked this read in the entity's
-              * replay stream before serving the words — say so, always. */}
-            <div className="mc_diary_recorded muted">
-              this read was recorded in {diary_view.entity}’s stream{diary_view.seq !== null ? ` (seq ${diary_view.seq})` : ""}
-            </div>
-            {diary_view.entry?.gist ? <div className="mc_diary_gist">{String(diary_view.entry.gist)}</div> : null}
-            <pre className="mc_diary_text">{String(diary_view.entry?.text || "(entry carries no text)")}</pre>
+              </div>
+            ))}
           </div>
-        </Modal>
-      ) : null}
+        ) : null}
+      </div>
 
       {/* ONE slim line above the lanes (operator 2026-10-15: the stat strip repeated the lanes'
         * counts): a notice only when something is wrong or not yet true, then how old the
