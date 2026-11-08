@@ -1468,6 +1468,8 @@ function EntityCell(props: { e: EntityTile; now_ms: number; href: string }): Rea
 }
 
 const ENTITY_ROW_STORAGE_KEY = "abstractobserver_board_entities_all_v1";
+/** The strip folded to its head (default open), remembered per browser. */
+export const ENTITY_FOLD_STORAGE_KEY = "abstractobserver_board_entities_folded_v1";
 
 /** The Entities strip: ONE row of the kit's compact entity cards — a rail that scrolls sideways when
  * the roster is wider than the page — and "Show all" that wraps them onto rows, remembered per
@@ -1482,6 +1484,20 @@ function EntityStrip(props: { tiles: EntityTile[]; loading: boolean; total: numb
       return false;
     }
   });
+  const [folded, set_folded] = useState<boolean>(() => {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem(ENTITY_FOLD_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle_fold = () => {
+    const next = !folded;
+    set_folded(next);
+    try {
+      localStorage.setItem(ENTITY_FOLD_STORAGE_KEY, next ? "1" : "0");
+    } catch {}
+  };
   const [overflows, set_overflows] = useState(false);
   useBrowserLayoutEffect(() => {
     const el = row.current;
@@ -1499,7 +1515,7 @@ function EntityStrip(props: { tiles: EntityTile[]; loading: boolean; total: numb
   };
   const empty = !props.loading && !props.tiles.length;
   return (
-    <section className={empty ? ENTITIES_STRIP_EMPTY_CLASS : ENTITIES_STRIP_CLASS} aria-busy={props.loading || undefined} aria-label="Entities">
+    <section className={`${empty ? ENTITIES_STRIP_EMPTY_CLASS : ENTITIES_STRIP_CLASS}${folded && !empty ? " is_folded" : ""}`} aria-busy={props.loading || undefined} aria-label="Entities">
       <div className="mc_entities_head">
         <span className="mc_entities_title">
           Entities
@@ -1512,9 +1528,14 @@ function EntityStrip(props: { tiles: EntityTile[]; loading: boolean; total: numb
           ) : null}
           {empty ? <span className="muted mc_entities_none"> — no entities</span> : null}
         </span>
-        {props.tiles.length && (overflows || all) ? (
+        {props.tiles.length && !folded && (overflows || all) ? (
           <button type="button" className="mc_link_btn mc_entities_toggle" aria-expanded={all} onClick={toggle}>
             {all ? "One row" : `Show all ${props.tiles.length}`}
+          </button>
+        ) : null}
+        {!empty ? (
+          <button type="button" className="mc_link_btn mc_entities_fold" aria-expanded={!folded} onClick={toggle_fold}>
+            {folded ? "Show" : "Hide"}
           </button>
         ) : null}
         <a className="mc_entity_link" href={props.href} target="_blank" rel="noreferrer">
@@ -1522,7 +1543,7 @@ function EntityStrip(props: { tiles: EntityTile[]; loading: boolean; total: numb
         </a>
       </div>
       {props.error ? <div className="muted mc_entities_error">{props.error}</div> : null}
-      {props.loading ? (
+      {folded && !empty ? null : props.loading ? (
         <div className="mc_entities_row" role="status" aria-label="loading entities">
           <LoadingState what="entities" />
           <SkeletonEntityTiles n={props.total ? Math.min(props.total, ENTITY_TILES_MAX) : SKELETON_ENTITIES} now_ms={props.now_ms} />
@@ -2936,7 +2957,8 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
   // Observability: any ongoing run opens in Code and can be cancelled, whatever its lane.
   const ongoing = !is_automation && (card.lane === "needs_you" || card.lane === "working" || card.lane === "waiting_on");
   const request = needs ? request_glimpse(card, props.detail) : null;
-  // A group row stands for several runs: it shows the group's own facts, never one member's answer.
+  // A group row stands for several runs: it shows the group's own facts, never one member's answer
+  // (the ONE place this rule lives: `answer` is null on a group row; its meta is the group's).
   const is_group = (props.group_count ?? 0) > 1;
   const answer = is_automation || is_group ? null : outcome_glimpse(card, props.outcome);
   const metrics = card_metrics(card, props.outcome, props.now_ms);
@@ -3156,9 +3178,6 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
         </ClampText>
       ) : failure_loading ? (
         <InlineSkeleton what="the failure's reason" />
-      ) : is_group ? (
-        /* A group row: its facts are in the meta row; each run's answer shows once it is opened. */
-        null
       ) : echoes_pill ? (
         /* The sentence would only repeat the pill ("failed" under "failed"); a failure with a
          * reason keeps its sentence ("failed: <reason>"), which is not an echo. */

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BoardCardView,
+  ENTITY_FOLD_STORAGE_KEY,
   DENSITY_STORAGE_KEY,
   GLIMPSE_LINES,
   MissionControlPage,
@@ -304,5 +305,43 @@ describe("the whole text behind every reveal (review 2026-11-08 D3/D4/D5)", () =
     expect(g.full).toContain("summary_only: true");
     // The kit's sentence, then the arguments verbatim in a fence (markdown never re-reads them).
     expect(tool_call_full_text({ name: "fetch_url", arguments: { url } })).toContain(`~~~\nurl: ${url}\n~~~`);
+  });
+});
+
+describe("review 2026-11-08 round 2", () => {
+  it("a group row shows the group's facts only — never the lead run's answer or metrics (mutation M9)", () => {
+    const NOTES = { automation_id: "a1", title: "Process my notes", cadence: "every 2 minutes" } as unknown as AutomationBrief;
+    const occ = (id: string, n: number) =>
+      row({ run_id: id, status: "completed", role: "occurrence", automation_id: "a1", session_kind: "automation", occurrence_index: n, created_at: ago(41 - n), updated_at: ago(40 - n), tokens_total: 1_234, tool_calls: 2 });
+    const cards = build_board({ active: [], done: [occ("o3", 3), occ("o2", 2), occ("o1", 1)], automations: new Map([["a1", NOTES]]), now_ms: NOW }).done;
+    const facts = group_facts_words(cards, NOW);
+    const answer = "Nothing to process.";
+    const as_row = html_of(cards[0], { outcome: { answer, artifacts: 1 }, group_count: 3, group_facts: facts });
+    const t = plain(as_row);
+    for (const f of facts) expect(t).toContain(f);
+    expect(t).not.toContain(answer);
+    expect(as_row).not.toContain("mc_glimpse_answer");
+    expect(t).not.toMatch(/took \d|1,234 tokens|2 tool calls|1 artifact/);
+    // The same card alone (not a group row) shows its own answer and metrics: the rule is the row's.
+    const alone = plain(html_of(cards[0], { outcome: { answer, artifacts: 1 } }));
+    expect(alone).toContain(answer);
+    expect(alone).toContain("1,234 tokens");
+  });
+
+  it("the Entities strip folds to its head on the viewer's choice (default open), remembered per browser", () => {
+    const tile = gateway_tile("Castor");
+    const html = page({ entities: [{ name: "Castor", look: null, tile, status: "ready", as_of_ms: null, reason: "" }], entities_total: 1 });
+    expect(html).toMatch(/class="mc_link_btn mc_entities_fold" aria-expanded="true">Hide<\/button>/);
+    expect(html).toContain("af-entity-card");
+    expect(ENTITY_FOLD_STORAGE_KEY).toBe("abstractobserver_board_entities_folded_v1");
+    const src = readFileSync(new URL("./mission_control.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/localStorage\.getItem\(ENTITY_FOLD_STORAGE_KEY\) === "1"/);
+  });
+
+  it("an automation's long last-run fact may wrap inside the foot (no nowrap meta unit runs past a 281 px card)", () => {
+    const css = readFileSync(new URL("./board.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...css.matchAll(/\.mc_card_meta \.mc_unit\s*\{([^}]*)\}/g)].map((m) => m[1]);
+    expect(rules.length).toBeGreaterThan(0);
+    expect(rules[rules.length - 1]).toMatch(/white-space:\s*normal/);
   });
 });

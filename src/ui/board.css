@@ -1192,8 +1192,11 @@ button.mc_actor_run:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* A meta unit may wrap between its words: a long automation fact ("last #18 completed 3 hours 48
+ * minutes ago") never runs past a 281 px card's border (review 2026-11-08 round 2, D1). Its glued
+ * phrases ("3 hours 48 minutes ago") and the "·" glued to the unit before it still never split. */
 .mc_card_meta .mc_unit {
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .mc_card_meta .mc_pill {
@@ -2401,4 +2404,29 @@ a.btn.mc_btn_quiet {
 
 .mc_confirm.mc_pause_confirm {
   background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+/* The strip folded (the viewer's choice, remembered): its head alone. */
+.mc_entities.is_folded {
+  min-height: 0;
+}
+
+.mc_entities.is_folded .mc_entities_head {
+  margin-bottom: 0;
+}
+
+/* Head: the title leads, then Show all · Hide · the app link on the right, 14 px apart. */
+.mc_entities_head .mc_entities_title {
+  margin-right: auto;
+}
+
+.mc_entities_head .mc_entities_toggle,
+.mc_entities_head .mc_entities_fold,
+.mc_entities_head .mc_entity_link,
+.mc_entities_head .mc_entities_toggle + .mc_entity_link {
+  margin-left: 14px;
+}
+
+.mc_entities_fold {
+  font-size: var(--t-small);
 }
