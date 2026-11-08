@@ -1449,7 +1449,11 @@ function EntityCell(props: { e: EntityTile; now_ms: number; href: string }): Rea
   return (
     <>
       <div ref={anchor} className="mc_entity_cell" onMouseEnter={show} onMouseLeave={hide_soon} onFocus={show} onBlur={hide_soon}>
-        <EntityCard tile={e.tile} status={e.status} name={e.name} look={e.look} asOfMs={e.as_of_ms} reason={e.reason || undefined} nowMs={props.now_ms} density="compact" href={href} target="_blank" className="mc_entity_card" />
+        {/* attention="marker" (ui-kit 0.9.25): the trouble is a small mark on the "now" line, its sentence in the
+          * tooltip and the head's name — every card in the strip keeps one height (operator 2026-11-08: "I would
+          * remove that warning, so that all cards have the same (smaller) height"); the full card beside it
+          * shows the sentence boxed and whole. */}
+        <EntityCard tile={e.tile} status={e.status} name={e.name} look={e.look} asOfMs={e.as_of_ms} reason={e.reason || undefined} nowMs={props.now_ms} density="compact" attention="marker" href={href} target="_blank" className="mc_entity_card" />
       </div>
       {open && e.tile && typeof document !== "undefined" ? (
         <BoardPopover
