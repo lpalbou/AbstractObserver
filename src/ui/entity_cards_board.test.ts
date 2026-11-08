@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { gateway_tile } from "./__fixtures__/entity_tile";
 
-describe("Board entity chips in a browser (kit avatar + entity words; the kit EntityCard on demand)", () => {
+describe("Board entity cards in a browser (ui-kit EntityCard, compact)", () => {
   let browser: Browser | null = null;
   let bundle = "";
   let css = "";
@@ -64,13 +64,13 @@ describe("Board entity chips in a browser (kit avatar + entity words; the kit En
           ),
         );
         await new Promise((res) => setTimeout(res, 400));
-        const cards = Array.from(document.querySelectorAll(".mc_entities_row .mc_entity_chip")).map((el) => {
+        const cards = Array.from(document.querySelectorAll(".mc_entities_row .af-entity-card")).map((el) => {
           const b = el.getBoundingClientRect();
           return {
-            name: el.querySelector(".mc_entity_name")?.textContent ?? null,
+            name: el.getAttribute("aria-label"),
             status: el.getAttribute("data-status"),
-            canvas: Boolean(el.querySelector(".mc_entity_orb canvas")),
-            plain: el.querySelector(".mc_entity_orb.is-plain")?.textContent ?? null,
+            canvas: Boolean(el.querySelector(".af-entity-card__orb canvas")),
+            plain: el.querySelector(".af-entity-card__orb.is-plain")?.textContent ?? null,
             width: Math.round(b.width),
             overflow: Array.from(el.querySelectorAll("*")).some((c) => (c as HTMLElement).getBoundingClientRect().right > b.right + 0.5),
           };

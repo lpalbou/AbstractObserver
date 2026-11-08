@@ -5184,7 +5184,7 @@ export function App(): React.ReactElement {
               on_resume_run={(rid) => submit_run_control_for_run(rid, "resume")}
               on_cancel_run={(rid) => submit_run_control_for_run(rid, "cancel")}
               on_cancel_runs={submit_run_cancels}
-              on_pause_run={(rid) => submit_run_control_for_run(rid, "pause")}
+              on_pause_run={(rid, reason) => submit_run_control_for_run(rid, "pause", { reason })}
               code_app={code_app}
               done_loaded={(() => {
                 const poll = runs_poll_peek(gateway);

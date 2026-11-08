@@ -414,8 +414,8 @@ describe("Board Entities strip: the fallback on an older gateway (no `reads.tile
   });
 });
 
-describe("Board Entities strip: one compact chip per entity, the kit card on demand", () => {
-  it("draws one chip per entity with the kit's words: who, now and for how long, the last moment — the kit EntityCard (every fact whole, the entity app link) opens from the chip; no tk, no phase chip, no counts badge", () => {
+describe("Board Entities strip: the shared kit card, nothing outside it", () => {
+  it("draws the kit EntityCard (compact) with the tile's words: who, now and for how long, one interest, the last moment — no tk, no phase chip, no counts badge outside the card", () => {
     vi.useFakeTimers();
     vi.setSystemTime(T0);
     try {
@@ -425,18 +425,15 @@ describe("Board Entities strip: one compact chip per entity, the kit card on dem
         { name: "Nyx", look: null, tile: null, status: "loading", as_of_ms: null, reason: "" },
       ];
       const html = strip(page(tiles, 3));
-      // Redesign 2026-11-07: ONE row of chips (the tall compact cards left most of their body empty).
-      expect((html.match(/<button type="button" class="mc_entity_chip"/g) || []).length).toBe(3);
+      expect((html.match(/<article class="af-entity-card mc_entity_card" data-density="compact"/g) || []).length).toBe(3);
       expect(html).toContain('data-status="ready"');
       expect(html).toContain("Resting");
       expect(html).toContain("for 48 minutes");
+      expect(html).toContain("How Castor hears the sea at night");
       expect(html).toContain("A visit ended · 1 hour ago");
+      expect(html).toContain('href="http://entity.test/?entity=Castor&amp;live=1"');
+      expect(html).toContain('target="_blank"');
       expect(html).toContain("Details unavailable right now");
-      // "Into lately" and the entity app link live in the kit card the chip opens (hover / click):
-      // nothing of it is drawn — or cut — on the strip.
-      expect(html).not.toContain("How Castor hears the sea at night");
-      expect(html).not.toContain("af-entity-card");
-      expect((html.match(/aria-haspopup="dialog"/g) || []).length).toBe(3);
       // Gone from 0.12.2's strip: the token spend, the phase chip, the idle line, the counts badge
       // outside the card and its expandable panel.
       expect(html).not.toMatch(/\btk\b/);

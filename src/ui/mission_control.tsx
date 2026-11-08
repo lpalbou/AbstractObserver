@@ -30,17 +30,12 @@ import { createPortal } from "react-dom";
 import "./board.css";
 
 import {
-  ActivityAvatar,
   AfChip,
   AfChipButton,
   AfMenu,
   EntityCard,
   Icon,
   automationControls,
-  entityMomentWords,
-  entityNowWords,
-  entityTroubleWords,
-  entityWhenWords,
   whenWords,
   type AfMenuItem,
   type AutomationChanges,
@@ -498,12 +493,49 @@ export function split_board_rows(runs: RunSummary[], all_runs?: RunSummary[]): {
  * 2026-11-07: three "Thank you. failed" cards read as a wall, not as three facts). */
 export type DoneGroup = { key: string; cards: BoardCard[] };
 
-/** What makes two Done cards the same row: everything their faces show before the answer is
- * read — the whole title, the pill, the sentence, the subject, archived, the error. */
+/** Whether a Done card may share a row with others (review 2026-11-08 D1/D2). Identity is judged
+ * ONLY on facts that are on the card from the first paint and never change afterwards: a title
+ * from the automation (read for every automation, not per card in view) or from the row's own
+ * wire brief — never the "untitled" placeholder nor a per-card excerpt read lazily for the cards
+ * in view (grouping on those flickered and folded different conversations together); and a
+ * failure only with its reason on the row (two failures with different reasons never share one). */
+export function done_groupable(card: BoardCard): boolean {
+  if (card.lane !== "done" || card.title.untitled) return false;
+  if (card.title.source !== "automation" && card.title.source !== "brief") return false;
+  if (card.failed && !row_error_text(card.row)) return false;
+  return true;
+}
+
+/** The row's own error as text ("" without one). */
+function row_error_text(row: RunSummary | null | undefined): string {
+  const e = (row as any)?.error;
+  if (typeof e === "string") return e.trim();
+  if (e && typeof e === "object" && typeof e.message === "string") return e.message.trim();
+  return "";
+}
+
+/** What makes two Done cards the same row — wire facts only (see done_groupable): the title, the
+ * row's status and error, the subject, the session tag, archived. A card that may not group is
+ * keyed by its own run id. */
 export function done_group_key(card: BoardCard): string {
+  if (!done_groupable(card)) return `run\u0001${card.run_id}`;
   // An automation's runs differ by their number only ("run #381", "run #382"): the same row.
   const no_index = (t: string) => String(t || "").replace(/\brun #\d+\b/g, "run #").trim();
-  return [full_title(card), card.status_word, card.failed ? card.error || card.line.text : "", card.subject.label, no_index(card.subject.secondary), no_index(card.tag_label), card.archived].join("\u0001");
+  return [full_title(card), String(card.row?.status || ""), row_error_text(card.row), card.subject.label, no_index(card.subject.secondary), no_index(card.tag_label), card.archived].join("\u0001");
+}
+
+/** A group row's OWN facts (review 2026-11-08 R4: never one member's answer or metrics as the
+ * row's): how many runs, which numbers, when the latest and the first finished. */
+export function group_facts_words(cards: readonly BoardCard[], now_ms: number): string[] {
+  const out = [`${cards.length.toLocaleString("en-US")} runs`];
+  const span = group_span_words(cards);
+  if (span) out.push(span);
+  const times = cards.map((c) => c.since_ms).filter((n): n is number => typeof n === "number");
+  if (times.length) {
+    out.push(`latest ${format_relative(Math.max(...times), now_ms)}`);
+    if (times.length > 1) out.push(`first ${format_relative(Math.min(...times), now_ms)}`);
+  }
+  return out;
 }
 
 /** "#343 to #382": the run numbers a Done group spans, when its cards carry them ("" otherwise). */
@@ -681,7 +713,16 @@ export function tool_args_text(call: { arguments?: any }): string {
 }
 
 const GLIMPSE_CHARS = 600;
-const GLIMPSE_TITLE_CHARS = 4000;
+
+/** The whole of one tool call for the "read the whole request" panel: the kit's sentence, then the
+ * call's arguments as recorded, verbatim (the sentence shortens long URLs and lists; an approver
+ * must see the exact URL the agent will fetch — review 2026-11-08 D5). */
+export function tool_call_full_text(call: { name: string; arguments?: any }): string {
+  const args = tool_args_text(call);
+  if (!args) return tool_call_words(call);
+  const fence = args.includes("~~~") ? "````" : "~~~";
+  return `${tool_call_words(call)}\n\n${fence}\n${args}\n${fence}`;
+}
 
 /** What a Needs-you card quotes under its line: the question, the tool calls with their
  * arguments, or the pause reason (rows hard-code nothing of it: the detail carries it).
@@ -690,15 +731,16 @@ export function request_glimpse(card: BoardCard, detail?: any): { text: string; 
   if (card.lane !== "needs_you") return null;
   if (card.line.verb === "paused") {
     const reason = String(detail?.pause_reason || card.row?.pause_reason || "").trim();
-    return reason ? { text: clamp_text(reason, GLIMPSE_CHARS), full: clamp_text(reason, GLIMPSE_TITLE_CHARS) } : null;
+    return reason ? { text: clamp_text(reason, GLIMPSE_CHARS), full: reason } : null;
   }
   if (card.line.action === "approve" && card.pending_calls.length) {
     // Whole calls (the card's clamp and its "…" bound what shows; a per-call cut hid the URL's end).
     const text = card.pending_calls.map((c) => tool_call_words(c)).join("  ·  ");
-    const full = card.pending_calls.map((c) => tool_call_words(c)).join("\n");
-    return { text: clamp_text(text, GLIMPSE_CHARS), full: clamp_text(full, GLIMPSE_TITLE_CHARS) };
+    const full = card.pending_calls.map((c) => tool_call_full_text(c)).join("\n\n");
+    return { text: clamp_text(text, GLIMPSE_CHARS), full };
   }
-  if (card.prompt) return { text: clamp_text(card.prompt, GLIMPSE_CHARS), full: clamp_text(card.prompt, GLIMPSE_TITLE_CHARS) };
+  // `full` is the WHOLE text, never capped (ADR 0054): the panel scrolls.
+  if (card.prompt) return { text: clamp_text(card.prompt, GLIMPSE_CHARS), full: card.prompt };
   return null;
 }
 
@@ -707,7 +749,7 @@ export function request_glimpse(card: BoardCard, detail?: any): { text: string; 
 export function outcome_glimpse(card: BoardCard, outcome?: RunOutcome | null): { text: string; full: string } | null {
   if (card.lane !== "done" || card.failed) return null;
   const answer = String(outcome?.answer || "").trim();
-  return answer ? { text: clamp_text(answer, GLIMPSE_CHARS), full: clamp_text(answer, GLIMPSE_TITLE_CHARS) } : null;
+  return answer ? { text: clamp_text(answer, GLIMPSE_CHARS), full: answer } : null;
 }
 
 /** "24 minutes · 99,921 tokens · 11 tool calls · 3 artifacts" — the card's metrics, as facts in
@@ -1325,7 +1367,7 @@ export type MissionControlProps = {
   on_revise_automation?: ReviseHandler;
   /** Pause a running run (run control `pause`), from a Working card's ⋯ menu; resolves to an
    * error sentence or null. Absent = no Pause on the board. */
-  on_pause_run?: (run_id: string) => Promise<string | null | void>;
+  on_pause_run?: PauseHandler;
 };
 
 /** Skeleton cards per lane before the first runs poll lands (operator 2026-10-15: the
@@ -1373,148 +1415,52 @@ export const ENTITIES_STRIP_EMPTY_CLASS = "mc_entities mc_entities_empty";
 export const SKELETON_ENTITIES = 4;
 /** The most tiles the strip shows (the head says "N of total — open the entity app for all"). */
 export const ENTITY_TILES_MAX = 12;
-/** Loading chips under the Entities head before the roster is known: the chip's loading state
- * holds its final height, so the row does not move when the roster and tiles land. */
+/** Loading cards under the Entities head before the roster is known: the kit card's loading state
+ * holds its final size, so the row does not move when the roster and tiles land. */
 export function SkeletonEntityTiles(props: { n: number; now_ms: number }): React.ReactElement {
   return (
     <>
       {Array.from({ length: props.n }, (_, i) => (
-        <span key={i} className="mc_entity_chip is_skeleton" aria-hidden="true">
-          <span className="mc_entity_orb is-plain" />
-          <span className="mc_entity_who">
-            <SkeletonLine width="64px" />
-            <SkeletonLine width="120px" />
-            <SkeletonLine width="96px" />
-          </span>
-        </span>
+        <div key={i} className="mc_entity_cell" aria-hidden="true">
+          <EntityCard tile={null} status="loading" nowMs={props.now_ms} density="compact" className="mc_entity_card" />
+        </div>
       ))}
     </>
   );
 }
 
-/** The entity's look as a small orb: its avatar design (kit ActivityAvatar, still), else a quiet
- * disc with its initial in its colour. */
-function EntityOrb(props: { name: string; look: EntityTileLook | { style?: string | null; color?: string | null } | null; size: number }): React.ReactElement {
-  const color = props.look?.color || undefined;
-  const style = { width: props.size, height: props.size, ...(color ? { "--af-entity-color": color } : {}) } as React.CSSProperties;
-  if (props.look?.style) {
-    return (
-      <span className="mc_entity_orb" style={style} aria-hidden="true">
-        <ActivityAvatar design={props.look.style} pose="listening" level={0.5} size={props.size} animated={false} quality="high" />
-      </span>
-    );
-  }
-  return (
-    <span className="mc_entity_orb is-plain" style={style} aria-hidden="true">
-      {(props.name || "?").trim().charAt(0).toUpperCase()}
-    </span>
-  );
-}
-
-/** The words of one entity chip, from the kit's entity words (pure; the tests read it). */
-export function entity_chip_words(e: EntityTile, now_ms: number): { name: string; now: string; moment: string; trouble: string } {
-  const t = e.tile;
-  const name = t?.name || e.name || "";
-  if (!t) return { name, now: "", moment: "", trouble: "" };
-  const now = entityNowWords(t.now, now_ms);
-  const now_text = [now.label, now.busy ? "busy now" : "", now.since].filter(Boolean).join(" · ");
-  const moment = entityMomentWords(t.last_moment);
-  const when = moment ? entityWhenWords(t.last_moment?.at, now_ms) : "";
-  return { name, now: now_text, moment: moment ? `${moment}${when ? ` · ${when}` : ""}` : "", trouble: entityTroubleWords(t.now?.trouble, now_ms) };
-}
-
-/** The kit card's own words for a tile older than the last read attempt. */
-export function entity_stale_words(e: EntityTile, now_ms: number): string {
-  if (e.status !== "stale" || !e.tile) return "";
-  return e.as_of_ms ? `Details from ${entityWhenWords(e.as_of_ms, now_ms)}; newer ones could not be read` : "Newer details could not be read";
-}
-
-/** One entity in the strip (redesign 2026-11-07): its orb, name, what it is doing and for how long,
- * its last moment (or its trouble, in warning words) — one compact chip. Hover or click opens the
- * kit EntityCard (full) beside it with every fact whole; its head opens the entity app. */
-function EntityChip(props: { e: EntityTile; now_ms: number; href: string }): React.ReactElement {
+/** One entity in the strip: the kit's EntityCard, compact (ADR 0053 rule 4: one look — review
+ * 2026-11-08 D6 rejected a Board-only chip). Its head opens the entity app; hovering the card, or
+ * focusing into it, opens the SAME kit card at full density beside it, every line whole (the
+ * compact card shows one interest on one line). */
+function EntityCell(props: { e: EntityTile; now_ms: number; href: string }): React.ReactElement {
   const { e } = props;
-  const [open, set_open] = useState<"" | "hover" | "pinned">("");
-  const anchor = useRef<HTMLButtonElement>(null);
-  const w = entity_chip_words(e, props.now_ms);
-  const stale = entity_stale_words(e, props.now_ms);
-  const look = e.tile?.look ?? e.look;
-  const loading = !e.tile && e.status === "loading";
+  const [open, set_open] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
+  const href = `${props.href}${props.href.includes("?") ? "&" : "?"}entity=${encodeURIComponent(e.name)}&live=1`;
+  const show = () => {
+    clear_info_timer();
+    if (!open) info_hover_timer = window.setTimeout(() => set_open(true), 250);
+  };
   const hide_soon = () => {
     clear_info_timer();
-    info_hover_timer = window.setTimeout(() => set_open((m) => (m === "hover" ? "" : m)), 200);
+    info_hover_timer = window.setTimeout(() => set_open(false), 200);
   };
   return (
     <>
-      <button
-        ref={anchor}
-        type="button"
-        className="mc_entity_chip"
-        data-status={e.status}
-        data-trouble={w.trouble ? "true" : undefined}
-        aria-haspopup="dialog"
-        aria-expanded={open !== ""}
-        aria-label={[w.name, w.now, w.trouble, stale, w.moment].filter(Boolean).join(" · ")}
-        onMouseEnter={() => {
-          clear_info_timer();
-          if (!open) info_hover_timer = window.setTimeout(() => set_open((m) => m || "hover"), 150);
-        }}
-        onMouseLeave={() => (open === "hover" ? hide_soon() : clear_info_timer())}
-        onClick={() => {
-          clear_info_timer();
-          set_open(open === "pinned" ? "" : "pinned");
-        }}
-      >
-        <EntityOrb name={w.name} look={look} size={30} />
-        <span className="mc_entity_who">
-          <span className="mc_entity_name">{w.name}</span>
-          {loading ? (
-            <>
-              <SkeletonLine width="120px" />
-              <SkeletonLine width="96px" />
-            </>
-          ) : !e.tile ? (
-            <span className="mc_entity_line mc_entity_note">Details unavailable right now</span>
-          ) : (
-            <>
-              <span className="mc_entity_line mc_entity_now">{w.now}</span>
-              {/* Line 3: trouble first, then staleness, else the last moment (the kit card has all three). */}
-              {w.trouble ? (
-                <span className="mc_entity_line mc_entity_trouble">{w.trouble}</span>
-              ) : stale ? (
-                <span className="mc_entity_line mc_entity_stale">{stale}</span>
-              ) : (
-                <span className="mc_entity_line mc_entity_moment">{w.moment || "No moment yet"}</span>
-              )}
-            </>
-          )}
-        </span>
-      </button>
-      {open && typeof document !== "undefined" ? (
+      <div ref={anchor} className="mc_entity_cell" onMouseEnter={show} onMouseLeave={hide_soon} onFocus={show} onBlur={hide_soon}>
+        <EntityCard tile={e.tile} status={e.status} name={e.name} look={e.look} asOfMs={e.as_of_ms} reason={e.reason || undefined} nowMs={props.now_ms} density="compact" href={href} target="_blank" className="mc_entity_card" />
+      </div>
+      {open && e.tile && typeof document !== "undefined" ? (
         <BoardPopover
-          anchor={anchor}
-          label={`About ${w.name}`}
+          anchor={anchor as unknown as React.RefObject<HTMLButtonElement>}
+          label={`About ${e.name}`}
           width={380}
           className="mc_entity_pop"
-          on_close={(refocus) => {
-            set_open("");
-            if (refocus) anchor.current?.focus();
-          }}
-          on_hover={(inside) => (inside ? clear_info_timer() : open === "hover" ? hide_soon() : undefined)}
+          on_close={() => set_open(false)}
+          on_hover={(inside) => (inside ? clear_info_timer() : hide_soon())}
         >
-          <EntityCard
-            tile={e.tile}
-            status={e.status}
-            name={e.name}
-            look={e.look}
-            asOfMs={e.as_of_ms}
-            reason={e.reason || undefined}
-            nowMs={props.now_ms}
-            density="full"
-            href={`${props.href}${props.href.includes("?") ? "&" : "?"}entity=${encodeURIComponent(e.name)}&live=1`}
-            target="_blank"
-            className="mc_entity_card"
-          />
+          <EntityCard tile={e.tile} status={e.status} name={e.name} look={e.look} asOfMs={e.as_of_ms} reason={e.reason || undefined} nowMs={props.now_ms} density="full" href={href} target="_blank" className="mc_entity_card" />
         </BoardPopover>
       ) : null}
     </>
@@ -1523,9 +1469,10 @@ function EntityChip(props: { e: EntityTile; now_ms: number; href: string }): Rea
 
 const ENTITY_ROW_STORAGE_KEY = "abstractobserver_board_entities_all_v1";
 
-/** The Entities strip (redesign 2026-11-07): ONE row of chips — a rail that scrolls sideways when
- * the roster is wider than the page — and "Show all" that wraps every chip onto rows, remembered
- * per browser. The strip keeps one height in every state (loading, pending tiles, loaded). */
+/** The Entities strip: ONE row of the kit's compact entity cards — a rail that scrolls sideways when
+ * the roster is wider than the page — and "Show all" that wraps them onto rows, remembered per
+ * browser. Cards keep their own height (no stretching to the tallest: the 0.12.4 strip's empty
+ * card bodies), and the strip keeps one height in every state (loading, pending tiles, loaded). */
 function EntityStrip(props: { tiles: EntityTile[]; loading: boolean; total: number; error: string; href: string; now_ms: number }): React.ReactElement {
   const row = useRef<HTMLDivElement>(null);
   const [all, set_all] = useState<boolean>(() => {
@@ -1583,7 +1530,7 @@ function EntityStrip(props: { tiles: EntityTile[]; loading: boolean; total: numb
       ) : props.tiles.length ? (
         <div ref={row} className={`mc_entities_row${all ? " is_all" : ""}`}>
           {props.tiles.map((e) => (
-            <EntityChip key={e.name} e={e} now_ms={props.now_ms} href={props.href} />
+            <EntityCell key={e.name} e={e} now_ms={props.now_ms} href={props.href} />
           ))}
         </div>
       ) : null}
@@ -1931,6 +1878,8 @@ function InfoRowView(props: { row: InfoRow }): React.ReactElement {
 
 export type RenameHandler = (automation_id: string, title: string, expected_revision?: number | null) => Promise<unknown>;
 export type CancelHandler = (run_id: string) => Promise<string | null | void>;
+/** Pause a run, with an optional reason (the run page's Pause dialog sends the same). */
+export type PauseHandler = (run_id: string, reason?: string) => Promise<string | null | void>;
 /** The host's batch cancel: one command per run, a few in flight, ONE listing refresh at the
  * end (operator 2026-10-16 01:04, "EXTREMELY slow": 53 cancels × 3 forced refreshes each queued
  * the commands behind ~160 listings in the browser — 7.5 s per command for a 41 ms request). */
@@ -2590,15 +2539,17 @@ export type CardHandlers = {
   automation_loading?: boolean;
   /** comfortable (default) or compact: how many lines a title / glimpse shows before its "…". */
   density?: BoardDensity;
-  /** A Done group's lead card: how many identical runs it stands for, whether they are shown. */
+  /** A Done group's row: how many runs alike it stands for, whether they are shown. */
   group_count?: number;
   group_open?: boolean;
   /** The run numbers the group spans ("#343 to #382"), when known. */
   group_span?: string;
   /** Fold / unfold a Done group (by its lead card's run id). */
   on_group_toggle?: (run_id: string) => void;
-  /** Pause a running run (the Working card's ⋯ menu). */
-  on_pause_run?: CancelHandler;
+  /** Pause a running run (the Working card's ⋯ menu), with the reason typed in its confirm. */
+  on_pause_run?: PauseHandler;
+  /** A group row's own facts ("31 runs", "#343 to #382", "latest 1 minute ago", …). */
+  group_facts?: string[];
 };
 
 /** The card's subject line: the automation (when it is not already the title) and its
@@ -2950,8 +2901,10 @@ function GatedButton(props: { state: ControlState; label: string; hint?: string;
   return live ? btn : <span className="mc_btn_wrap" title={title}>{btn}</span>;
 }
 
-type PauseState = { phase: "idle" | "busy" | "sent"; error: string };
-const PAUSE_IDLE: PauseState = { phase: "idle", error: "" };
+/** Pause from the ⋯ menu asks first, like the run page's Pause dialog: an optional reason, then
+ * Pause or Keep (review 2026-11-08 R1). */
+type PauseState = { phase: "idle" | "confirm" | "busy" | "sent"; error: string; reason: string };
+const PAUSE_IDLE: PauseState = { phase: "idle", error: "", reason: "" };
 
 /** One card — the same anatomy in every lane (redesign 2026-11-07, DESIGN.md):
  *   head   glyph · the WHOLE title (2 lines, 1 in compact; "…" reads the rest) · ×N · the pill
@@ -2970,6 +2923,7 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
   const [pause, set_pause] = useState<PauseState>(PAUSE_IDLE);
   const [details, set_details] = useState(false);
   const [copied, set_copied] = useState<"" | "copied" | "failed">("");
+  const [code_hint, set_code_hint] = useState(false);
   const menu_anchor = useRef<HTMLSpanElement>(null);
   const density: BoardDensity = props.density ?? "comfortable";
   const status_word = card.status_word;
@@ -2982,19 +2936,23 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
   // Observability: any ongoing run opens in Code and can be cancelled, whatever its lane.
   const ongoing = !is_automation && (card.lane === "needs_you" || card.lane === "working" || card.lane === "waiting_on");
   const request = needs ? request_glimpse(card, props.detail) : null;
-  const answer = is_automation ? null : outcome_glimpse(card, props.outcome);
+  // A group row stands for several runs: it shows the group's own facts, never one member's answer.
+  const is_group = (props.group_count ?? 0) > 1;
+  const answer = is_automation || is_group ? null : outcome_glimpse(card, props.outcome);
   const metrics = card_metrics(card, props.outcome, props.now_ms);
   const who_line = needs ? needs_you_line(card, props.now_ms) : null;
   // Where a detail is still loading the card shows a skeleton line, never a blank
   // (operator 2026-10-15): the ask of a Needs-you card, the answer of a Done card.
   const request_loading = needs && !request && props.detail_loading === true;
-  const answer_loading = !is_automation && card.lane === "done" && !answer && !card.failed && props.outcome_loading === true;
+  const answer_loading = !is_automation && !is_group && card.lane === "done" && !answer && !card.failed && props.outcome_loading === true;
   const title_loading = card.title.untitled && props.brief_loading === true;
   // A finished card whose sentence is its pill's word says it once (the pill).
   const echoes_pill = !answer && done_sentence_echoes(card);
   // A failed Done card says WHY, whole (the sentence clamps the error at 120 characters): the pill
-  // already says "failed".
-  const failure = card.lane === "done" && card.failed && card.error ? card.error : "";
+  // already says "failed". The listing serves no error on this gateway; the record read for the
+  // card's outcome has it (review 2026-11-08 D3). A group's reason is its key's (the row's own).
+  const failure = card.lane === "done" && card.failed ? card.error || (is_group ? "" : String(props.outcome?.error || "").trim()) : "";
+  const failure_loading = card.lane === "done" && card.failed && !failure && !is_group && props.outcome_loading === true;
   const on_cancel_run = ongoing ? props.on_cancel_run : undefined;
   const cancel_tree = cancel.phase !== "idle" && on_cancel_run ? props.cancel_targets?.(card.run_id) : undefined;
   const send_cancel_now = async () => {
@@ -3024,13 +2982,14 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
   };
   const send_pause = () => {
     const on_pause = props.on_pause_run;
-    if (!on_pause || pause.phase === "busy") return;
-    set_pause({ phase: "busy", error: "" });
+    if (!on_pause || pause.phase !== "confirm") return;
+    const reason = pause.reason.trim();
+    set_pause({ phase: "busy", error: "", reason: pause.reason });
     void Promise.resolve()
-      .then(() => on_pause(card.run_id))
+      .then(() => on_pause(card.run_id, reason || undefined))
       .then(
-        (err) => set_pause(typeof err === "string" && err ? { phase: "idle", error: err } : { phase: "sent", error: "" }),
-        (e: any) => set_pause({ phase: "idle", error: String(e?.message || e || "pause failed") }),
+        (err) => set_pause(typeof err === "string" && err ? { phase: "idle", error: err, reason: "" } : { phase: "sent", error: "", reason: "" }),
+        (e: any) => set_pause({ phase: "idle", error: String(e?.message || e || "pause failed"), reason: "" }),
       );
   };
   const copy_id = () => {
@@ -3082,20 +3041,27 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
       if (!auto_paused && controls.toggle.state.enabled) items.push({ id: "pause_schedule", label: controls.toggle.label, onSelect: () => command(controls.toggle.command) });
     }
   } else {
-    items.push({ id: "open", label: "Open the run", onSelect: open });
+    items.push({ id: "open", label: is_group ? "Open the latest run" : "Open the run", onSelect: open });
     const session = code_session_of(card);
     const code_url = String(props.code_app?.url || "").trim();
-    if (ongoing && session && code_url) items.push({ id: "code", label: "Open in Code", onSelect: () => void window.open(code_href(code_url, session, card.run_id), "_blank", "noreferrer") });
-    if (card.lane === "working" && props.on_pause_run && card.line.verb === "running" && pause.phase === "idle") items.push({ id: "pause", label: "Pause", onSelect: send_pause });
+    // Without the Code app the item stays and says how to get it (0.12.4's install hint), never vanishes.
+    if (ongoing && session) {
+      items.push(
+        code_url
+          ? { id: "code", label: "Open in Code", onSelect: () => void window.open(code_href(code_url, session, card.run_id), "_blank", "noreferrer") }
+          : { id: "code", label: "Open in Code…", onSelect: () => set_code_hint(true) },
+      );
+    }
+    if (card.lane === "working" && props.on_pause_run && card.line.verb === "running" && pause.phase === "idle") items.push({ id: "pause", label: "Pause…", onSelect: () => set_pause({ phase: "confirm", error: "", reason: "" }) });
     if (on_cancel_run && !stuck_now && cancel.phase === "idle") items.push({ id: "cancel", label: "Cancel…", danger: true, onSelect: () => cancel_dispatch({ type: "ask" }) });
     if (ongoing && props.on_cancel_run) {
       for (const r of card.chain) {
         if (r.depth > 0 && r.run_id) items.push({ id: `stop:${r.run_id}`, label: `Stop subrun ${r.name}…`, danger: true, onSelect: () => set_stop_sub({ row: r, state: { phase: "confirm", error: "" } }) });
       }
     }
-    items.push({ id: "copy", label: "Copy run id", onSelect: copy_id });
+    items.push({ id: "copy", label: is_group ? "Copy the latest run id" : "Copy run id", onSelect: copy_id });
   }
-  items.push({ id: "details", label: is_automation ? "About this automation" : "About this run", onSelect: () => set_details(true) });
+  items.push({ id: "details", label: is_automation ? "About this automation" : is_group ? "About the latest run" : "About this run", onSelect: () => set_details(true) });
 
   const title_text = full_title(card);
   const untitled_chip = card.title.untitled ? (
@@ -3115,9 +3081,10 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
   // An automation's foot carries its last run ("last #384 completed 48 seconds ago · 384 turns").
   const auto_facts = is_automation && card.automation ? automation_facts_words(card.automation, props.now_ms) : null;
   const show_subject = !(has_chain && !subject.label && !card.archived && card.chain[0] && (subject.secondary === card.chain[0].name || subject.secondary === workflow_short(card.workflow_id)));
-  const meta_parts = [...(show_subject ? [subject.label, subject.secondary] : []), ...metrics].filter(Boolean);
+  // A group row's meta is the group's (count, numbers, latest / first); a run's is its own.
+  const meta_parts = is_group && props.group_facts ? props.group_facts : [...(show_subject ? [subject.label, subject.secondary] : []), ...metrics].filter(Boolean);
   const wait_key_note = ask_card && ask_card.line.action === "approve" && !ask_card.wait_key;
-  const notice = cancel.phase !== "idle" || cancel.error || stop_sub || cmd.error || pause.phase === "sent" || pause.error || copied;
+  const notice = cancel.phase !== "idle" || cancel.error || stop_sub || cmd.error || pause.phase !== "idle" || pause.error || copied || code_hint;
   const group_n = props.group_count ?? 0;
   return (
     <div
@@ -3163,7 +3130,7 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
               tone="muted"
               className="mc_group_count"
               expanded={props.group_open === true}
-              ariaLabel={props.group_open ? `Fold the ${group_n} identical runs` : `${group_n} identical runs: show each`}
+              ariaLabel={props.group_open ? `Fold the ${group_n} runs` : `${group_n} runs alike: show each`}
               title={props.group_open ? "Fold them back into one row" : `${group_n} runs in a row with this same title, status and subject${props.group_span ? ` (runs ${props.group_span})` : ""}: show each`}
               onClick={() => props.on_group_toggle?.(card.run_id)}
             >
@@ -3187,6 +3154,11 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
         <ClampText lines={2} what="error" className="mc_card_state mc_card_failure" text_key={failure}>
           {failure}
         </ClampText>
+      ) : failure_loading ? (
+        <InlineSkeleton what="the failure's reason" />
+      ) : is_group ? (
+        /* A group row: its facts are in the meta row; each run's answer shows once it is opened. */
+        null
       ) : echoes_pill ? (
         /* The sentence would only repeat the pill ("failed" under "failed"); a failure with a
          * reason keeps its sentence ("failed: <reason>"), which is not an echo. */
@@ -3270,7 +3242,41 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
           {stop_sub
             ? cancel_confirm_nodes({ state: stop_sub.state, on_event: stop_event, on_send: () => void send_stop_now(), question: `${SUBRUN_STOP_QUESTION} (${stop_sub.row.name})` })
             : null}
+          {pause.phase === "confirm" || pause.phase === "busy" ? (
+            <form
+              className="mc_confirm mc_pause_confirm"
+              aria-label="Pause this run?"
+              onSubmit={(e) => {
+                e.preventDefault();
+                send_pause();
+              }}
+            >
+              <span className="mc_confirm_q">Pause this run?</span>
+              <input
+                className="mc_pause_reason"
+                aria-label="Reason (optional)"
+                placeholder="reason (optional)"
+                value={pause.reason}
+                disabled={pause.phase === "busy"}
+                onChange={(e) => set_pause({ ...pause, reason: e.target.value })}
+              />
+              <button type="submit" className="btn primary mc_btn_sm" disabled={pause.phase === "busy"}>
+                {pause.phase === "busy" ? "Pausing" : "Pause"}
+              </button>
+              <button type="button" className="btn mc_btn_sm" disabled={pause.phase === "busy"} onClick={() => set_pause(PAUSE_IDLE)}>
+                Keep
+              </button>
+            </form>
+          ) : null}
           {pause.phase === "sent" ? <span className="mc_cancel_sent">pause requested</span> : null}
+          {code_hint ? (
+            <span className="mc_card_line" role="status">
+              {CODE_INSTALL_HINT}{" "}
+              <button type="button" className="mc_link_btn" onClick={() => set_code_hint(false)}>
+                OK
+              </button>
+            </span>
+          ) : null}
           {copied ? (
             <span className={`mc_copied is_${copied}`} role="status">
               {copied === "copied" ? "run id copied" : "copy failed"}
@@ -3296,7 +3302,7 @@ function BoardCardViewImpl(props: CardViewProps): React.ReactElement {
         <div className="mc_card_act">
           {primary}
           <span ref={menu_anchor} className="mc_menu_wrap">
-            <AfMenu label={`More actions for ${title_text}`} items={items} className="mc_card_menu" buttonClassName="mc_menu_btn" />
+            <AfMenu label={is_automation ? "More actions for this automation" : is_group ? "More actions for these runs" : "More actions for this run"} items={items} className="mc_card_menu" buttonClassName="mc_menu_btn" />
           </span>
         </div>
       </div>
@@ -3436,6 +3442,11 @@ export function card_view_equal(prev: CardViewProps, next: CardViewProps): boole
   const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
   for (const k of keys) {
     if (k === "card" || k === "now_ms") continue;
+    if (k === "group_facts") {
+      // A fresh array per render: equal when it says the same.
+      if (((prev as any)[k] || []).join("\u0001") !== ((next as any)[k] || []).join("\u0001")) return false;
+      continue;
+    }
     if (k === "ask_detail") {
       // A fresh object per render: equal when the same ids map to the same detail objects.
       const a = (prev as any)[k] || {};
@@ -3480,7 +3491,11 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
   // Density: the viewer's choice, remembered per browser (redesign 2026-11-07).
   const [density, set_density] = useState<BoardDensity>(() => read_density(viewer_storage()));
   // Done groups shown member by member (by their lead card's run id); folded by default.
+  // Keyed by MEMBER run ids, never by a lead id that moves (review 2026-11-08 D1): a group is open
+  // while any of its runs is in `open_groups`; a run arriving in an open group joins it open.
   const [open_groups, set_open_groups] = useState<ReadonlySet<string>>(() => new Set());
+  const [all_groups, set_all_groups] = useState<ReadonlySet<string>>(() => new Set());
+  const group_members = useRef(new Map<string, string[]>());
   // Done window: persisted operator preference (survives reloads).
   const [done_window, set_done_window] = useState<DoneWindowKey>(() => {
     try {
@@ -3627,14 +3642,20 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
       cancel_targets: (run_id: string) => cancel_targets([run_id], active_ref.current),
       act: (c: BoardCard, payload: any) => void act_ref.current(c, payload),
       resume: (c: BoardCard) => void resume_ref.current(c),
-      pause: ((run_id) => host.current.on_pause_run!(run_id)) as CancelHandler,
-      toggle_group: (run_id: string) =>
+      pause: ((run_id, reason) => host.current.on_pause_run!(run_id, reason)) as PauseHandler,
+      toggle_group: (lead_run_id: string) => {
+        const ids = group_members.current.get(lead_run_id) || [lead_run_id];
         set_open_groups((prev) => {
           const next = new Set(prev);
-          if (next.has(run_id)) next.delete(run_id);
-          else next.add(run_id);
+          const is_open = ids.some((id) => next.has(id));
+          for (const id of ids) is_open ? next.delete(id) : next.add(id);
           return next;
-        }),
+        });
+      },
+      show_group_all: (lead_run_id: string) => {
+        const ids = group_members.current.get(lead_run_id) || [lead_run_id];
+        set_all_groups((prev) => new Set([...prev, ...ids]));
+      },
     }),
     [],
   );
@@ -3840,20 +3861,36 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
                   {visible_groups
                     ? visible_groups.map((g) => {
                         const lead = g.cards[0];
-                        const open = g.cards.length > 1 && open_groups.has(lead.run_id);
+                        if (g.cards.length < 2) return <BoardCardView key={lead.run_id} card={lead} {...handlers(lead)} />;
+                        const ids = g.cards.map((c) => c.run_id);
+                        group_members.current.set(lead.run_id, ids);
+                        const open = ids.some((id) => open_groups.has(id));
                         // An open group shows its runs GROUP_SHOWN at a time (a 167-run group is not 167 cards at once).
-                        const all_members = open_groups.has(`${lead.run_id}:all`);
-                        const members = open ? g.cards.slice(1, all_members ? undefined : GROUP_SHOWN + 1) : [];
-                        const rest = open ? g.cards.length - 1 - members.length : 0;
-                        const card = <BoardCardView key={lead.run_id} card={lead} {...handlers(lead)} group_count={g.cards.length} group_open={open} group_span={group_span_words(g.cards)} on_group_toggle={stable.toggle_group} />;
+                        const all_members = ids.some((id) => all_groups.has(id));
+                        const members = open ? g.cards.slice(0, all_members ? undefined : GROUP_SHOWN) : [];
+                        const rest = open ? g.cards.length - members.length : 0;
+                        // The group's row: the group's own facts; each run, with its own answer, reason and
+                        // metrics, below it once opened.
+                        const card = (
+                          <BoardCardView
+                            key={lead.run_id}
+                            card={lead}
+                            {...handlers(lead)}
+                            group_count={g.cards.length}
+                            group_open={open}
+                            group_span={group_span_words(g.cards)}
+                            group_facts={group_facts_words(g.cards, now_ms)}
+                            on_group_toggle={stable.toggle_group}
+                          />
+                        );
                         return open ? (
-                          <div key={lead.run_id} className="mc_group" role="group" aria-label={`${g.cards.length} identical runs`}>
+                          <div key={lead.run_id} className="mc_group" role="group" aria-label={`${g.cards.length} runs alike`}>
                             {card}
                             {members.map((c) => (
-                              <BoardCardView key={c.run_id} card={c} {...handlers(c)} />
+                              <BoardCardView key={`m:${c.run_id}`} card={c} {...handlers(c)} />
                             ))}
                             {rest > 0 ? (
-                              <button type="button" className="btn mc_more" onClick={() => stable.toggle_group(`${lead.run_id}:all`)}>
+                              <button type="button" className="btn mc_more" onClick={() => stable.show_group_all(lead.run_id)}>
                                 show the other {rest}
                               </button>
                             ) : null}

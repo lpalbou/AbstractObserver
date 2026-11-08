@@ -117,16 +117,18 @@
   font-size: var(--t-small);
 }
 
-/* ONE row of entity chips (redesign 2026-11-07): a rail that scrolls sideways when the roster is
- * wider than the page; "Show all" wraps every chip onto rows. Chips are content-wide (nothing in
- * them is cut) and one fixed height (name · now · last moment), so loading never moves the lanes. */
+/* ONE row of the kit's compact entity cards: a rail that scrolls sideways when the roster is wider
+ * than the page; "Show all" wraps them onto rows. Cards keep their OWN height (flex-start): the
+ * 0.12.4 rail stretched every card to the tallest one (a card with a trouble note), which drew the
+ * empty card bodies the operator saw (review 2026-11-08 D6: the kit card, not a Board chip). */
 .mc_entities_row {
   display: flex;
   flex-wrap: nowrap;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 2px 2px 6px;
+  padding: 3px 3px 8px;
   scrollbar-width: thin;
 }
 
@@ -135,96 +137,16 @@
   overflow-x: visible;
 }
 
-.mc_entity_chip {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  height: 64px;
-  padding: 8px 14px 8px 10px;
-  border: 1px solid var(--pane-border);
-  border-radius: 12px;
-  background: var(--raised-bg);
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-
-.mc_entity_chip:hover,
-.mc_entity_chip[aria-expanded="true"] {
-  border-color: var(--pane-border-strong);
-}
-
-.mc_entity_chip:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Trouble is one hairline of warning, never a flood. */
-.mc_entity_chip[data-trouble="true"] {
-  border-color: color-mix(in srgb, var(--warning) 45%, var(--pane-border));
-}
-
-.mc_entity_chip.is_skeleton {
-  width: 210px;
-  cursor: default;
-}
-
-.mc_entity_orb {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border-radius: 50%;
-}
-
-.mc_entity_orb.is-plain {
-  width: 30px;
-  height: 30px;
-  background: color-mix(in srgb, var(--af-entity-color, var(--text-secondary)) 22%, transparent);
-  color: var(--af-entity-color, var(--text-secondary));
-  font-size: var(--t-small);
-  font-weight: 650;
-}
-
-.mc_entity_who {
+.mc_entity_cell {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-  white-space: nowrap;
+  flex: 0 0 auto;
+  width: min(280px, 82vw);
 }
 
-.mc_entity_name {
-  font-size: var(--t-small);
-  font-weight: 650;
-  line-height: 1.35;
-}
-
-.mc_entity_line {
-  font-size: var(--t-micro);
-  line-height: 1.4;
-  color: var(--text-muted);
-}
-
-.mc_entity_now {
-  color: var(--text-secondary);
-}
-
-.mc_entity_trouble {
-  color: var(--warning);
-}
-
-.mc_entity_stale {
-  font-style: italic;
-}
-
-.mc_entity_who .mc_sk {
-  height: 10px;
-  margin: 2px 0;
+.mc_entity_cell > .mc_entity_card {
+  width: 100%;
+  background: var(--raised-bg);
+  box-shadow: 0 1px 2px color-mix(in srgb, black 14%, transparent);
 }
 
 /* The expanded entity: the kit card, every line whole (the strip's card clamps; this one reads). */
@@ -1831,10 +1753,9 @@ a.btn.mc_btn_quiet {
   /* An explicit min-height drops a flex item's content-based minimum: never let the column
    * flex .mc_page squeeze the strip below its content (the lanes own the scroll). */
   flex: none;
-  /* The loaded row (redesign 2026-11-07): head + ONE row of 64 px entity chips + the strip's
-   * padding and border = 129.5 px at font scale 1 (measured in space_dom.test.tsx without this
-   * floor: loading, pending and loaded rows all 129.5 px in Chromium). "Show all" wraps the chips
-   * onto more rows: the viewer's own move, never data landing. */
+  /* A floor, not the measure: the kit's compact EntityCard holds its final size while it loads, so
+   * loading, pending and loaded rows are one height on their own (space_dom.test.tsx pins it);
+   * this only keeps the strip from collapsing before the first card is drawn. */
   min-height: var(--mc-entities-min, 130px);
 }
 
@@ -2457,4 +2378,27 @@ a.btn.mc_btn_quiet {
 
 .mc_entities_head > * {
   white-space: nowrap;
+}
+
+/* The lanes you act on take twice the spare width when they hold cards (review 2026-11-08 R5). */
+.mc_column_needs_you:not(.is_collapsed),
+.mc_column_working:not(.is_collapsed) {
+  flex-grow: 2;
+}
+
+.mc_pause_confirm .mc_pause_reason {
+  flex: 1 1 10em;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--pane-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--t-small);
+}
+
+.mc_confirm.mc_pause_confirm {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }

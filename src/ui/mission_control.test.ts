@@ -853,8 +853,9 @@ describe("operator round 2026-10-14 (lane E): heads, copy, Needs you, actions, t
     // the disabled button with the install hint (below).
     const on = html_of(question(), { code_app: { url: "http://127.0.0.1:3003/" } });
     expect(on).toContain('data-menu-id="code" class="af-menu__item">Open in Code</button>');
+    // Without the app the item stays and, chosen, says how to get it (0.12.4's install hint; review 2026-11-08 R3).
     for (const off of [html_of(question()), html_of(question(), { code_app: null })]) {
-      expect(off).not.toContain("Open in Code");
+      expect(off).toContain('data-menu-id="code" class="af-menu__item">Open in Code…</button>');
       expect(off).not.toContain("#session=");
     }
     const off_info = renderToStaticMarkup(React.createElement(CardInfo, { card: question(), now_ms: NOW_MS, stall_after_ms: 5 * 60_000 }));
@@ -1098,9 +1099,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     expect(strip_of(loading)[2]).toContain('aria-busy="true"');
     expect(loading).toContain('<div class="mc_entities_row" role="status" aria-label="loading entities">');
     expect(loading).toContain("Loading entities…");
-    // Loading chips (redesign 2026-11-07: ONE row of chips): skeleton chips at the chip's own
-    // height, no link yet.
-    const skeletons = (html: string) => (html.match(/class="mc_entity_chip is_skeleton"/g) || []).length;
+    // Loading cards: the shared kit card in its loading state (it holds its final size), no link yet.
+    const skeletons = (html: string) => (html.match(/data-status="loading"/g) || []).length;
     expect(skeletons(loading)).toBe(SKELETON_ENTITIES);
     expect(loading).not.toContain("af-entity-card__head\" href");
     expect(loading).not.toContain("no entities");
@@ -1111,9 +1111,8 @@ describe("operator round 2026-10-15: loading state, automation cards, spacing", 
     const loaded = page({ entities: [tile("castor"), tile("pollux")], entities_total: 16 });
     expect(strip_of(loaded)[1]).toBe(strip_of(loading)[1]);
     expect(strip_of(loaded)[2]).not.toContain("aria-busy");
-    // One chip per entity (a tile still loading draws its name and skeleton lines); the kit card
-    // opens from the chip on demand.
-    expect((loaded.match(/<button type="button" class="mc_entity_chip" data-status="loading"/g) || []).length).toBe(2);
+    // One kit card per entity (ADR 0053 rule 4: the kit's compact EntityCard), its head the entity app link.
+    expect((loaded.match(/<a class="af-entity-card__head"/g) || []).length).toBe(2);
     expect(loaded).not.toContain('role="status" aria-label="loading entities"');
     expect(loaded).toContain('<span class="mc_entities_title">Entities<span class="mc_entities_count" title="The entity app lists them all">2 of 16</span></span>');
     expect(loaded).toContain("Open the entity app →");
@@ -1485,7 +1484,7 @@ describe("operator round 2026-10-15 evening (lane F): no stat strip, one card fl
     const foot = q.slice(q.indexOf('<div class="mc_card_foot"'));
     expect(foot).toMatch(/^<div class="mc_card_foot"><div class="mc_card_meta"/);
     expect(foot).toMatch(/<div class="mc_card_act"><div class="mc_card_actions"><button type="button" class="btn primary mc_btn_sm">Review &amp; answer →<\/button><\/div><span class="mc_menu_wrap">/);
-    expect(foot).toContain('aria-label="More actions for basic-agent 0.0.5" aria-haspopup="menu" aria-expanded="false"');
+    expect(foot).toContain('aria-label="More actions for this run" aria-haspopup="menu" aria-expanded="false"');
     const items = (h: string) => [...h.matchAll(/class="af-menu__item[^"]*">([^<]+)<\/button>/g)].map((m) => m[1]);
     expect(items(foot)).toEqual(["Open the run", "Open in Code", "Cancel…", "Copy run id", "About this run"]);
     expect(foot).not.toMatch(/>i<\/button>/);
