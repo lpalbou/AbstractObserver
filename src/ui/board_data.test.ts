@@ -444,9 +444,9 @@ describe("run outcomes (lane E): a Done card's answer + artifact count, read onc
       get_run: async (id: string) => (calls.push(["get_run", id]), { output: { response: "the answer" } }),
       list_run_artifacts: async (id: string, opts?: any) => (calls.push(["artifacts", id, opts]), { items: [], total: 3 }),
     };
-    expect(await load_outcome(client, "d1")).toEqual({ answer: "the answer", artifacts: 3 });
+    expect(await load_outcome(client, "d1")).toEqual({ answer: "the answer", artifacts: 3, error: "" });
     expect(calls).toEqual([["get_run", "d1"], ["artifacts", "d1", { limit: 1 }]]);
-    expect(await load_outcome({ ...client, list_run_artifacts: async () => { throw new Error("404"); } }, "d1")).toEqual({ answer: "the answer", artifacts: null });
+    expect(await load_outcome({ ...client, list_run_artifacts: async () => { throw new Error("404"); } }, "d1")).toEqual({ answer: "the answer", artifacts: null, error: "" });
     await expect(load_outcome({ ...client, get_run: async () => { throw new Error("HTTP 500"); } }, "d1")).rejects.toThrow("HTTP 500");
   });
 });
@@ -568,7 +568,7 @@ function fake_storage(opts?: { throw_on_set?: boolean }): StorageLike & { data: 
 
 describe("the session store (immutable scopes mirrored to sessionStorage, keyed by id@version)", () => {
   it("the two persisted scopes are the immutable ones", () => {
-    expect([...PERSISTED_SCOPES]).toEqual(["excerpt", "outcome"]);
+    expect([...PERSISTED_SCOPES]).toEqual(["excerpt", "outcome_v2"]);
   });
 
   it("round trip: read entries come back at their version with has_value; in-flight and failed entries are never written", () => {

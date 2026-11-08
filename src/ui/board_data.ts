@@ -734,7 +734,7 @@ export function useAutomationBriefs(
 }
 
 /** Run briefs and outcomes are immutable, so they are the two scopes the session store mirrors. */
-export const PERSISTED_SCOPES = ["excerpt", "outcome"] as const;
+export const PERSISTED_SCOPES = ["excerpt", "outcome_v2"] as const;
 
 export function useRunBriefs(client: BoardDataClient | null | undefined, runs_in_view: RunSummary[]): { map: Map<string, RunBrief>; pending: number; loading: Set<string> } {
   const wants = useMemo(() => run_brief_wants(runs_in_view), [runs_in_view]);
@@ -791,9 +791,10 @@ export function useSubrunFates(client: BoardDataClient | null | undefined, detai
   return { map: res.map, pending: res.pending, loading: res.loading };
 }
 
-/** What a Done card shows of a finished run: a glimpse of its answer and how many
- * artifacts it produced. */
-export type RunOutcome = { answer: string; artifacts: number | null };
+/** What a Done card shows of a finished run: a glimpse of its answer, how many artifacts it
+ * produced, and — for a failure — its reason, whole (the run listings serve `error: None`; the
+ * record has it: "Effect failed after 3 attempts: …", review 2026-11-08 D3). */
+export type RunOutcome = { answer: string; artifacts: number | null; error?: string };
 
 /** A finished run never changes: its outcome is read once and kept for the session. */
 export const OUTCOMES_IMMUTABLE = true;
@@ -825,14 +826,23 @@ export async function load_outcome(client: Pick<BoardDataClient, "get_run" | "li
     client.get_run(run_id),
     client.list_run_artifacts(run_id, { limit: 1 }).then(artifact_count_of, () => null),
   ]);
-  return { answer: answer_of_run(detail), artifacts };
+  return { answer: answer_of_run(detail), artifacts, error: error_of_run(detail) };
+}
+
+/** A finished run's failure reason from its record (`error`, a string or `{message}`), whole; "" without one. */
+export function error_of_run(detail: any): string {
+  const e = detail?.error;
+  if (typeof e === "string") return e.trim();
+  if (e && typeof e === "object" && typeof e.message === "string") return e.message.trim();
+  return "";
 }
 
 /** The outcomes of the Done cards on screen (immutable, lowest priority). */
 export function useRunOutcomes(client: BoardDataClient | null | undefined, done_runs: RunSummary[]): { map: Map<string, RunOutcome>; pending: number; loading: Set<string> } {
   const wants = useMemo(() => outcome_wants(done_runs), [done_runs]);
   const res = useLazyCache<RunOutcome>(client, wants, async (c, w) => await load_outcome(c, w.id), {
-    scope: "outcome",
+    // v2: the outcome carries the failure reason; v1 entries (no reason) are read again once.
+    scope: "outcome_v2",
     priority: PRIORITY.outcome,
     immutable: OUTCOMES_IMMUTABLE,
     persist: true,
