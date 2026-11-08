@@ -71,4 +71,32 @@ describe("ClampText's '…' control in a browser", () => {
     expect(r.after.label).toBe("less");
     expect(r.text).toContain("needs a decision from me today");
   }, 60_000);
+
+  it("an automation card at a 281 px lane (1600 px with Needs you and Working open): nothing in it runs past its border (review round 2, D1)", async () => {
+    const page = await (await browser!.newContext({ viewport: { width: 1200, height: 900 } })).newPage();
+    await page.route("http://board.test/", (route) => route.fulfill({ contentType: "text/html", body: '<!doctype html><html><head></head><body><div id="a" style="width:255px"></div></body></html>' }));
+    await page.goto("http://board.test/");
+    await page.addStyleTag({ content: css });
+    await page.addScriptTag({ content: bundle });
+    const past = await page.evaluate(async () => {
+      const { React, createRoot, flushSync, BoardCardView, build_board } = (window as any).__board;
+      const now = Date.now();
+      const brief = {
+        automation_id: "a1", title: "You report your daily news with professionalism with a writing style suitable for voice over", status: "active",
+        cadence: "every 24h", trigger: null, event_driven: false, trigger_text: "Every 24 hours (UTC)", schedule_rule_text: "", time_zone: "UTC",
+        next_fire_ms: now + 20 * 3_600_000, last: { index: 18, status: "completed", fired_ms: now - (3 * 60 + 48) * 60_000, finished_ms: now - (3 * 60 + 40) * 60_000 },
+        occurrence_count: 18, current: null, context_mode: "growing", growing_max_tokens: 100_000, context_used_tokens: 7_800, capabilities: ["run_now", "pause"], legacy: false,
+      };
+      const ctl = { run_id: "ctl", role: "controller", session_kind: "automation", automation_id: "a1", workflow_id: "automation", status: "waiting", waiting: { reason: "event", until: new Date(now + 3_600_000).toISOString() }, created_at: new Date(now - 86_400_000).toISOString(), updated_at: new Date(now - 60_000).toISOString() };
+      const card = build_board({ active: [ctl], done: [], automations: new Map([["a1", brief]]), now_ms: now }).scheduled[0];
+      flushSync(() => createRoot(document.getElementById("a")).render(React.createElement(BoardCardView, { card, now_ms: now, stall_after_ms: 300_000, busy: false, on_open_run: () => {}, on_act: () => {}, on_automation_command: async () => {} })));
+      await new Promise((res) => setTimeout(res, 200));
+      const c = document.querySelector("#a .mc_card") as HTMLElement;
+      const cr = c.getBoundingClientRect();
+      const meta = (document.querySelector("#a .mc_fact_last")?.textContent || "").replace(/\u00a0/g, " ");
+      return { meta, past: [...c.querySelectorAll("*")].filter((k) => { const q = k.getBoundingClientRect(); return q.width > 0 && q.right > cr.right + 0.5; }).map((k) => `${(k as HTMLElement).className} +${Math.round(k.getBoundingClientRect().right - cr.right)}`) };
+    });
+    expect(past.meta).toContain("last #18 completed 3 hours 48 minutes ago");
+    expect(past.past).toEqual([]);
+  }, 60_000);
 });
