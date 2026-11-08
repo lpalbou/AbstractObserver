@@ -2058,7 +2058,8 @@ describe("the status line: the last known board, and a connection notice outside
     expect(stale).toContain('data-run-id="w1"');
     expect(stale).not.toContain("loading runs…");
     const noticed = page({ notice: "Runs listing (waiting) failed: GET /api/gateway/runs?status=waiting: no answer within 30 s — the gateway is busy · 02:01 ×2" });
-    expect(noticed).toContain('<span class="mc_notice is_bad" role="status">Runs listing (waiting) failed: GET /api/gateway/runs?status=waiting: no answer within 30 s — the gateway is busy · 02:01 ×2</span>');
+    // Whole, folded to one line behind the reveal (review 2026-11-08 round 4).
+    expect(noticed).toContain('<span class="mc_notice mc_notice_folded is_bad" role="status"><div class="mc_clamp"><div class="mc_clamp_text" data-lines="1" style="-webkit-line-clamp:1">Runs listing (waiting) failed: GET /api/gateway/runs?status=waiting: no answer within 30 s — the gateway is busy · 02:01 ×2</div></div></span>');
     expect(noticed).toContain('data-run-id="w1"');
     expect(page({})).not.toContain("mc_status_line");
   });

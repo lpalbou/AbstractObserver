@@ -1408,8 +1408,10 @@ export function App(): React.ReactElement {
       // Our own abort (a newer request replaced this one): housekeeping, never a failure.
       if (String(e?.name || "") === "Superseded") return;
       const msg = String(e?.message || e || "");
-      push_log({ ts: now_iso(), kind: "error", title, preview: clamp_preview(msg) });
-      note_connection(title, clamp_preview(msg));
+      // The notice carries the message WHOLE (ADR 0053 §2 / 0054): the Board folds it behind "…";
+      // the log's preview is its list line, the whole text rides in its data.
+      push_log({ ts: now_iso(), kind: "error", title, preview: clamp_preview(msg), data: { error: msg } });
+      note_connection(title, msg);
       // SESSION-EXPIRY HONESTY (fable5 code adversary P1): a 401/403 from
       // the heartbeat means the session died mid-use — without this, the
       // app stayed "connected" with frozen columns while every action

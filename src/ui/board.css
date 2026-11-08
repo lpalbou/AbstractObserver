@@ -2430,3 +2430,18 @@ a.btn.mc_btn_quiet {
 .mc_entities_fold {
   font-size: var(--t-small);
 }
+
+/* A long connection notice: one line, then "…" reveals it whole in place (never an ellipsis cut). */
+.mc_status_line:has(.mc_notice_folded) {
+  height: auto;
+  min-height: 28px;
+}
+
+.mc_notice.mc_notice_folded {
+  --mc-card-bg: var(--canvas);
+  flex: 1 1 auto;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}

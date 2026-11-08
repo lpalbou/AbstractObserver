@@ -3757,8 +3757,12 @@ export function MissionControlPage(props: MissionControlProps): React.ReactEleme
             </span>
           ) : null}
           {props.gateway_connected && props.notice ? (
-            <span className="mc_notice is_bad" role="status">
-              {props.notice}
+            /* Whole, folded to one line with the "…" that reveals the rest (never cut: a cut URL
+             * once read as a different request — review 2026-11-08 round 4). */
+            <span className="mc_notice mc_notice_folded is_bad" role="status">
+              <ClampText lines={1} what="message" text_key={props.notice}>
+                {props.notice}
+              </ClampText>
             </span>
           ) : null}
         </div>

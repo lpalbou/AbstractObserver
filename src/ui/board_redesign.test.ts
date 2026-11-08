@@ -345,3 +345,17 @@ describe("review 2026-11-08 round 2", () => {
     expect(rules[rules.length - 1]).toMatch(/white-space:\s*normal/);
   });
 });
+
+describe("review 2026-11-08 round 4", () => {
+  it("the connection notice reaches the Board whole (a 300-character request), folded to one line with the reveal — never cut", () => {
+    const notice = `Refresh run metrics failed: GET /api/gateway/runs?limit=200&root_only=true&kind=conversation&session_kind=automation,occurrence${"&x=1".repeat(50)}: no answer within 30 s — the gateway is busy · 01:43`;
+    expect(notice.length).toBeGreaterThan(300);
+    const html = page({ notice });
+    expect(html).toContain(notice.replace(/&/g, "&amp;"));
+    expect(html).toMatch(/class="mc_notice mc_notice_folded is_bad" role="status"><div class="mc_clamp"><div class="mc_clamp_text" data-lines="1"/);
+    // The host hands the message over whole (no clamp_preview on the notice).
+    const app = readFileSync(new URL("./app.tsx", import.meta.url), "utf8");
+    expect(app).toContain("note_connection(title, msg);");
+    expect(app).not.toMatch(/note_connection\(title, clamp_preview/);
+  });
+});

@@ -57,3 +57,37 @@ describe("an aborted fetch says WHY (operator 2026-10-16 01:59: three 'Fetch is 
     }
   });
 });
+
+describe("a failure names its request WHOLE (review 2026-11-08 round 4: a query cut at 60 characters read as another request)", () => {
+  it("a 300-character URL survives whole in the timeout, its query decoded; an HTTP error carries the URL, the status and the gateway's body verbatim", async () => {
+    const { GatewayClient, GatewayTimeout, request_words } = await import("./gateway_client");
+    const original = globalThis.fetch;
+    try {
+      const long_kind = `automation,occurrence,${"x".repeat(240)}`;
+      globalThis.fetch = (async (_url: any, init: any) => {
+        const reason = Object.assign(new Error("signal timed out"), { name: "TimeoutError" });
+        Object.defineProperty(init.signal, "reason", { value: reason, configurable: true });
+        throw Object.assign(new Error("Fetch is aborted"), { name: "AbortError" });
+      }) as any;
+      const c = new GatewayClient({ base_url: "http://127.0.0.1:8080", auth_token: "" } as any);
+      const err = await c.list_runs({ limit: 200, session_kind: long_kind } as any).catch((e) => e);
+      expect(err).toBeInstanceOf(GatewayTimeout);
+      expect(err.message).toContain(`session_kind=${long_kind}`);
+      expect(err.message.length).toBeGreaterThan(300);
+      expect(err.message).not.toContain("…");
+      // The words alone: the whole path and query, decoded.
+      const url = `http://127.0.0.1:8080/api/gateway/runs?limit=200&root_only=true&kind=conversation&session_kind=${encodeURIComponent(long_kind)}`;
+      expect(url.length).toBeGreaterThan(300);
+      expect(request_words(url)).toBe(`GET /api/gateway/runs?limit=200&root_only=true&kind=conversation&session_kind=${long_kind}`);
+      // An HTTP refusal: the request, the status and the gateway's own body, verbatim.
+      const body = JSON.stringify({ detail: "session_kind must be one of chat, automation, occurrence, discussion; got 'auto'" });
+      globalThis.fetch = (async () => new Response(body, { status: 400 })) as any;
+      const refused = await c.list_runs({ limit: 200, session_kind: long_kind } as any).catch((e) => e);
+      expect(refused.message).toContain(`session_kind=${long_kind}`);
+      expect(refused.message).toContain("HTTP 400");
+      expect(refused.message).toContain(body);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

@@ -71,6 +71,23 @@ async function _fetch(url: string, init?: RequestInit): Promise<Response> {
   }
 }
 
+/** "GET /api/gateway/runs?limit=200&session_kind=automation,occurrence" — the request WHOLE, its
+ * query decoded for reading (review 2026-11-08 round 4: a query cut at 60 characters turned
+ * "automation,occurrence" into "auto" and sent the operator after a 400 that never happened). */
+export function request_words(url: string, method?: string): string {
+  const verb = String(method || "GET").toUpperCase();
+  try {
+    const u = new URL(url, typeof location !== "undefined" ? location.href : "http://localhost/");
+    let query = u.search;
+    try {
+      query = decodeURIComponent(u.search.replace(/\+/g, " "));
+    } catch {}
+    return `${verb} ${u.pathname}${query}`;
+  } catch {
+    return `${verb} ${String(url)}`;
+  }
+}
+
 /** The same classification for a body read: a deadline that fires MID-BODY rejects `r.json()`
  * with the same AbortError (night review 2026-10-16 P2-5). */
 async function _json_of(r: Response, url: string, init?: RequestInit): Promise<any> {
@@ -88,11 +105,7 @@ function _classify_abort(e: any, url: string, init?: RequestInit): any {
     const signal = init?.signal as AbortSignal | undefined;
     const reason = (signal as any)?.reason;
     const timed_out = name === "TimeoutError" || String(reason?.name || "") === "TimeoutError";
-    let what = String(url);
-    try {
-      const u = new URL(url, typeof location !== "undefined" ? location.href : "http://localhost/");
-      what = `${String(init?.method || "GET").toUpperCase()} ${u.pathname}${u.search ? "?" + u.searchParams.toString().slice(0, 60) : ""}`;
-    } catch {}
+    const what = request_words(url, init?.method);
     if (timed_out) {
       const ms = (signal && _deadline_ms.get(signal)) || 30_000;
       return new GatewayTimeout(`${what}: no answer within ${Math.round(ms / 1000)} s — the gateway is busy`);
@@ -417,7 +430,8 @@ export class GatewayClient {
       // time (2026-07-13).
       signal: _deadline(),
     });
-    if (!r.ok) throw new Error(`list_runs failed: ${await _read_error(r)}`);
+    // The request whole and the gateway's answer verbatim (its body: `{"detail": …}` as sent).
+    if (!r.ok) throw new Error(`list_runs failed: ${request_words(url)} → HTTP ${r.status}: ${await _read_error(r)}`);
     return await _json_of(r, url, { signal: _deadline() });
   }
 
