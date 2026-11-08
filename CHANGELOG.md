@@ -10,18 +10,23 @@
   on a phone). Cards are short: the whole title (two lines, one in Compact) with an explicit "…" only beyond, a
   status pill only when it says more than the lane, one why-now block, and one foot row with the facts (what ran,
   age, tokens, tool calls, artifacts, when) and ONE primary action — Approve / Reject, Review & answer, Resume,
-  Cancel task, Run now or Resume schedule. Every other move (Open the run, Open in Code, Pause, Cancel, Stop one
+  Cancel task, Run now or Resume schedule. Every other move (Open the run, Open in Code, Pause…, Cancel, Stop one
   subrun, Copy run id, About) is behind one ⋯ menu. A straight task chain reads as one line ("basic-agent ›
-  node-2") and its ask is said once. In Done, identical runs in a row (an automation's runs differ only by their
-  number) are one row "×N" that opens them, twenty at a time; a failure says why, whole; "completed in 3s" no
-  longer repeats the pill. Entities are one row of chips (avatar, name, what it is doing and for how long, its last
-  moment or its trouble); hovering or clicking a chip opens the kit's entity card with every line whole; "Show
-  all" wraps the row. A **Compact** chip next to the Sessions filter tightens the cards and is remembered per
+  node-2") and its ask is said once. In Done, runs alike in a row are one row "×N" with the group's own facts
+  (how many, which numbers, latest and first) that opens them, twenty at a time — judged only on facts present
+  from the first paint (an automation's title, the row's status and error), never on a title read later, so the
+  lane never regroups as you scroll; a failure says why, whole, from the run record when the listing has no
+  reason, and failures with different reasons never share a row; "completed in 3s" no longer repeats the pill.
+  "Read the whole answer / request" shows the whole text (no 4,000-character cap) and each tool call's arguments
+  as recorded. Entities are one row of the kit's compact entity cards at their own height (no stretching);
+  hovering or focusing one opens the full card beside it; "Show all" wraps the row. Needs you and Working take
+  twice the spare width when they hold cards. A **Compact** chip next to the Sessions filter tightens the cards and is remembered per
   browser. Durations on cards are in words.
 
 ### Added
 
-- **Pause** a running run from its card's ⋯ menu (the run control the Observe page already sends).
+- **Pause…** a running run from its card's ⋯ menu: it asks first, with an optional reason, and sends the same run
+  control as the run page's Pause dialog.
 
 ## [0.12.4] - 2026-11-07
 
