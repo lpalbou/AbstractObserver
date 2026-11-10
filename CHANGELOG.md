@@ -1,6 +1,10 @@
 # Changelog
 
-## [0.13.0] - Unreleased (local build 2026-11-08, not published)
+## [0.13.0] - 2026-11-10
+
+On AbstractUIC 0.10.19 (`@abstractframework/ui-kit` ^0.9.27, floor raised from ^0.9.18, and
+`@abstractframework/panel-chat` ^0.9.11, from ^0.8.2). Works with the same gateways as 0.12.4; the Entities strip's
+one small read per entity still needs AbstractGateway 0.21.0.
 
 ### Changed
 
@@ -22,6 +26,20 @@
   hovering or focusing one opens the full card beside it; "Show all" wraps the row. Needs you and Working take
   twice the spare width when they hold cards. A **Compact** chip next to the Sessions filter tightens the cards and is remembered per
   browser. Durations on cards are in words.
+- **Entity cards in the strip keep one height.** An entity's one trouble ("Its own time stopped after repeated
+  failures") is a small warning mark on its "now" line, with the sentence in the mark's tooltip; the full card that
+  opens beside it shows the sentence whole.
+- **The Entities strip folds to its head**: **Hide** / **Show** next to "Open the entity app", open by default and
+  remembered per browser.
+- **A long automation fact stays inside its card**: the foot's facts wrap within the card at any lane width.
+- **A failed request is named whole.** A listing the gateway refuses reads, for example, "list_runs failed: GET
+  /api/gateway/runs?limit=200&session_kind=automation,occurrence → HTTP 400: …": the whole request with its query
+  decoded, the HTTP status and the gateway's answer as sent; a request that times out names it whole too. The
+  Board's connection notice keeps the message whole, folded to one line with "…" to read the rest.
+- **From the shared kit** (panel-chat 0.9): messages use the framework's shared compact look. In Automations →
+  Discuss, the tool permission card offers **Deny** and **Allow**, and Allow answers the request shown ("Allow covers
+  this request only."); a reply that kept something (a diary entry, a lesson, an interest) shows it as a badge under
+  its words when the runtime serves those notices.
 
 ### Added
 

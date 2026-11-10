@@ -148,3 +148,7 @@ first poll. If every lane stays on "loading runs…" for long:
 - a connection notice beside the connection label ("Refresh runs failed: … no answer within
   30 s") means the gateway did not answer in time — the Board keeps the last rows it read
   and retries by itself.
+- a notice that names a request and an HTTP status ("list_runs failed: GET
+  /api/gateway/runs?limit=200&… → HTTP 400: …") means the gateway refused that request; the
+  text after the status is the gateway's own answer, as sent. The notice is folded to one line:
+  use "…" to read it whole.

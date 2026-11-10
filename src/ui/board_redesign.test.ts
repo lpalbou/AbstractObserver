@@ -4,7 +4,7 @@
 import React from "react";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   BoardCardView,
@@ -36,6 +36,15 @@ import { error_of_run, load_outcome } from "./board_data";
 import { gateway_tile } from "./__fixtures__/entity_tile";
 
 const NOW = Date.parse("2026-11-07T22:00:00Z");
+// The page filters Done with the real clock (48 h window): pin it to NOW so the fixtures
+// (all dated relative to NOW) stay inside the window on any day the suite runs.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
 const row = (p: Partial<RunSummary> & { run_id: string }): RunSummary =>
   ({ workflow_id: "basic-agent@0.0.5:81795ea9", status: "running", created_at: ago(30), updated_at: ago(10), ledger_len: 4, ...p }) as RunSummary;

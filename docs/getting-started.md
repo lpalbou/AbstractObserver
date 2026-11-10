@@ -44,22 +44,34 @@ Gateway user is set.
 ## The Board (landing page)
 You land on **Board** — Mission Control: one card per **task** (a run you started, or an
 automation's turn) in the lane of whatever blocks it — **Needs you / Working / Waiting on… /
-Scheduled / Done** — plus an entities strip. Cards move themselves by state. A card reads
-the task first (its text, or its automation's title), then who it belongs to, then its
-chain: the root run and every live subrun under it, one row each with its own words —
-"waits at build ↓", "running · llm_call open 38s", "asks a question · 6m", "stuck: subrun
-builder was cancelled 3h ago, this run was not resumed". The asking subrun's request sits
-under the chain with **Approve / Reject** or **Review & answer**. Tool calls waiting for
-approval read in words ("needs your approval for a web search and an email", "Fetch the page
-example.org/news"), with the exact arguments behind **Exact arguments**; a stuck task shows an
-attention block instead: which run is stuck since when, one sentence built from the facts
-(which subrun ended how, and when), then **Cancel task** and **Open the run →**. Each subrun row has a stop control for that subrun alone;
-the card's ✕ cancels the task (its parents and subruns, never an automation's schedule), and
-every lane head has a cancel-all for the lane's tasks with a two-step confirm. Scheduled
-cards show an automation's next run, last run, turns and cadence. On reload the board paints
-the last rows it knew at once ("board as of hh:mm:ss — refreshing…") and replaces them with
-the first poll. Hover a title for the full task text, (i) for an automation's parameters;
-⧉ copies the run id. Clicking a card opens **Observe → Agent**: what the agent can do, its
+Scheduled / Done** — plus an Entities strip. Cards move themselves by state. The lanes share the
+page width (they stack on a phone); an empty lane is its header alone, a narrow rail (a one-line
+chip on a phone). A card is short: its whole title (two lines, with "…" to read the rest), a
+status pill only when it says more than the lane, one why-now block, then a foot with its facts
+(what ran, age, tokens, tool calls, artifacts, when) and ONE primary action: **Approve / Reject**,
+**Review & answer →**, **Resume**, **Cancel task**, **Run now** or **Resume schedule**. Every other
+move is in the card's ⋯ menu: **Open the run**, **Open in Code**, **Pause…** (it asks first, with an
+optional reason), **Cancel…**, **Stop subrun <name>…** for that subrun alone, **Copy run id** and
+**About** (the full task, or an automation's parameters).
+
+A straight chain of subruns reads as one line ("basic-agent › node-2") and its ask is said once; a
+branching one shows one row per run with its own words — "waits at build ↓", "running · llm_call
+open 38s", "stuck: subrun builder was cancelled 3h ago, this run was not resumed". Tool calls
+waiting for approval read in words ("needs your approval for a web search and an email", "Fetch the
+page example.org/news"); **Read the whole request** shows each call's arguments as recorded. A stuck
+task says which run is stuck since when, in one sentence built from the facts, with **Cancel task**
+as its action. In **Done**, runs alike in a row are one row ×N with the group's own facts that opens
+them, twenty at a time, and a failure says why, whole. A cancel reaches the task's parents and
+subruns, never an automation's schedule, and every lane head has a cancel-all for the lane's tasks
+with a two-step confirm. Scheduled cards show an automation's next run, last run, turns and cadence.
+
+A **Compact** chip at the end of the filters row tightens the cards. The Entities strip is one row of
+compact entity cards, one height each (an entity's trouble is a small warning mark on its "now"
+line); hover or focus a card for the full card beside it, **Show all** wraps the row, and **Hide**
+folds the strip to its head. Compact and the fold are remembered per browser. On reload the board
+paints the last rows it knew at once ("board as of hh:mm:ss — refreshing…") and replaces them with
+the first poll. A connection problem shows as one line above the lanes, with "…" to read it whole.
+Clicking a card opens **Observe → Agent**: what the agent can do, its
 inputs and outputs as pins with their values, its context window, the run tree, spend, and
 **Ask**.
 

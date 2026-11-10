@@ -40,7 +40,8 @@ Notes:
 - Archived conversations: the Board appends `GET /runs?root_only=true&archived_only=true` (AbstractGateway 0.13.0+) and tags those runs **Archived**; Observer lists runs, not sessions, so it has no Archive button: `docs/api.md` → Runs, `docs/faq.md`; code `with_archived_roots()` in `src/ui/automations.ts`.
 - About: the shared ui-kit compact card (app, framework and gateway versions, links, licence line) from `GET /api/gateway/about`: `docs/faq.md` → "Which version am I running?"; code `src/ui/about.ts`.
 - Sessions filter (Board and Observe list): every session the gateway has; when `capabilities.contracts.common.runs.list.filters` includes `kind`, listings ask `kind=all` and a Sessions row (All, Conversations, Automations, Notes, other reported kinds) asks each choice's own sessions (`kind=<kind>`, `session_kind` for Conversations/Automations); no chips otherwise: `docs/getting-started.md`, `docs/api.md`; code `src/ui/session_kinds.ts`.
-- Board Entities strip: one shared ui-kit `EntityCard` (compact) per entity, from `GET /entities/{name}/tile` every 30 s when the roster carries `reads.tile` (AbstractGateway 0.21.0), else from `/cognition` + `/card`: `docs/api.md` → Entities strip; code `src/ui/entity_tiles.ts`.
+- Board (landing page): five blocker lanes that share the width (an empty lane is its header alone), short cards with the whole title, one why-now block, the facts and ONE primary action, every other move in a ⋯ menu (Open the run, Open in Code, Pause…, Cancel…, Stop subrun…, Copy run id, About); Done runs alike as one row ×N; a **Compact** chip; a failed request named whole with the gateway's answer: `docs/getting-started.md` → "The Board (landing page)"; code `src/ui/mission_control.tsx`, `src/ui/board.css`, `src/ui/board_data.ts`.
+- Board Entities strip: one shared ui-kit `EntityCard` (compact, one height: an entity's trouble is a marker on its "now" line; folds with Hide/Show) per entity, from `GET /entities/{name}/tile` every 30 s when the roster carries `reads.tile` (AbstractGateway 0.21.0), else from `/cognition` + `/card`: `docs/api.md` → Entities strip; code `src/ui/entity_tiles.ts`.
 - Digital identity (framework ADR 0052; AbstractGateway 0.20.0): the Agent view's track-record line reads the session's track record and reputation once when the page opens ("No experience yet" at zero): `docs/api.md`, `docs/architecture.md`; code `src/ui/identity.tsx`.
 - `llms.txt` format reference: https://llmstxt.org/
 
@@ -106,6 +107,13 @@ What it does (implemented in `src/ui/app.tsx` + `src/lib/gateway_client.ts`):
 - (Optional) **Voice**: Read aloud (streamed sentence by sentence) and dictation in Ask, run outcomes and Automations → Discuss; Settings → Voice is the kit's shared section showing the gateway's default routes (`src/ui/observer_voice.tsx`)
 
 ## What's new
+
+0.13.0 redesigns the Board: lanes share the page width, an empty lane is its header alone, and each card is short,
+with its whole title, one why-now block, its facts and one primary action; every other move is in its ⋯ menu. In
+Done, runs alike in a row are one row ×N, and a failure says why, whole. A **Compact** chip tightens the cards, the
+Entities strip is one row of compact entity cards of one height that folds to its head, and **Pause…** asks first.
+A failed request is named whole, with the gateway's answer. Built on ui-kit 0.9.27 and panel-chat 0.9.11. See
+[CHANGELOG.md](CHANGELOG.md#0130---2026-11-10).
 
 0.12.4 shows every session the gateway has, Docs assistant chats and AbstractNote's own sessions included, with a
 **Sessions** row of simple filters (All, Conversations, Automations, Notes and any other kind the gateway reports),
@@ -200,7 +208,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.12.1 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.13.0 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -231,7 +239,7 @@ See `docs/configuration.md` for the full list.
 ## Features (UI pages)
 All pages share the same gateway connection settings.
 
-- **Board** (Mission Control, the landing page): one card per **task** — a run you started, or an automation's turn — in the lane of whatever blocks it: **Needs you** (only you can move these: the asking subrun's request with inline Approve/Reject/Answer/Resume; a run that waits on a subrun that already ended is marked **stuck** and says so), **Working** (an agent is on it: the open step, how long ago it moved, a ⚠ past the no-progress threshold you pick in the lane head), **Waiting on…** (something else must happen first: a subrun, an event, the clock), **Scheduled** (automations: next run, last run, turns, cadence), **Done** (the outcome glimpse, time, tokens, tools, artifacts). A task card shows its chain of subruns inside — each with its own words, a link to that run and a stop control for that subrun alone — and every lane head has a cancel-all for its tasks (a cancel reaches the task's parents and subruns, never an automation's schedule). The last known board paints at once on reload and refreshes behind it; the (i) carries the full task and an automation's parameters; ⧉ copies the run id.
+- **Board** (Mission Control, the landing page): one card per **task** — a run you started, or an automation's turn — in the lane of whatever blocks it: **Needs you** (only you can move these: the asking subrun's request with inline Approve/Reject/Answer/Resume; a run that waits on a subrun that already ended is marked **stuck** and says so), **Working** (an agent is on it: the open step, how long ago it moved, a ⚠ past the no-progress threshold you pick in the lane head), **Waiting on…** (something else must happen first: a subrun, an event, the clock), **Scheduled** (automations: next run, last run, turns, cadence), **Done** (the outcome glimpse, time, tokens, tools, artifacts; runs alike in a row are one row ×N that opens them). Lanes share the page width and an empty lane is its header alone. A card is short: the whole title, one why-now block, the facts and ONE primary action (Approve / Reject, Review & answer, Resume, Cancel task, Run now or Resume schedule); every other move — open the run, Open in Code, Pause…, Cancel…, stop one subrun, copy the run id, About — is in its ⋯ menu. A straight task chain reads as one line ("basic-agent › node-2"), and every lane head has a cancel-all for its tasks (a cancel reaches the task's parents and subruns, never an automation's schedule). A **Compact** chip tightens the cards, and the Entities strip (one compact entity card each) folds with **Hide** / **Show**; both are remembered per browser. The last known board paints at once on reload and refreshes behind it.
 - **Observe**: link to one run with `#run/<run_id>` (under the gateway: `/apps/observer/#run/<run_id>`; an unknown run, or one your account cannot see, is said so plainly); workflow/subworkflow navigator, the run view (a one-paragraph summary, then the steps grouped by agent cycle as collapsed cards that expand to the full prompt and answer; LLM calls / Tools / Failed filters, an All steps switch for housekeeping, search), graph, **Ask** about the run (the whole conversation is sent; a note says when the gateway's 50,000-token window left older messages out; optional voice: PTT + TTS) The **Agent** view (where a board card opens) profiles the agent — who it is, what it may use and did use, what it does, for how long, what comes after — every value complete (collapsed by size, never clipped) with copy on hover, its inputs and outputs as AbstractFlow pins with live values, its context window, run tree and spend. The **Flow** view says ongoing or finished, highlights the current node in AbstractFlow's vocabulary, and shows each node's facts on hover with copy (facts, records, the exact LLM context) and a one-click **Copy run state** for AI readers.
 - **Assistant** (top bar): questions about the Observer itself, from its docs; one gateway session per conversation (**New conversation** starts fresh), no tools
 - **System** (the Runtime view): Activity, Artifacts, Memory, and Logs modes for platform-level monitoring. The Artifact Explorer uses Gateway artifact envelopes and exact stats, separates Voice/Music/Sound/unclassified audio from render kinds such as Markdown/HTML/JSON, previews media inline, and links artifacts back to producing runs, ledgers, and trace/audit actions when metadata is available
@@ -277,7 +285,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.12.4",
+  "version": "0.13.0",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -322,8 +330,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
-    "@abstractframework/panel-chat": "^0.8.2",
-    "@abstractframework/ui-kit": "^0.9.18",
+    "@abstractframework/panel-chat": "^0.9.11",
+    "@abstractframework/ui-kit": "^0.9.27",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -557,6 +565,52 @@ export default defineConfig({
 ## CHANGELOG.md
 
 # Changelog
+
+## [0.13.0] - 2026-11-10
+
+On AbstractUIC 0.10.19 (`@abstractframework/ui-kit` ^0.9.27, floor raised from ^0.9.18, and
+`@abstractframework/panel-chat` ^0.9.11, from ^0.8.2). Works with the same gateways as 0.12.4; the Entities strip's
+one small read per entity still needs AbstractGateway 0.21.0.
+
+### Changed
+
+- **The Board, redesigned** (operator 2026-11-07: "a lot of empty space and then very narrow cards and very tall at
+  the same time: unreadable, uninformative, unactionable"). Lanes fill the width (flex columns that share the row;
+  five fit from 1440 px, they stack on a phone); an empty lane is its header alone (a narrow rail, a one-line chip
+  on a phone). Cards are short: the whole title (two lines, one in Compact) with an explicit "…" only beyond, a
+  status pill only when it says more than the lane, one why-now block, and one foot row with the facts (what ran,
+  age, tokens, tool calls, artifacts, when) and ONE primary action — Approve / Reject, Review & answer, Resume,
+  Cancel task, Run now or Resume schedule. Every other move (Open the run, Open in Code, Pause…, Cancel, Stop one
+  subrun, Copy run id, About) is behind one ⋯ menu. A straight task chain reads as one line ("basic-agent ›
+  node-2") and its ask is said once. In Done, runs alike in a row are one row "×N" with the group's own facts
+  (how many, which numbers, latest and first) that opens them, twenty at a time — judged only on facts present
+  from the first paint (an automation's title, the row's status and error), never on a title read later, so the
+  lane never regroups as you scroll; a failure says why, whole, from the run record when the listing has no
+  reason, and failures with different reasons never share a row; "completed in 3s" no longer repeats the pill.
+  "Read the whole answer / request" shows the whole text (no 4,000-character cap) and each tool call's arguments
+  as recorded. Entities are one row of the kit's compact entity cards at their own height (no stretching);
+  hovering or focusing one opens the full card beside it; "Show all" wraps the row. Needs you and Working take
+  twice the spare width when they hold cards. A **Compact** chip next to the Sessions filter tightens the cards and is remembered per
+  browser. Durations on cards are in words.
+- **Entity cards in the strip keep one height.** An entity's one trouble ("Its own time stopped after repeated
+  failures") is a small warning mark on its "now" line, with the sentence in the mark's tooltip; the full card that
+  opens beside it shows the sentence whole.
+- **The Entities strip folds to its head**: **Hide** / **Show** next to "Open the entity app", open by default and
+  remembered per browser.
+- **A long automation fact stays inside its card**: the foot's facts wrap within the card at any lane width.
+- **A failed request is named whole.** A listing the gateway refuses reads, for example, "list_runs failed: GET
+  /api/gateway/runs?limit=200&session_kind=automation,occurrence → HTTP 400: …": the whole request with its query
+  decoded, the HTTP status and the gateway's answer as sent; a request that times out names it whole too. The
+  Board's connection notice keeps the message whole, folded to one line with "…" to read the rest.
+- **From the shared kit** (panel-chat 0.9): messages use the framework's shared compact look. In Automations →
+  Discuss, the tool permission card offers **Deny** and **Allow**, and Allow answers the request shown ("Allow covers
+  this request only."); a reply that kept something (a diary entry, a lesson, an interest) shows it as a badge under
+  its words when the runtime serves those notices.
+
+### Added
+
+- **Pause…** a running run from its card's ⋯ menu: it asks first, with an optional reason, and sends the same run
+  control as the run page's Pause dialog.
 
 ## [0.12.4] - 2026-11-07
 
@@ -1673,22 +1727,34 @@ Gateway user is set.
 ## The Board (landing page)
 You land on **Board** — Mission Control: one card per **task** (a run you started, or an
 automation's turn) in the lane of whatever blocks it — **Needs you / Working / Waiting on… /
-Scheduled / Done** — plus an entities strip. Cards move themselves by state. A card reads
-the task first (its text, or its automation's title), then who it belongs to, then its
-chain: the root run and every live subrun under it, one row each with its own words —
-"waits at build ↓", "running · llm_call open 38s", "asks a question · 6m", "stuck: subrun
-builder was cancelled 3h ago, this run was not resumed". The asking subrun's request sits
-under the chain with **Approve / Reject** or **Review & answer**. Tool calls waiting for
-approval read in words ("needs your approval for a web search and an email", "Fetch the page
-example.org/news"), with the exact arguments behind **Exact arguments**; a stuck task shows an
-attention block instead: which run is stuck since when, one sentence built from the facts
-(which subrun ended how, and when), then **Cancel task** and **Open the run →**. Each subrun row has a stop control for that subrun alone;
-the card's ✕ cancels the task (its parents and subruns, never an automation's schedule), and
-every lane head has a cancel-all for the lane's tasks with a two-step confirm. Scheduled
-cards show an automation's next run, last run, turns and cadence. On reload the board paints
-the last rows it knew at once ("board as of hh:mm:ss — refreshing…") and replaces them with
-the first poll. Hover a title for the full task text, (i) for an automation's parameters;
-⧉ copies the run id. Clicking a card opens **Observe → Agent**: what the agent can do, its
+Scheduled / Done** — plus an Entities strip. Cards move themselves by state. The lanes share the
+page width (they stack on a phone); an empty lane is its header alone, a narrow rail (a one-line
+chip on a phone). A card is short: its whole title (two lines, with "…" to read the rest), a
+status pill only when it says more than the lane, one why-now block, then a foot with its facts
+(what ran, age, tokens, tool calls, artifacts, when) and ONE primary action: **Approve / Reject**,
+**Review & answer →**, **Resume**, **Cancel task**, **Run now** or **Resume schedule**. Every other
+move is in the card's ⋯ menu: **Open the run**, **Open in Code**, **Pause…** (it asks first, with an
+optional reason), **Cancel…**, **Stop subrun <name>…** for that subrun alone, **Copy run id** and
+**About** (the full task, or an automation's parameters).
+
+A straight chain of subruns reads as one line ("basic-agent › node-2") and its ask is said once; a
+branching one shows one row per run with its own words — "waits at build ↓", "running · llm_call
+open 38s", "stuck: subrun builder was cancelled 3h ago, this run was not resumed". Tool calls
+waiting for approval read in words ("needs your approval for a web search and an email", "Fetch the
+page example.org/news"); **Read the whole request** shows each call's arguments as recorded. A stuck
+task says which run is stuck since when, in one sentence built from the facts, with **Cancel task**
+as its action. In **Done**, runs alike in a row are one row ×N with the group's own facts that opens
+them, twenty at a time, and a failure says why, whole. A cancel reaches the task's parents and
+subruns, never an automation's schedule, and every lane head has a cancel-all for the lane's tasks
+with a two-step confirm. Scheduled cards show an automation's next run, last run, turns and cadence.
+
+A **Compact** chip at the end of the filters row tightens the cards. The Entities strip is one row of
+compact entity cards, one height each (an entity's trouble is a small warning mark on its "now"
+line); hover or focus a card for the full card beside it, **Show all** wraps the row, and **Hide**
+folds the strip to its head. Compact and the fold are remembered per browser. On reload the board
+paints the last rows it knew at once ("board as of hh:mm:ss — refreshing…") and replaces them with
+the first poll. A connection problem shows as one line above the lanes, with "…" to read it whole.
+Clicking a card opens **Observe → Agent**: what the agent can do, its
 inputs and outputs as pins with their values, its context window, the run tree, spend, and
 **Ask**.
 
@@ -2205,7 +2271,7 @@ sequenceDiagram
 ## UI structure (pages → code)
 AbstractObserver is a single SPA that stores settings locally and talks to the gateway via `GatewayClient`.
 
-- **Board** (Mission Control landing page: one card per task — root run or automation turn — in one of five blocker lanes Needs you / Working / Waiting on… / Scheduled / Done, the chain of subruns inside each card, inline wait answers, per-lane cancel-all, the persisted last known board): `src/ui/mission_control.tsx` over `src/ui/state_line.ts` (one vocabulary: the state sentence, lane, subject and title of a run — shared with the Agent view) and `src/ui/board_data.ts` (the metric-free poll, the 60 s sweep, and the lazy session-scoped caches: automation briefs, task excerpts, last-record pulses, wait details) and the Entities strip (`src/ui/entity_tiles.ts`): one ui-kit `EntityCard` (compact) per entity, filled by `GatewayClient.get_entity_tile()` when the roster advertises `reads.tile` (AbstractGateway 0.21.0), else by `get_entity_cognition()` + `get_entity_card()` turned into the same tile shape; the card draws the look the tile (or the roster row's `identity.avatar`) names
+- **Board** (Mission Control landing page: one card per task — root run or automation turn — in one of five blocker lanes Needs you / Working / Waiting on… / Scheduled / Done, the chain of subruns inside each card, one primary action per card (inline wait answers included) and a ⋯ menu for the rest, Done runs alike grouped as one row ×N, per-lane cancel-all, the persisted last known board): `src/ui/mission_control.tsx` over `src/ui/state_line.ts` (one vocabulary: the state sentence, lane, subject and title of a run — shared with the Agent view) and `src/ui/board_data.ts` (the metric-free poll, the 60 s sweep, and the lazy session-scoped caches: automation briefs, task excerpts, last-record pulses, wait details) and the Entities strip (`src/ui/entity_tiles.ts`): one ui-kit `EntityCard` (compact, `attention="marker"` so every card keeps one height) per entity, filled by `GatewayClient.get_entity_tile()` when the roster advertises `reads.tile` (AbstractGateway 0.21.0), else by `get_entity_cognition()` + `get_entity_card()` turned into the same tile shape; the card draws the look the tile (or the roster row's `identity.avatar`) names
 - **Agent view** (Observe → Agent, where a board card opens): `src/ui/agent_page.tsx` + `agent_facts.ts` (pure folds: can-do, pins with values, context receipt, run tree, spend) + `pins.tsx` / `pin_palette.ts` (AbstractFlow's pin shapes and colours, mirrored); the header's track-record line is `TrackRecordLine` in `src/ui/identity.tsx` (the host reads the session's track record and reputation when the page opens)
 - **Observe** (workflow/subworkflow navigator, overview, human timeline, raw ledger, provider calls, graph, digest, attachments, chat): `src/ui/app.tsx`, `src/ui/run_panels.tsx`, `src/ui/flow_graph.tsx`
 - **Runtime** (platform-level Activity, Artifacts, Memory, and Logs modes): `src/ui/runtime_page.tsx` + `GatewayClient.search_artifacts()` / `audit_log_tail()`
@@ -3540,5 +3606,9 @@ first poll. If every lane stays on "loading runs…" for long:
 - a connection notice beside the connection label ("Refresh runs failed: … no answer within
   30 s") means the gateway did not answer in time — the Board keeps the last rows it read
   and retries by itself.
+- a notice that names a request and an HTTP status ("list_runs failed: GET
+  /api/gateway/runs?limit=200&… → HTTP 400: …") means the gateway refused that request; the
+  text after the status is the gateway's own answer, as sent. The notice is folded to one line:
+  use "…" to read it whole.
 
 ---
