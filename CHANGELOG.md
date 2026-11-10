@@ -2,11 +2,11 @@
 
 ## [Unreleased]
 
-### Changed
+## [0.13.0] - 2026-11-10
+
+### Changed (relock)
 
 - Relocked on the published kit: `@abstractframework/ui-kit` ^0.9.28 and `@abstractframework/panel-chat` ^0.9.12 from npm.
-
-## [0.13.0] - 2026-11-10
 
 On AbstractUIC 0.10.19 (`@abstractframework/ui-kit` ^0.9.27, floor raised from ^0.9.18, and
 `@abstractframework/panel-chat` ^0.9.11, from ^0.8.2). Works with the same gateways as 0.12.4; the Entities strip's
