@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Relocked on the published kit: `@abstractframework/ui-kit` ^0.9.28 and `@abstractframework/panel-chat` ^0.9.12 from npm.
+
 ## [0.13.0] - 2026-11-10
 
 On AbstractUIC 0.10.19 (`@abstractframework/ui-kit` ^0.9.27, floor raised from ^0.9.18, and
