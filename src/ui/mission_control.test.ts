@@ -1636,7 +1636,8 @@ function rule_of(sel: string): string {
 
 // A REAL render count (React 18 in Chromium, the board bundled from this source): the host
 // re-renders the page on every poll with new row objects and new inline callbacks, as app.tsx
-// does; the probe counts card renders. Needs the Playwright Chromium (as space_dom.test.tsx).
+// does; the probe counts card renders. The clock and viewport input are fixed so initialization
+// and elapsed-time changes are not attributed to the poll. Needs Playwright Chromium.
 describe("render cost in a browser (operator 2026-10-15: 'and slow')", () => {
   let browser: Browser | null = null;
   let bundle = "";
@@ -1674,6 +1675,7 @@ describe("render cost in a browser (operator 2026-10-15: 'and slow')", () => {
     for (let i = 0; i < 5; i++) rows.push({ run_id: `ctl${i}`, role: "controller", session_kind: "automation", automation_id: `auto${i}`, workflow_id: "automation", status: "waiting", waiting: { reason: "event", until: iso(-600 - i) }, created_at: iso(9000), updated_at: iso(1800) });
     for (let i = 0; i < 8; i++) rows.push({ run_id: `dn${i}`, workflow_id: "basic-agent@0.0.5:81795ea9", status: i % 5 ? "completed" : "failed", created_at: iso(300 + i * 10), updated_at: iso(200 + i * 10), tokens_total: 1_000 + i, brief: { title: `Digest ${i}` } }); // distinct titles: identical runs would fold into one row
     const page = await (await browser!.newContext({ viewport: { width: 1500, height: 1000 } })).newPage();
+    await page.clock.setFixedTime(NOW);
     await page.setContent('<!doctype html><html><body><div id="root"></div></body></html>');
     await page.addScriptTag({ content: bundle });
     const r = await page.evaluate(async (rows0: any[]) => {
@@ -1682,6 +1684,19 @@ describe("render cost in a browser (operator 2026-10-15: 'and slow')", () => {
       let lanes = 0;
       probe.card = () => void (cards += 1);
       probe.lane = () => void (lanes += 1);
+      // Control viewport input independently of the poll whose cost is measured.
+      // The callback still drives the production useVisibleCards hook.
+      const observers: any[] = [];
+      (window as any).IntersectionObserver = class {
+        targets = new Set<Element>();
+        constructor(public callback: (entries: any[], observer: any) => void) { observers.push(this); }
+        observe(target: Element) { this.targets.add(target); }
+        unobserve(target: Element) { this.targets.delete(target); }
+        disconnect() { this.targets.clear(); }
+      };
+      const reveal = () => flushSync(() => {
+        for (const observer of observers) observer.callback([...observer.targets].map((target: Element) => ({ target, isIntersecting: true })), observer);
+      });
       const root = createRoot(document.getElementById("root"));
       const code_app_of_host = () => ({ url: "http://127.0.0.1:3003/" }); // a host that rebuilds it every render
       // The host as app.tsx writes it: inline arrows, new on every render.
@@ -1712,28 +1727,34 @@ describe("render cost in a browser (operator 2026-10-15: 'and slow')", () => {
             }),
           ),
         );
-      const settle = () => new Promise((res) => setTimeout(res, 150));
-      const step = async (f: () => void) => {
+      const step = (f: () => void) => {
         cards = 0;
         lanes = 0;
         f();
-        await settle();
         return { cards, lanes };
       };
       const clone = (rs: any[]) => rs.map((x) => ({ ...x }));
       const shown = () => document.querySelectorAll(".mc_card:not(.mc_card_skeleton)").length;
-      const first = await step(() => render(clone(rows0), 1));
+      const first = step(() => {
+        render(clone(rows0), 1);
+        // Commit initial viewport-driven loading props before measuring a poll.
+        reveal();
+      });
       const count = shown();
       // A poll as the app runs it: refreshing on, then the same rows as NEW objects, refreshing off.
-      const unchanged = await step(() => {
+      const unchanged = step(() => {
         render(clone(rows0), 1, true);
         render(clone(rows0), 2, false);
       });
       // A poll that moves ONE row (a Done run's tokens): that card only.
-      const moved = await step(() => render(clone(rows0).map((x) => (x.run_id === "dn3" ? { ...x, tokens_total: 99_999 } : x)), 3));
-      return { first, count, unchanged, moved, shows_moved: document.body.textContent!.includes("99,999 tokens") };
+      const moved = step(() => render(clone(rows0).map((x) => (x.run_id === "dn3" ? { ...x, tokens_total: 99_999 } : x)), 3));
+      const observed = observers.reduce((n, observer) => n + observer.targets.size, 0);
+      const result = { first, count, observed, unchanged, moved, shows_moved: document.body.textContent!.includes("99,999 tokens") };
+      flushSync(() => root.unmount());
+      return result;
     }, rows);
     expect(r.count).toBe(57);
+    expect(r.observed).toBe(57);
     expect(r.first.cards).toBeGreaterThanOrEqual(57);
     expect(r.unchanged.cards, JSON.stringify(r)).toBe(0);
     expect(r.moved.cards, JSON.stringify(r)).toBe(1);
