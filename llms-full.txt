@@ -208,7 +208,7 @@ abstractobserver
 
 ### Pin a version (recommended for deployments)
 ```bash
-npx --yes --package @abstractframework/observer@0.13.0 -- abstractobserver
+npx --yes --package @abstractframework/observer@0.13.1 -- abstractobserver
 ```
 
 ### CLI configuration
@@ -285,7 +285,7 @@ See `docs/development.md` for details.
 
 {
   "name": "@abstractframework/observer",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Gateway-only observability UI for AbstractFramework - connect to a Run Gateway, replay/stream the ledger, and submit durable commands",
   "type": "module",
   "author": "Laurent-Philippe Albou",
@@ -330,8 +330,8 @@ See `docs/development.md` for details.
   },
   "dependencies": {
     "@abstractframework/app-server": "^0.1.13",
-    "@abstractframework/panel-chat": "^0.9.11",
-    "@abstractframework/ui-kit": "^0.9.27",
+    "@abstractframework/panel-chat": "^0.9.12",
+    "@abstractframework/ui-kit": "^0.9.28",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.10.4"
@@ -566,7 +566,18 @@ export default defineConfig({
 
 # Changelog
 
+## [Unreleased]
+
+## [0.13.1] - 2026-11-14
+
+- Shared chat replies show confirmed question-resolution badges, keep private titles hidden and
+  show working dots while waiting for the first words. Uses panel-chat 0.9.14.
+
 ## [0.13.0] - 2026-11-10
+
+### Changed (relock)
+
+- Relocked on the published kit: `@abstractframework/ui-kit` ^0.9.28 and `@abstractframework/panel-chat` ^0.9.12 from npm.
 
 On AbstractUIC 0.10.19 (`@abstractframework/ui-kit` ^0.9.27, floor raised from ^0.9.18, and
 `@abstractframework/panel-chat` ^0.9.11, from ^0.8.2). Works with the same gateways as 0.12.4; the Entities strip's

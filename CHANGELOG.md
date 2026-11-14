@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-14
+
+- Shared chat replies show confirmed question-resolution badges, keep private titles hidden and
+  show working dots while waiting for the first words. Uses panel-chat 0.9.14.
+
 ## [0.13.0] - 2026-11-10
 
 ### Changed (relock)
